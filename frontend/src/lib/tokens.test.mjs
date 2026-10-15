@@ -579,28 +579,28 @@ const value = (name, block) => {
   }
 }
 
-// ---- 8d. the status bar has a ground of its own on Android ---------------
+// ---- 8d. nothing scrolls under the status bar --------------------------
 //
-// Padding a surface by --safe-top keeps it clear only while it is still. The
-// onboarding scroller on an S24-shaped emulator (45dp status bar, punch hole)
-// carried the logo and the recovery phrase up under the clock, and every
-// scrolling page could do the same. The fix is one opaque strip, app-wide; this
-// keeps it from being deleted, shrunk to a guess, or sunk under a z-index.
+// Padding a SCROLLER by --safe-top keeps it clear only while it is still: the
+// padding scrolls with the content, so the content rides up through it and
+// under the clock. On an S24-shaped emulator (45dp status bar, punch hole) the
+// onboarding scroller carried the logo and the recovery phrase behind the
+// status icons that way. A scroller takes the inset as a border (content clips
+// at the padding edge) or sits below a non-scrolling bar that takes it.
 {
-  const m = APP.match(/:root\[data-platform="android"\]\s+body::before\s*\{([^}]*)\}/);
-  if (!m) fail("app.css: the Android status-bar strip (:root[data-platform=\"android\"] body::before) is gone");
-  else {
-    const b = m[1];
-    if (!/position:\s*fixed/.test(b)) fail("app.css: the status-bar strip must be position: fixed");
-    if (!/height:\s*var\(--safe-top\)/.test(b)) fail("app.css: the status-bar strip must be exactly var(--safe-top) tall");
-    if (!/pointer-events:\s*none/.test(b)) fail("app.css: the status-bar strip must not take input");
-    if (!/background:\s*var\(--bg/.test(b)) fail("app.css: the status-bar strip must be painted with a ground token");
-    const z = Number((b.match(/z-index:\s*(\d+)/) || [])[1] || 0);
-    for (const [rel, src] of FILES) {
-      for (const zm of strip(src).matchAll(/z-index:\s*(\d+)/g)) {
-        if (Number(zm[1]) >= z && !(rel === "app.css" && Number(zm[1]) === z))
-          fail(`${rel}: z-index ${zm[1]} would paint over the Android status-bar strip (z ${z})`);
+  for (const [rel, raw] of FILES) {
+    if (!/\.(svelte|css)$/.test(rel)) continue;
+    const by = new Map();
+    for (const m of strip(raw).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const sel = m[1].trim().split("\n").pop().trim();
+      for (const one of sel.split(",")) {
+        const k = one.trim();
+        by.set(k, (by.get(k) || "") + ";" + m[2]);
       }
+    }
+    for (const [sel, body] of by) {
+      if (/overflow(-y)?:\s*(auto|scroll)/.test(body) && /padding(-top)?:[^;]*--safe-top/.test(body))
+        fail(`${rel}: ${sel} scrolls and pads itself by --safe-top, so its content scrolls under the status bar; take the inset as border-top instead`);
     }
   }
 }

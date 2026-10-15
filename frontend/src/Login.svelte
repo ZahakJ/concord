@@ -1026,11 +1026,14 @@
       display: flex;
       overflow-y: auto;
       overscroll-behavior: contain;
-      /* --kb: an edge-to-edge WebView does not shrink for the keyboard, so
-         without it the confirm field and the verify words sit under the IME
-         with nowhere to scroll them to. */
-      padding: calc(12px + var(--safe-top)) var(--sp-edge)
-        calc(12px + var(--safe-bottom) + var(--kb, 0px));
+      /* The top inset is a BORDER, not padding: a scroller clips its content
+         at the padding edge, so content scrolled up stops below the status
+         bar instead of passing under the clock, while the border still shows
+         this page's own background behind the bar. --kb: an edge-to-edge
+         WebView does not shrink for the keyboard, so without it the confirm
+         field and the verify words sit under the IME with nowhere to go. */
+      border-top: var(--safe-top) solid transparent;
+      padding: 12px var(--sp-edge) calc(12px + var(--safe-bottom) + var(--kb, 0px));
     }
     /* Full-bleed onboarding on a phone — no floating "card in a box". It blends
        into the screen like every other native sheet, top-aligned with room to
