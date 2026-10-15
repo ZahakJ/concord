@@ -120,12 +120,12 @@ public class MainActivity extends BridgeActivity {
     }
 
     // ---- share-sheet target ----
-    // ACTION_SEND text/* (the manifest filter) lands here — warm via
-    // onNewIntent (launchMode singleTask), cold via onCreate above. v1 is
-    // text/links only: shared images/videos arrive as content:// streams whose
-    // bytes have no path into the composer's attachment flow from out here, so
-    // Concord doesn't advertise those MIME types yet rather than accept and
-    // silently drop them.
+    // ACTION_SEND text/*, and ACTION_SEND / ACTION_SEND_MULTIPLE image/* and
+    // video/* (the manifest filters) land here — warm via onNewIntent
+    // (launchMode singleTask), cold via onCreate above. Text goes straight to
+    // the page; pictures and videos arrive as content:// streams the page
+    // cannot open, so ShareIntake copies them somewhere it can and the page
+    // stages them through the composer's own attachment flow.
     @Override
     public void onNewIntent(android.content.Intent intent) {
         super.onNewIntent(intent);
@@ -133,6 +133,10 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void handleShareIntent(android.content.Intent intent) {
+        if (ShareIntake.wants(intent)) {
+            ShareIntake.take(this, intent);
+            return;
+        }
         if (intent == null || !android.content.Intent.ACTION_SEND.equals(intent.getAction())) return;
         String type = intent.getType();
         if (type == null || !type.startsWith("text/")) return;

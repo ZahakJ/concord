@@ -267,6 +267,7 @@
   import { startScheduler } from "./lib/scheduled.svelte.js";
   import { startEventRadar, markCalendarSeen, markAllCalendarsSeen } from "./lib/radar.svelte.js";
   import { startEphemeralSweep } from "./lib/ephemeral.svelte.js";
+  import { parseShare, fileSrc, skippedNote } from "./lib/sharein.js";
 
   let composer = $state(null);
 
@@ -987,10 +988,10 @@
     // The ongoing-call notification's "Hang up" action, relayed by the native
     // call service. Same teardown as any in-app leave.
     cap?.Plugins?.ConcordCore?.addListener?.("hangup", () => leaveVoice());
-    // Text shared from another app (the OS share sheet). The native side
-    // retains the event across a cold start, so this listener catches both
-    // warm and cold shares once it's attached in onMount.
-    cap?.Plugins?.ConcordCore?.addListener?.("shareIn", (ev) => handleShareIn(ev?.text));
+    // Text, pictures and videos shared from another app (the OS share
+    // sheet). The native side retains the event across a cold start, so this
+    // listener catches both warm and cold shares once it's attached in onMount.
+    cap?.Plugins?.ConcordCore?.addListener?.("shareIn", (ev) => handleShareEvent(ev));
   }
 
   // ---- the insets, asked for rather than waited on ----
@@ -1064,11 +1065,71 @@
   });
 
   // ---- share-sheet intake (Android) ----
-  // v1 is text/links into the ACTIVE conversation's composer draft. A proper
-  // conversation picker, and image/video streams, are follow-ups — streams
-  // need a route into the composer's attachment flow, which only Composer owns.
+  // Into the ACTIVE conversation's composer: text/links into the draft,
+  // pictures and videos as staged attachments (lib/sharein.js has the route).
+  // A conversation picker is a follow-up.
   let pendingShareText = "";
   let shareRetries = 0;
+  // Shared pictures/videos waiting for a composer to stage them into: a cold
+  // share arrives before login, and a share onto a forum board or an empty
+  // guild has no composer until the user opens a conversation. The effect
+  // below stages them the moment one exists.
+  let pendingShareFiles = $state([]);
+  let shareStaging = false;
+  const shareCore = () => window.Capacitor?.Plugins?.ConcordCore;
+  function releaseShared(paths) {
+    if (paths.length) shareCore()?.releaseShared?.({ paths }).catch(() => {});
+  }
+  function shareWhere() {
+    const g = activeGuild();
+    return g?.kind === "dm" ? g.name || "the conversation" : `#${activeChannel()?.name || "channel"}`;
+  }
+  function handleShareEvent(ev) {
+    const share = parseShare(ev);
+    const note = skippedNote(share.skipped);
+    if (note) flash(note, "error");
+    releaseShared(share.skipped.filter((x) => x.path).map((x) => x.path));
+    if (share.files.length) {
+      pendingShareFiles = [...pendingShareFiles, ...share.files];
+      // Still waiting a few seconds on: say where they will go, not nothing.
+      setTimeout(() => {
+        if (S.ready && pendingShareFiles.length) flash("Open a conversation to attach what you shared", "error");
+      }, 4000);
+    }
+    handleShareIn(share.text);
+  }
+  $effect(() => {
+    if (!pendingShareFiles.length || !S.ready || !S.activeChannelId || !composer) return;
+    queueMicrotask(stageSharedFiles);
+  });
+  async function stageSharedFiles() {
+    if (shareStaging || !composer || !pendingShareFiles.length) return;
+    shareStaging = true;
+    const batch = pendingShareFiles;
+    pendingShareFiles = [];
+    let staged = 0;
+    try {
+      for (const f of batch) {
+        try {
+          const res = await fetch(fileSrc(f.path, window.Capacitor));
+          if (!res.ok) throw new Error(`share copy ${res.status}`);
+          const blob = await res.blob();
+          await composer?.attachFile(new File([blob], f.name, { type: f.type }));
+          staged++;
+        } catch {
+          /* counted below */
+        }
+      }
+    } finally {
+      releaseShared(batch.map((f) => f.path));
+      shareStaging = false;
+    }
+    if (staged < batch.length) {
+      flash(skippedNote(Array(batch.length - staged).fill({ reason: "unreadable" })), "error");
+    }
+    if (staged) flash(`Attached to ${shareWhere()} — add a message or send`, "success");
+    if (pendingShareFiles.length) stageSharedFiles();
+  }
   function handleShareIn(text) {
     const t = (text || "").trim();
     if (!t) return;
@@ -1098,9 +1159,7 @@
     el.value = el.value ? `${el.value.replace(/\s+$/, "")}\n${text}` : text;
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.focus();
-    const g = activeGuild();
-    const where = g?.kind === "dm" ? g.name || "the conversation" : `#${activeChannel()?.name || "channel"}`;
-    flash(`Shared into ${where}`, "success");
+    flash(`Shared into ${shareWhere()}`, "success");
   }
 
   // ---- voice lifecycle (owns the mesh; state lives in S) ----

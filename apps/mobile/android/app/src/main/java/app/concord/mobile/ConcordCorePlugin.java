@@ -66,13 +66,19 @@ public class ConcordCorePlugin extends Plugin {
     public void load() {
         instance = this;
         installBackCallback();
+        // Copies of shared pictures a previous run staged and never released.
+        // This runs before MainActivity takes this launch's share (onCreate
+        // processes the intent after super.onCreate has loaded the plugins),
+        // so it can only ever clear leftovers.
+        ShareIntake.clearAll(getContext());
         // A share that arrived before the bridge existed (cold start straight
         // from another app's share sheet) waits here for the first listener.
-        String stashed = pendingShare;
-        if (stashed != null) {
-            pendingShare = null;
-            emitShareIn(stashed);
+        java.util.List<JSObject> stashed;
+        synchronized (PENDING_SHARES) {
+            stashed = new java.util.ArrayList<>(PENDING_SHARES);
+            PENDING_SHARES.clear();
         }
+        for (JSObject s : stashed) emitShare(s);
     }
 
     // ---- back, and who owns it ----
@@ -127,20 +133,40 @@ public class ConcordCorePlugin extends Plugin {
     }
 
     // ---- share-sheet intake ----
-    // MainActivity hands shared text here; JS (App.svelte) listens for
-    // "shareIn". retainUntilConsumed=true because on a cold start the intent
-    // is processed long before App.svelte's onMount attaches the listener.
-    private static volatile String pendingShare;
+    // MainActivity hands shared text here, and ShareIntake the copies of
+    // shared pictures/videos; JS (App.svelte) listens for "shareIn".
+    // retainUntilConsumed=true because on a cold start the intent is processed
+    // long before App.svelte's onMount attaches the listener.
+    private static final java.util.List<JSObject> PENDING_SHARES = new java.util.ArrayList<>();
 
     static void emitShareIn(String text) {
-        ConcordCorePlugin p = instance;
-        if (p == null) {
-            pendingShare = text;
-            return;
-        }
         JSObject data = new JSObject();
         data.put("text", text);
+        emitShare(data);
+    }
+
+    /** { text?, files?: [{path, name, type, size}], skipped?: [{name?, reason}] } */
+    static void emitShare(JSObject data) {
+        ConcordCorePlugin p = instance;
+        if (p == null) {
+            synchronized (PENDING_SHARES) {
+                PENDING_SHARES.add(data);
+            }
+            return;
+        }
         p.notifyListeners("shareIn", data, true);
+    }
+
+    /** The page has staged (or given up on) these shared copies: delete them. */
+    @PluginMethod
+    public void releaseShared(PluginCall call) {
+        java.util.List<String> paths = new java.util.ArrayList<>();
+        com.getcapacitor.JSArray arr = call.getArray("paths");
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) paths.add(arr.optString(i, null));
+        }
+        ShareIntake.release(getContext(), paths);
+        call.resolve();
     }
 
     @PluginMethod
