@@ -2652,6 +2652,39 @@ func (s *Store) PruneCommits(groupID []byte, keepRecent int, notBefore time.Time
 	return int(n), nil
 }
 
+// syncedKinds are the stored message kinds that travel in history sync — the
+// one list both ends of it read. The responder serves exactly these and the
+// applier accepts exactly these, so a kind cannot be served to a peer that
+// throws it away, or accepted from a peer that never sends it.
+//
+// It is every kind a row is ever WRITTEN with: ordinary chat, system notices,
+// a guest's words relayed by a meeting's host (whose author name the client
+// honours only under the owner's signature, so serving it grants nothing),
+// the invitation card in a 1:1, and a missed-call line. The action kinds
+// (edit, delete, pin, reaction) are never stored as rows — their effect is,
+// and it travels as the target row's state. "app" is gone with the feature
+// that wrote it; rows of it left over in old databases stay where they are.
+var syncedKinds = []string{"", "system", "guest", "invite", "call-missed"}
+
+// syncedKindsSQL is syncedKinds as a SQL list, for the serving query.
+var syncedKindsSQL = func() string {
+	q := make([]string, len(syncedKinds))
+	for i, k := range syncedKinds {
+		q[i] = "'" + k + "'"
+	}
+	return "(" + strings.Join(q, ", ") + ")"
+}()
+
+// IsSyncedKind reports whether rows of this kind travel in history sync.
+func IsSyncedKind(kind string) bool {
+	for _, k := range syncedKinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
 // MessagesChangedSince returns up to limit channel messages sent OR updated
 // strictly after sinceNano, oldest first, including deleted tombstones (blank
 // content) and per-message reactions. It is the server side of history sync,
@@ -2661,11 +2694,9 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 	if limit <= 0 {
 		limit = 200
 	}
-	// 'app' is included so app-plane payloads sync like any other message: a
-	// member who was offline still receives the machine traffic they missed.
 	rows, err := s.db.Query(
 		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig
-		 FROM messages WHERE channel_id = ? AND (sent > ? OR updated > ?) AND kind IN ('', 'system', 'app')
+		 FROM messages WHERE channel_id = ? AND (sent > ? OR updated > ?) AND kind IN `+syncedKindsSQL+`
 		 ORDER BY sent ASC LIMIT ?`, channelID, sinceNano, sinceNano, limit)
 	if err != nil {
 		return nil, err
