@@ -50,7 +50,7 @@ function saveState(s) {
 async function rpc(base, method, args = []) {
   const res = await fetch(base + "/rpc", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.CONCORD_API_TOKEN || ""}` },
     body: JSON.stringify({ method, args }),
   });
   if (!res.ok) throw new Error(`${method}: HTTP ${res.status} ${await res.text()}`);

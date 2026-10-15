@@ -41,10 +41,11 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OLD_BIN="${1:-$REPO/dist-release/concord-linux-amd64-v0.41.0}"
 
 # Ports live in a band nothing else in this repo uses, so a stray dev peer on
-# 8787/8801 cannot be mistaken for one of ours.
-RV_PORT=8961
-OLD_WEB_PORT=8962
-NEW_WEB_PORT=8963
+# 8787/8801 cannot be mistaken for one of ours. Each can be overridden from the
+# environment when something else already holds the band.
+RV_PORT=${RV_PORT:-8961}
+OLD_WEB_PORT=${OLD_WEB_PORT:-8962}
+NEW_WEB_PORT=${NEW_WEB_PORT:-8963}
 
 WORK="$(mktemp -d /tmp/concord-interop.XXXXXXXX)"
 RV_BIN="$WORK/rendezvous"
@@ -119,6 +120,9 @@ done
 [[ -n "$BOOTSTRAP" ]] || die "rendezvous never printed a loopback multiaddr, see $WORK/rendezvous.log"
 note "bootstrap: $BOOTSTRAP"
 export CONCORD_BOOTSTRAP="$BOOTSTRAP"
+# Every build since the RPC surface took a bearer token refuses a request
+# without one, so the run pins its own and both peers and interop.mjs use it.
+export CONCORD_API_TOKEN="${CONCORD_API_TOKEN:-interop-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')}"
 
 # --- peers ---------------------------------------------------------------------
 # start_peer <label> <binary> <web-port>
@@ -132,6 +136,7 @@ start_peer() {
   for _ in $(seq 1 150); do
     if curl -sf -m 2 -X POST "http://127.0.0.1:$port/rpc" \
          -H 'Content-Type: application/json' \
+         -H "Authorization: Bearer $CONCORD_API_TOKEN" \
          -d '{"method":"HasIdentity","args":[]}' >/dev/null 2>&1; then
       return 0
     fi
