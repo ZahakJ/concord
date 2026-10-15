@@ -82,6 +82,9 @@ code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 section{padding:84px 0;border-top:1px solid var(--line)}
 .lede{font-size:18px;color:var(--muted);max-width:62ch}
 .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));margin-top:30px}
+.grid.three{grid-template-columns:repeat(3,1fr)}
+@media (max-width:900px){.grid.three{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:600px){.grid.three{grid-template-columns:1fr}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
 .card p{margin:0;color:var(--muted);font-size:15.5px}
 .card .ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;margin-bottom:14px;
@@ -145,7 +148,7 @@ footer{border-top:1px solid var(--line);padding:40px 0 56px;color:var(--muted);f
   <h2>Everything a group chat needs</h2>
   <p class="lede">Built for friend groups and communities. Every message, attachment and call is
     end-to-end encrypted, and the history lives on the members' devices.</p>
-  <div class="grid">
+  <div class="grid three">
     <div class="card"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
       <h3>Guilds and channels</h3><p>Categories, roles and permissions, forums, polls, events, pins, custom emoji and Markdown.</p></div>
     <div class="card"><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
