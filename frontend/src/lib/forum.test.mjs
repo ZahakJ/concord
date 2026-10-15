@@ -277,7 +277,20 @@ t("preview strips markdown to its words", () => {
   assert.equal(postPreview("see [the docs](https://example.com/x) now").text, "see the docs now");
   assert.equal(postPreview("||secret|| told").text, "secret told");
   assert.equal(postPreview("> quoted line").text, "quoted line");
-  assert.equal(postPreview("- one - two").text, "one two");
+  assert.equal(postPreview("- one - two").text, "one · two");
+});
+
+t("preview keeps a collapsed list's items apart", () => {
+  // The backend excerpt has already lost its newlines; this is what is left
+  // of "...finished it.\n\n1. the lighthouse one\n2. the bakery one".
+  assert.equal(
+    postPreview("finished it. 1. the lighthouse one 2. the bakery one 3. and this").text,
+    "finished it. 1. the lighthouse one · 2. the bakery one · 3. and this",
+  );
+  assert.equal(postPreview("1. first 2. second").text, "first · second");
+  // Not a list: no "1." opening it, or a lone number in a sentence.
+  assert.equal(postPreview("we shipped version 2. then slept").text, "we shipped version 2. then slept");
+  assert.equal(postPreview("step 1. done").text, "step 1. done");
 });
 
 t("preview leaves snake_case and arithmetic alone", () => {

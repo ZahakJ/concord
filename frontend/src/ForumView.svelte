@@ -818,7 +818,7 @@
                     image={author?.avatar || ""}
                     emoji={author?.emoji || ""}
                     color={author?.color || ""}
-                    size={48}
+                    size={prefs.layout === "list" ? 30 : 48}
                   />
                 </span>
               {:else}
@@ -1262,6 +1262,15 @@
     color: var(--text);
     font-size: var(--fs-ui);
     padding: 0;
+    /* The pill is the field. The global input dressing — a recessed inset
+       shadow, and on focus a 3px accent halo — otherwise drew a second
+       rounded box inside this one, offset from the pill's own focus ring. */
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .find input:focus {
+    background: transparent;
+    box-shadow: none;
   }
   .clear {
     position: relative;
@@ -1748,6 +1757,17 @@
     align-self: stretch;
     min-height: 84px;
     border-radius: 0;
+  }
+  /* Without a picture the column holds only the author's face, and at 92px
+     with a 48px avatar it outweighed the 13px title beside it — the widest,
+     loudest thing on every card was a repeat of the name in the meta row. A
+     thumbnail earns 92px; a face gets a strip sized to the card's type. */
+  .posts.list .card:not(.has-shot) {
+    grid-template-columns: 52px 1fr auto;
+  }
+  .posts.list .card:not(.has-shot) .media {
+    width: 52px;
+    min-height: 0;
   }
   .posts.list .body {
     /* The card is a grid with NO column gap and the media column is a

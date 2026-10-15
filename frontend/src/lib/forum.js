@@ -218,8 +218,28 @@ export function stripMarkdown(input) {
     .replace(/(^|\s)>\s?/g, "$1")
     .replace(/\s{2,}/g, " ")
     .trim();
-  if (LEAD_LIST.test(s)) s = s.replace(LEAD_LIST, "").replace(/\s(?:[-*+]|\d{1,3}\.)\s+/g, " ");
+  // The list's items are kept apart with " · ". Joining them with a bare space
+  // turned "- milk - eggs" into "milk eggs", one item that does not exist.
+  if (LEAD_LIST.test(s)) s = s.replace(LEAD_LIST, "").replace(/\s(?:[-*+]|\d{1,3}\.)\s+/g, " · ");
+  else s = separateNumberedRun(s);
   return s.trim();
+}
+
+// A numbered list that starts mid-text: "a list. 1. the one 2. that one". The
+// lost newlines are what made it a list, so a " · " goes back in before each
+// item after the first. Only for a run that counts up from 1 — "version 2. Then"
+// alone is a sentence, and so is anything without the "1." that opens a list.
+function separateNumberedRun(s) {
+  const one = s.search(/(?:^|\s)1\.\s/);
+  if (one < 0) return s;
+  let next = 2;
+  const head = s.slice(0, one + 1);
+  const tail = s.slice(one + 1).replace(/\s(\d{1,3})\.\s+/g, (whole, n) => {
+    if (Number(n) !== next) return whole;
+    next++;
+    return ` · ${n}. `;
+  });
+  return next > 2 ? head + tail : s;
 }
 
 // postPreview: { text, kind, images } where kind is "" | "image" | "file" |
