@@ -44,6 +44,13 @@ type Store struct {
 	// forget the pages it has read. Guarded by capMu.
 	capMu        sync.RWMutex
 	chronicleCap int64
+
+	// emoji caches each guild's custom emoji rows. The sidebar asks for every
+	// guild's set on each refresh, and each set is a handful of inline images
+	// tens of kilobytes apiece; the rows only change through SaveCustomEmoji
+	// and DeleteCustomEmoji, which drop the guild's entry.
+	emojiMu sync.Mutex
+	emoji   map[string][]CustomEmojiRow
 }
 
 // Open opens (creating if needed) the SQLite database at path and prepares the
@@ -945,6 +952,7 @@ func (s *Store) SaveCustomEmoji(e CustomEmojiRow) error {
 		 ON CONFLICT(guild_id, name) DO UPDATE SET
 		   image=excluded.image, author=excluded.author, sig=excluded.sig`,
 		e.GuildID, e.Name, e.Image, time.Now().UnixNano(), nilIfEmpty(e.Author), nilIfEmpty(e.Sig))
+	s.forgetEmoji(e.GuildID)
 	if err != nil {
 		return fmt.Errorf("store: save custom emoji: %w", err)
 	}
@@ -954,11 +962,25 @@ func (s *Store) SaveCustomEmoji(e CustomEmojiRow) error {
 // DeleteCustomEmoji removes a guild custom emoji.
 func (s *Store) DeleteCustomEmoji(guildID, name string) error {
 	_, err := s.db.Exec(`DELETE FROM custom_emoji WHERE guild_id=? AND name=?`, guildID, name)
+	s.forgetEmoji(guildID)
 	return err
 }
 
-// CustomEmoji returns a guild's custom emoji, ordered by name.
+func (s *Store) forgetEmoji(guildID string) {
+	s.emojiMu.Lock()
+	delete(s.emoji, guildID)
+	s.emojiMu.Unlock()
+}
+
+// CustomEmoji returns a guild's custom emoji, ordered by name. The slice is the
+// caller's own; the rows' byte fields are shared and must not be written to.
 func (s *Store) CustomEmoji(guildID string) ([]CustomEmojiRow, error) {
+	s.emojiMu.Lock()
+	cached, ok := s.emoji[guildID]
+	s.emojiMu.Unlock()
+	if ok {
+		return append([]CustomEmojiRow(nil), cached...), nil
+	}
 	rows, err := s.db.Query(`SELECT guild_id, name, image, author, sig FROM custom_emoji WHERE guild_id=? ORDER BY name`, guildID)
 	if err != nil {
 		return nil, err
@@ -972,7 +994,16 @@ func (s *Store) CustomEmoji(guildID string) ([]CustomEmojiRow, error) {
 		}
 		out = append(out, e)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	s.emojiMu.Lock()
+	if s.emoji == nil {
+		s.emoji = map[string][]CustomEmojiRow{}
+	}
+	s.emoji[guildID] = out
+	s.emojiMu.Unlock()
+	return append([]CustomEmojiRow(nil), out...), nil
 }
 
 // GuildGifRow is one entry in a guild's GIF pack: the searchable text plus a
@@ -1277,6 +1308,42 @@ func (s *Store) LatestTimestamp(channelID string) (int64, error) {
 	return maxInt64(maxSent.Int64, maxUpdated.Int64), nil
 }
 
+// LatestTimestamps is LatestTimestamp for many channels in one statement. Each
+// channel still costs two index probes — the correlated MAXes are served by
+// the same covering indexes the single-channel form uses — but the sidebar
+// asks for every channel of every guild at once, and paying a statement round
+// trip per probe was most of what that cost. A GROUP BY over messages would
+// read every row instead of two per channel. Channels with no messages map
+// to 0.
+func (s *Store) LatestTimestamps(channelIDs []string) (map[string]int64, error) {
+	out := make(map[string]int64, len(channelIDs))
+	if len(channelIDs) == 0 {
+		return out, nil
+	}
+	ids, err := json.Marshal(channelIDs)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(
+		`SELECT j.value,
+		        (SELECT MAX(sent) FROM messages WHERE channel_id = j.value),
+		        (SELECT MAX(updated) FROM messages WHERE channel_id = j.value)
+		 FROM json_each(?) j`, string(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var maxSent, maxUpdated sql.NullInt64
+		if err := rows.Scan(&id, &maxSent, &maxUpdated); err != nil {
+			return nil, err
+		}
+		out[id] = maxInt64(maxSent.Int64, maxUpdated.Int64)
+	}
+	return out, rows.Err()
+}
+
 // UnreadCounts returns, per channel, how many normal (non-system) messages are
 // strictly newer than that channel's cursor in sinceNano — WITHOUT decrypting a
 // single body. The prior approach fetched and secretbox-opened up to 200 rows
@@ -1395,6 +1462,35 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 		msgs[i].Reactions = reacts[msgs[i].ID]
 	}
 	return msgs, nil
+}
+
+// NewestMessage is Messages(channelID, 1) without the reactions: the DM list's
+// preview line wants the last thing said, and Messages loads every reaction in
+// the channel to decorate the one row it returns.
+func (s *Store) NewestMessage(channelID string) (domain.Message, bool, error) {
+	var m domain.Message
+	var enc, nonceB []byte
+	var sent int64
+	var deleted int
+	err := s.db.QueryRow(
+		`SELECT id, channel_id, sender, deleted, content_enc, nonce, sent
+		 FROM messages WHERE channel_id = ? ORDER BY sent DESC LIMIT 1`, channelID).
+		Scan(&m.ID, &m.ChannelID, &m.Sender, &deleted, &enc, &nonceB, &sent)
+	if err == sql.ErrNoRows {
+		return domain.Message{}, false, nil
+	}
+	if err != nil {
+		return domain.Message{}, false, err
+	}
+	m.Sent = time.Unix(0, sent).UTC()
+	if deleted != 0 {
+		m.Deleted = true
+		return m, true, nil
+	}
+	if m.Content, err = s.open(enc, nonceB); err != nil {
+		return domain.Message{}, false, err
+	}
+	return m, true, nil
 }
 
 // MessagesBefore returns up to limit messages in a channel strictly OLDER than

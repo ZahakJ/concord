@@ -1501,9 +1501,10 @@ func (b *Bridge) Guilds() ([]GuildView, error) {
 		return nil, err
 	}
 	guilds := svc.Guilds()
+	vc := newViewContext(svc, guilds)
 	out := make([]GuildView, 0, len(guilds))
 	for _, g := range guilds {
-		out = append(out, guildView(svc, g))
+		out = append(out, vc.guildView(g))
 	}
 	return out, nil
 }
@@ -2719,13 +2720,55 @@ func channelView(c domain.Channel) ChannelView {
 		Locked: c.Locked, LockedBy: c.LockedBy, Banner: c.Banner}
 }
 
+// viewContext holds what building a guild view needs from outside the guild,
+// fetched once for a whole guild list rather than once per guild. The sidebar
+// rebuilds every view on each presence change and guild update; asking the
+// store for each channel's activity separately (two statements per channel,
+// and again for every forum post), and the host for its peer list once per DM,
+// was most of what a refresh cost.
+type viewContext struct {
+	svc      *appsvc.Service
+	activity map[string]int64 // channel ID -> newest sent/updated, UnixNano
+	online   map[string]bool  // account fingerprints of connected peers; nil until a DM asks
+}
+
+func newViewContext(svc *appsvc.Service, guilds []domain.Guild) *viewContext {
+	var ids []string
+	for _, g := range guilds {
+		for _, c := range g.Channels {
+			ids = append(ids, c.ID)
+		}
+	}
+	return &viewContext{svc: svc, activity: svc.ChannelsLastActivity(ids)}
+}
+
+func (vc *viewContext) isOnline(fingerprint string) bool {
+	if vc.online == nil {
+		vc.online = map[string]bool{}
+		for _, p := range vc.svc.Peers() {
+			vc.online[p.Fingerprint] = true
+		}
+	}
+	return vc.online[fingerprint]
+}
+
+// guildView builds one guild's view on its own — the paths that hand back a
+// single guild they just created or changed.
 func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
+	return newViewContext(svc, []domain.Guild{g}).guildView(g)
+}
+
+func (vc *viewContext) guildView(g domain.Guild) GuildView {
+	svc := vc.svc
 	channels := make([]ChannelView, 0, len(g.Channels))
-	lastActivity := svc.GuildLastActivity(g.ID)
+	var lastActivity int64
+	for _, c := range g.Channels {
+		lastActivity = max(lastActivity, vc.activity[c.ID])
+	}
 	for _, c := range g.Channels {
 		cv := channelView(c)
 		if c.Parent != "" {
-			cv.LastActivity = svc.ChannelLastActivity(c.ID) // forum post ordering
+			cv.LastActivity = vc.activity[c.ID] // forum post ordering
 		}
 		cv.SlowMode = svc.SlowModeSeconds(g.ID, c.ID)
 		cv.Retention = svc.RetentionSeconds(g.ID, c.ID)
@@ -2752,20 +2795,16 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	dmPeer, dmPeerPresence, dmPeerAvatar, dmPeerOnline, dmMembers := "", "", "", false, 0
 	var dmFaces []DMFace
 	if g.Kind == "dm" {
-		if creds, err := svc.GuildMembers(g.ID); err == nil {
-			self := svc.PublicKey()
+		if accounts, ok := svc.GuildMemberAccounts(g.ID); ok {
+			self := svc.Fingerprint()
 			joined := map[string]bool{}
 			var others []string
-			for _, c := range creds {
-				// Any of OUR OWN devices (their leaf is a device cert of our
-				// account) is "self", never an other-member face. And resolve to
-				// the ACCOUNT fingerprint, deduping device leaves — so a linked
-				// device never shows up as a phantom cryptic person in the DM.
-				if bytes.Equal(svc.AccountKeyOf(c), self) {
-					continue
-				}
-				f := svc.AccountFingerprintOf(c)
-				if joined[f] {
+			for _, f := range accounts {
+				// Already one entry per ACCOUNT, device leaves folded in — so a
+				// linked device never shows up as a phantom cryptic person in
+				// the DM — and any of our own devices is "self", never an
+				// other-member face.
+				if f == self {
 					continue
 				}
 				others = append(others, f)
@@ -2818,12 +2857,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 				}
 				dmPeerPresence = prof.Presence
 				dmPeerAvatar = prof.Avatar
-				for _, p := range svc.Peers() {
-					if p.Fingerprint == dmPeer {
-						dmPeerOnline = true
-						break
-					}
-				}
+				dmPeerOnline = vc.isOnline(dmPeer)
 			} else if len(intended) > 1 {
 				if isCustomDMName(g.Name) {
 					name = g.Name // user renamed the group; keep it

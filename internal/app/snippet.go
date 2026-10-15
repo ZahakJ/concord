@@ -211,11 +211,10 @@ func collapse(s string) string {
 // handful of DMs on a guild-list refresh and would not be for every channel of
 // every guild, which is why nothing else asks for it.
 func (s *Service) LastSaid(channelID string) (text string, mine bool, atMillis int64) {
-	msgs, err := s.store.Messages(channelID, 1)
-	if err != nil || len(msgs) == 0 {
+	m, ok, err := s.store.NewestMessage(channelID)
+	if err != nil || !ok {
 		return "", false, 0
 	}
-	m := msgs[len(msgs)-1]
 	if m.Deleted {
 		return "", false, m.Sent.UnixMilli()
 	}

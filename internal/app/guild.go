@@ -271,13 +271,40 @@ func (s *Service) GuildLastActivity(guildID string) int64 {
 		chans = append(chans, g.Channels...)
 	}
 	s.mu.RUnlock()
-	var newest int64
+	ids := make([]string, 0, len(chans))
 	for _, c := range chans {
-		if t, err := s.store.LatestTimestamp(c.ID); err == nil && t > newest {
-			newest = t
-		}
+		ids = append(ids, c.ID)
+	}
+	var newest int64
+	for _, t := range s.ChannelsLastActivity(ids) {
+		newest = max(newest, t)
 	}
 	return newest
+}
+
+// ChannelsLastActivity is ChannelLastActivity for many channels in one store
+// round trip — the sidebar wants every channel of every guild on each refresh.
+// A channel the store cannot answer for is absent, which reads as 0.
+func (s *Service) ChannelsLastActivity(channelIDs []string) map[string]int64 {
+	out, err := s.store.LatestTimestamps(channelIDs)
+	if err != nil {
+		return map[string]int64{}
+	}
+	return out
+}
+
+// GuildMemberAccounts lists the account fingerprints in a guild's group, our
+// own included and each account once however many devices it has, from the
+// roster cache the membership checks already keep. ok is false when the
+// roster cannot be read. It is the cheap form of GuildMembers for a caller
+// that wants people rather than credentials: GuildMembers reloads the whole
+// group state on every call.
+func (s *Service) GuildMemberAccounts(guildID string) (fingerprints []string, ok bool) {
+	c := s.guildMemberSet(guildID)
+	if c == nil {
+		return nil, false
+	}
+	return append([]string(nil), c.list...), true
 }
 
 // Messages returns stored history for a channel (oldest first). Opening a
