@@ -4,6 +4,7 @@
   // — play/pause, a drag-to-seek waveform, and elapsed/total time. The blob is
   // fetched + decrypted on first play, so it costs nothing until you listen.
   import Icon from "./Icon.svelte";
+  import { onDestroy } from "svelte";
   import { api } from "./lib/api.js";
   import { flash } from "./lib/state.svelte.js";
   import {
@@ -17,6 +18,7 @@
 
   let audio; // HTMLAudioElement, created on first play
   let audioP = null; // in-flight ensureAudio(), so a scrub + a tap can't build two
+  let destroyed = false;
   let waveEl = $state(null);
   let loading = $state(false);
   let playing = $state(false);
@@ -68,6 +70,7 @@
     audioP = (async () => {
       try {
         const dataUrl = await api.fetchFile(channelId, tok.blobId, tok.keys, tok.mime);
+        if (destroyed) return null; // fetched for a row that is gone
         audio = new Audio(dataUrl);
         audio.addEventListener("timeupdate", () => (cur = audio.currentTime));
         audio.addEventListener("loadedmetadata", () => {
@@ -100,11 +103,19 @@
   // Decode the clip and take its envelope. Best-effort by design: a codec the
   // WebAudio decoder won't take (some Safari builds refuse webm/opus) leaves
   // the flat pill, which is honest — the alternative was a barcode.
+  //
+  // The context exists only to decode, and is closed the moment it has: a
+  // browser allows a handful of live AudioContexts per page, and one per voice
+  // message scrolled past and played used to stay open for the session.
   async function drawFromAudio(dataUrl) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    let ctx = null;
     try {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return;
-      const buf = await new AC().decodeAudioData(await (await fetch(dataUrl)).arrayBuffer());
+      const bytes = await (await fetch(dataUrl)).arrayBuffer();
+      ctx = new AC();
+      const buf = await ctx.decodeAudioData(bytes);
+      if (destroyed) return;
       const env = envelopeFromBuffer(buf);
       if (!env) return;
       cacheEnvelope(tok.blobId, env);
@@ -112,12 +123,23 @@
       if (!dur && isFinite(buf.duration)) dur = buf.duration;
     } catch {
       /* the player still works; the bars stay flat */
+    } finally {
+      ctx?.close().catch(() => {});
     }
   }
 
+  // A message scrolled out of the virtualised feed, a channel switch, a
+  // deleted message: the row goes, and so must its sound. The element is not
+  // in the DOM, so nothing else would ever stop it.
+  onDestroy(() => {
+    destroyed = true;
+    audio?.pause();
+    audio = null;
+  });
+
   async function toggle() {
     const a = await ensureAudio();
-    if (!a) return;
+    if (!a || destroyed) return;
     if (a.paused) a.play().catch(() => {});
     else a.pause();
   }
