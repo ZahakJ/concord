@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log"
 	stdnet "net"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -490,7 +491,7 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 	node.rebindInboundProof()
 	node.registerConnEvents()
 
-	if cfg.EnableMDNS {
+	if cfg.EnableMDNS && mdnsWanted(runtime.GOOS) {
 		// mDNS is best-effort LAN discovery. Its failure must not abort startup:
 		// Android's SELinux denies the netlink socket bind zeroconf needs, and
 		// locked-down/corporate networks block multicast — in both cases the node
