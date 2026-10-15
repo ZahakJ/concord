@@ -88,7 +88,7 @@
     user: "M8 8.2a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4z M2.9 13.5v-.9a5.1 5.1 0 0 1 10.2 0v.9",
     // A painter's palette, for Appearance. The row used to carry a two-tone
     // diagonal block with nothing inside it — the only glyph in Settings that
-    // was not an icon, and the one the owner could not name.
+    // was not an icon, and the one nobody could put a name to.
     palette:
       "M8 2.2a5.8 5.8 0 0 0 0 11.6c.9 0 1.4-.6 1.4-1.3 0-.8-.6-1.1-.6-1.8 0-.6.5-1.1 1.2-1.1h1.2A3.4 3.4 0 0 0 14 6.2C13.7 3.9 11.1 2.2 8 2.2z M5.4 6.2h.01 M8 4.8h.01 M10.6 6h.01 M5.2 9.2h.01",
     // A shield, for account & security. Distinct from `lock`, which Privacy

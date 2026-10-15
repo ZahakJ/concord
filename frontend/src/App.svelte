@@ -996,7 +996,7 @@
   // ---- the insets, asked for rather than waited on ----
   //
   // The native side PUSHES --sa-top/--sa-bottom/--kb onto the document whenever
-  // the window's insets change (MainActivity.pushInsets). On the owner's phone
+  // the window's insets change (MainActivity.pushInsets). On a Galaxy S24
   // the header still sat against the status bar, which means that on some
   // devices the push does not land, or does not land in time, or lands on a
   // document that was then replaced. This is the other direction: the page

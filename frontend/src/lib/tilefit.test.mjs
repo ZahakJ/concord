@@ -70,7 +70,7 @@ for (const [where, w, h] of BOXES) {
   }
 }
 
-// ---- the specific shapes the owner saw ----------------------------------
+// ---- the specific shapes that were reported-------------------------------
 {
   // One person, desktop: was 620x496 (portrait-ish slab).
   const f = fitTiles({ w: 620, h: 496, n: 1, cols: 1, gap: GAP });
