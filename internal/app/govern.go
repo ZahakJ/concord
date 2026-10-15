@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -26,7 +27,7 @@ func (s *Service) rebuildGovStateLocked(guildID string) {
 	if !ok {
 		return
 	}
-	s.govState[guildID] = replayGuildOps(g.OwnerID, s.govOps[guildID])
+	s.govState[guildID] = replayGuildOpsWith(g.OwnerID, s.govOps[guildID], s.govSigs.verify)
 }
 
 // effectiveOwnerLocked is the guild's CURRENT owner fingerprint: the head of
@@ -140,78 +141,115 @@ func (s *Service) RemovedFingerprints(guildID string) []string {
 // action, gossip, or sync). Dedupes by content hash, persists, appends, refolds
 // state, refreshes the UI. Returns true if the op was new.
 func (s *Service) ingestGovOp(guildID string, o govOp, live bool) bool {
-	if !o.verifySig() {
-		return false
-	}
-	// transfer_owner receive-side gate: the named heir must be a CURRENT member
-	// of the guild's MLS group. This lives at ingest rather than replay because
-	// replay must stay a deterministic function of the recorded log, while
-	// membership is a moving fact — every honest peer runs this same gate
-	// independently before the op ever enters its log. A dropped op is not
-	// remembered as seen, so if it merely outran the target's join commit,
-	// the next sync re-delivery lands it.
-	if o.Type == "transfer_owner" && !s.guildHasMember(guildID, o.Target) {
-		return false
-	}
-	// set_heir names a future owner, so it runs the same gate on its Target
-	// (an empty Target is a revocation and always passes). claim_heir's future
-	// owner is its SIGNER, so the gate keys on that — an heir who has since
-	// left the guild cannot claim it from outside.
-	if o.Type == "set_heir" && o.Target != "" && !s.guildHasMember(guildID, o.Target) {
-		return false
-	}
-	if o.Type == "claim_heir" && !s.guildHasMember(guildID, o.signerFpr()) {
-		return false
-	}
-	hash := o.hash()
-	s.mu.Lock()
-	// BACKDATING GUARD (live path only).
-	//
-	// replayGuildOps folds the log in Seq order, and Seq is a plain signed
-	// field: its author picks it. So a member who LOST authority could sign a
-	// new op carrying a Seq from before they lost it, and replay would fold it
-	// while they still had the power to issue it. Concretely, a former owner
-	// could backdate a ban on the member they handed the guild to — which then
-	// makes the real transfer_owner skip its banned target — or backdate a
-	// set_heir/claim_heir pair, and either way take the guild back for good.
-	//
-	// A signer's own ops only ever move forward, so an op arriving LIVE that
-	// claims a Seq at or below one we already hold from that same signer is
-	// backdated by construction. Refuse it.
-	//
-	// Only the live path: a sync backfill legitimately replays a signer's older
-	// ops out of order, and rejecting those would fork our log from the peer we
-	// are catching up with. The bound this leaves is narrow and worth stating —
-	// a peer that has not yet seen the transfer has nothing newer from that
-	// signer to compare against, so it can still accept the forgery until it
-	// syncs. Closing that needs ops to commit to the log head they were built
-	// on, which is a protocol change, not a check (see docs/DESIGN.md).
-	if live && o.Seq <= s.highestSeqBySignerLocked(guildID, o.signerFpr()) {
-		s.mu.Unlock()
-		return false
-	}
-	if s.govHashes[guildID] == nil {
-		s.govHashes[guildID] = map[string]bool{}
-	}
-	if s.govHashes[guildID][hash] { // O(1) dedup instead of re-hashing the whole log
-		s.mu.Unlock()
-		return false
-	}
-	s.govHashes[guildID][hash] = true
-	s.recordGovOpLocked(guildID, o)
-	s.rebuildGovStateLocked(guildID)
-	s.mu.Unlock()
+	return s.ingestGovOps(guildID, []govOp{o}, live) > 0
+}
 
-	raw, _ := json.Marshal(o)
-	_ = s.store.SaveGuildOp(guildID, hash, raw)
-	s.emitGuildUpdate()
-	// A kick/ban targeting us carries the sentence the banner should show.
-	// The MLS commit that blanks our leaf often arrives first, so this
-	// fills the reason in if noteEvicted ran before the op was in the log.
-	if s.id != nil && (o.Type == "remove_member" || o.Type == "ban") && o.Target == s.id.Fingerprint() && o.Name != "" {
-		s.rememberEvictedReason(guildID, o.Name)
+// ingestGovOps is ingestGovOp for a batch: every op is checked exactly as it
+// would be alone, the new ones are recorded together, and the log is folded
+// and the UI told ONCE. It returns how many ops were new.
+//
+// A sync payload carries a guild's whole governance log, and ingesting it an
+// op at a time re-folded the entire log per op — every signature on it
+// verified again each time — under the service's write lock, then redrew the
+// guild list per op. K ops cost K folds of up to K ops: a 500-op log took
+// seconds with every reader of guild state queued behind it.
+func (s *Service) ingestGovOps(guildID string, ops []govOp, live bool) int {
+	// The checks that need no lock, first. Each is the same question asked of
+	// each op alone, so batching cannot change an answer.
+	ok := ops[:0:0]
+	for _, o := range ops {
+		if !s.govSigs.verify(o) {
+			continue
+		}
+		// transfer_owner receive-side gate: the named heir must be a CURRENT
+		// member of the guild's MLS group. This lives at ingest rather than
+		// replay because replay must stay a deterministic function of the
+		// recorded log, while membership is a moving fact — every honest peer
+		// runs this same gate independently before the op ever enters its log.
+		// A dropped op is not remembered as seen, so if it merely outran the
+		// target's join commit, the next sync re-delivery lands it.
+		if o.Type == "transfer_owner" && !s.guildHasMember(guildID, o.Target) {
+			continue
+		}
+		// set_heir names a future owner, so it runs the same gate on its Target
+		// (an empty Target is a revocation and always passes). claim_heir's
+		// future owner is its SIGNER, so the gate keys on that — an heir who has
+		// since left the guild cannot claim it from outside.
+		if o.Type == "set_heir" && o.Target != "" && !s.guildHasMember(guildID, o.Target) {
+			continue
+		}
+		if o.Type == "claim_heir" && !s.guildHasMember(guildID, o.signerFpr()) {
+			continue
+		}
+		ok = append(ok, o)
 	}
-	return true
+	if len(ok) == 0 {
+		return 0
+	}
+	type fresh struct {
+		o    govOp
+		hash string
+	}
+	var added []fresh
+	s.mu.Lock()
+	for _, o := range ok {
+		// BACKDATING GUARD (live path only).
+		//
+		// replayGuildOps folds the log in Seq order, and Seq is a plain signed
+		// field: its author picks it. So a member who LOST authority could sign
+		// a new op carrying a Seq from before they lost it, and replay would
+		// fold it while they still had the power to issue it. Concretely, a
+		// former owner could backdate a ban on the member they handed the guild
+		// to — which then makes the real transfer_owner skip its banned target —
+		// or backdate a set_heir/claim_heir pair, and either way take the guild
+		// back for good.
+		//
+		// A signer's own ops only ever move forward, so an op arriving LIVE
+		// that claims a Seq at or below one we already hold from that same
+		// signer is backdated by construction. Refuse it.
+		//
+		// Only the live path: a sync backfill legitimately replays a signer's
+		// older ops out of order, and rejecting those would fork our log from
+		// the peer we are catching up with. The bound this leaves is narrow and
+		// worth stating — a peer that has not yet seen the transfer has nothing
+		// newer from that signer to compare against, so it can still accept the
+		// forgery until it syncs. Closing that needs ops to commit to the log
+		// head they were built on, which is a protocol change, not a check (see
+		// docs/DESIGN.md).
+		if live && o.Seq <= s.highestSeqBySignerLocked(guildID, o.signerFpr()) {
+			continue
+		}
+		if s.govHashes[guildID] == nil {
+			s.govHashes[guildID] = map[string]bool{}
+		}
+		hash := o.hash()
+		if s.govHashes[guildID][hash] { // O(1) dedup instead of re-hashing the whole log
+			continue
+		}
+		s.govHashes[guildID][hash] = true
+		s.recordGovOpLocked(guildID, o)
+		added = append(added, fresh{o, hash})
+	}
+	if len(added) > 0 {
+		s.rebuildGovStateLocked(guildID)
+	}
+	s.mu.Unlock()
+	if len(added) == 0 {
+		return 0
+	}
+
+	for _, a := range added {
+		raw, _ := json.Marshal(a.o)
+		_ = s.store.SaveGuildOp(guildID, a.hash, raw)
+		// A kick/ban targeting us carries the sentence the banner should show.
+		// The MLS commit that blanks our leaf often arrives first, so this
+		// fills the reason in if noteEvicted ran before the op was in the log.
+		if s.id != nil && (a.o.Type == "remove_member" || a.o.Type == "ban") && a.o.Target == s.id.Fingerprint() && a.o.Name != "" {
+			s.rememberEvictedReason(guildID, a.o.Name)
+		}
+	}
+	s.emitGuildUpdate()
+	return len(added)
 }
 
 // recordGovOpLocked appends an op to a guild's log and keeps the derived
@@ -796,14 +834,49 @@ func (s *Service) govOpsFor(guildID string) []json.RawMessage {
 	return out
 }
 
-// ingestGovOpsRaw folds a batch of raw ops (from a sync payload) into state.
+// ingestGovOpsRaw folds a batch of raw ops (from a sync payload) into state,
+// as one batch (see ingestGovOps).
 func (s *Service) ingestGovOpsRaw(guildID string, raws []json.RawMessage) {
+	ops := make([]govOp, 0, len(raws))
 	for _, raw := range raws {
 		var o govOp
 		if json.Unmarshal(raw, &o) == nil {
-			s.ingestGovOp(guildID, o, false)
+			ops = append(ops, o)
 		}
 	}
+	s.ingestGovOps(guildID, ops, false)
+}
+
+// govSigCache remembers which governance signatures have already been checked.
+//
+// Replay re-verifies every op on every fold, which is right — the fold must not
+// trust its input — and expensive, because the log only grows and an Ed25519
+// verification is tens of microseconds. An op's signature over its own bytes
+// is a fact that cannot change, so it is checked once per process. The key is
+// the signed bytes' hash AND the signature: two ops with the same content and
+// different signatures (one of them forged) are different ops here, and the
+// forged one is never mistaken for its twin.
+type govSigCache struct {
+	mu sync.Mutex
+	ok map[string]bool
+}
+
+func (c *govSigCache) verify(o govOp) bool {
+	key := o.hash() + ":" + string(o.Sig)
+	c.mu.Lock()
+	v, seen := c.ok[key]
+	c.mu.Unlock()
+	if seen {
+		return v
+	}
+	v = o.verifySig()
+	c.mu.Lock()
+	if c.ok == nil {
+		c.ok = map[string]bool{}
+	}
+	c.ok[key] = v
+	c.mu.Unlock()
+	return v
 }
 
 func isOwnerCred(ownerID, cred []byte) bool {

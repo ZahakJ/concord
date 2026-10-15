@@ -221,6 +221,9 @@ type Service struct {
 	// govHashes indexes each guild's ingested op hashes for O(1) dedup, instead
 	// of re-hashing the whole op log on every ingest (sync replays the full log).
 	govHashes map[string]map[string]bool
+	// govSigs remembers governance signatures already verified, so folding a
+	// growing log does not re-verify every op on it (see govSigCache).
+	govSigs govSigCache
 	// govHighSeq is the highest Seq held from each signer (guild -> signer
 	// fingerprint -> seq), and govTopSeq the highest from anyone. They are the
 	// backdating guard's and the seq allocator's answers, maintained on ingest

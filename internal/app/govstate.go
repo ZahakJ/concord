@@ -288,6 +288,14 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 	return st
 }
 
+// replayGuildOpsWith is replayGuildOps with the signature check supplied, so a
+// caller that folds the same log over and over can remember what it already
+// verified (govSigCache). The check itself is never skipped.
+func replayGuildOpsWith(owner []byte, ops []govOp, verify func(govOp) bool) GuildState {
+	st, _ := replayGuildOpsVerifying(owner, ops, false, verify)
+	return st
+}
+
 // opVerdict is what the replay decided about one op. It exists because the
 // moderation log has to be able to say "this was signed by someone who was not
 // allowed to do it, and nothing happened" — a screen whose whole claim is that
@@ -302,6 +310,10 @@ type opVerdict struct {
 // map allocation per fold is a cost the hot path should not pay for a screen
 // almost nobody has open.
 func replayGuildOpsRecording(owner []byte, ops []govOp, record bool) (GuildState, map[string]opVerdict) {
+	return replayGuildOpsVerifying(owner, ops, record, govOp.verifySig)
+}
+
+func replayGuildOpsVerifying(owner []byte, ops []govOp, record bool, verify func(govOp) bool) (GuildState, map[string]opVerdict) {
 	cur := identity.FingerprintOf(owner)
 	st := newGuildState()
 	var verdicts map[string]opVerdict
@@ -309,7 +321,7 @@ func replayGuildOpsRecording(owner []byte, ops []govOp, record bool) (GuildState
 		verdicts = make(map[string]opVerdict, len(ops))
 	}
 	for _, o := range canonicalOps(ops) {
-		if !o.verifySig() {
+		if !verify(o) {
 			if record {
 				verdicts[o.hash()] = opVerdict{}
 			}
