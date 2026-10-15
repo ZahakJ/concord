@@ -1255,6 +1255,12 @@ func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message
 // sendAs is send() with an explicit author name — used only for relayed guest
 // messages, which are signed by the host but spoken by someone else.
 func (s *Service) sendAs(channelID, content, kind, replyTo, guestName, dir string) (domain.Message, error) {
+	return s.sendAsWith(channelID, content, kind, replyTo, guestName, dir, nil)
+}
+
+// sendAsWith is sendAs with a hook that sees the finished, signed message just
+// before it is published, and can stop the send by returning an error.
+func (s *Service) sendAsWith(channelID, content, kind, replyTo, guestName, dir string, beforePublish func(domain.Message) error) (domain.Message, error) {
 	s.mu.RLock()
 	guildID, ok := s.channelToGuild[channelID]
 	var groupID []byte
@@ -1350,6 +1356,11 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName, dir strin
 				signed.Dir = d
 			}
 			msg.RowSig = s.id.Sign(messageRowSigningBytes(signed, content))
+		}
+	}
+	if beforePublish != nil {
+		if err := beforePublish(msg); err != nil {
+			return domain.Message{}, err
 		}
 	}
 	payload, _ := json.Marshal(msg)
@@ -1810,8 +1821,12 @@ func (s *Service) trackGuildFromDisk(g *domain.Guild) {
 // topic so all members converge on shared state (channels, member display
 // names). Only the fields relevant to Type are populated.
 type guildMeta struct {
-	Type        string             `json:"type"` // channel_added | channel_updated | category_added | profile | activity | nickname | guild_renamed
-	Channel     domain.Channel     `json:"channel,omitempty"`
+	Type    string         `json:"type"` // channel_added | channel_updated | category_added | profile | activity | nickname | guild_renamed
+	Channel domain.Channel `json:"channel,omitempty"`
+	// Opener is a new post's opening message, carried in its channel_added
+	// (CreateThread). An older peer ignores it and gets the message from the
+	// channel's own topic, or failing that from sync, as before.
+	Opener      *domain.Message    `json:"opener,omitempty"`
 	Category    domain.Category    `json:"category,omitempty"`
 	Fingerprint string             `json:"fingerprint,omitempty"`
 	Name        string             `json:"name,omitempty"`
@@ -2696,17 +2711,37 @@ func (s *Service) CreateThread(guildID, forumID, title, firstMessage string, tag
 		Tags: sanitizePostTags(tagIDs),
 	}
 	s.addChannel(guildID, ch)
-	payload, _ := json.Marshal(guildMeta{Type: "channel_added", Channel: ch})
-	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
-	if err != nil {
-		return domain.Channel{}, fmt.Errorf("app: encrypt guild meta: %w", err)
+	announce := func(opener *domain.Message) error {
+		payload, _ := json.Marshal(guildMeta{Type: "channel_added", Channel: ch, Opener: opener})
+		ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
+		if err != nil {
+			return fmt.Errorf("app: encrypt guild meta: %w", err)
+		}
+		return s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct)
 	}
-	if err := s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct); err != nil {
-		return domain.Channel{}, err
-	}
+	// The opening message travels INSIDE the announcement. Published on the
+	// post's own topic straight after it, as it used to be, it reached nobody:
+	// every other member subscribes to that topic only once the announcement
+	// has arrived, so the one message sent before then went into a topic with
+	// no subscribers, the replies that followed arrived instantly, and the
+	// board showed the first reply as the post until a catch-up fetched the
+	// opener. It is still published on the topic too, for peers on a release
+	// that does not read it from the announcement.
+	announced := false
 	if strings.TrimSpace(firstMessage) != "" {
-		if _, err := s.SendMessage(ch.ID, firstMessage, "", ""); err != nil {
-			return ch, nil // the post exists; the body can be retyped
+		_, err := s.sendAsWith(ch.ID, firstMessage, "", "", "", "", func(m domain.Message) error {
+			announced = true
+			return announce(&m)
+		})
+		if err != nil && announced {
+			return domain.Channel{}, err
+		}
+	}
+	if !announced {
+		// No body, or the send was refused before it was signed (muted, slow
+		// mode): the post exists and the body can be retyped.
+		if err := announce(nil); err != nil {
+			return domain.Channel{}, err
 		}
 	}
 	return ch, nil
@@ -2885,6 +2920,12 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 			m.Channel.Pinned = false
 		}
 		s.addChannel(guildID, m.Channel)
+		// A new post's opening message rides its announcement (CreateThread).
+		// Same lane, same checks as a live message from the same authenticated
+		// sender; only an ordinary message for this very channel is taken.
+		if o := m.Opener; o != nil && o.ChannelID == m.Channel.ID && o.Kind == "" {
+			s.deliverMessage(*o, msg.SenderID)
+		}
 	case "channel_updated":
 		if m.Channel.ID == "" {
 			return
@@ -3313,22 +3354,31 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	if err := json.Unmarshal(msg.Plaintext, &m); err != nil {
 		return true
 	}
+	s.deliverMessage(m, msg.SenderID)
+	return true
+}
+
+// deliverMessage is the live lane after decryption: m arrived in a frame MLS
+// authenticated as senderID's. Everything here filters, attributes and stores;
+// nothing in it depends on which frame carried the message, which is what lets
+// a post's opener ride its channel_added announcement (CreateThread).
+func (s *Service) deliverMessage(m domain.Message, senderID []byte) {
 	// Ignore messages for channels we no longer track (e.g. a guild we left but
 	// whose gossipsub subscription is still live this session).
 	s.mu.RLock()
 	_, tracked := s.channelToGuild[m.ChannelID]
 	s.mu.RUnlock()
 	if !tracked {
-		return true
+		return
 	}
 	// Learn the sender's device→account mapping (if it's a device cert) so their
 	// linked-device PeerID resolves to the account in presence/roster views.
-	s.learnDeviceCert(msg.SenderID)
+	s.learnDeviceCert(senderID)
 	// Trust MLS's authenticated sender over the self-reported field, and
 	// normalize it to the account key: a message from any of an account's linked
 	// devices (whose leaf credential is a device cert) is attributed to the one
 	// account, and every stored/compared Sender is a uniform 32-byte account key.
-	m.Sender = accountKeyOf(msg.SenderID)
+	m.Sender = accountKeyOf(senderID)
 	// FAIL CLOSED on a signature that does not verify. A message whose author
 	// signature is present and wrong has been altered or fabricated somewhere
 	// between the pen and here, and there is no version of "be lenient" that
@@ -3338,7 +3388,7 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	// this frame end to end. Only the relayed lane has to qualify that (sync.go).
 	if len(m.Sig) > 0 && !verifyMessageSig(m) {
 		refusedMessages.note(1, "live messages", accountFingerprintOf(m.Sender))
-		return true
+		return
 	}
 	// The mark is ours to make, never the sender's to assert. Nothing on this
 	// lane earns it — MLS proved who sent the frame — so it is cleared rather
@@ -3347,16 +3397,16 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	switch m.Kind {
 	case "delete":
 		s.applyDelete(m.ReplyTo, m.Sender, m.ChannelID)
-		return true
+		return
 	case "reaction":
 		s.applyReaction(m.ReplyTo, m.Content, m.Sender)
-		return true
+		return
 	case "edit":
 		s.applyEdit(m.ReplyTo, m.Content, m.Sender, m.RowSig, m.Dir)
-		return true
+		return
 	case "pin":
 		s.applyPin(m.ReplyTo, m.Sender, m.ChannelID)
-		return true
+		return
 	}
 	s.mu.RLock()
 	guildID := s.channelToGuild[m.ChannelID]
@@ -3376,7 +3426,7 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	if guildID != "" {
 		if !s.guildHasMember(guildID, senderFpr) ||
 			s.isBanned(guildID, senderFpr) || s.isRemoved(guildID, senderFpr) {
-			return true
+			return
 		}
 	}
 	// Announcement channels enforce, rather than wearing a megaphone. The gate
@@ -3386,11 +3436,11 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	if guildID != "" && m.Kind == "" && s.channelIsAnnouncement(m.ChannelID) &&
 		!s.memberHasPerm(guildID, senderFpr, PermManageMessages) &&
 		!s.memberHasPerm(guildID, senderFpr, PermManageChannels) {
-		return true
+		return
 	}
 	// Advisory mute: drop a normal message from a member who is currently muted.
 	if guildID != "" && s.isMuted(guildID, senderFpr) {
-		return true
+		return
 	}
 	// Slow mode, receive side (advisory, same footing as the mute drop):
 	// honest clients agree on which message came too soon by comparing the
@@ -3408,7 +3458,7 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 				last := s.slowSeen[key]
 				if last != 0 && sent > last && sent-last < iv {
 					s.mu.Unlock()
-					return true
+					return
 				}
 				if sent > last {
 					s.slowSeen[key] = sent
@@ -3422,14 +3472,14 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	// ignore it; dropping on receive is what makes every honest client agree the
 	// conversation is over.
 	if s.postIsLocked(m.ChannelID) {
-		return true
+		return
 	}
 	// Backfill a display name from the message if we don't know this member's
 	// name yet, so the roster and chat stay consistent.
 	s.learnNameHint(senderFpr, m.Name)
 	inserted, err := s.store.SaveMessage(m)
 	if err != nil || !inserted {
-		return true // duplicate (gossip re-delivery or already synced): stay silent
+		return // duplicate (gossip re-delivery or already synced): stay silent
 	}
 	s.emitMessage(m)
 	// A message landing in a closed DM reopens the conversation (closing
@@ -3439,7 +3489,7 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	if guildID != "" && !s.dmReopenBlocked(guildID) {
 		s.unhideDM(guildID)
 	}
-	return true
+	return
 }
 
 // adoptBootstrap merges invite-carried rendezvous addrs into the saved network
