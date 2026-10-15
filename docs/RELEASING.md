@@ -134,9 +134,14 @@ multiplier, so the `release` workflow is `workflow_dispatch`-only and exists for
 the rare case where you want CI-built Windows and macOS desktop apps.
 
 ```sh
+scripts/stamp-site.sh v0.9.0 && git commit -am "Point the site at v0.9.0"
 git tag v0.9.0 && git push origin main v0.9.0
 scripts/publish-release.sh v0.9.0 notes.md      # notes file is optional
 ```
+
+The site's download buttons name the version, because asset names carry it;
+`stamp-site.sh` rewrites them, and the publish script refuses a tag the site
+was not stamped for.
 
 The tag has to be plain semver `vX.Y.Z`. The update check recognises no other
 shape, so a `-rc` tag reads as "no update", and the script rejects it outright.

@@ -2,12 +2,12 @@
 #
 # Local release publisher — the ZERO-GitHub-compute path.
 #
-# GitHub Actions on a private repo bills macOS runners at a 10x minute
-# multiplier, so CI-building each release was burning real money. This script
-# replaces that for the common case: it builds everything THIS machine can
-# build (web binaries for all OSes via cross-compilation, plus the native
-# Linux desktop app when webkit2gtk is installed), checksums it, and uploads
-# straight to the public dist repo with `gh` — GitHub only stores the files.
+# GitHub Actions bills macOS runners at a 10x minute multiplier, so
+# CI-building each release was burning real money. This script replaces that
+# for the common case: it builds everything THIS machine can build (web
+# binaries for all OSes via cross-compilation, the native Linux and Windows
+# desktop apps, the Windows installer), checksums and signs it, and uploads it
+# to this repository's releases with `gh` — GitHub only stores the files.
 #
 # Windows/macOS native desktop apps still need their own OS: run the `release`
 # workflow manually (workflow_dispatch) when billing headroom exists, or build
@@ -24,6 +24,13 @@ RELEASE_REPO="ZahakJ/concord"
 
 [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "error: version must look like v0.9.0" >&2; exit 1; }
 command -v gh >/dev/null || { echo "error: needs the gh CLI, authenticated" >&2; exit 1; }
+
+# The site's download buttons name the version in their URLs, so a release the
+# site was not stamped for leaves the front page offering the previous one.
+if ! grep -q "releases/download/$VERSION/" docs/index.html; then
+  echo "error: docs/index.html does not link $VERSION; run scripts/stamp-site.sh $VERSION and commit it first" >&2
+  exit 1
+fi
 
 echo "==> building web release binaries ($VERSION)"
 make release VERSION="$VERSION"
