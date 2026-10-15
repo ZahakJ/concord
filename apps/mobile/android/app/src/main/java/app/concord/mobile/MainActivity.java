@@ -309,12 +309,12 @@ public class MainActivity extends BridgeActivity {
             // known, and a document that paints now paints under the bar.
             int floorDp = statusBarFloorDp();
             String js =
-                "(function(s){s.setProperty('--sa-bars-top','" + floorDp + "px');" +
-                "s.setProperty('--sa-floor-top','" + floorDp + "px');})(document.documentElement.style)";
+                "(function(s){if(!s)return false;s.setProperty('--sa-bars-top','" + floorDp + "px');" +
+                "s.setProperty('--sa-floor-top','" + floorDp + "px');return true;})(document.documentElement&&document.documentElement.style)";
             if (!js.equals(lastPushed)) {
                 lastPushed = js;
                 lastValues = "{\"top\":0,\"floor\":" + floorDp + ",\"attached\":false}";
-                wv.evaluateJavascript(js, null);
+                wv.evaluateJavascript(js, landed(js));
             }
             return;
         }
@@ -371,7 +371,7 @@ public class MainActivity extends BridgeActivity {
         int bottom = Math.max(0, Math.round(bottomBarsPx / d) - kb);
 
         String js =
-            "(function(s){s.setProperty('--sa-top','" + top + "px');" +
+            "(function(s){if(!s)return false;s.setProperty('--sa-top','" + top + "px');" +
             "s.setProperty('--sa-bottom','" + bottom + "px');" +
             "s.setProperty('--sa-left','" + left + "px');" +
             "s.setProperty('--sa-right','" + right + "px');" +
@@ -406,7 +406,7 @@ public class MainActivity extends BridgeActivity {
             // the direction that has actually been failing for two weeks.
             "document.documentElement.style.setProperty('--sa-floor-top'," +
             "document.documentElement.style.getPropertyValue('--sa-bars-top')||'0px');" +
-            "})(document.documentElement.style)";
+            "return true;})(document.documentElement&&document.documentElement.style)";
         // onGlobalLayout fires on every frame of a scroll; only cross the bridge
         // when something actually moved.
         if (js.equals(lastPushed)) return;
@@ -420,7 +420,17 @@ public class MainActivity extends BridgeActivity {
             "bars=" + bars + " ime.bottom=" + ime.bottom +
             " wv=[" + wvTop + "," + wvBottom + "] winH=" + winH +
             " -> top=" + top + " bottom=" + bottom + " kb=" + kb);
-        wv.evaluateJavascript(js, null);
+        wv.evaluateJavascript(js, landed(js));
+    }
+
+    // A push can run before the page has a document (between navigations), and
+    // then it does nothing. It must not count as pushed: lastPushed exists to
+    // skip identical values, so a lost first push of the real insets would
+    // otherwise never be repeated until something moved.
+    private android.webkit.ValueCallback<String> landed(String js) {
+        return result -> {
+            if (!"true".equals(result) && js.equals(lastPushed)) lastPushed = "";
+        };
     }
 
     // ---- status/navigation bar appearance ----
