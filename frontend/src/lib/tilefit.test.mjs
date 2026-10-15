@@ -6,7 +6,7 @@
 // and 620x540 on a 1440x900 desktop, 358x608 and 358x653 on a 390x844 phone —
 // so these are the real cases, at the participant counts a two-laptop rig
 // cannot staff.
-import { bestFit, columnsFor, fitTiles, TILE_AR, TILE_AR_MIN } from "./tilefit.js";
+import { bestFit, columnsFor, fitTiles, TILE_AR, TILE_AR_MIN, TILE_AR_PORTRAIT } from "./tilefit.js";
 
 let failures = 0;
 const assert = (cond, msg) => {
@@ -154,6 +154,31 @@ for (const [where, w, h] of BOXES) {
   const f = bestFit({ w: 900, h: 220, n: 2, gap: GAP });
   assert(f.tileW > f.tileH, `a short stage keeps two people landscape (${f.tileW}x${f.tileH})`);
   assert(f.tileH * f.rows <= 220 + 1, "…and still fits");
+}
+
+// ---- three and four on a phone ------------------------------------------
+//
+// Four people on a 358x653 phone stage were four 242x151 frames in one column,
+// 62% of the width with a 58px gutter either side. With the portrait floor the
+// 2x2 grid is the bigger arrangement and it spans the stage.
+{
+  const phone = { w: 358, h: 653 };
+  const four = bestFit({ ...phone, n: 4, gap: GAP });
+  eq(four.cols, 2, "phone, four people: a 2x2 grid");
+  assert(four.rowW >= phone.w - 2, `phone, four people: the grid spans the stage (${four.rowW} of ${phone.w})`);
+  const ar = four.tileW / four.tileH;
+  assert(ar >= TILE_AR_PORTRAIT - 0.01, `phone, four people: no taller than 3:4 (${four.tileW}x${four.tileH})`);
+  const column = fitTiles({ ...phone, n: 4, cols: 1, gap: GAP });
+  assert(
+    four.tileW * four.tileH > column.tileW * column.tileH,
+    `phone, four people: ${four.tileW}x${four.tileH} beats one column of ${column.tileW}x${column.tileH}`,
+  );
+  assert(four.tileH * four.rows + GAP * (four.rows - 1) <= phone.h + 1, "phone, four people: two rows fit");
+  // A landscape box never gets portrait tiles, whoever is in it.
+  for (const n of [3, 4]) {
+    const f = bestFit({ w: 864, h: 540, n, gap: GAP });
+    assert(f.tileW > f.tileH, `desktop, ${n} people: landscape tiles (${f.tileW}x${f.tileH})`);
+  }
 }
 
 // ---- degenerate boxes ---------------------------------------------------

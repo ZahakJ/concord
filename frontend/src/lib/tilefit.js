@@ -37,7 +37,21 @@ export const TILE_MIN_W = 96;
 // held at TILE_MAX_W on purpose (a tile, not a wall), and its margin is that
 // cap rather than the aspect.
 export const TILE_AR_MIN = 1;
-export const relaxedAr = (n) => (n === 2 ? TILE_AR_MIN : null);
+
+// The portrait floor, and the one box that gets it: three or four people in a
+// box taller than it is wide — a phone. Held to 16:10 there, two columns of
+// tiles were 173x108 slivers, so the fit chose one column and then had to
+// shrink each tile to share the height four ways: four 242x151 frames in a
+// 62% column with a 58px gutter either side, on a 358px stage. Allowed down to
+// 3:4, the 2x2 grid uses the width AND the height, and the area comparison in
+// bestFit is what decides between that and a single column of wide frames.
+export const TILE_AR_PORTRAIT = 3 / 4;
+
+export const relaxedAr = (n, w = 0, h = 0) => {
+  if (n === 2) return TILE_AR_MIN;
+  if ((n === 3 || n === 4) && h > w) return TILE_AR_PORTRAIT;
+  return null;
+};
 
 // fitTiles: the stage's inner box and who is in it → the tile's size, and the
 // width one row of them needs.
@@ -92,18 +106,25 @@ export const columnsFor = (n) => Math.min(4, Math.max(1, Math.ceil(Math.sqrt(Mat
 //
 // Ties go to the arrangement nearest the square one, so a box with room to
 // spare keeps the conventional look instead of stacking everybody in a column.
+//
+// "Biggest" is area, not width. While every tile was locked to 16:10 the two
+// orderings were the same; once a tile's shape can range (two people, or three
+// and four on a phone) a narrower but much taller tile can be the larger one,
+// and width alone would never pick it.
 export function bestFit({ w, h, n, gap = 12, maxCols = 4, ar = TILE_AR, arMin, maxW = TILE_MAX_W, minW = TILE_MIN_W }) {
   const count = Math.max(1, n | 0);
   const want = columnsFor(count);
-  const lo = arMin === undefined ? relaxedAr(count) : arMin;
+  const lo = arMin === undefined ? relaxedAr(count, w, h) : arMin;
+  const area = (f) => f.tileW * f.tileH;
   let best = null;
   for (let c = 1; c <= Math.min(maxCols, count); c++) {
     const f = fitTiles({ w, h, n: count, cols: c, gap, ar, arMin: lo, maxW, minW });
     if (!f) continue;
+    const tie = best && Math.abs(area(f) - area(best)) <= 0.01 * area(best);
     const better =
       !best ||
-      f.tileW > best.tileW + 0.5 ||
-      (Math.abs(f.tileW - best.tileW) <= 0.5 && Math.abs(c - want) < Math.abs(best.cols - want));
+      (!tie && area(f) > area(best)) ||
+      (tie && Math.abs(c - want) < Math.abs(best.cols - want));
     if (better) best = f;
   }
   return best;
