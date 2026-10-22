@@ -115,6 +115,12 @@ func (b *Bridge) CanSelfUpdate() bool {
 	if !isSemver(version.Version) {
 		return false // dev builds have nothing to update to
 	}
+	// iOS apps update through the App Store only (App Review 2.5.2). The
+	// bundle is read-only on a device anyway, but the simulator's is writable,
+	// so say no outright rather than leaning on the probe below.
+	if runtime.GOOS == "ios" {
+		return false
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return false
