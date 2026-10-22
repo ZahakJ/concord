@@ -200,6 +200,9 @@ Everything is an environment variable; nothing is required except a port.
 | `CONCORD_GIF_PROVIDER` | `giphy` | `giphy` or `tenor`. Tenor's public API was decommissioned in June 2026; it is kept for self-hosted mirrors. |
 | `CONCORD_TURN_SECRET` | off | Enables the TURN relay for IP-private calls. Read the fly.io warning above first. |
 | `CONCORD_TURN_PORT` | `3478` | TURN listen port when the relay is enabled. |
+| `CONCORD_RELAY_CIRCUIT_BYTES`, `CONCORD_RELAY_CIRCUIT_DURATION` | unlimited | Cap each relayed circuit (bytes each way; a duration such as `2m`). **Do not set these on a node Concord peers use:** a capped circuit is a "limited" connection, and gossipsub will not publish over one. They are for a node that relays only signaling. |
+| `CONCORD_RELAY_MAX_CIRCUITS` | `64` | Concurrent relayed circuits per peer. |
+| `CONCORD_RELAY_MAX_RESERVATIONS`, `CONCORD_RELAY_MAX_RESERVATIONS_PER_PEER`, `CONCORD_RELAY_MAX_RESERVATIONS_PER_IP` | `512`, `8`, `16` | Relay reservations in total, per peer, and per IP. |
 
 ## What running one commits you to
 

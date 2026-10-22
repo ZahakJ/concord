@@ -65,8 +65,16 @@ func run() error {
 
 	// Relay service for NAT'd peers. The resource numbers live in internal/net
 	// (RendezvousRelayResources) so the tests that stand in for this node run
-	// the same relay this node does.
-	relayRes := cnet.RendezvousRelayResources()
+	// the same relay this node does. CONCORD_RELAY_* can tighten them for a
+	// node that relays only signaling (see RendezvousRelayResourcesFromEnv);
+	// unset, they are exactly Concord's.
+	relayRes, err := cnet.RendezvousRelayResourcesFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if l := relayRes.Limit; l != nil {
+		fmt.Printf("Relay circuits capped at %d bytes and %s each (CONCORD_RELAY_CIRCUIT_*).\n", l.Data, l.Duration)
+	}
 
 	h, err := libp2p.New(
 		libp2p.Identity(priv),
