@@ -4,7 +4,7 @@
 one-click installer — no admin prompt, no wizard: it installs Concord for your
 user account, puts it in the Start Menu and on the Desktop,
 and launches it. Updates after that happen from inside the app (Settings →
-Software update). Uninstall from Windows' "Add or remove programs" as usual
+Account, under This install). Uninstall from Windows' "Add or remove programs" as usual
 (your chat history and identity are kept).
 
 Everything below is for the standalone `.exe` downloads and for getting past
@@ -21,8 +21,8 @@ program by default. This is a false positive. Here's how to get past it.
 
 ## Quickest path if the desktop app keeps getting blocked
 
-Grab **`concord-windows.exe`** (the *web* build) instead of
-`concord-desktop-windows.exe`. It's the same app, but it opens in your browser
+Grab **`concord-windows-<version>.exe`** (the *web* build) instead of
+`concord-desktop-windows-<version>.exe`. It's the same app, but it opens in your browser
 rather than its own window — and it's the build that has always run cleanly. No
 window, same features.
 
@@ -31,7 +31,7 @@ window, same features.
 1. Click **More info**
 2. Click **Run anyway**
 
-That's it — Concord opens in your browser.
+That's it — Concord starts.
 
 ## If Defender deletes/quarantines the file, or "Run anyway" doesn't appear
 
@@ -50,16 +50,18 @@ Tell Defender to trust a folder, then keep Concord there:
 2. Under *Virus & threat protection settings*, click **Manage settings**
 3. Scroll to **Exclusions** → **Add or remove exclusions** → **Add an exclusion** → **Folder**
 4. Pick (or make) a folder, e.g. `Documents\Concord`
-5. Put `concord-windows.exe` in that folder and run it from there
+5. Put `concord-windows-<version>.exe` in that folder and run it from there
 
 ## Is this actually safe?
 
 Yes. Concord:
 
 - runs as your normal user (no admin, per its manifest)
-- has no installer and writes only its own data folder (`%AppData%\concord`)
+- installs only under your user profile: the desktop app in
+  `%LocalAppData%\Concord`, your data in `%AppData%\concord`
 - is fully open source — you can read every line and build it yourself
-- talks only peer-to-peer, end-to-end encrypted
+- encrypts everything it sends end to end; [PRIVACY.md](PRIVACY.md) lists
+  every outbound request it can make
 
 The flag is purely "this program isn't signed by a company Microsoft
 recognizes," not a detection of anything harmful.
@@ -70,7 +72,7 @@ Every release ships a `SHA256SUMS` file listing the expected hash of each binary
 To confirm your download wasn't tampered with, in PowerShell:
 
 ```powershell
-Get-FileHash .\concord-desktop-windows.exe -Algorithm SHA256
+Get-FileHash .\concord-desktop-windows-<version>.exe -Algorithm SHA256
 ```
 
 Compare the printed hash against the matching line in `SHA256SUMS`.

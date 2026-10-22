@@ -88,7 +88,8 @@ parses newline-terminated JSON lines. Each half once looked correct alone while
 the pair was broken for weeks (the gateway forwarded lines without the trailing
 `\n`, and every guest join hung at "Connecting…"). Two guards cover it now:
 
-- `cmd/rendezvous/guest_smoke_test.go` runs in the normal suite. It drives the
+- `cmd/rendezvous/guest_smoke_test.go` runs in `go test ./...`, the suite CI
+  gates on (`make test` covers only `internal/` and the root package). It drives the
   real gateway handler over a real libp2p stream and a real WebSocket, and
   parses the output with a literal Go transcription of the guest page's
   `ws.onmessage` buffer-and-split loop, so the test *is* the other half of the

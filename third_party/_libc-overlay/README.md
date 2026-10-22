@@ -4,7 +4,7 @@ A single patched file from **modernc.org/libc**, the pure-Go C runtime that
 `modernc.org/sqlite` compiles against.
 
 - Upstream module: `modernc.org/libc` — https://gitlab.com/cznic/libc
-- Forked version: **v1.74.1** (the version pinned as an indirect dependency in
+- Forked version: **v1.77.1** (the version pinned as an indirect dependency in
   the root `go.mod`)
 - Licence: BSD-3-Clause, © 2017 The Libc Authors. Full text in `LICENSE`,
   copied verbatim from the upstream module.

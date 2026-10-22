@@ -138,7 +138,7 @@ come from. No family in the set declares a Reserved Font Name.
 ## modernc.org/libc overlay
 
 - **Upstream:** `modernc.org/libc` — https://gitlab.com/cznic/libc, the pure-Go
-  C runtime `modernc.org/sqlite` compiles against. Forked at **v1.74.1**.
+  C runtime `modernc.org/sqlite` compiles against. Forked at **v1.77.1**.
 - **Copyright:** © 2017 The Libc Authors. All rights reserved.
 - **Licence:** BSD-3-Clause. Text at `third_party/_libc-overlay/LICENSE`,
   copied verbatim from the upstream module.

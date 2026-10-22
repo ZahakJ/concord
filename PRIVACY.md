@@ -71,7 +71,10 @@ Your history lives only on your own devices — there is no server copy.
 Locally it is an encrypted SQLite database:
 
 - Message bodies are sealed with NaCl secretbox under a key derived from your
-  identity seed; a stolen database file yields no readable messages.
+  identity seed; a stolen database file yields no readable messages. The
+  structure around them is not sealed: who sent what and when, reactions,
+  profiles, and guild and channel names are stored in the clear so the app can
+  query and order them (see *What is not protected*, below).
 - Your identity seed is itself encrypted at rest with Argon2id + secretbox,
   unlocked by your passphrase.
 - Full-text search runs entirely on your machine; queries never leave it.
@@ -100,9 +103,10 @@ It is deliberately designed to learn as little as possible:
   guest's own messages, and a booking visitor's IP plus whatever they submit —
   the slot, their name, their note. It stores none of it, and everything else
   passing through remains ciphertext.
-- **The TURN relay for calls** exists so meeting-link participants can hide
-  their IP addresses from *each other*; media through it stays DTLS-SRTP
-  encrypted end to end.
+- **The optional TURN relay for calls** exists so call participants can hide
+  their IP addresses from *each other*: meetings use it whenever the node runs
+  one, and any call does with *Hide my IP on calls* switched on. Media through it
+  stays DTLS-SRTP encrypted end to end.
 - You can self-host the whole thing.
 
 ## The outbound calls that are not to your peers
@@ -130,14 +134,16 @@ point of this section. This list is exhaustive.
   [`internal/bridge/update.go`](internal/bridge/update.go) and
   [`frontend/src/lib/installsource.js`](frontend/src/lib/installsource.js).
 - **`stun.l.google.com`, at call time only.** Starting a call needs to learn
-  your own external address. If the rendezvous you bootstrap through serves ICE
-  configuration, that is used and Google is never contacted; only when it does
-  not is there a fallback to this hardcoded public STUN server. It learns your
-  IP and that you are starting a call — no media, no identity, no group, and
-  nothing at all if you never place a call. See
-  [`internal/app/ice.go`](internal/app/ice.go).
+  your own external address, and this public STUN server is how the app finds
+  it. It is the fallback when your rendezvous serves no ICE configuration, and
+  the rendezvous this project ships lists it too, beside its own TURN relay, in
+  the configuration it does serve — so a call reaches it either way. It learns
+  your IP and that you are starting a call — no media, no identity, no group,
+  and nothing at all if you never place a call. See
+  [`internal/app/ice.go`](internal/app/ice.go) and
+  [`cmd/rendezvous/turn.go`](cmd/rendezvous/turn.go).
 
-Neither can be switched off from the UI today. The README covers the same two
+Neither can be switched off from the UI today. DESIGN.md covers the same two
 in architectural terms ([§1](docs/DESIGN.md#1-the-problem-and-the-thesis),
 [§9.2](docs/DESIGN.md#92-ip-privacy-the-state-of-it)).
 
@@ -210,18 +216,25 @@ shorten that on purpose:
 **In the app: *Settings → Privacy & safety → Delete everything on this device*.**
 It asks you to type your profile name, and then erases your identity keystore,
 the encrypted database holding every message stored here, the MLS group state,
-and the plaintext peer cache. The app is left exactly as it was before you first
-opened it. Nothing is retained, anywhere, for any period, because there is
-nowhere for it to be retained.
+and the plaintext peer cache. Three things outside those survive it: the
+rendezvous address you configured (`netconfig.json`), the record of a verified
+release download (`release.json`), and what the interface keeps in its own
+browser storage — display preferences, plus the text of any unsent draft or
+failed send. Nothing about you is retained anywhere else, because there is
+nowhere else for it to be retained.
 
 Smaller erasures, for when the whole device is not what you meant:
 
 - **One message**, for everyone: delete it, and the deletion travels to the
-  group like any other message.
+  group like any other message. In a direct message every honest client then
+  overwrites the text. In a guild each member's app keeps the deleted text,
+  still sealed, so that a moderator can reveal it; it is gone from a device
+  only once that device empties its trash.
 - **Every deleted message's retained text** on this device: *Privacy & safety →
   Empty trash*.
-- **One linked device**: *Settings → Devices → Unlink*, which tells that device
-  to erase itself.
+- **One linked device**: *Settings → Connection → Stats & diagnostics*, then
+  *Unlink* beside it. That removes it from your guilds at once, and it erases its
+  own copy when it next comes online.
 
 What deletion cannot do, and no feature of any peer-to-peer messenger can:
 **reach the copies other people already have.** A message you sent is on the
@@ -241,8 +254,12 @@ gate. It is not directed to children, and it is not designed, marketed or
 featured for them.
 
 It does carry user-generated content — anything a member of a guild you join
-chooses to send — so it is rated accordingly, and the app provides blocking, a
-report flow, and message requests that hold a stranger's first DM unopened. If
+chooses to send — so it is rated accordingly, and the app provides blocking,
+message requests that hold a stranger's first DM unopened, and a *Report
+message* dialog. That dialog sends nothing to anyone, because there is no
+moderation team to receive it: it hides the message, blocks its sender, or
+saves an evidence file on your device for you to hand to someone who can act.
+Removing a member or a message for everyone is up to that guild's own admins. If
 you are responsible for a young person's device, treat Concord as you would any
 other open communication tool.
 
@@ -252,21 +269,29 @@ other open communication tool.
   relay can observe *that* your peer ID connects and roughly when (never
   content), and peers you connect to directly learn your IP address, as with
   any P2P system (BitTorrent, most VoIP). Calls can opt into relay-only mode
-  to hide IPs from other participants. Onion-routed discovery is future work.
+  to hide IPs from other participants, which works only when your rendezvous
+  runs a TURN relay. Onion-routed discovery is future work.
 - **Concord is not an anonymity tool.** It authenticates identities; it does
   not hide them. If you need anonymity, use a network layer built for it.
 - **Group members are trusted.** Encryption protects the group from outsiders;
   it cannot stop a member you invited from copying or screenshotting what you
-  sent them. Offline history-sync batches are attested by the serving member,
-  not re-verified per original sender.
+  sent them. Messages that arrive through offline history sync are checked
+  against their author's own signature; one with no signature (written before
+  signatures existed, or served by an older build) is kept but shown as
+  unverified. The guild snapshot, member profiles and events in a sync batch
+  are still taken on the serving member's word.
 - **Your passphrase is the at-rest anchor.** If you configure convenience
   auto-unlock (e.g. storing the passphrase on disk so the app signs in at
   boot), at-rest encryption no longer protects your identity or history from
   someone who compromises that machine. That trade-off is yours to make;
   Concord's default is to ask for the passphrase.
-- **Not everything on your disk is encrypted.** Two things sit beside the
-  database in the clear, and a stolen or shared machine gives them up even
-  though your message bodies stay sealed:
+- **Not everything on your disk is encrypted.** Inside the database, only
+  message bodies, attachments and story captions are sealed; senders, timestamps,
+  reactions, profiles, guild and channel names, the governance log and settings
+  are in the clear. Unsent drafts and failed sends wait in the interface's own
+  browser storage, unencrypted. And two things sit beside the database in the
+  clear, which a stolen or shared machine gives up even though your message
+  bodies stay sealed:
   - `peers.json` — a plaintext record of everyone this install has connected
     to: peer ID (a public key), last known addresses, last-seen time. It is
     bounded (64 entries, forgotten after a month of no contact) and holds

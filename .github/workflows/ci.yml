@@ -37,6 +37,11 @@ jobs:
         run: cd frontend && npm run build
       - name: Markdown/render tests
         run: cd frontend && npm test
+      # The manual is published from the committed docs/manual/, so a source
+      # edited without `make docs` would publish the old page. This also fails
+      # on a link to a heading or file that does not exist.
+      - name: Documentation site is current
+        run: node scripts/build-docs.mjs --check
 
   backend:
     runs-on: ubuntu-latest

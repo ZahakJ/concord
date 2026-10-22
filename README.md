@@ -56,7 +56,8 @@ you are in.
 - Several devices per identity, linked by QR code
 - Import of an exported community's history into a guild archive
 - [Bots](docs/BOTS.md): a script with its own identity, speaking JSON lines
-- Desktop (Linux, Windows, macOS), browser-served build, Android
+- Desktop apps for Linux and Windows, a browser-served build for Linux, macOS
+  and Windows, and Android
 
 Emoji, fonts, icons and sounds are compiled in. Nothing is fetched from a
 third party unless you switch on a feature that says it will;
@@ -75,6 +76,13 @@ make help         # everything else
 ```
 
 ## Documentation
+
+The manual is at **[zahakj.github.io/concord/manual](https://zahakj.github.io/concord/manual/)**:
+installing on each platform, guilds, calls, devices, backups, privacy,
+moderation and troubleshooting, with developer pages on the architecture,
+protocol, building and testing. Its sources are the Markdown in
+[docs/manual](docs/manual) and [docs/dev](docs/dev); the documents below are
+pages of it too.
 
 | | |
 |---|---|

@@ -1,5 +1,9 @@
 # FAQ
 
+Short answers to the questions people ask first about Concord: servers, data, recovery, offline delivery, bots and security.
+
+The full user manual starts at [Getting started](manual/getting-started.md).
+
 ### Is there a server?
 
 No server holds accounts or messages. Peers connect to each other directly.
@@ -15,28 +19,35 @@ goes through it service by service.
 
 ### Where is my data?
 
-On your devices: `~/.config/concord` on Linux, the platform's equivalent
-elsewhere, or wherever `CONCORD_HOME` points. Message bodies and your identity
+On your devices: `~/.config/concord` on Linux, `~/Library/Application Support/concord`
+on macOS, `%AppData%\concord` on Windows, or wherever `CONCORD_HOME` points; see
+[Where your data is](manual/troubleshooting.md#where-your-data-is). Message bodies and your identity
 seed are encrypted at rest under your passphrase.
 
 ### What if I lose my device?
 
-Restore from the 24-word recovery phrase shown when the identity was created
-(Settings → Recovery phrase shows it again). History comes back from the other
-members of each guild, and from your other linked devices. Without the phrase
-and without another linked device, the identity cannot be recovered; there is
-no one to ask.
+If the account is linked on another device, link the new one from it and your
+guilds and history come with it. Otherwise restore from the 24-word recovery
+phrase shown when the identity was created (**Settings → Account → Recovery
+phrase** shows it again). The phrase restores your identity only: the new device
+starts with no guilds and no history, so ask someone in each guild for a fresh
+invite, then restore a backup file (**Settings → Account → Backup & restore**) if
+you made one. Without the phrase and without another linked device, the
+identity cannot be recovered; there is no one to ask.
 
 ### Do messages arrive while I am offline?
 
-Direct messages are deposited, encrypted, in a rendezvous mailbox and collected
-when you come back. Guild history is synced from whichever members are online
-when you reconnect.
+If a rendezvous is set, every message, in a guild or a direct message, is also
+deposited, encrypted, in the rendezvous mailbox of each member device that is
+offline, and collected when that device comes back. The mailbox keeps them in
+memory for up to 14 days. Anything it does not hold is synced from whichever
+members are online when you reconnect.
 
 ### Do I get notifications on Android when the app is closed?
 
-With **Stay connected** on (the default), a foreground service keeps the node
-running and messages arrive as they are sent. Push wakes through a third-party
+With **Stay connected** on (the default, under **Settings → Notifications &
+sounds**), a foreground service keeps the node running and messages arrive as
+they are sent. Push wakes through a third-party
 service are optional and off unless a build is configured for them; see
 [PUSH.md](PUSH.md).
 
@@ -57,7 +68,7 @@ protected is in [DESIGN.md §13](DESIGN.md#13-threat-model-what-concord-defends-
 
 Yes. A guild owner can import a chat-history export into a signed, encrypted
 archive that every member can scroll back through. It is in guild settings,
-under Data.
+under **Data → Import a chat archive**.
 
 ### Can I run bots?
 
