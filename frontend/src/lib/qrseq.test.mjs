@@ -66,6 +66,13 @@ c.add(codes[1]);
 eq("done", c.progress().done, true);
 eq("done line", progressLine(c.progress()), "All 3 scanned");
 
+// A code whose import failed is forgotten and taken again next loop.
+c.forget("deadbeef", 1);
+eq("forgotten is missing", c.progress().missing, [2]);
+eq("forgotten not has", c.has("deadbeef", 1), false);
+eq("forgotten comes back new", c.add(codes[1]).kind, "new");
+eq("done again", c.progress().done, true);
+
 // A second sequence takes over the progress line without losing the first.
 const other = encodeCodes([frames[0], frames[2]], "0badf00d");
 eq("other new", c.add(other[1]).kind, "new");

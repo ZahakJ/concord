@@ -105,6 +105,16 @@ export class Collector {
     return { kind: "new", ...c };
   }
 
+  // forget un-collects a code whose import failed, so it counts as missing
+  // and is taken again when the loop comes round.
+  forget(set, i) {
+    this.sets.get(set)?.have.delete(i);
+  }
+
+  has(set, i) {
+    return !!this.sets.get(set)?.have.has(i);
+  }
+
   progress() {
     const s = this.current && this.sets.get(this.current);
     if (!s) return { have: 0, total: 0, done: false, missing: [] };

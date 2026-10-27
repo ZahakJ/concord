@@ -36,19 +36,23 @@ arrived; dedupe makes re-reading harmless.
 Sender (Settings → Off-grid links, **QR codes** enabled):
 
 1. Messages queue for the `qr` link like any manual link.
-2. **Show N queued as QR codes** calls `ExportLink("qr")` (drains the outbox
-   into a pack), the UI decodes the pack and opens a white full-screen player:
-   one code at a time, auto-advancing (600 / 350 / 220 ms per code —
+2. **Show N queued as QR codes** calls `PeekLink("qr")` (copies the outbox
+   without draining it), the UI decodes the pack and opens a white full-screen
+   player: one code at a time, auto-advancing (600 / 350 / 220 ms per code —
    Slow/Normal/Fast), looping, with pause and step controls and a counter
    "3 / 15". The screen is kept awake on Android.
-3. Closing the player drops those frames; the messages still sync over the
-   internet when it is back (same as an unsaved file export).
+3. **Done — all scanned** (pressed once the receiver says so) calls
+   `DiscardLinkQueued("qr", N)`, dropping exactly the frames that were shown.
+   Closing the player any other way, or a failure while drawing the codes,
+   leaves them queued.
 
 Receiver:
 
 1. **Scan QR codes** opens the camera scanner in continuous mode.
 2. Every new code is fed through `ImportLinkFrames("qr", [frame])` → the
-   Manager's reassembly, freshness check, dedupe, delivery, relay.
+   Manager's reassembly, freshness check, dedupe, delivery, relay. A code
+   counts as scanned only once that import succeeded; a failed one shows as
+   missing and is taken again on the next loop.
 3. The scanner's status line shows progress — `12/15 scanned — missing 4, 9, 13`
    (missing indexes listed when 8 or fewer) — and closes itself with
    "Scanned all 15 codes" when the set is complete.
@@ -78,5 +82,6 @@ from the screen; if it stalls, Slow speed and screen brightness up.
 ## RPC
 
 `ImportLinkFrames(name string, framesB64 []string) (int, error)` — only for a
-registered **manual** link, at most 512 frames per call, each frame at most
-that link's MTU; malformed ones are skipped. Returns how many were taken.
+registered **manual** link (looked up with `Manager.Caps`, no probing), at
+most 512 frames per call; a string longer than the base64 length of the
+link's MTU is skipped before decoding, as is anything malformed. Returns how many were taken.

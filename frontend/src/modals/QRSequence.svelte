@@ -8,7 +8,9 @@
   import Icon from "../Icon.svelte";
   import { encodeCodes } from "../lib/qrseq.js";
 
-  let { frames, onClose } = $props();
+  // onDone: the user confirmed the other device has everything; only then are
+  // the frames dropped from the outbox. onClose keeps them queued.
+  let { frames, onDone, onClose } = $props();
   $effect(() => pushLayer("qrseq", () => onClose?.()));
 
   const SPEEDS = [600, 350, 220]; // ms per code: careful, normal, fast
@@ -18,6 +20,7 @@
   let paused = $state(false);
   let error = $state("");
   let timer = 0;
+  let destroyed = false;
 
   // The encoder is a lazy chunk, as in the invite and link-device dialogs.
   import("qrcode")
@@ -25,8 +28,10 @@
       const codes = encodeCodes(frames);
       const out = [];
       for (const c of codes) {
+        if (destroyed) return;
         out.push(await QRCode.toDataURL(c, { margin: 2, width: 480, errorCorrectionLevel: "M" }));
       }
+      if (destroyed) return;
       images = out;
       schedule();
     })
@@ -34,7 +39,7 @@
 
   function schedule() {
     clearTimeout(timer);
-    if (paused || images.length < 2) return;
+    if (destroyed || paused || images.length < 2) return;
     timer = setTimeout(() => {
       at = (at + 1) % images.length;
       schedule();
@@ -62,6 +67,7 @@
     window.Capacitor?.Plugins?.ConcordCore?.setKeepAwake?.({ on }).catch(() => {});
   keepAwake(true);
   onDestroy(() => {
+    destroyed = true;
     clearTimeout(timer);
     keepAwake(false);
   });
@@ -78,7 +84,7 @@
   {:else}
     <img class="qr" src={images[at]} alt="QR code {at + 1} of {images.length}" />
     <p class="count">{at + 1} / {images.length}</p>
-    <p class="msg">Scan with Concord on the other device: Settings → Off-grid links → Scan QR codes. The sequence loops until you close it.</p>
+    <p class="msg">Scan with Concord on the other device: Settings → Off-grid links → Scan QR codes. The sequence loops; press Done once the other device says all {images.length} were scanned. Closing keeps them queued.</p>
     {#if images.length > 1}
       <div class="ctl">
         <button type="button" aria-label="Previous code" onclick={() => step(-1)}><Icon name="back" size={18} /></button>
@@ -89,6 +95,7 @@
         <button type="button" class="speed" onclick={faster}>{["Slow", "Normal", "Fast"][speed]}</button>
       </div>
     {/if}
+    <button type="button" class="done" onclick={() => onDone?.()}>Done — all scanned</button>
   {/if}
 </div>
 
@@ -138,6 +145,14 @@
     color: #111;
     display: grid;
     place-items: center;
+    font-weight: 600;
+  }
+  .done {
+    min-height: max(44px, var(--tap-min));
+    padding: 0 var(--sp-4);
+    border-radius: var(--radius-md);
+    background: var(--accent);
+    color: var(--accent-fg);
     font-weight: 600;
   }
   .fwd {

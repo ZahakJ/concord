@@ -162,17 +162,17 @@ func (b *Bridge) ImportLinkFrames(name string, framesB64 []string) (int, error) 
 	if len(framesB64) > maxImportFrames {
 		return 0, fmt.Errorf("at most %d frames at once", maxImportFrames)
 	}
-	var mtu int
-	for _, v := range m.Links() {
-		if v.Name == name && v.Caps.Mode == transport.Manual {
-			mtu = v.Caps.MTU
-		}
-	}
-	if mtu == 0 {
+	caps, ok := m.Caps(name)
+	if !ok || caps.Mode != transport.Manual || caps.MTU <= 0 {
 		return 0, fmt.Errorf("no manual link %q", name)
 	}
+	mtu := caps.MTU
+	maxLen := base64.StdEncoding.EncodedLen(mtu)
 	n := 0
 	for _, s := range framesB64 {
+		if len(s) == 0 || len(s) > maxLen {
+			continue // refused before decoding anything
+		}
 		f, err := base64.StdEncoding.DecodeString(s)
 		if err != nil || len(f) == 0 || len(f) > mtu {
 			continue
