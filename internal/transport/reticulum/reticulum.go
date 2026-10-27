@@ -6,8 +6,9 @@
 // runs a small sidecar (concord-rns.py, embedded in this binary) with the
 // user's own Python and the `rns` package, and talks to it over a pipe. The
 // sidecar registers one destination, concord.bundle, announces it, learns
-// every other Concord node that announces the same, and fans each frame out
-// to them as an encrypted RNS packet. What crosses the pipe is the Manager's
+// every other Concord node that announces the same, and sends each frame to
+// the 8 most recently heard of them as an encrypted RNS packet. Its RNS
+// identity lives only in memory and rotates daily. What crosses the pipe is the Manager's
 // bundle frames — MLS ciphertext plus a small header — and nothing else.
 //
 // Nothing starts until the user enables the link; Probe only looks at files.
@@ -158,11 +159,19 @@ func rnsInstalled(python string) bool {
 	return false
 }
 
-// defaultRNSConfig is written only when the config dir has none: a private
-// instance (it neither binds nor joins a shared one) on the local network
-// only. Radios are the user's to add.
+// defaultRNSConfig is written only when the config dir has none. It enables
+// no interface: which radio or network Concord transmits on is the user's
+// choice, so the link stays unusable until they pick one. share_instance is
+// off because a shared instance's interfaces cannot be checked (the sidecar
+// refuses to run on one anyway).
 const defaultRNSConfig = `# Concord's Reticulum config. See docs/transports/reticulum.md.
-# Amateur-only interfaces are refused: Concord sends only ciphertext.
+#
+# No interface is enabled yet: enable one below (or add your own) and turn the
+# link on again. Concord sends only ciphertext, which amateur radio forbids, so
+# the sidecar refuses to start on amateur bands, AX.25, callsigns, and on
+# KISS/serial/pipe interfaces unless their section says
+#   concord_non_amateur = yes
+
 [reticulum]
   enable_transport = No
   share_instance = No
@@ -172,17 +181,85 @@ const defaultRNSConfig = `# Concord's Reticulum config. See docs/transports/reti
   loglevel = 4
 
 [interfaces]
+  # Other Reticulum nodes on this LAN (IPv6 link-local multicast).
   [[Local network]]
     type = AutoInterface
-    enabled = Yes
+    enabled = No
+
+  # An RNode on US ISM 915 MHz. EU: frequency = 868100000 (863-870 MHz).
+  [[LoRa]]
+    type = RNodeInterface
+    enabled = No
+    port = /dev/ttyACM0
+    frequency = 915000000
+    bandwidth = 125000
+    txpower = 17
+    spreadingfactor = 8
+    codingrate = 5
+
+  # Another Reticulum node over TCP.
+  [[Friend]]
+    type = TCPClientInterface
+    enabled = No
+    target_host = 192.168.1.20
+    target_port = 4242
+
+  # A serial line or non-amateur radio modem.
+  [[Serial]]
+    type = SerialInterface
+    enabled = No
+    port = /dev/ttyUSB0
+    speed = 115200
+    concord_non_amateur = no
 `
+
+// enabledInterfaces counts the enabled [[interfaces]] in an RNS config, with
+// a deliberately small reader of its INI dialect. It is for Probe's message
+// only; the sidecar does the authoritative checks with RNS's own parser.
+func enabledInterfaces(raw []byte) int {
+	n, inIfaces, cur := 0, false, false
+	for _, line := range strings.Split(string(raw), "\n") {
+		if i := strings.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			depth := len(line) - len(strings.TrimLeft(line, "["))
+			switch {
+			case depth == 1:
+				inIfaces = strings.EqualFold(strings.Trim(line, "[] "), "interfaces")
+				cur = false
+			case depth == 2 && inIfaces:
+				cur = true
+			case depth == 2:
+				cur = false
+			}
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok || !cur || !inIfaces {
+			continue
+		}
+		k = strings.ToLower(strings.TrimSpace(k))
+		v = strings.ToLower(strings.Trim(strings.TrimSpace(v), `"'`))
+		if (k == "enabled" || k == "interface_enabled") && (v == "yes" || v == "true" || v == "1" || v == "on" || v == "y") {
+			n++
+			cur = false // count each interface once
+		}
+	}
+	return n
+}
 
 // Link is the Reticulum transport.
 type Link struct {
 	dataDir string
 
-	mu sync.Mutex
-	p  *proc
+	mu       sync.Mutex
+	p        *proc
+	starting bool
+	// abort cancels a Start in flight; startDone closes when it returns.
+	abort     context.CancelFunc
+	startDone chan struct{}
 }
 
 // New returns the link for a Concord data dir. It touches nothing.
@@ -208,7 +285,11 @@ func (*Link) Caps() transport.Caps {
 func (l *Link) Probe() transport.Status {
 	l.mu.Lock()
 	p := l.p
+	starting := l.starting
 	l.mu.Unlock()
+	if starting {
+		return transport.Status{State: transport.Available, Detail: "starting"}
+	}
 	if p != nil && !p.exited() {
 		return transport.Status{State: transport.Available,
 			Detail: fmt.Sprintf("running as %s, %d peers", p.hash.Load(), p.peers.Load())}
@@ -226,6 +307,11 @@ func (l *Link) Probe() transport.Status {
 	if !explicit && !rnsInstalled(py) {
 		return transport.Status{State: transport.NoHardware, Detail: py + " found but rns is not installed (pipx install rns)"}
 	}
+	cfgPath := filepath.Join(c.ConfigDir, "config")
+	if raw, err := os.ReadFile(cfgPath); err != nil || enabledInterfaces(raw) == 0 {
+		return transport.Status{State: transport.NoHardware,
+			Detail: "no Reticulum interface set up: enable one (RNode, TCP, serial…) in " + cfgPath + " — see docs/transports/reticulum.md"}
+	}
 	d := "python " + py + ", config " + c.ConfigDir
 	if p != nil {
 		if e := p.lastErr(); e != "" {
@@ -235,48 +321,87 @@ func (l *Link) Probe() transport.Status {
 	return transport.Status{State: transport.Available, Detail: d}
 }
 
-// Start launches the sidecar and returns once RNS is up and announcing.
+// Start launches the sidecar and returns once RNS is up and announcing. The
+// lock is held only to claim and publish the link, never across the spawn, so
+// Probe and Send stay responsive while RNS brings up a slow radio.
 func (l *Link) Start(ctx context.Context, deliver transport.Deliver) error {
 	l.mu.Lock()
-	defer l.mu.Unlock()
+	if l.starting {
+		l.mu.Unlock()
+		return errors.New("reticulum: already starting")
+	}
 	if l.p != nil {
 		if !l.p.exited() {
+			l.mu.Unlock()
 			return errors.New("reticulum: already running")
 		}
 		l.p = nil
 	}
+	sctx, abort := context.WithCancel(ctx)
+	l.starting, l.abort, l.startDone = true, abort, make(chan struct{})
+	done := l.startDone
+	l.mu.Unlock()
+
+	p, err := l.launch(sctx, deliver)
+
+	l.mu.Lock()
+	l.starting, l.abort, l.startDone = false, nil, nil
+	if err == nil {
+		if sctx.Err() != nil { // Stop arrived while we were starting
+			err = sctx.Err()
+		} else {
+			l.p = p
+			p.abort = abort
+		}
+	}
+	l.mu.Unlock()
+	close(done)
+	if err != nil {
+		if p != nil {
+			p.kill()
+		}
+		abort()
+	}
+	return err
+}
+
+func (l *Link) launch(ctx context.Context, deliver transport.Deliver) (*proc, error) {
 	c := loadConfig(l.dataDir)
 	py, _, err := findPython(c)
 	if err != nil {
-		return fmt.Errorf("reticulum: %w (install rns: pipx install rns)", err)
+		return nil, fmt.Errorf("reticulum: %w (install rns: pipx install rns)", err)
 	}
 	if err := os.MkdirAll(c.ConfigDir, 0o700); err != nil {
-		return fmt.Errorf("reticulum: %w", err)
+		return nil, fmt.Errorf("reticulum: %w", err)
 	}
 	cfgPath := filepath.Join(c.ConfigDir, "config")
 	if _, err := os.Stat(cfgPath); errors.Is(err, os.ErrNotExist) {
 		if err := os.WriteFile(cfgPath, []byte(defaultRNSConfig), 0o600); err != nil {
-			return fmt.Errorf("reticulum: %w", err)
+			return nil, fmt.Errorf("reticulum: %w", err)
 		}
 	}
-	p, err := spawn(ctx, py, c, deliver)
-	if err != nil {
-		return err
-	}
-	l.p = p
-	return nil
+	return spawn(ctx, py, c, deliver)
 }
 
-// Stop closes the sidecar's stdin (it exits on EOF), and kills it if it has
-// not gone within a few seconds. It returns once the process is reaped and
-// every goroutine of this link has ended.
+// Stop closes the sidecar's stdin (it exits on EOF), and kills its whole
+// process group if it has not gone within a few seconds. A Start in flight is
+// aborted. It returns once the process is reaped and every goroutine of this
+// link has ended.
 func (l *Link) Stop() error {
 	l.mu.Lock()
 	p := l.p
 	l.p = nil
+	abort, startDone := l.abort, l.startDone
 	l.mu.Unlock()
+	if abort != nil {
+		abort()
+		<-startDone
+	}
 	if p != nil {
 		p.stop()
+		if p.abort != nil {
+			p.abort()
+		}
 	}
 	return nil
 }
@@ -287,7 +412,7 @@ var (
 	errBusy       = errors.New("reticulum: sidecar not accepting frames")
 )
 
-// Send hands one frame to the sidecar, which sends it to every known peer.
+// Send hands one frame to the sidecar, which sends it to up to 8 recently heard peers.
 func (l *Link) Send(ctx context.Context, frame []byte) error {
 	if len(frame) == 0 || len(frame) > MTU {
 		return errTooBig
@@ -333,6 +458,7 @@ func (l *Link) Peers() int {
 type proc struct {
 	cmd    *exec.Cmd
 	cancel context.CancelFunc
+	abort  context.CancelFunc // the Start context, released on Stop
 	stdin  io.WriteCloser
 	out    chan []byte   // encoded frames for the writer; bounded
 	done   chan struct{} // closed once the process is reaped and reader/writer are gone
@@ -353,6 +479,10 @@ func spawn(ctx context.Context, python string, c Config, deliver transport.Deliv
 	cmd.Dir = c.ConfigDir // `python -c` puts the cwd on sys.path: make it ours
 	cmd.Stderr = &lineLogger{}
 	cmd.WaitDelay = stopGrace
+	// Its own process group, killed whole: a grandchild still holding stdout
+	// must not keep Stop waiting.
+	ownGroup(cmd)
+	cmd.Cancel = func() error { return killGroup(cmd) }
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()

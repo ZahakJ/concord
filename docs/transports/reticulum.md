@@ -36,20 +36,37 @@ with `type(1) | length(2, BE) | payload` frames (`SEND`, `ANNOUNCE` to the
 sidecar; `RECV`, `READY`, `ERROR`, `PEERS` back). Logs go to stderr and into
 Concord's log. The sidecar:
 
-- starts its own RNS instance on the config dir and keeps a persistent
-  identity in `<config>/concord_identity`;
+- starts its own RNS instance on the config dir, and refuses to go on if RNS
+  attached to a *shared* instance instead (`is_connected_to_shared_instance`):
+  a shared instance's interfaces are not in our config and cannot be checked;
+- makes a **fresh RNS identity in memory** on every start — never written to
+  disk — and replaces it every 24 hours with a new identity and destination,
+  announced at once. The previous destination keeps receiving until the next
+  rotation. The identity exists only so RNS can route; Concord's security is
+  MLS, and a long-lived routing identity would only let a listener follow a
+  device around. (RNS's own `storage/transport_identity` is still kept by RNS;
+  it identifies this node on air only when it acts as a transport node. The
+  sidecar leaves it alone because the config dir may be one you share with
+  other RNS tools.);
 - registers an IN **SINGLE** destination `concord.bundle`, announces it at
   start and every 10 minutes (`announceIntervalSec`);
-- remembers up to 256 peers that announce `concord.bundle`;
-- sends each frame as one RNS packet to every known peer. SINGLE was chosen
-  because RNS drops PLAIN and GROUP packets that have travelled more than one
-  hop (`Transport.inbound` in RNS 1.5.7), while SINGLE packets follow the path
-  an announce set up through transport nodes;
+- remembers peers that announce `concord.bundle` (table capped at 256) and
+  forgets any not heard for 3 announce intervals;
+- sends each frame as one RNS packet to the **8 most recently heard** live
+  peers. SINGLE was chosen because RNS drops PLAIN and GROUP packets that have
+  travelled more than one hop (`Transport.inbound` in RNS 1.5.7), while SINGLE
+  packets follow the path an announce set up through transport nodes;
+- requests a path for a peer it has no route to at most once per peer every 5
+  minutes and 10 times a minute overall: each request is a broadcast on every
+  interface;
 - exits when its stdin closes. Stop closes stdin, waits 3 s, then kills.
 
-Concord's Manager deduplicates across links and may relay bundles it receives
-onto other local links, so RNS fan-out plus Concord relay works even when
-nobody runs an RNS transport node.
+The link is marked `SelfMeshing`: RNS does its own routing, so Concord's
+Manager does not relay bundles back onto it.
+
+**Airtime is per copy.** The Manager's airtime estimate (frames × MTU ÷
+Bitrate) is for one copy of each frame; the sidecar sends up to 8, so real
+airtime can be up to 8× the estimate.
 
 ### Caps
 
@@ -93,8 +110,11 @@ data dir:
 
 `CONCORD_RNS_SCRIPT` runs a sidecar file instead of the embedded one (for
 development). If the config dir has no `config`, Concord writes one with a
-private instance (`share_instance = No`) and only `AutoInterface` (local
-network). Add radios to `<config>/config`:
+private instance (`share_instance = No`) and **no interface enabled**, only
+commented-out examples: which radio or network Concord transmits on is your
+choice. Until you enable one, Settings shows "no Reticulum interface set up"
+and turning the link on fails with "no interface enabled". Enable or add
+interfaces in `<config>/config`:
 
 ```ini
 [reticulum]
@@ -125,31 +145,44 @@ network). Add radios to `<config>/config`:
     target_host = 192.168.1.20
     target_port = 4242
 
-  # Point-to-point serial / radio modem
+  # Point-to-point serial line or a non-amateur radio modem. Serial, KISS
+  # and pipe interfaces can sit on any radio, so they need your say-so:
   [[Serial]]
     type = SerialInterface
     enabled = Yes
     port = /dev/ttyUSB0
     speed = 115200
+    concord_non_amateur = yes
 ```
 
 If you already run `rnsd`, either give Concord its own RNode, or add a
-`TCPClientInterface` to your rnsd's `TCPServerInterface`. Setting
-`share_instance = Yes` would make Concord attach to rnsd's interfaces, which
-the sidecar cannot inspect: the amateur-band check below then becomes your
-responsibility.
+`TCPClientInterface` to your rnsd's `TCPServerInterface`. Keep
+`share_instance = No`: if Concord's RNS attaches to rnsd as a shared-instance
+client, it would be using rnsd's interfaces, which it cannot check, so the
+sidecar refuses to run. (If Concord's own instance *becomes* the shared
+instance, that is allowed: its interfaces are the ones it checked.)
 
 ## The amateur-band rule
 
 Amateur radio forbids messages encoded to obscure their meaning (FCC §97.113(a)(4)
 in the US; equivalent rules almost everywhere). Concord has nothing to send but
-ciphertext, so the sidecar **refuses to start** — exits non-zero and the
-settings row shows why — if any enabled interface:
+ciphertext, so the sidecar fails closed: it **refuses to start** (exits
+non-zero, and the settings row shows why) if any enabled interface:
 
 - is an `AX25KISSInterface` (amateur packet, requires a callsign);
 - sets `callsign` or `id_callsign` (amateur station identification);
 - has a `frequency` in an amateur-only band: 50–54, 144–148, 222–225,
-  420–450 or 1240–1300 MHz (this covers the popular 433 MHz LoRa).
+  420–450 or 1240–1300 MHz (this covers the popular 433 MHz LoRa);
+- is an `RNodeInterface` (or `RNodeMultiInterface` sub-interface) with no
+  `frequency`;
+- is any type that can drive an arbitrary radio, meaning `KISSInterface`,
+  `SerialInterface`, `PipeInterface`, `WeaveInterface` or any type not known to
+  be IP-only, unless its section sets `concord_non_amateur = yes`. That line is
+  your statement that the radio behind it is not on amateur spectrum. IP-only
+  types (Auto, TCP, UDP, I2P, Backbone) need no flag.
+
+It also refuses when no interface is enabled, and when RNS attached to a shared
+instance (see above).
 
 902–928 MHz (US ISM) and 863–870 MHz (EU SRD) are licence-free and allowed,
 within their power and duty-cycle limits. Disabled interfaces are ignored.
@@ -164,8 +197,21 @@ GMRS/FRS can't be configured through RNS and are likewise not for ciphertext.
 - a fake sidecar (`/bin/sh`) that emits garbage is killed and Send fails; a
   sidecar error before READY comes back from Start; Stop exits gracefully on
   EOF, kills a sidecar that ignores stdin, and context cancel kills it too;
-- ham refusal: 433 MHz and 145.5 MHz RNodes, AX.25, `id_callsign` on 915 MHz
-  all refused; 915 + 868 MHz (and a disabled 433 MHz one) pass `--check-only`;
+- ham refusal: 433 MHz and 145.5 MHz RNodes, AX.25, `id_callsign` on 915 MHz,
+  an RNode without a frequency, serial/KISS without the flag, a pipe with the
+  flag set to `no`, and a flagged KISS on 144.39 MHz are all refused. 915 and
+  868 MHz RNodes, flagged serial/KISS, TCP, and a disabled 433 MHz RNode pass
+  `--check-only`;
+- no interface: Probe says so, Start refuses, and the generated config enables
+  nothing and has `share_instance = No`;
+- shared instance: a second sidecar with the same `share_instance = Yes`
+  config attaches to the first one's instance and refuses to run;
+- sidecar peer table (fake clock): expiry after the TTL, cap eviction, the
+  fan-out cap of 8, most recent first; path requests limited per peer and
+  overall;
+- Start does not block Probe or Send (Probe says "starting"), a second Start
+  returns "already starting", Stop during Start aborts it, and Stop kills a
+  grandchild that holds stdout (process group);
 - end to end: two real sidecars joined by `TCPServerInterface` /
   `TCPClientInterface` on loopback, each under its own `transport.Manager`;
   a 1000-byte ciphertext (3 frames at MTU 380) crosses A→B and a 200-byte one
@@ -181,7 +227,7 @@ Not tested here: real radios, multi-hop through a transport node, and
    proper antenna attached before power-on.
 2. **Flash**: `rnodeconf --autoinstall` (from the `rns` package) on each board;
    check with `rnodeconf /dev/ttyACM0 --info`.
-3. **Config**: on two laptops, the RNode block above with the same
+3. **Config**: on two laptops, enable the RNode block above with the same
    frequency/bandwidth/SF/CR, Concord data dirs on each, link enabled.
 4. **Bench**: confirm both sides log `peer … (1 known)`; send a short message,
    then a 1–2 KB one; check `rnstatus --config <data>/reticulum` traffic counters.
@@ -202,10 +248,13 @@ Not tested here: real radios, multi-hop through a transport node, and
 - **Desktop only**: Android/iOS cannot run the sidecar. A mobile path would be
   a native RNS port or Sideband-style bundling.
 - **Announce traffic**: every node announces every 10 minutes (~170 bytes on
-  air each); on busy LoRa channels raise `announceIntervalSec`.
-- **Fan-out cost**: each frame is sent once per known peer (unicast SINGLE
-  packets), so airtime grows with peer count. Fine for a handful of nodes; a
-  large mesh would want RNS GROUP destinations, which don't route beyond one
-  hop today.
+  air each); on busy LoRa channels raise `announceIntervalSec`. A 24-hour
+  identity rotation briefly makes a node look like two peers to its
+  neighbours, until the old one expires (3 announce intervals).
+- **Fan-out cost**: each frame goes once to each of up to 8 peers (unicast
+  SINGLE packets), so airtime is up to 8× the Manager's estimate, and in a mesh
+  of more than 8 Concord nodes, the ones heard least recently are not sent to
+  directly. A large mesh would want RNS GROUP destinations, which don't route
+  beyond one hop today.
 - **No delivery receipts**: packets are fire-and-forget (`create_receipt=False`);
   Concord's normal sync heals gaps once any path returns.

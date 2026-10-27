@@ -252,6 +252,34 @@ func TestHamBandsRefused(t *testing.T) {
     frequency = 915000000
     id_callsign = N0CALL
 `,
+		"serial without flag": `  [[Modem]]
+    type = SerialInterface
+    enabled = Yes
+    port = /dev/null-nonexistent
+    speed = 9600
+`,
+		"kiss without flag": `  [[TNC]]
+    type = KISSInterface
+    enabled = Yes
+    port = /dev/null-nonexistent
+`,
+		"pipe flag says no": `  [[Pipe]]
+    type = PipeInterface
+    enabled = Yes
+    command = cat
+    concord_non_amateur = no
+`,
+		"rnode without frequency": `  [[LoRa]]
+    type = RNodeInterface
+    enabled = Yes
+    port = /dev/null-nonexistent
+`,
+		"flagged kiss on a ham band": `  [[TNC]]
+    type = KISSInterface
+    enabled = Yes
+    concord_non_amateur = yes
+    frequency = 144390000
+`,
 	}
 	for name, iface := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -283,6 +311,21 @@ func TestHamBandsRefused(t *testing.T) {
     type = RNodeInterface
     enabled = No
     frequency = 433000000
+  [[Modem]]
+    type = SerialInterface
+    enabled = Yes
+    port = /dev/null-nonexistent
+    concord_non_amateur = yes
+  [[TNC]]
+    type = KISSInterface
+    enabled = Yes
+    port = /dev/null-nonexistent
+    concord_non_amateur = Yes
+  [[Net]]
+    type = TCPClientInterface
+    enabled = Yes
+    target_host = 127.0.0.1
+    target_port = 1
 `
 	_, cfgDir := rnsLink(t, py, ok)
 	cmd := exec.Command(py, "-c", sidecarScript, "--config", cfgDir, "--check-only")
@@ -399,5 +442,192 @@ func TestEndToEndOverRNS(t *testing.T) {
 	}
 	if err := la.Send(context.Background(), []byte("x")); !errors.Is(err, errNotRunning) {
 		t.Fatalf("send after stop: %v", err)
+	}
+}
+
+func TestNoInterfaceMeansNoStart(t *testing.T) {
+	py := rnsPython(t)
+	clearEnv(t)
+	dir := t.TempDir()
+	raw, _ := json.Marshal(Config{Python: py})
+	if err := os.WriteFile(filepath.Join(dir, "reticulum.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l := New(dir)
+	if st := l.Probe(); st.State != transport.NoHardware || !strings.Contains(st.Detail, "interface") {
+		t.Fatalf("probe before config: %+v", st)
+	}
+	err := l.Start(context.Background(), nil)
+	if err == nil || !strings.Contains(err.Error(), "no interface enabled") {
+		_ = l.Stop()
+		t.Fatalf("started with no interface: %v", err)
+	}
+	cfg, err := os.ReadFile(filepath.Join(dir, "reticulum", "config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enabledInterfaces(cfg) != 0 || !strings.Contains(string(cfg), "share_instance = No") {
+		t.Fatal("generated config enables an interface or shares the instance")
+	}
+	if st := l.Probe(); st.State != transport.NoHardware {
+		t.Fatalf("probe after default config: %+v", st)
+	}
+}
+
+func TestEnabledInterfaces(t *testing.T) {
+	cfg := `[reticulum]
+  enabled = yes   # not an interface
+[interfaces]
+  [[A]]
+    type = TCPClientInterface
+    enabled = Yes
+  [[B]]
+    type = AutoInterface
+    # enabled = Yes
+    enabled = No
+  [[C]]
+    interface_enabled = True
+    [[[sub]]]
+      enabled = yes
+[logging]
+  [[D]]
+    enabled = yes
+`
+	if n := enabledInterfaces([]byte(cfg)); n != 2 {
+		t.Fatalf("counted %d enabled interfaces, want 2", n)
+	}
+}
+
+func TestSharedInstanceRefused(t *testing.T) {
+	py := rnsPython(t)
+	clearEnv(t)
+	shared := fmt.Sprintf(`[reticulum]
+  enable_transport = No
+  share_instance = Yes
+  shared_instance_type = tcp
+  shared_instance_port = %d
+  instance_control_port = %d
+  panic_on_interface_error = No
+[logging]
+  loglevel = 3
+[interfaces]
+  [[Listen]]
+    type = TCPServerInterface
+    enabled = Yes
+    listen_ip = 127.0.0.1
+    listen_port = %d
+`, freePort(t), freePort(t), freePort(t))
+	// The first one becomes the shared instance itself: its interfaces are
+	// its own config, which was checked, so that is allowed.
+	owner, _ := rnsLink(t, py, shared)
+	if err := owner.Start(context.Background(), nil); err != nil {
+		t.Fatalf("shared-instance owner: %v", err)
+	}
+	defer owner.Stop()
+	// The second attaches to it, and must refuse: those interfaces are not
+	// the ones it checked.
+	client, _ := rnsLink(t, py, shared)
+	err := client.Start(context.Background(), nil)
+	if err == nil {
+		_ = client.Stop()
+		t.Fatal("ran on someone else's shared instance")
+	}
+	if !strings.Contains(err.Error(), "shared RNS instance") {
+		t.Fatalf("wrong refusal: %v", err)
+	}
+}
+
+// The sidecar's peer table and path-request limiter, driven with a fake clock.
+func TestSidecarPeerTableAndPathLimit(t *testing.T) {
+	py := os.Getenv("CONCORD_RNS_PYTHON")
+	if py == "" {
+		py = "python3"
+	}
+	if _, err := exec.LookPath(py); err != nil {
+		t.Skip("no python")
+	}
+	script := filepath.Join(t.TempDir(), "crns.py")
+	if err := os.WriteFile(script, []byte(sidecarScript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	harness := `
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("crns", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+now = [0.0]
+clock = lambda: now[0]
+pt = m.PeerTable(ttl=1800, cap=20, fanout=8, clock=clock)
+for i in range(20):
+    now[0] = float(i)
+    assert pt.heard(bytes([i]), "d%d" % i)
+assert not pt.heard(bytes([19]), "d19")
+now[0] = 20.0
+pt.heard(bytes([99]), "d99")              # over cap: stalest (0) goes
+assert len(pt) == 20 and bytes([0]) not in pt.peers
+t = pt.targets()
+assert len(t) == 8, t                      # fan-out cap
+assert t[0][0] == bytes([99]) and t[7][0] == bytes([13]), t   # most recent first
+now[0] = 1800 + 15.5                       # 1..15 now older than ttl
+assert pt.expire() == 15 and len(pt) == 5, len(pt)
+now[0] = 10000.0
+assert len(pt.targets()) == 0 and len(pt) == 0
+
+pl = m.PathLimiter(per_peer=300, per_min=10, clock=clock)
+now[0] = 0.0
+assert pl.allow(b"a") and not pl.allow(b"a")
+now[0] = 301.0
+assert pl.allow(b"a")
+assert sum(pl.allow(bytes([i])) for i in range(50)) == 9   # global cap per minute
+now[0] = 400.0
+assert pl.allow(b"z")
+print("ok")
+`
+	out, err := exec.Command(py, "-c", harness, script).CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "ok" {
+		t.Fatalf("%v\n%s", err, out)
+	}
+}
+
+func TestStartDoesNotBlockProbe(t *testing.T) {
+	l := fakeSidecar(t, `sleep 1; printf '\202\000\000'; cat >/dev/null`)
+	errc := make(chan error, 1)
+	go func() { errc <- l.Start(context.Background(), nil) }()
+	waitUntil(t, 2*time.Second, "starting", func() bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return l.starting
+	})
+	t0 := time.Now()
+	st := l.Probe()
+	if time.Since(t0) > 200*time.Millisecond || st.Detail != "starting" {
+		t.Fatalf("probe during start: %+v after %v", st, time.Since(t0))
+	}
+	if err := l.Send(context.Background(), []byte("x")); err != errNotRunning {
+		t.Fatalf("send during start: %v", err)
+	}
+	if err := l.Start(context.Background(), nil); err == nil || !strings.Contains(err.Error(), "already starting") {
+		t.Fatalf("second start: %v", err)
+	}
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	_ = l.Stop()
+}
+
+func TestStopDuringStartAborts(t *testing.T) {
+	l := fakeSidecar(t, `exec sleep 60`)
+	errc := make(chan error, 1)
+	go func() { errc <- l.Start(context.Background(), nil) }()
+	waitUntil(t, 2*time.Second, "starting", func() bool {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		return l.starting
+	})
+	_ = l.Stop()
+	if err := <-errc; err == nil {
+		t.Fatal("start succeeded after stop")
+	}
+	if l.Probe().Detail == "starting" {
+		t.Fatal("still starting")
 	}
 }
