@@ -2,6 +2,7 @@ package audio
 
 import (
 	"bytes"
+	"context"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -59,7 +60,7 @@ func TestAudioLinkCarriesAMessageThroughTheManager(t *testing.T) {
 	if q := a.Links()[0].Queued; q != 3 {
 		t.Fatalf("queued %d frames, want 3 (a manual link must wait for the user)", q)
 	}
-	if n, _, err := a.Flush("audio"); err != nil || n != 3 {
+	if n, _, err := a.Flush("audio", 3); err != nil || n != 3 {
 		t.Fatalf("flush: %d frames, %v", n, err)
 	}
 	deadline := time.Now().Add(10 * time.Second)
@@ -165,5 +166,104 @@ func TestStopCutsPlaybackShort(t *testing.T) {
 	t.Logf("player stopped %v after Stop", time.Since(start).Round(time.Millisecond))
 	if err := l.Send(t.Context(), []byte("x")); err == nil {
 		t.Fatal("played after Stop")
+	}
+}
+
+// After the microphone dies, switching the link off and on again restarts it,
+// and while it is dead the link will not talk.
+func TestDeadRecorderBlocksSendAndRestarts(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "second")
+	// First run dies at once; the second (marker present) keeps running.
+	rec := []string{"sh", "-c", "if [ -e " + marker + " ]; then exec sleep 3600; fi; touch " + marker + "; echo gone >&2; exit 1"}
+	have := func(f string) (string, error) { return "/usr/bin/" + f, nil }
+	pcm := func(string) ([]byte, error) { return []byte("playback 1 : capture 1"), nil }
+	l := &Link{Record: rec, Play: []string{"true"}, LookPath: have, ReadFile: pcm}
+	if err := l.Start(t.Context(), func([]byte) {}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for l.Probe().State != transport.Failed {
+		if time.Now().After(deadline) {
+			t.Fatal("death not reported")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := l.Send(t.Context(), []byte("x")); err == nil {
+		t.Fatal("played with a dead microphone")
+	}
+	_ = l.Stop()
+	if st := l.Probe(); st.State != transport.Available {
+		t.Fatalf("after Stop: %+v (toggle stays greyed)", st)
+	}
+	if err := l.Start(t.Context(), func([]byte) {}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if st := l.Probe(); st.State != transport.Available {
+		t.Fatalf("after restart: %+v", st)
+	}
+	if err := l.Send(t.Context(), []byte("x")); err != nil {
+		t.Fatalf("send after restart: %v", err)
+	}
+	_ = l.Stop()
+}
+
+// A recorder that exits at once (old pw-record rejecting --raw) gives way to
+// the next installed one.
+func TestRecorderFallsBack(t *testing.T) {
+	saved := recorders
+	t.Cleanup(func() { recorders = saved })
+	recorders = [][]string{{"sh", "-c", "echo unknown option --raw >&2; exit 2"}, {"sh", "-c", "exec cat /dev/zero"}}
+	l := &Link{LookPath: func(f string) (string, error) { return f, nil }}
+	if err := l.Start(t.Context(), func([]byte) {}); err != nil {
+		t.Fatal(err)
+	}
+	defer l.Stop()
+	time.Sleep(200 * time.Millisecond)
+	if l.Heard() == 0 {
+		t.Fatal("fallback recorder not running")
+	}
+	l.mu.Lock()
+	argv := l.rec.Args
+	l.mu.Unlock()
+	if argv[2] != "exec cat /dev/zero" {
+		t.Fatalf("running %v", argv)
+	}
+}
+
+// A player that never finishes is killed after the frame's length plus the
+// margin, so a wedged sound server cannot hang Flush and the RPC behind it.
+func TestWedgedPlayerTimesOut(t *testing.T) {
+	saved := sendMargin
+	sendMargin = 200 * time.Millisecond
+	t.Cleanup(func() { sendMargin = saved })
+	l := &Link{Record: []string{"sleep", "3600"}, Play: []string{"sleep", "3600"}}
+	if err := l.Start(t.Context(), func([]byte) {}); err != nil {
+		t.Fatal(err)
+	}
+	defer l.Stop()
+	start := time.Now()
+	err := l.Send(t.Context(), []byte("x"))
+	el := time.Since(start)
+	want := time.Duration(FrameSamples(1)+SampleRate/5)*time.Second/SampleRate + sendMargin
+	if err == nil || el > want+2*time.Second {
+		t.Fatalf("send returned %v after %v (limit %v)", err, el, want)
+	}
+}
+
+// Cancelling the link's context (the Manager does on switch-off) interrupts a
+// frame mid-play.
+func TestCancelledContextInterruptsSend(t *testing.T) {
+	l := &Link{Record: []string{"sleep", "3600"}, Play: []string{"sleep", "3600"}}
+	ctx, cancel := context.WithCancel(t.Context())
+	if err := l.Start(ctx, func([]byte) {}); err != nil {
+		t.Fatal(err)
+	}
+	defer l.Stop()
+	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
+	start := time.Now()
+	if err := l.Send(ctx, []byte("x")); err == nil || time.Since(start) > 3*time.Second {
+		t.Fatalf("send: %v after %v", err, time.Since(start))
 	}
 }

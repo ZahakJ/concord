@@ -41,15 +41,27 @@ No cgo. The link drives the system's own tools on a pipe, raw s16le mono
 - capture: `pw-record` → `parec` → `arecord`
 - playback: `pw-play` → `pacat` → `aplay`
 
+If a recorder exits before producing audio (an old PipeWire whose `pw-record`
+rejects `--raw`/`--latency`), the next one is tried. Each played frame has a
+deadline of its own length plus 5 s; a wedged player is killed so it cannot
+hang Flush and the RPC behind it. Decoded frames are handed up through a
+64-frame queue off the capture loop, so slow processing above never stalls
+the microphone pipe.
+
 `Probe()` only reads `/proc/asound/pcm` and looks the tools up on `PATH`; it
-never opens a device. The recorder is started by `Start()`, which the Manager
+never opens a device. That misses devices the kernel's ALSA list does not show
+— Bluetooth headsets (which exist only inside PipeWire/PulseAudio) and a
+Flatpak sandbox without `/proc/asound` — which then read as "no hardware"
+even though the sound server could reach them. The recorder is started by `Start()`, which the Manager
 calls only after the user enables the link, and killed (and reaped) by `Stop()`.
 `Stop()` also kills a frame that is mid-play, and `Send()` refuses while the
 link is off, so switching it off silences a long flush at once.
 While the link is playing, and for 300 ms after, the captured audio is replaced
 by silence so a device does not decode itself. If the recorder exits on its
 own (mic unplugged, sound server restarted), the settings row says
-"microphone stopped: …".
+"microphone stopped: …" and the link refuses to play (half duplex: a link that
+cannot hear should not talk). Switching it off clears that, and on again
+starts a fresh recorder.
 
 ## Throughput (measured)
 

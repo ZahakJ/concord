@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -83,8 +84,8 @@ func TestHardwareMicrophoneOpensAndCloses(t *testing.T) {
 	if st := l.Probe(); st.State != "available" {
 		t.Fatalf("probe: %+v", st)
 	}
-	n := 0
-	if err := l.Start(context.Background(), func([]byte) { n++ }); err != nil {
+	var decoded atomic.Int32
+	if err := l.Start(context.Background(), func([]byte) { decoded.Add(1) }); err != nil {
 		t.Fatal(err)
 	}
 	l.mu.Lock()
@@ -96,6 +97,7 @@ func TestHardwareMicrophoneOpensAndCloses(t *testing.T) {
 	if err := l.Stop(); err != nil {
 		t.Fatal(err)
 	}
+	n := decoded.Load()
 	t.Logf("%s: %d samples in 5 s (%.0f Hz), %d frames decoded", argv, heard, float64(heard)/5, n)
 	if heard < 4*SampleRate {
 		t.Fatalf("only %d samples arrived in 5 s", heard)

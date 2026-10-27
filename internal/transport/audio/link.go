@@ -142,39 +142,128 @@ func (l *Link) Probe() transport.Status {
 }
 
 // Start opens the microphone and decodes everything it hears until Stop or
-// ctx ends.
+// ctx ends. Without an override it tries each installed recorder in turn: an
+// old PipeWire whose pw-record rejects --raw exits at once, and parec or
+// arecord takes over. A recorder that died on its own is replaced.
 func (l *Link) Start(ctx context.Context, deliver transport.Deliver) error {
-	argv := l.pick(l.Record, recorders)
-	if argv == nil {
+	l.mu.Lock()
+	if l.rec != nil {
+		select {
+		case <-l.recDone: // dead: start afresh below
+			l.rec, l.recDone = nil, nil
+		default:
+			l.mu.Unlock()
+			return nil
+		}
+	}
+	l.died = ""
+	l.mu.Unlock()
+
+	cands := [][]string{l.Record}
+	if len(l.Record) == 0 {
+		cands = nil
+		for _, c := range recorders {
+			if _, err := l.lookPath(c[0]); err == nil {
+				cands = append(cands, c)
+			}
+		}
+	}
+	if len(cands) == 0 {
 		return errors.New("audio: no recording tool installed")
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.rec != nil {
+	l.heard.Store(0)
+	frames := make(chan []byte, 64)
+	go func() {
+		// Delivery runs off the read loop: slow MLS handling above must
+		// not stall the pipe and let the recorder's buffer overrun.
+		for f := range frames {
+			deliver(f)
+		}
+	}()
+	demod := NewDemodulator(func(f []byte) {
+		select {
+		case frames <- f:
+		default: // 64 frames (≈4 min of sound) undelivered: drop
+		}
+	})
+	var lastErr error
+	for i, argv := range cands {
+		r, err := l.spawn(ctx, argv, demod)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if i < len(cands)-1 && !r.healthy() {
+			lastErr = fmt.Errorf("audio: %s: %s", argv[0], firstLine(r.stderr.String()))
+			continue
+		}
+		l.mu.Lock()
+		l.rec, l.recDone = r.cmd, r.done
+		l.mu.Unlock()
+		go func() {
+			<-r.done
+			close(frames)
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			if l.rec == r.cmd && ctx.Err() == nil {
+				// Still meant to be running: say so on the settings page.
+				msg := strings.TrimSpace(r.stderr.String())
+				if msg == "" && r.err != nil {
+					msg = r.err.Error()
+				}
+				l.died = "microphone stopped: " + firstLine(msg)
+			}
+		}()
 		return nil
 	}
+	close(frames)
+	return lastErr
+}
+
+type recorder struct {
+	cmd    *exec.Cmd
+	stderr *bytes.Buffer
+	first  chan struct{} // closed on the first samples
+	done   chan struct{} // closed once the process is reaped
+	err    error         // Wait's result, valid after done
+}
+
+// healthy waits for a fresh recorder to either produce audio or die.
+func (r *recorder) healthy() bool {
+	select {
+	case <-r.first:
+		return true
+	case <-r.done:
+		return false
+	case <-time.After(2 * time.Second):
+		return true // running but quiet; give it the benefit of the doubt
+	}
+}
+
+func (l *Link) spawn(ctx context.Context, argv []string, demod *Demodulator) (*recorder, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.WaitDelay = time.Second
 	out, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &limitedWriter{w: &stderr, n: 4096}
+	r := &recorder{cmd: cmd, stderr: &bytes.Buffer{}, first: make(chan struct{}), done: make(chan struct{})}
+	cmd.Stderr = &limitedWriter{w: r.stderr, n: 4096}
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("audio: open microphone: %w", err)
+		return nil, fmt.Errorf("audio: open microphone: %w", err)
 	}
-	done := make(chan struct{})
-	l.rec, l.recDone = cmd, done
-	l.died = ""
-	l.heard.Store(0)
-	demod := NewDemodulator(func(f []byte) { deliver(f) })
 	go func() {
-		defer close(done)
+		defer close(r.done)
 		buf := make([]byte, 4800) // 50 ms
 		var carry []byte
+		started := false
 		for {
 			n, err := out.Read(buf)
 			if n > 0 {
+				if !started {
+					started = true
+					close(r.first)
+				}
 				chunk := append(carry, buf[:n]...)
 				even := len(chunk) &^ 1
 				l.heard.Add(int64(even / 2))
@@ -191,19 +280,9 @@ func (l *Link) Start(ctx context.Context, deliver transport.Deliver) error {
 				break
 			}
 		}
-		werr := cmd.Wait()
-		l.mu.Lock()
-		if l.rec == cmd && ctx.Err() == nil {
-			// Still meant to be running: say so on the settings page.
-			msg := strings.TrimSpace(stderr.String())
-			if msg == "" && werr != nil {
-				msg = werr.Error()
-			}
-			l.died = "microphone stopped: " + firstLine(msg)
-		}
-		l.mu.Unlock()
+		r.err = cmd.Wait()
 	}()
-	return nil
+	return r, nil
 }
 
 func (l *Link) muted() bool {
@@ -212,11 +291,14 @@ func (l *Link) muted() bool {
 	return l.playing || time.Now().Before(l.mutedUntil)
 }
 
-// Stop kills the recorder and waits for it to be reaped.
+// Stop kills the recorder and any frame mid-play, and waits for the recorder
+// to be reaped. It also clears a "microphone stopped" report, so the user can
+// switch the link back on.
 func (l *Link) Stop() error {
 	l.mu.Lock()
 	cmd, done := l.rec, l.recDone
 	l.rec, l.recDone = nil, nil
+	l.died = ""
 	if l.player != nil && l.player.Process != nil {
 		_ = l.player.Process.Kill() // Send reaps it
 	}
@@ -235,9 +317,15 @@ func (l *Link) Stop() error {
 	return nil
 }
 
+// sendMargin is how long past a frame's own duration a player may take
+// (start-up, a sound server waking a suspended sink) before it is killed.
+var sendMargin = 5 * time.Second
+
 // Send plays one frame through the speaker and returns when it has finished.
-// It refuses while the link is stopped, and Stop cuts a frame short, so
-// switching the link off silences it even in the middle of a long flush.
+// It refuses while the link is stopped or its microphone has died (half
+// duplex: a link that cannot hear has no business talking), Stop or the
+// link's context cuts a frame short, and a wedged player is killed after the
+// frame's duration plus sendMargin.
 func (l *Link) Send(ctx context.Context, frame []byte) error {
 	if len(frame) == 0 || len(frame) > MaxData {
 		return fmt.Errorf("audio: frame of %d bytes (max %d)", len(frame), MaxData)
@@ -250,18 +338,27 @@ func (l *Link) Send(ctx context.Context, frame []byte) error {
 	defer l.sendMu.Unlock()
 	// A short lead-in and tail of silence: some outputs wake up from
 	// suspend on the first samples and would clip the preamble.
-	pcm := PCM16(append(append(make([]float32, SampleRate/10), Modulate(frame)...), make([]float32, SampleRate/10)...))
+	samples := append(append(make([]float32, SampleRate/10), Modulate(frame)...), make([]float32, SampleRate/10)...)
+	pcm := PCM16(samples)
+	dur := time.Duration(len(samples)) * time.Second / SampleRate
 
+	ctx, cancel := context.WithTimeout(ctx, dur+sendMargin)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.WaitDelay = time.Second // a stuck stdin copy cannot outlive the kill
 	cmd.Stdin = bytes.NewReader(pcm)
 	var stderr bytes.Buffer
 	cmd.Stderr = &limitedWriter{w: &stderr, n: 4096}
 
 	l.mu.Lock()
-	if l.rec == nil {
+	switch {
+	case l.rec == nil:
 		// Switched off (possibly mid-flush): the speaker stays quiet.
 		l.mu.Unlock()
 		return errors.New("audio: the link is off")
+	case l.died != "":
+		l.mu.Unlock()
+		return errors.New("audio: " + l.died)
 	}
 	if err := cmd.Start(); err != nil {
 		l.mu.Unlock()
@@ -278,6 +375,9 @@ func (l *Link) Send(ctx context.Context, frame []byte) error {
 	}()
 
 	if err := cmd.Wait(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("audio: player stuck for %v, killed", (dur + sendMargin).Round(time.Second))
+		}
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
 			return fmt.Errorf("audio: play: %v: %s", err, msg)
 		}
