@@ -206,6 +206,7 @@ export const api = {
   flushLink: (name, expectCost) => call("FlushLink", name, expectCost),
   exportLink: (name) => call("ExportLink", name),
   importLinkPack: (b64) => call("ImportLinkPack", b64),
+  importLinkFrames: (name, framesB64) => call("ImportLinkFrames", name, framesB64),
   // Whether anyone is looking at THIS page; the backend votes across every
   // attached client. See lib/visibility.js and internal/bridge/visibility.go.
   setClientVisible: (visible) => call("SetClientVisible", clientID, visible),

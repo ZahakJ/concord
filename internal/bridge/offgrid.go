@@ -120,3 +120,40 @@ func (b *Bridge) ImportLinkPack(packB64 string) (int, error) {
 	}
 	return len(frames), nil
 }
+
+// maxImportFrames bounds one ImportLinkFrames call; a QR sequence feeds its
+// frames in as the camera reads them, a handful at a time.
+const maxImportFrames = 512
+
+// ImportLinkFrames feeds frames (base64 each) that arrived on a manual link —
+// a QR code the camera just read — into the stack, and reports how many were
+// well-formed. They go through the same reassembly, dedupe and MLS checks as
+// anything a radio hears.
+func (b *Bridge) ImportLinkFrames(name string, framesB64 []string) (int, error) {
+	m, err := b.offgrid()
+	if err != nil {
+		return 0, err
+	}
+	if len(framesB64) > maxImportFrames {
+		return 0, fmt.Errorf("at most %d frames at once", maxImportFrames)
+	}
+	var mtu int
+	for _, v := range m.Links() {
+		if v.Name == name && v.Caps.Mode == transport.Manual {
+			mtu = v.Caps.MTU
+		}
+	}
+	if mtu == 0 {
+		return 0, fmt.Errorf("no manual link %q", name)
+	}
+	n := 0
+	for _, s := range framesB64 {
+		f, err := base64.StdEncoding.DecodeString(s)
+		if err != nil || len(f) == 0 || len(f) > mtu {
+			continue
+		}
+		m.Receive(name, f)
+		n++
+	}
+	return n, nil
+}

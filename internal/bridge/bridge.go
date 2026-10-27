@@ -3374,6 +3374,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.ExportLink(argStr(args, 0))
 	case "ImportLinkPack":
 		return b.ImportLinkPack(argStr(args, 0))
+	case "ImportLinkFrames":
+		return b.ImportLinkFrames(argStr(args, 0), argStrs(args, 1))
 	case "RegisterPush":
 		return nil, b.RegisterPush(argStr(args, 0), argStr(args, 1))
 	case "LinkOffer":
