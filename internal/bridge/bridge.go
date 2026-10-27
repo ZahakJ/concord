@@ -3369,7 +3369,11 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SetLinksRelay":
 		return nil, b.SetLinksRelay(argBool(args, 0))
 	case "FlushLink":
-		return b.FlushLink(argStr(args, 0), argInt64(args, 1))
+		return b.FlushLink(argStr(args, 0), argInt(args, 1), argInt64(args, 2))
+	case "PeekLink":
+		return b.PeekLink(argStr(args, 0))
+	case "DiscardLinkQueued":
+		return nil, b.DiscardLinkQueued(argStr(args, 0), argInt(args, 1))
 	case "ExportLink":
 		return b.ExportLink(argStr(args, 0))
 	case "ImportLinkPack":

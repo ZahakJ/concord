@@ -67,21 +67,21 @@ type FlushResult struct {
 	Cost   int64 `json:"costMicroUSD"`
 }
 
-// FlushLink sends a manual or paid link's outbox. The UI calls it only after
-// showing the user the queued cost and getting a yes; expectCost is that
-// figure, and a mismatch (more queued since the dialog opened) refuses rather
-// than spending money the user did not see.
-func (b *Bridge) FlushLink(name string, expectCost int64) (FlushResult, error) {
+// FlushLink sends the first count frames of a manual or paid link's outbox.
+// The UI calls it only after showing the user what those frames cost and
+// getting a yes; expectCost is that figure. Exactly count frames go — anything
+// queued while the dialog was open waits for the next approval — and a quote
+// that no longer matches refuses rather than spending money the user did not
+// see.
+func (b *Bridge) FlushLink(name string, count int, expectCost int64) (FlushResult, error) {
 	m, err := b.offgrid()
 	if err != nil {
 		return FlushResult{}, err
 	}
-	for _, v := range m.Links() {
-		if v.Name == name && v.QueuedCost != expectCost {
-			return FlushResult{}, fmt.Errorf("the outbox changed: it now costs %d µ$, not %d — review it again", v.QueuedCost, expectCost)
-		}
+	if n, cost := m.QueuedCost(name, count); n != count || cost != expectCost {
+		return FlushResult{}, fmt.Errorf("the outbox changed: %d frames now cost %d µ$, not %d — review it again", n, cost, expectCost)
 	}
-	n, cost, err := m.Flush(name)
+	n, cost, err := m.Flush(name, count)
 	return FlushResult{Frames: n, Cost: cost}, err
 }
 
@@ -97,6 +97,31 @@ func (b *Bridge) ExportLink(name string) (string, error) {
 		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(transport.EncodePack(frames)), nil
+}
+
+// PeekLink returns a manual link's outbox as a base64 pack without draining
+// it; DiscardLinkQueued drains the first count once they were carried away.
+// A QR sequence closed halfway loses nothing.
+func (b *Bridge) PeekLink(name string) (string, error) {
+	m, err := b.offgrid()
+	if err != nil {
+		return "", err
+	}
+	frames, err := m.Peek(name)
+	if err != nil || len(frames) == 0 {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(transport.EncodePack(frames)), nil
+}
+
+// DiscardLinkQueued: see PeekLink.
+func (b *Bridge) DiscardLinkQueued(name string, count int) error {
+	m, err := b.offgrid()
+	if err != nil {
+		return err
+	}
+	m.Discard(name, count)
+	return nil
 }
 
 // ImportLinkPack feeds a carried pack (base64) back in and reports how many

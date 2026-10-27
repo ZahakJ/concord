@@ -41,7 +41,7 @@
 
   function release(l) {
     if (l.caps.costMicroUSD) paying = l;
-    else act(() => api.flushLink(l.name, 0));
+    else act(() => api.flushLink(l.name, l.queued, 0));
   }
 
   async function saveFile(l) {
@@ -128,7 +128,7 @@
     onConfirm={() => {
       const l = paying;
       paying = null;
-      act(() => api.flushLink(l.name, l.queuedCostMicroUSD));
+      act(() => api.flushLink(l.name, l.queued, l.queuedCostMicroUSD));
     }}
     onClose={() => (paying = null)}
   />

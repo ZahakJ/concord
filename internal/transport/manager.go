@@ -338,9 +338,11 @@ func (m *Manager) transmit(name string, frames [][]byte) (int, error) {
 	return len(frames), nil
 }
 
-// Flush releases a Manual or paid link's outbox: the user pressed send and saw
-// the cost. It returns what was spent.
-func (m *Manager) Flush(name string) (frames int, cost int64, err error) {
+// Flush releases the first count frames of a Manual or paid link's outbox:
+// the user pressed send having seen what those frames cost. It sends exactly
+// that many, never what queued up while the dialog was open. It returns what
+// was spent.
+func (m *Manager) Flush(name string, count int) (frames int, cost int64, err error) {
 	m.mu.Lock()
 	l := m.links[name]
 	if l == nil {
@@ -351,8 +353,9 @@ func (m *Manager) Flush(name string) (frames int, cost int64, err error) {
 		m.mu.Unlock()
 		return 0, 0, fmt.Errorf("transport: %s is not running", name)
 	}
-	out := l.outbox
-	l.outbox = nil
+	count = min(max(count, 0), len(l.outbox))
+	out := l.outbox[:count:count]
+	l.outbox = append([][]byte(nil), l.outbox[count:]...)
 	per := l.t.Caps().CostMicroUSD
 	m.mu.Unlock()
 	n, err := m.transmit(name, out)
@@ -365,20 +368,67 @@ func (m *Manager) Flush(name string) (frames int, cost int64, err error) {
 	return n, per * int64(n), err
 }
 
+// QueuedCost is what sending the first count frames of a link's outbox would
+// cost, and how many frames that actually is.
+func (m *Manager) QueuedCost(name string, count int) (frames int, cost int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	l := m.links[name]
+	if l == nil {
+		return 0, 0
+	}
+	frames = min(max(count, 0), len(l.outbox))
+	return frames, l.t.Caps().CostMicroUSD * int64(frames)
+}
+
+// Caps returns one link's capabilities without probing anything.
+func (m *Manager) Caps(name string) (Caps, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	l := m.links[name]
+	if l == nil {
+		return Caps{}, false
+	}
+	return l.t.Caps(), true
+}
+
 // Export drains a Manual link's outbox for a person to carry: the frames for a
 // QR sequence or a file. Nothing is lost if the export is never used — the
 // same messages still sync over the internet whenever that comes back.
 func (m *Manager) Export(name string) ([][]byte, error) {
+	out, err := m.Peek(name)
+	if err != nil {
+		return nil, err
+	}
+	m.Discard(name, len(out))
+	return out, nil
+}
+
+// Peek copies a Manual link's outbox without draining it — for a QR sequence
+// that may be closed before every code was shown. Discard drains it once the
+// person is done.
+func (m *Manager) Peek(name string) ([][]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	l := m.links[name]
 	if l == nil {
 		return nil, fmt.Errorf("transport: no link %q", name)
 	}
-	out := l.outbox
-	l.outbox = nil
-	l.sent += len(out)
-	return out, nil
+	return append([][]byte(nil), l.outbox...), nil
+}
+
+// Discard drops the first n frames of a link's outbox, counting them as sent:
+// the person carried them away by hand.
+func (m *Manager) Discard(name string, n int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	l := m.links[name]
+	if l == nil {
+		return
+	}
+	n = min(max(n, 0), len(l.outbox))
+	l.outbox = append([][]byte(nil), l.outbox[n:]...)
+	l.sent += n
 }
 
 // Receive feeds one frame that arrived on a link (or was imported from a QR

@@ -203,7 +203,9 @@ export const api = {
   setLinkEnabled: (name, on) => call("SetLinkEnabled", name, on),
   setLinksOffline: (on) => call("SetLinksOffline", on),
   setLinksRelay: (on) => call("SetLinksRelay", on),
-  flushLink: (name, expectCost) => call("FlushLink", name, expectCost),
+  flushLink: (name, count, expectCost) => call("FlushLink", name, count, expectCost),
+  peekLink: (name) => call("PeekLink", name),
+  discardLinkQueued: (name, count) => call("DiscardLinkQueued", name, count),
   exportLink: (name) => call("ExportLink", name),
   importLinkPack: (b64) => call("ImportLinkPack", b64),
   // Whether anyone is looking at THIS page; the backend votes across every

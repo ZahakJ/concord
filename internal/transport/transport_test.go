@@ -246,7 +246,7 @@ func TestPaidLinkFlushDelivers(t *testing.T) {
 	a.Carry("chan")
 	b.Carry("chan")
 	a.Send("chan", make([]byte, 500))
-	n, cost, err := a.Flush("sbd")
+	n, cost, err := a.Flush("sbd", 2)
 	if err != nil || n != 2 || cost != 80000 {
 		t.Fatalf("flush: %d frames, %d µ$, %v", n, cost, err)
 	}
@@ -393,7 +393,7 @@ func TestSwitchingOffStopsAFlush(t *testing.T) {
 	m.Carry("chan")
 	m.Send("chan", []byte("ct"))
 	done := make(chan error, 1)
-	go func() { _, _, err := m.Flush("slow"); done <- err }()
+	go func() { _, _, err := m.Flush("slow", 1); done <- err }()
 	time.Sleep(30 * time.Millisecond)
 	_ = m.SetEnabled("slow", false)
 	select {
@@ -406,5 +406,38 @@ func TestSwitchingOffStopsAFlush(t *testing.T) {
 	}
 	if q := m.Links()[0].Queued; q != 1 {
 		t.Fatalf("interrupted frame not requeued: %d queued", q)
+	}
+}
+
+func TestFlushSendsOnlyWhatWasApproved(t *testing.T) {
+	air := NewAir()
+	sat := Caps{MTU: 340, CostMicroUSD: 40000, Encryption: true, Mode: Live}
+	a, _ := node(t, NewMemLink(air, "sbd", "Iridium", sat))
+	a.Carry("chan")
+	a.Send("chan", []byte("seen in the dialog"))
+	if f, c := a.QueuedCost("sbd", 1); f != 1 || c != 40000 {
+		t.Fatalf("quoted %d frames / %d", f, c)
+	}
+	a.Send("chan", []byte("queued while the dialog was open"))
+	n, cost, err := a.Flush("sbd", 1)
+	if err != nil || n != 1 || cost != 40000 {
+		t.Fatalf("flushed %d for %d (%v), want exactly the approved 1", n, cost, err)
+	}
+	if q := a.Links()[0].Queued; q != 1 {
+		t.Fatalf("the unapproved frame was not kept: %d queued", q)
+	}
+}
+
+func TestPeekKeepsOutboxUntilDiscard(t *testing.T) {
+	m, _ := node(t, FileLink{})
+	m.Carry("chan")
+	m.Send("chan", []byte("a"))
+	m.Send("chan", []byte("b"))
+	if p, _ := m.Peek("file"); len(p) != 2 || m.Links()[0].Queued != 2 {
+		t.Fatal("peek drained the outbox")
+	}
+	m.Discard("file", 1)
+	if v := m.Links()[0]; v.Queued != 1 || v.Sent != 1 {
+		t.Fatalf("after discard: %d queued, %d sent", v.Queued, v.Sent)
 	}
 }
