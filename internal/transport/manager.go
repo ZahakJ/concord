@@ -57,6 +57,7 @@ const (
 type link struct {
 	t        Transport
 	running  bool
+	ctx      context.Context // the link's own lifetime: ends when it is switched off
 	cancel   context.CancelFunc
 	outbox   [][]byte
 	sent     int
@@ -277,10 +278,9 @@ func (m *Manager) dispatch(b Bundle, skip string) {
 		}
 		jobs = append(jobs, job{name, frames})
 	}
-	ctx := m.ctx
 	m.mu.Unlock()
 	for _, j := range jobs {
-		go func() { _, _ = m.transmit(ctx, j.name, j.frames) }()
+		go func() { _, _ = m.transmit(j.name, j.frames) }()
 	}
 }
 
@@ -308,12 +308,19 @@ func (m *Manager) eligibleLocked(c Caps, n int) bool {
 	return true
 }
 
-func (m *Manager) transmit(ctx context.Context, name string, frames [][]byte) (int, error) {
+// transmit sends frames on a link under that link's lifetime, so switching
+// the link off stops a long flush (a minute of audio, a satellite session)
+// instead of letting it run on.
+func (m *Manager) transmit(name string, frames [][]byte) (int, error) {
 	m.mu.Lock()
 	l := m.links[name]
+	var ctx context.Context
+	if l != nil {
+		ctx = l.ctx
+	}
 	m.mu.Unlock()
-	if l == nil {
-		return 0, fmt.Errorf("transport: no link %q", name)
+	if l == nil || ctx == nil {
+		return 0, fmt.Errorf("transport: %s is not running", name)
 	}
 	for i, f := range frames {
 		if err := l.t.Send(ctx, f); err != nil {
@@ -346,10 +353,9 @@ func (m *Manager) Flush(name string) (frames int, cost int64, err error) {
 	}
 	out := l.outbox
 	l.outbox = nil
-	ctx := m.ctx
 	per := l.t.Caps().CostMicroUSD
 	m.mu.Unlock()
-	n, err := m.transmit(ctx, name, out)
+	n, err := m.transmit(name, out)
 	if err != nil {
 		// What did not go stays queued, ahead of anything that arrived since.
 		m.mu.Lock()
@@ -431,10 +437,9 @@ func (m *Manager) dispatchRelay(b Bundle) {
 			jobs = append(jobs, job{name, frames})
 		}
 	}
-	ctx := m.ctx
 	m.mu.Unlock()
 	for _, j := range jobs {
-		go func() { _, _ = m.transmit(ctx, j.name, j.frames) }()
+		go func() { _, _ = m.transmit(j.name, j.frames) }()
 	}
 }
 
@@ -516,7 +521,7 @@ func (m *Manager) reconcile(name string) {
 			cancel()
 			l.err = err.Error()
 		} else {
-			l.running, l.cancel, l.err = true, cancel, ""
+			l.running, l.ctx, l.cancel, l.err = true, lctx, cancel, ""
 		}
 		m.mu.Unlock()
 	case !want && running:
@@ -533,7 +538,7 @@ func (m *Manager) stop(name string) {
 	}
 	l.running = false
 	cancel := l.cancel
-	l.cancel = nil
+	l.cancel, l.ctx = nil, nil
 	m.mu.Unlock()
 	if cancel != nil {
 		cancel()

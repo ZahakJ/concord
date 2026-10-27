@@ -377,3 +377,34 @@ func TestNoRelayOnSelfMeshingLink(t *testing.T) {
 		t.Fatalf("%d frames on a self-meshing link, want 1 (no Concord relay on top)", frames)
 	}
 }
+
+// slowLink blocks every Send until its context ends, like a long audio play.
+type slowLink struct{ MemLink }
+
+func (s *slowLink) Caps() Caps { return Caps{MTU: 200, Encryption: true, Local: true, Mode: Manual} }
+func (s *slowLink) Send(ctx context.Context, _ []byte) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestSwitchingOffStopsAFlush(t *testing.T) {
+	l := &slowLink{*NewMemLink(NewAir(), "slow", "slow", Caps{})}
+	m, _ := node(t, l)
+	m.Carry("chan")
+	m.Send("chan", []byte("ct"))
+	done := make(chan error, 1)
+	go func() { _, _, err := m.Flush("slow"); done <- err }()
+	time.Sleep(30 * time.Millisecond)
+	_ = m.SetEnabled("slow", false)
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("an interrupted flush reported success")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("switching the link off did not stop its flush")
+	}
+	if q := m.Links()[0].Queued; q != 1 {
+		t.Fatalf("interrupted frame not requeued: %d queued", q)
+	}
+}
