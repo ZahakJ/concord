@@ -42,13 +42,14 @@ const (
 // firmware keeps channel utilisation polite (and EU868 enforces a 10% duty
 // cycle). ~250 bit/s of useful throughput is what a chat line actually sees.
 var Caps = transport.Caps{
-	MTU:        MTU,
-	Bitrate:    250,
-	Latency:    3 * time.Second,
-	Encryption: true, // ISM band (915/868/433 MHz): ciphertext is lawful
-	Local:      true,
-	Mode:       transport.Live,
-	Range:      "1–10 km line of sight, more per mesh hop",
+	MTU:         MTU,
+	Bitrate:     250,
+	Latency:     3 * time.Second,
+	Encryption:  true, // ISM band (915/868/433 MHz): ciphertext is lawful
+	Local:       true,
+	Mode:        transport.Live,
+	Range:       "1–10 km line of sight, more per mesh hop",
+	SelfMeshing: true, // the node rebroadcasts: Concord must not relay on top
 }
 
 // Conn is an open stream to a node.

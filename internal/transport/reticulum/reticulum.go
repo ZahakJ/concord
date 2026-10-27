@@ -193,13 +193,14 @@ func (*Link) Label() string { return "Reticulum mesh (RNS)" }
 
 func (*Link) Caps() transport.Caps {
 	return transport.Caps{
-		MTU:        MTU,
-		Bitrate:    Bitrate,
-		Latency:    3 * time.Second,
-		Encryption: true, // refused on amateur-only interfaces, see package doc
-		Local:      true, // RNodes, serial and LANs need no infrastructure
-		Mode:       transport.Live,
-		Range:      "depends on interfaces: LoRa RNode 1–10 km per hop, LAN, serial; multi-hop via RNS transport nodes",
+		MTU:         MTU,
+		Bitrate:     Bitrate,
+		Latency:     3 * time.Second,
+		Encryption:  true, // refused on amateur-only interfaces, see package doc
+		Local:       true, // RNodes, serial and LANs need no infrastructure
+		Mode:        transport.Live,
+		Range:       "depends on interfaces: LoRa RNode 1–10 km per hop, LAN, serial; multi-hop via RNS transport nodes",
+		SelfMeshing: true, // RNS routes across transport nodes itself
 	}
 }
 
