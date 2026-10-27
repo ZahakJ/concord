@@ -87,6 +87,12 @@ export const SETTINGS_GROUPS = [
         sub: "Rendezvous address & diagnostics",
       },
       {
+        kind: "offgrid",
+        title: "Off-grid links",
+        icon: "bolt",
+        sub: "Bluetooth, radio, satellite & files when there's no internet",
+      },
+      {
         kind: "linkDevice",
         title: "Link a device",
         icon: "devices",

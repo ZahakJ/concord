@@ -198,6 +198,16 @@ export const api = {
   networkStatus: () => call("NetworkStatus"),
   reachability: () => call("ReachabilityStatus"),
   nudge: () => call("Nudge"),
+  // Off-grid links (internal/transport, bridge/offgrid.go).
+  offGrid: () => call("OffGrid"),
+  setLinkEnabled: (name, on) => call("SetLinkEnabled", name, on),
+  setLinksOffline: (on) => call("SetLinksOffline", on),
+  setLinksRelay: (on) => call("SetLinksRelay", on),
+  flushLink: (name, count, expectCost) => call("FlushLink", name, count, expectCost),
+  peekLink: (name) => call("PeekLink", name),
+  discardLinkQueued: (name, count) => call("DiscardLinkQueued", name, count),
+  exportLink: (name) => call("ExportLink", name),
+  importLinkPack: (b64) => call("ImportLinkPack", b64),
   // Whether anyone is looking at THIS page; the backend votes across every
   // attached client. See lib/visibility.js and internal/bridge/visibility.go.
   setClientVisible: (visible) => call("SetClientVisible", clientID, visible),

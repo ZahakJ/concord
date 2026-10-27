@@ -19,9 +19,25 @@ type PubSub struct {
 	ps   *pubsub.PubSub
 	self peer.ID
 
-	mu     sync.Mutex
-	topics map[string]*pubsub.Topic
-	subs   map[string]*pubsub.Subscription
+	mu       sync.Mutex
+	topics   map[string]*pubsub.Topic
+	subs     map[string]*pubsub.Subscription
+	handlers map[string]TopicHandler
+
+	// alt carries the same ciphertext over links that are not the internet —
+	// Bluetooth, radio, a QR code (internal/transport). Nil until SetAlt.
+	alt Alt
+}
+
+// Alt is the slice of internal/transport's Manager the bus talks to. It is an
+// interface so this package does not depend on that one.
+type Alt interface {
+	// Observe records a payload and reports whether it is new.
+	Observe(payload []byte) bool
+	Send(topic string, payload []byte)
+	Carry(topic string)
+	Drop(topic string)
+	Carries(topic string) bool
 }
 
 // TopicHandler receives a decrypted-elsewhere payload published to a topic,
@@ -94,10 +110,11 @@ func (n *Host) NewPubSub(ctx context.Context) (*PubSub, error) {
 		return nil, fmt.Errorf("net: start gossipsub: %w", err)
 	}
 	return &PubSub{
-		ps:     ps,
-		self:   n.h.ID(),
-		topics: map[string]*pubsub.Topic{},
-		subs:   map[string]*pubsub.Subscription{},
+		ps:       ps,
+		self:     n.h.ID(),
+		topics:   map[string]*pubsub.Topic{},
+		subs:     map[string]*pubsub.Subscription{},
+		handlers: map[string]TopicHandler{},
 	}, nil
 }
 
@@ -121,6 +138,7 @@ func (p *PubSub) Subscribe(ctx context.Context, topic string, handler TopicHandl
 		return fmt.Errorf("net: subscribe %s: %w", topic, err)
 	}
 	p.subs[topic] = sub
+	p.handlers[topic] = handler
 	p.mu.Unlock()
 
 	go func() {
@@ -131,6 +149,9 @@ func (p *PubSub) Subscribe(ctx context.Context, topic string, handler TopicHandl
 			}
 			if msg.GetFrom() == p.self {
 				continue
+			}
+			if alt := p.altFor(topic); alt != nil && !alt.Observe(msg.Data) {
+				continue // already arrived over another link
 			}
 			handler(msg.GetFrom(), msg.Data)
 		}
@@ -163,7 +184,12 @@ func (p *PubSub) Unsubscribe(topic string) {
 	p.mu.Lock()
 	sub := p.subs[topic]
 	delete(p.subs, topic)
+	delete(p.handlers, topic)
+	alt := p.alt
 	p.mu.Unlock()
+	if alt != nil {
+		alt.Drop(topic)
+	}
 	if sub != nil {
 		sub.Cancel()
 	}
@@ -175,10 +201,64 @@ func (p *PubSub) Publish(ctx context.Context, topic string, data []byte) error {
 	if err != nil {
 		return err
 	}
+	// The other links go first and regardless: they matter most exactly when
+	// the internet is the thing that is failing.
+	if alt := p.altFor(topic); alt != nil {
+		alt.Send(topic, data)
+	}
 	if err := t.Publish(ctx, data); err != nil {
 		return fmt.Errorf("net: publish %s: %w", topic, err)
 	}
 	return nil
+}
+
+// SetAlt attaches the non-internet links. Called once, before any Carry.
+func (p *PubSub) SetAlt(alt Alt) {
+	p.mu.Lock()
+	p.alt = alt
+	p.mu.Unlock()
+}
+
+// Carry marks a subscribed topic as one that also travels over the
+// non-internet links. Only topics whose handler ignores the sending peer may
+// be carried: a message that came over Bluetooth has no libp2p sender, and
+// these handlers authenticate the MLS author instead.
+func (p *PubSub) Carry(topic string) {
+	p.mu.Lock()
+	alt := p.alt
+	p.mu.Unlock()
+	if alt != nil {
+		alt.Carry(topic)
+	}
+}
+
+// DeliverAlt hands a ciphertext that arrived over a non-internet link to the
+// topic's handler, then republishes it to gossipsub. The republish is what
+// makes one phone with signal a gateway for a room of phones without: their
+// messages reach the rest of the guild through it, still sealed. The Manager
+// has already deduplicated, so each ciphertext is bridged at most once here.
+func (p *PubSub) DeliverAlt(ctx context.Context, topic string, data []byte) {
+	p.mu.Lock()
+	h := p.handlers[topic]
+	t := p.topics[topic]
+	p.mu.Unlock()
+	if h == nil {
+		return
+	}
+	h("", data)
+	if t != nil {
+		_ = t.Publish(ctx, data)
+	}
+}
+
+func (p *PubSub) altFor(topic string) Alt {
+	p.mu.Lock()
+	alt := p.alt
+	p.mu.Unlock()
+	if alt == nil || !alt.Carries(topic) {
+		return nil
+	}
+	return alt
 }
 
 func (p *PubSub) join(topic string) (*pubsub.Topic, error) {

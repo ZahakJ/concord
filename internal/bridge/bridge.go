@@ -3360,6 +3360,24 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SetClientVisible(argStr(args, 0), argBool(args, 1))
 	case "SetMetered":
 		return nil, b.SetMetered(argBool(args, 0))
+	case "OffGrid":
+		return b.OffGrid()
+	case "SetLinkEnabled":
+		return nil, b.SetLinkEnabled(argStr(args, 0), argBool(args, 1))
+	case "SetLinksOffline":
+		return nil, b.SetLinksOffline(argBool(args, 0))
+	case "SetLinksRelay":
+		return nil, b.SetLinksRelay(argBool(args, 0))
+	case "FlushLink":
+		return b.FlushLink(argStr(args, 0), argInt(args, 1), argInt64(args, 2))
+	case "PeekLink":
+		return b.PeekLink(argStr(args, 0))
+	case "DiscardLinkQueued":
+		return nil, b.DiscardLinkQueued(argStr(args, 0), argInt(args, 1))
+	case "ExportLink":
+		return b.ExportLink(argStr(args, 0))
+	case "ImportLinkPack":
+		return b.ImportLinkPack(argStr(args, 0))
 	case "RegisterPush":
 		return nil, b.RegisterPush(argStr(args, 0), argStr(args, 1))
 	case "LinkOffer":

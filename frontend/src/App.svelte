@@ -165,6 +165,7 @@
     privacy: () => import("./modals/ModalPrivacy.svelte"),
     bookings: () => import("./modals/ModalBookings.svelte"),
     connection: () => import("./modals/ModalConnection.svelte"),
+    offgrid: () => import("./modals/ModalOffGrid.svelte"),
     reach: () => import("./modals/ModalReach.svelte"),
     linkDevice: () => import("./modals/ModalLinkDevice.svelte"),
     appearance: () => import("./modals/ModalAppearance.svelte"),
