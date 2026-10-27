@@ -1791,10 +1791,13 @@ func (s *Service) trackGuildFromDisk(g *domain.Guild) {
 		}
 	})
 
+	s.ps.Carry(domain.ControlTopicID(groupID))
+
 	// Guild-meta topic: MLS-encrypted metadata updates (e.g. new channels).
 	_ = s.ps.Subscribe(s.ctx, domain.GuildMetaTopicID(groupID), func(_ peer.ID, ct []byte) {
 		s.receiveGuildMeta(guildID, groupID, ct)
 	})
+	s.ps.Carry(domain.GuildMetaTopicID(groupID))
 
 	// Channel topics: decrypt, store, and surface inbound messages.
 	for _, c := range g.Channels {
@@ -1802,6 +1805,7 @@ func (s *Service) trackGuildFromDisk(g *domain.Guild) {
 		_ = s.ps.Subscribe(s.ctx, domain.TopicID(groupID, channelID), func(_ peer.ID, ct []byte) {
 			s.receiveCiphertext(groupID, ct)
 		})
+		s.ps.Carry(domain.TopicID(groupID, channelID))
 		// Ephemeral typing signals, attributed to a member ACCOUNT — your own
 		// included — or dropped (see receiveTyping: an unlearned device key
 		// must never surface as an encoded stranger). Skipped entirely while the
@@ -2805,6 +2809,7 @@ func (s *Service) addChannel(guildID string, ch domain.Channel) {
 	_ = s.ps.Subscribe(s.ctx, domain.TopicID(groupID, channelID), func(_ peer.ID, ct []byte) {
 		s.receiveCiphertext(groupID, ct)
 	})
+	s.ps.Carry(domain.TopicID(groupID, channelID))
 	s.subscribeTyping(guildID, groupID, channelID)
 	if ch.ChannelType() == "voice" {
 		s.watchVoice(groupID, channelID)

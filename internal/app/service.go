@@ -30,6 +30,7 @@ import (
 	"github.com/ZahakJ/concord/internal/identity"
 	cnet "github.com/ZahakJ/concord/internal/net"
 	"github.com/ZahakJ/concord/internal/store"
+	"github.com/ZahakJ/concord/internal/transport"
 )
 
 // Service is the orchestration layer (layer 6): it owns the identity, network
@@ -55,6 +56,9 @@ type Service struct {
 	// peers remembers where we reached other peers, so the next launch can dial
 	// them directly instead of depending on the rendezvous being alive.
 	peers *PeerCache
+	// offgrid carries the same ciphertext over Bluetooth, radio, satellite
+	// and files when the internet is not there (offgrid.go).
+	offgrid *transport.Manager
 
 	mu             sync.RWMutex
 	guilds         map[string]*domain.Guild // by guild ID
@@ -1070,6 +1074,11 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		_ = st.Close()
 		return nil, fmt.Errorf("app: start pubsub: %w", err)
 	}
+	// The non-internet links (offgrid.go). Registered here, attached to the bus
+	// before any guild subscribes so every carried topic is known to them, and
+	// started at the end of Start — only the ones the user switched on.
+	offgrid := newOffGrid(cfg.DataDir)
+	ps.SetAlt(offgrid)
 
 	mlsDir, err := mlsDirIn(cfg.DataDir)
 	if err != nil {
@@ -1096,6 +1105,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		id:               id,
 		host:             host,
 		ps:               ps,
+		offgrid:          offgrid,
 		mls:              engine,
 		myCredential:     mlsCred,
 		store:            st,
@@ -1469,6 +1479,9 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	if s.RichPresenceEnabled() {
 		s.startRichPresence()
 	}
+
+	s.offgrid.SetDeliver(func(topic string, ct []byte) { s.ps.DeliverAlt(s.ctx, topic, ct) })
+	s.offgrid.Start(s.ctx)
 
 	return s, nil
 }
@@ -2326,6 +2339,9 @@ func (s *Service) Close() error {
 	// from under them.
 	if s.cancel != nil {
 		s.cancel()
+	}
+	if s.offgrid != nil {
+		s.offgrid.Close()
 	}
 	if s.peers != nil {
 		// Flush past the write throttle: everything learned in the last few
