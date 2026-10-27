@@ -356,3 +356,24 @@ func TestFilePackRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestNoRelayOnSelfMeshingLink(t *testing.T) {
+	air := NewAir()
+	var mu sync.Mutex
+	frames := 0
+	air.Drop = func([]byte) bool { mu.Lock(); frames++; mu.Unlock(); return false }
+	mesh := loraCaps
+	mesh.SelfMeshing = true
+	a, _ := node(t, NewMemLink(air, "mesh", "mesh", mesh))
+	b, in := node(t, NewMemLink(air, "mesh", "mesh", mesh))
+	a.Carry("chan")
+	b.Carry("chan")
+	a.Send("chan", []byte("ct"))
+	waitFor(t, "delivery", func() bool { return in.count("chan") == 1 })
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if frames != 1 {
+		t.Fatalf("%d frames on a self-meshing link, want 1 (no Concord relay on top)", frames)
+	}
+}

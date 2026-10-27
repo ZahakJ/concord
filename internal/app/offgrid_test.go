@@ -38,8 +38,10 @@ func TestMessageCrossesOffGridLinkWithoutInternet(t *testing.T) {
 	a := startService(t, ctx)
 	b := startService(t, ctx)
 	for _, s := range []*Service{a, b} {
-		if s.OffGrid().Links()[1].Running {
-			t.Fatal("a link was running before the user enabled it")
+		for _, v := range s.OffGrid().Links() {
+			if v.Running {
+				t.Fatalf("%s was running before the user enabled it", v.Name)
+			}
 		}
 		if err := s.OffGrid().SetEnabled("sim", true); err != nil {
 			t.Fatal(err)
@@ -67,6 +69,9 @@ func TestMessageCrossesOffGridLinkWithoutInternet(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	const secret = "meet at the north ridge"
+	tapMu.Lock()
+	tapped = nil // count only what this one line costs on the air
+	tapMu.Unlock()
 	if _, err := a.SendMessage(g.Channels[0].ID, secret, "", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -102,4 +107,5 @@ func TestMessageCrossesOffGridLinkWithoutInternet(t *testing.T) {
 	if len(tapped) == 0 {
 		t.Fatal("nothing crossed the air")
 	}
+	t.Logf("a %d-byte chat line crossed as %d frames of ≤%d bytes", len(secret), len(tapped), caps.MTU)
 }

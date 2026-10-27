@@ -70,6 +70,11 @@ type Caps struct {
 	Mode Mode `json:"mode"`
 	// Range is a human description of reach, e.g. "~30 m", "2–15 km".
 	Range string `json:"range"`
+	// SelfMeshing means the link floods frames across its own mesh already —
+	// a Meshtastic node rebroadcasts, Reticulum routes. The Manager never
+	// relays on such a link: doing it again on top only doubles the airtime
+	// of a channel that has very little.
+	SelfMeshing bool `json:"selfMeshing"`
 }
 
 // Paid reports whether sending on the link costs money.

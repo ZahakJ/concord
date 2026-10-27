@@ -413,7 +413,7 @@ func (m *Manager) Receive(name string, frame []byte) {
 
 // dispatchRelay forwards on live, free, local links only: a stranger's
 // ciphertext never lands in this user's paid satellite outbox or their QR
-// export.
+// export. Links that mesh on their own are left to do it.
 func (m *Manager) dispatchRelay(b Bundle) {
 	m.mu.Lock()
 	type job struct {
@@ -424,7 +424,7 @@ func (m *Manager) dispatchRelay(b Bundle) {
 	for _, name := range m.sortedNames() {
 		l := m.links[name]
 		c := l.t.Caps()
-		if !l.running || c.Mode != Live || c.Paid() || !c.Local || !m.eligibleLocked(c, len(b.Payload)) {
+		if !l.running || c.Mode != Live || c.Paid() || !c.Local || c.SelfMeshing || !m.eligibleLocked(c, len(b.Payload)) {
 			continue
 		}
 		if frames, err := Frames(b, c.MTU); err == nil {
