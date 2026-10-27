@@ -22,6 +22,10 @@ type Config struct {
 	Channel  uint32 `json:"channel"`
 	Port     uint32 `json:"port"`
 	HopLimit uint32 `json:"hopLimit"`
+	// Allow433 says the user is where 433 MHz (EU_433 and the other 433
+	// regions) is license-exempt ISM — ITU Region 1 and parts of Region 3.
+	// In the Americas 433 MHz is amateur-only, so it is refused by default.
+	Allow433 bool `json:"allow433"`
 }
 
 // EnvDevice overrides Config.Device.

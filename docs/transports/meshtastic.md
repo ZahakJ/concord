@@ -55,21 +55,39 @@ Code: `internal/transport/meshtastic/` (link + codec),
 | Mode | Live | |
 | Range | "1–10 km line of sight, more per mesh hop" | |
 
-### Amateur (licensed) mode is refused
+### Amateur use is refused (fails closed)
 
-A node with `is_licensed` set is a ham station. The firmware turns its own
-encryption off and the operator is bound by FCC §97.113, which bans messages
-encoded to hide their meaning. Concord has only ciphertext to send, so when the
-handshake shows our node is licensed, `Start` fails with `ErrLicensed` and the
-link never transmits. If a node reboots into licensed mode, the reconnect fails
-the same way.
+Concord can only send ciphertext. FCC §97.113 and its equivalents elsewhere
+ban encrypted traffic on amateur bands. At the end of the want_config dump
+Concord checks the node and refuses the link (`Start` fails and nothing is
+transmitted) unless all of these hold:
+
+- **Its own NodeInfo arrived** and `User.is_licensed` is false. A node that
+  never sends its own user record is refused, because licensed mode can't be
+  ruled out.
+- **Its `Config.lora` arrived** and the region is a known license-exempt one.
+  - `UNSET` is refused.
+  - The amateur regions firmware offers (`ITU*_2M`, `ITU*_70CM`, `ITU2_125CM`)
+    are refused.
+  - Unknown region codes are refused rather than guessed.
+  - The 433 MHz regions (`EU_433`, `UA_433`, `MY_433`, `PH_433`, `ANZ_433`,
+    `KZ_433`) are refused unless `"allow433": true` is set. 433 MHz is ISM in
+    ITU Region 1 and parts of Region 3, but inside the 70 cm amateur band
+    in the Americas, and Concord can't tell where the user is.
+- **No `override_frequency` lands in an amateur-only allocation**: 50–54,
+  144–148, 219–225, 420–450 and 1240–1300 MHz. The one exception is
+  433.05–434.79 MHz when 433 has been allowed.
+
+The want_config nonce never uses the firmware's special values 69420 and
+69421, which would skip parts of the dump these checks need. A reconnect after
+a reboot runs every check again.
 
 ## Configuration
 
 `<dataDir>/meshtastic.json` (all optional):
 
 ```json
-{"device": "/dev/ttyACM0", "channel": 0, "port": 256, "hopLimit": 3}
+{"device": "/dev/ttyACM0", "channel": 0, "port": 256, "hopLimit": 3, "allow433": false}
 ```
 
 `device` is a serial path, or `tcp://host[:4403]` for a node on Wi-Fi.
@@ -78,8 +96,14 @@ the same way.
 it) is a Meshtastic board's bridge: Espressif `303a`, CP210x `10c4`,
 CH340/CH9102 `1a86`, nRF52 `239a`, RP2040 `2e8a`. FTDI (`0403`) is excluded
 because that is the RockBLOCK, and two links must never open one port. Probe
-never opens the port or dials TCP. Serial is Linux (and Android) only for now;
-elsewhere, use TCP.
+never opens the port or dials TCP. On enable the port is opened exclusively
+(`TIOCEXCL`) and nothing but the wake bytes and `want_config` goes to it
+until the handshake proves it is a Meshtastic node. On failure the port is
+closed. Serial is Linux (and Android) only for now; elsewhere, use TCP.
+
+DTR/RTS: Linux asserts both on open, as pyserial (the Meshtastic Python
+client) does, which is known to work. Some ESP32 boards reset when the lines
+toggle. The hardware plan checks this. It is not changed blind.
 
 Every Concord node must use the same channel (same name and PSK, so the mesh
 can decode it) and the same `port`.
@@ -131,10 +155,12 @@ CONCORD_MESHTASTIC=tcp://127.0.0.1:14407 <concord instance 2>
    --ch-add concord --ch-set psk random --ch-index 1`, then copy the URL to the
    others. Set `"channel": 1` in `meshtastic.json`. Also run once on channel 0
    with the default key, to confirm Concord does not depend on the PSK.
-4. Leave `is_licensed` **off**. Then turn it on for one test and confirm Concord
+4. Region checks: set the region to `UNSET`, then `EU_433` (in the US), and
+   confirm Concord refuses each with a region error and nothing on the air.
+5. Leave `is_licensed` **off**. Then turn it on for one test and confirm Concord
    refuses the link with the licensed-mode error and sends nothing (check with
    `meshtastic --listen` on another node).
-5. Wi-Fi on the Heltec for the TCP test (`network.wifi_enabled`).
+6. Wi-Fi on the Heltec for the TCP test (`network.wifi_enabled`).
 
 **Bench (same room):**
 
@@ -147,6 +173,8 @@ CONCORD_MESHTASTIC=tcp://127.0.0.1:14407 <concord instance 2>
    arrive once. `meshtastic --listen` on a third board shows only PRIVATE_APP
    packets with binary payloads, never the text.
 4. Unplug and replug the USB while enabled: the link recovers within ~10 s.
+   Note whether opening the port reset the board (boot log on the serial
+   console, uptime reset). If it does, add DTR/RTS handling.
 5. Reboot the node from the CLI: same.
 6. TCP: switch one side to `tcp://<heltec-ip>` and repeat step 3.
 

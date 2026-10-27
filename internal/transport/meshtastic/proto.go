@@ -39,6 +39,7 @@ const (
 	fromPacket         = 2
 	fromMyInfo         = 3
 	fromNodeInfo       = 4
+	fromConfig         = 5
 	fromConfigComplete = 7
 	fromRebooted       = 8
 	fromQueueStatus    = 11
@@ -88,6 +89,14 @@ type NodeInfo struct {
 	IsLicensed bool
 }
 
+// LoRaConfig is Config.lora (field 6): region (7), override_frequency (14,
+// MHz) and tx_enabled (9).
+type LoRaConfig struct {
+	Region            uint32
+	OverrideFrequency float32
+	TxEnabled         bool
+}
+
 // QueueStatus is the node's transmit-queue report after each packet.
 type QueueStatus struct {
 	Res      int32
@@ -115,6 +124,7 @@ type FromRadio struct {
 	HasConfigDone    bool
 	Rebooted         bool
 	QueueStatus      *QueueStatus
+	LoRa             *LoRaConfig // set when the message was config{lora}
 }
 
 var errProto = errors.New("meshtastic: malformed protobuf")
@@ -226,6 +236,18 @@ func (f *FromRadio) Marshal() []byte {
 		b = appendVarintField(b, fromConfigComplete, uint64(f.ConfigCompleteID))
 	case f.Rebooted:
 		b = appendVarintField(b, fromRebooted, 1)
+	case f.LoRa != nil:
+		var lb []byte
+		if f.LoRa.Region != 0 {
+			lb = appendVarintField(lb, 7, uint64(f.LoRa.Region))
+		}
+		if f.LoRa.TxEnabled {
+			lb = appendVarintField(lb, 9, 1)
+		}
+		if f.LoRa.OverrideFrequency != 0 {
+			lb = appendFixed32Field(lb, 14, math.Float32bits(f.LoRa.OverrideFrequency))
+		}
+		b = appendBytesField(b, fromConfig, appendBytesField(nil, 6, lb))
 	case f.QueueStatus != nil:
 		q := f.QueueStatus
 		var qb []byte
@@ -434,6 +456,34 @@ func UnmarshalFromRadio(b []byte) (*FromRadio, error) {
 					})
 				}
 				return nil
+			})
+		case fromConfig:
+			if err := want(f, protowire.BytesType); err != nil {
+				return err
+			}
+			return fields(f.b, func(c field) error {
+				if c.num != 6 {
+					return nil // device, position, … : not ours to read
+				}
+				if err := want(c, protowire.BytesType); err != nil {
+					return err
+				}
+				lc := &LoRaConfig{}
+				r.LoRa = lc
+				return fields(c.b, func(x field) error {
+					switch x.num {
+					case 7:
+						lc.Region = uint32(x.u)
+					case 9:
+						lc.TxEnabled = x.u != 0
+					case 14:
+						if err := want(x, protowire.Fixed32Type); err != nil {
+							return err
+						}
+						lc.OverrideFrequency = math.Float32frombits(uint32(x.u))
+					}
+					return nil
+				})
 			})
 		case fromConfigComplete:
 			r.HasConfigDone = true

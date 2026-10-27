@@ -46,6 +46,12 @@ type Node struct {
 	Name string
 	// Licensed puts the node in amateur-radio mode (User.is_licensed).
 	Licensed bool
+	// Region is the node's LoRa RegionCode (AddNode sets US, 1), and
+	// OverrideMHz its override_frequency (0: the region's default).
+	Region      uint32
+	OverrideMHz float32
+	// HideSelf leaves the node's own NodeInfo out of the config dump.
+	HideSelf bool
 	// Noise makes the node interleave debug-log text with its frames, as a
 	// real board does on USB serial.
 	Noise bool
@@ -60,7 +66,7 @@ type Node struct {
 
 // AddNode adds a node with the given number.
 func (m *Mesh) AddNode(num uint32, name string) *Node {
-	n := &Node{Num: num, Name: name, mesh: m, clients: map[*client]bool{}, seen: map[uint32]bool{}}
+	n := &Node{Num: num, Name: name, Region: 1, mesh: m, clients: map[*client]bool{}, seen: map[uint32]bool{}}
 	m.mu.Lock()
 	m.nodes[num] = n
 	m.mu.Unlock()
@@ -290,7 +296,11 @@ func (n *Node) sendConfig(c *client, id uint32) {
 		others = append(others, o)
 	}
 	n.mesh.mu.Unlock()
+	c.send(&meshtastic.FromRadio{LoRa: &meshtastic.LoRaConfig{Region: n.Region, OverrideFrequency: n.OverrideMHz, TxEnabled: true}})
 	for _, o := range others {
+		if o == n && n.HideSelf {
+			continue
+		}
 		c.send(&meshtastic.FromRadio{NodeInfo: &meshtastic.NodeInfo{Num: o.Num, LongName: o.Name, IsLicensed: o.Licensed}})
 	}
 	c.send(&meshtastic.FromRadio{HasConfigDone: true, ConfigCompleteID: id})

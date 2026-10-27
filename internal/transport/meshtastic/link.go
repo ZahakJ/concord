@@ -74,6 +74,7 @@ type Link struct {
 	myNum   uint32
 	free    int // TX queue slots the node last reported; -1 unknown
 	freeCh  chan struct{}
+	gen     uint64 // bumped by Start and Stop; a connection from an older run is discarded
 	cancel  context.CancelFunc
 	done    chan struct{}
 	deliver transport.Deliver
@@ -168,8 +169,10 @@ func (l *Link) Start(ctx context.Context, deliver transport.Deliver) error {
 		l.mu.Unlock()
 		return errors.New("meshtastic: already started")
 	}
+	l.gen++
+	gen := l.gen
 	l.mu.Unlock()
-	conn, fr, err := l.connect(ctx)
+	conn, fr, err := l.connect(ctx, gen)
 	if err != nil {
 		l.setErr(err)
 		return err
@@ -177,14 +180,20 @@ func (l *Link) Start(ctx context.Context, deliver transport.Deliver) error {
 	lctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	l.mu.Lock()
+	if l.gen != gen { // Stop ran while we connected
+		l.mu.Unlock()
+		cancel()
+		conn.Close()
+		return errors.New("meshtastic: stopped while starting")
+	}
 	l.deliver, l.cancel, l.done, l.lastErr = deliver, cancel, done, ""
 	l.mu.Unlock()
-	go l.run(lctx, conn, fr, done)
+	go l.run(lctx, conn, fr, done, gen)
 	return nil
 }
 
 // connect opens the stream and runs the handshake.
-func (l *Link) connect(ctx context.Context) (Conn, *FrameReader, error) {
+func (l *Link) connect(ctx context.Context, gen uint64) (Conn, *FrameReader, error) {
 	conn, err := l.open(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -196,6 +205,13 @@ func (l *Link) connect(ctx context.Context) (Conn, *FrameReader, error) {
 		return nil, nil, err
 	}
 	l.mu.Lock()
+	if gen != l.gen {
+		// Stop (and maybe a new Start) happened while we dialled: this
+		// connection belongs to no running link.
+		l.mu.Unlock()
+		conn.Close()
+		return nil, nil, errors.New("meshtastic: link stopped")
+	}
 	l.conn, l.myNum, l.free = conn, num, -1
 	l.mu.Unlock()
 	return conn, fr, nil
@@ -206,7 +222,7 @@ func (l *Link) connect(ctx context.Context) (Conn, *FrameReader, error) {
 // licensed mode. Packets that arrive meanwhile are not ours yet and are
 // dropped; the mesh is lossy and the bundle layer tolerates it.
 func (l *Link) handshake(ctx context.Context, conn Conn, fr *FrameReader) (uint32, error) {
-	id := randomID()
+	id := configNonce()
 	if err := l.write(conn, &ToRadio{WantConfigID: id}); err != nil {
 		return 0, err
 	}
@@ -217,8 +233,8 @@ func (l *Link) handshake(ctx context.Context, conn Conn, fr *FrameReader) (uint3
 	res := make(chan result, 1)
 	go func() {
 		var num uint32
-		var licensed bool
-		nodes := map[uint32]bool{}
+		var lora *LoRaConfig
+		nodes := map[uint32]bool{} // node → is_licensed
 		for {
 			pb, err := fr.Next()
 			if err != nil {
@@ -233,16 +249,13 @@ func (l *Link) handshake(ctx context.Context, conn Conn, fr *FrameReader) (uint3
 			case msg.HasMyInfo:
 				num = msg.MyNodeNum
 			case msg.NodeInfo != nil:
-				nodes[msg.NodeInfo.Num] = msg.NodeInfo.IsLicensed
-			case msg.HasConfigDone && msg.ConfigCompleteID == id:
-				licensed = nodes[num]
-				if num == 0 {
-					res <- result{err: errors.New("meshtastic: node sent no my_info")}
-				} else if licensed {
-					res <- result{err: ErrLicensed}
-				} else {
-					res <- result{num: num}
+				if len(nodes) < 4096 || msg.NodeInfo.Num == num {
+					nodes[msg.NodeInfo.Num] = msg.NodeInfo.IsLicensed
 				}
+			case msg.LoRa != nil:
+				lora = msg.LoRa
+			case msg.HasConfigDone && msg.ConfigCompleteID == id:
+				res <- result{num: num, err: l.vet(num, nodes, lora)}
 				return
 			}
 		}
@@ -263,8 +276,36 @@ func (l *Link) handshake(ctx context.Context, conn Conn, fr *FrameReader) (uint3
 	}
 }
 
+// vet decides, from the config dump, whether this node may carry Concord. It
+// fails closed: no own NodeInfo, no LoRa config, a licensed node or an
+// amateur band all refuse.
+func (l *Link) vet(num uint32, nodes map[uint32]bool, lora *LoRaConfig) error {
+	if num == 0 {
+		return errors.New("meshtastic: node sent no my_info")
+	}
+	licensed, ok := nodes[num]
+	if !ok {
+		return fmt.Errorf("%w: the node never sent its own user record, so licensed mode cannot be ruled out", ErrLicensed)
+	}
+	if licensed {
+		return ErrLicensed
+	}
+	return checkRegion(lora, l.cfg.Allow433)
+}
+
+// configNonce is a want_config_id that is not one of the firmware's special
+// values (69420: config only, 69421: nodes only), which would skip part of
+// the dump the checks above depend on.
+func configNonce() uint32 {
+	for {
+		if id := randomID(); id != 69420 && id != 69421 {
+			return id
+		}
+	}
+}
+
 // run reads from the node until the link stops, reconnecting after a drop.
-func (l *Link) run(ctx context.Context, conn Conn, fr *FrameReader, done chan struct{}) {
+func (l *Link) run(ctx context.Context, conn Conn, fr *FrameReader, done chan struct{}, gen uint64) {
 	defer close(done)
 	for {
 		cctx, cancelConn := context.WithCancel(ctx)
@@ -277,8 +318,10 @@ func (l *Link) run(ctx context.Context, conn Conn, fr *FrameReader, done chan st
 		conn.Close()
 		<-hbDone
 		l.mu.Lock()
-		l.conn = nil
-		l.free = -1
+		if l.conn == conn {
+			l.conn = nil
+			l.free = -1
+		}
 		l.mu.Unlock()
 		if ctx.Err() != nil {
 			return
@@ -291,13 +334,13 @@ func (l *Link) run(ctx context.Context, conn Conn, fr *FrameReader, done chan st
 			case <-time.After(reconnectEvery):
 			}
 			var cerr error
-			conn, fr, cerr = l.connect(ctx)
+			conn, fr, cerr = l.connect(ctx, gen)
 			if cerr == nil {
 				l.setErr(nil)
 				break
 			}
 			l.setErr(cerr)
-			if errors.Is(cerr, ErrLicensed) {
+			if errors.Is(cerr, ErrLicensed) || errors.Is(cerr, ErrRegion) {
 				log.Printf("meshtastic: %v", cerr)
 			}
 		}
@@ -363,6 +406,7 @@ func (l *Link) Stop() error {
 	l.mu.Lock()
 	cancel, done, conn := l.cancel, l.done, l.conn
 	l.cancel, l.done = nil, nil
+	l.gen++
 	l.mu.Unlock()
 	if cancel == nil {
 		return nil

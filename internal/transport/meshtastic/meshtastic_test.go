@@ -363,3 +363,54 @@ func TestReconnectAfterDrop(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// The node's band decides whether ciphertext is lawful; anything Concord
+// cannot positively clear is refused.
+func TestRegionChecks(t *testing.T) {
+	cases := []struct {
+		name     string
+		region   uint32
+		override float32
+		allow433 bool
+		hideSelf bool
+		ok       bool
+	}{
+		{"US 915", 1, 0, false, false, true},
+		{"EU 868", 3, 0, false, false, true},
+		{"unset", 0, 0, false, false, false},
+		{"ITU2 70cm amateur", 35, 0, false, false, false},
+		{"EU_433 by default", 2, 0, false, false, false},
+		{"EU_433 acknowledged", 2, 0, true, false, true},
+		{"override into 2 m", 1, 146.52, false, false, false},
+		{"override inside ISM", 1, 915.0, false, false, true},
+		{"unknown region", 99, 0, false, false, false},
+		{"no own NodeInfo", 1, 0, false, true, false},
+	}
+	for i, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mesh := meshsim.New(int64(i))
+			defer mesh.Close()
+			n := mesh.AddNode(uint32(100+i), "n")
+			n.Region, n.OverrideMHz, n.HideSelf = c.region, c.override, c.hideSelf
+			l := meshtastic.New(meshtastic.Config{Allow433: c.allow433}, pipeDial(n))
+			err := l.Start(context.Background(), func([]byte) {})
+			if err == nil {
+				defer l.Stop()
+			}
+			if (err == nil) != c.ok {
+				t.Fatalf("ok=%v, err=%v", c.ok, err)
+			}
+			if !c.ok && !errors.Is(err, meshtastic.ErrRegion) && !errors.Is(err, meshtastic.ErrLicensed) {
+				t.Fatalf("refused for the wrong reason: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoRaConfigRoundTrip(t *testing.T) {
+	m := &meshtastic.FromRadio{LoRa: &meshtastic.LoRaConfig{Region: 3, OverrideFrequency: 869.525, TxEnabled: true}}
+	got, err := meshtastic.UnmarshalFromRadio(m.Marshal())
+	if err != nil || got.LoRa == nil || *got.LoRa != *m.LoRa {
+		t.Fatalf("%+v %v", got.LoRa, err)
+	}
+}

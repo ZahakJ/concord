@@ -24,6 +24,12 @@ func Open(dev string, baud int) (Port, error) {
 	if err != nil {
 		return nil, fmt.Errorf("serialport: open %s: %w", dev, err)
 	}
+	// Exclusive: a second opener (another app, or another of our links
+	// guessing the same port) gets EBUSY instead of interleaved bytes.
+	if err := unix.IoctlSetInt(fd, unix.TIOCEXCL, 0); err != nil {
+		unix.Close(fd)
+		return nil, fmt.Errorf("serialport: lock %s: %w", dev, err)
+	}
 	t, err := unix.IoctlGetTermios(fd, unix.TCGETS)
 	if err != nil {
 		unix.Close(fd)
