@@ -171,7 +171,7 @@ func TestEndToEndThroughConstellation(t *testing.T) {
 	if ma.Sessions() != 0 || ma.Credits() != 0 {
 		t.Fatalf("spent before approval: %d sessions, %d credits", ma.Sessions(), ma.Credits())
 	}
-	n, cost, err := mgrA.Flush("iridium")
+	n, cost, err := mgrA.Flush("iridium", 100)
 	if err != nil || n != frames {
 		t.Fatalf("flush: %d frames, %v", n, err)
 	}
@@ -212,7 +212,7 @@ func TestFailedSessionsRetryAndRequeue(t *testing.T) {
 	_ = manager(t, simLink(t, mb, "1"), inB)
 	mgrA.Send("topic", []byte("ciphertext stand-in"))
 	time.Sleep(50 * time.Millisecond)
-	if _, _, err := mgrA.Flush("iridium"); err == nil || !strings.Contains(err.Error(), "no satellite") {
+	if _, _, err := mgrA.Flush("iridium", 100); err == nil || !strings.Contains(err.Error(), "no satellite") {
 		t.Fatalf("want no-satellite error, got %v", err)
 	}
 	if ma.Credits() != 0 || ma.Sessions() != 3 {
@@ -222,7 +222,7 @@ func TestFailedSessionsRetryAndRequeue(t *testing.T) {
 		t.Fatalf("frame not requeued: %+v", v)
 	}
 	sky.Signal = 4
-	if n, _, err := mgrA.Flush("iridium"); err != nil || n != 1 {
+	if n, _, err := mgrA.Flush("iridium", 100); err != nil || n != 1 {
 		t.Fatalf("second flush %d %v", n, err)
 	}
 	waitUntil(t, 5*time.Second, func() bool { return inB.count() == 1 })
@@ -332,5 +332,188 @@ func TestPolling(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("poll did not fetch mail")
+	}
+}
+
+func shortTimeouts(t *testing.T) {
+	old, oldRing := sbdTimeout, ringBackoff
+	sbdTimeout, ringBackoff = 300*time.Millisecond, 20*time.Millisecond
+	t.Cleanup(func() { sbdTimeout, ringBackoff = old, oldRing })
+}
+
+// A session that completes in the modem but whose answer is lost (timeout)
+// or garbled must be confirmed with AT+SBDSX, not retried: billed once,
+// delivered once.
+func TestLostSessionResultBilledOnce(t *testing.T) {
+	shortTimeouts(t)
+	for _, mode := range []string{"lost", "garbled"} {
+		t.Run(mode, func(t *testing.T) {
+			sky := sbdsim.New(7)
+			ma, mb := sky.AddModem(1), sky.AddModem(2)
+			if mode == "lost" {
+				sky.LoseResults = 1
+			} else {
+				sky.GarbleResults = 1
+			}
+			l := simLink(t, ma, "2")
+			if err := l.Start(context.Background(), func([]byte) {}); err != nil {
+				t.Fatal(err)
+			}
+			defer l.Stop()
+			got := make(chan []byte, 4)
+			lb := simLink(t, mb, "1")
+			if err := lb.Start(context.Background(), func(f []byte) { got <- f }); err != nil {
+				t.Fatal(err)
+			}
+			defer lb.Stop()
+			frame := []byte{0xC1, 3, 0, 1, 9, 9, 9, 9, 9, 9, 9, 9, 42}
+			if err := l.Send(context.Background(), frame); err != nil {
+				t.Fatalf("send: %v", err)
+			}
+			if err := l.Send(context.Background(), frame); err != nil { // a Manager retry
+				t.Fatal(err)
+			}
+			if n := len(ma.Sent()); n != 1 || ma.Credits() != 1 {
+				t.Fatalf("%d MOs, %d credits; want 1/1", n, ma.Credits())
+			}
+			select {
+			case f := <-got:
+				if !bytes.Equal(f, frame) {
+					t.Fatal("frame changed")
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("not delivered")
+			}
+		})
+	}
+}
+
+// Stop in the middle of a session: the modem finishes it anyway. The next
+// Start must learn that from MOMSN and never send that frame again.
+func TestStopMidSessionReconciledOnStart(t *testing.T) {
+	shortTimeouts(t)
+	sky := sbdsim.New(8)
+	sky.SessionDelay = 200 * time.Millisecond
+	ma := sky.AddModem(1)
+	sky.AddModem(2)
+	l := simLink(t, ma, "2")
+	if err := l.Start(context.Background(), func([]byte) {}); err != nil {
+		t.Fatal(err)
+	}
+	frame := []byte{0xC1, 3, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 7}
+	errc := make(chan error, 1)
+	go func() { errc <- l.Send(context.Background(), frame) }()
+	time.Sleep(80 * time.Millisecond)
+	_ = l.Stop()
+	if err := <-errc; err == nil {
+		t.Fatal("send reported success with its answer lost")
+	}
+	waitUntil(t, 2*time.Second, func() bool { return len(ma.Sent()) == 1 }) // the modem finished it
+	if !strings.Contains(l.Probe().Detail, "awaiting modem confirmation") {
+		t.Fatalf("pending not shown: %s", l.Probe().Detail)
+	}
+	if err := l.Start(context.Background(), func([]byte) {}); err != nil {
+		t.Fatal(err)
+	}
+	defer l.Stop()
+	if err := l.Send(context.Background(), frame); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(ma.Sent()); n != 1 || ma.Credits() != 1 {
+		t.Fatalf("%d MOs, %d credits after restart; want 1/1", n, ma.Credits())
+	}
+}
+
+// Rings are answered only within the daily receive budget.
+func TestReceiveBudget(t *testing.T) {
+	shortTimeouts(t)
+	sky := sbdsim.New(9)
+	m := sky.AddModem(1)
+	var mu sync.Mutex
+	n := 0
+	l := New(Config{Peers: []string{"2"}, ReceiveCreditsPerDay: 3, RetryDelay: time.Millisecond},
+		func(context.Context) (io.ReadWriteCloser, error) { return m.Pipe(), nil })
+	if err := l.Start(context.Background(), func([]byte) { mu.Lock(); n++; mu.Unlock() }); err != nil {
+		t.Fatal(err)
+	}
+	defer l.Stop()
+	big := append([]byte{0xC1}, bytes.Repeat([]byte{1}, 99)...) // 2 credits each
+	for i := 0; i < 5; i++ {
+		m.Queue(big)
+		time.Sleep(100 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if c := m.Credits(); c > 3+2 { // the last session may overshoot by one message
+		t.Fatalf("receive spent %d credits, cap 3", c)
+	}
+	if d := l.Probe().Detail; !strings.Contains(d, "/3 credits") {
+		t.Fatalf("budget not shown: %s", d)
+	}
+}
+
+// A ring heard during a send whose session fetched the mail and emptied the
+// mailbox is an echo: answering it would buy an empty check.
+func TestRingAfterEmptyQueueIsSwallowed(t *testing.T) {
+	sky := sbdsim.New(10)
+	ma := sky.AddModem(1)
+	sky.AddModem(2)
+	l := simLink(t, ma, "2")
+	if err := l.Start(context.Background(), func([]byte) {}); err != nil {
+		t.Fatal(err)
+	}
+	defer l.Stop()
+	if err := l.Send(context.Background(), []byte{0xC1, 0, 0, 0, 5}); err != nil {
+		t.Fatal(err)
+	}
+	l.mu.Lock()
+	m := l.m
+	l.mu.Unlock()
+	// Mail for us arrives and rings while the send is in its session.
+	sky.SessionDelay = 100 * time.Millisecond
+	errc := make(chan error, 1)
+	go func() { errc <- l.Send(context.Background(), []byte{0xC1, 0, 0, 0, 6}) }()
+	time.Sleep(30 * time.Millisecond)
+	ma.Queue([]byte{0xC1, 9, 9, 9})
+	if err := <-errc; err != nil {
+		t.Fatal(err)
+	}
+	before := ma.Sessions()
+	_ = m
+	time.Sleep(200 * time.Millisecond)
+	if ma.Sessions() != before {
+		t.Fatal("answered a ring for mail the send already fetched")
+	}
+}
+
+// Rings that cannot be answered (no sky) give up after a few tries instead of
+// retrying forever.
+func TestUnanswerableRingsGiveUp(t *testing.T) {
+	shortTimeouts(t)
+	sky := sbdsim.New(11)
+	ma := sky.AddModem(1)
+	l := simLink(t, ma, "2")
+	if err := l.Start(context.Background(), func([]byte) {}); err != nil {
+		t.Fatal(err)
+	}
+	defer l.Stop()
+	sky.Signal = 0
+	l.mu.Lock()
+	m := l.m
+	l.mu.Unlock()
+	for i := 0; i < 10; i++ {
+		m.mu.Lock()
+		m.ringAt = time.Now()
+		m.mu.Unlock()
+		select {
+		case m.ring <- struct{}{}:
+		default:
+		}
+		time.Sleep(40 * time.Millisecond)
+	}
+	if s := ma.Sessions(); s > ringGiveUp {
+		t.Fatalf("%d sessions for unanswerable rings, want at most %d", s, ringGiveUp)
+	}
+	if !strings.Contains(l.Probe().Detail, "ignoring rings") {
+		t.Fatalf("mute not reported: %s", l.Probe().Detail)
 	}
 }

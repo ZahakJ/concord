@@ -32,6 +32,11 @@ type Constellation struct {
 	FailRate float64
 	// SessionDelay is how long one SBDIX takes.
 	SessionDelay time.Duration
+	// LoseResults and GarbleResults make the next sessions complete in the
+	// modem (sent, billed, routed) while their +SBDIX answer never reaches
+	// the driver, or reaches it corrupted — the double-billing trap.
+	LoseResults   int
+	GarbleResults int
 }
 
 // New returns a constellation with full signal.
@@ -216,7 +221,34 @@ func (m *Modem) command(conn io.ReadWriteCloser, cmd string) {
 		m.mu.Unlock()
 		m.reply(conn, "0", "OK")
 	case "AT+SBDIX", "AT+SBDIXA":
-		m.reply(conn, m.session(), "OK")
+		res := m.session()
+		m.c.mu.Lock()
+		lose, garble := m.c.LoseResults > 0, m.c.LoseResults == 0 && m.c.GarbleResults > 0
+		if lose {
+			m.c.LoseResults--
+		} else if garble {
+			m.c.GarbleResults--
+		}
+		m.c.mu.Unlock()
+		switch {
+		case lose:
+		case garble:
+			m.reply(conn, "+SBDIX: 0, \x00\xff", "OK")
+		default:
+			m.reply(conn, res, "OK")
+		}
+	case "AT+SBDSX":
+		m.mu.Lock()
+		mo, mt := 0, 0
+		if len(m.mo) > 0 {
+			mo = 1
+		}
+		if len(m.mt) > 0 {
+			mt = 1
+		}
+		line := fmt.Sprintf("+SBDSX: %d, %d, %d, %d, %d, %d", mo, m.momsn, mt, m.mtmsn, 0, len(m.mtQueue))
+		m.mu.Unlock()
+		m.reply(conn, line, "OK")
 	case "AT+SBDRB":
 		m.mu.Lock()
 		mt := m.mt
@@ -253,8 +285,8 @@ func (m *Modem) session() string {
 		}
 		return fmt.Sprintf("+SBDIX: %d, %d, 2, %d, 0, %d", status, m.momsn, m.mtmsn, len(m.mtQueue))
 	}
+	m.momsn++ // every completed session advances MOMSN
 	if len(m.mo) > 0 {
-		m.momsn++
 		m.credits += credits(len(m.mo))
 		m.moSent = append(m.moSent, append([]byte(nil), m.mo...))
 		m.route(append([]byte(nil), m.mo...))

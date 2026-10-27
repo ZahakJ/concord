@@ -50,10 +50,29 @@ Send, for each peer:
    (length‖message‖checksum, checked and limited to 270 bytes). If more are
    queued, the mailbox loop drains them.
 
+**A session whose answer is lost is never retried blindly.** This covers a
+timeout, the port closing (Stop or unplug) and a garbled `+SBDIX`. The modem
+finishes such a session on its own, so a blind retry would send and bill the
+message twice. Before the session the driver records MOMSN from `AT+SBDSX`
+(a local command: no session, no charge). Afterwards it asks again:
+
+- If MOMSN moved, the session completed. The frame counts as sent and is
+  billed once.
+- If it didn't move, nothing was sent and the frame is retried.
+- If the modem can't answer (the port is gone), the send is marked
+  *pending*. No send and no mailbox session runs until the next Start
+  settles it with `AT+SBDSX`. Mailbox sessions also move MOMSN, so running
+  one first would make the outcome unknowable. Settings shows "send(s)
+  awaiting modem confirmation".
+
+Only an `ERROR` answer counts as a known failure. Pending state is kept in
+memory, which matches the Manager's outbox. After a process restart both are
+gone, and the message still syncs over the internet later.
+
 A frame already delivered to some peers is remembered, so if the Manager
 retries a partly failed Flush, those peers are not sent (or billed) again.
 
-Receiving: a `SBDRING` between conversations wakes a mailbox session
+Receiving is capped. See "Cost and polling". A `SBDRING` between conversations wakes a mailbox session
 (`AT+SBDD0`, then `AT+SBDIXA`), which drains up to 8 queued messages. MT bytes
 are handed to the Manager only if they look like a Concord bundle or fragment
 (`0xC1` or `0xC2`). Anything else, such as a test message from the Rock7 web
@@ -84,6 +103,30 @@ default assumption is **$0.15/credit**. Set your own with `creditUSD`.
 - Because the cost is non-zero, the Manager never auto-sends. Frames wait in
   the outbox until `Flush`, and relayed traffic from other people never lands
   in this outbox.
+- **Daily receive cap.** Answering rings and polling may spend at most
+  `receiveCreditsPerDay` credits per UTC day (default 20, about $3). Each MT
+  is counted at 1 credit per 50 B and each empty check at 1. Once the cap is
+  hit, rings are ignored until midnight UTC. Mail that an approved send's
+  session brings down is still read and counted, because SBDIX always
+  fetches queued mail and Rock7 has already billed it. Settings shows
+  "receive today N/cap", what has been sent since start, and the polling
+  cost per day when polling is on.
+- **Rings are filtered.**
+  - A ring heard before a session that left the mailbox empty is for mail
+    that session already fetched, so it isn't answered. This is checked
+    again after waiting for the modem, so a ring during a send costs nothing.
+  - Three unanswerable rings in a row (no sky) mute ring answers for an hour,
+    instead of retrying every 30 s forever.
+  - The review asked for a 60 s quiet window after an empty queue. I didn't
+    use it: in the simulator it swallowed real mail, since consecutive
+    fragments arrive seconds apart. The timestamp rule above has the same
+    effect for echoes. A ring that arrives *after* such a session but echoes
+    it can still cost one empty check, and that is inside the cap.
+- **Ring alerts and SBDREG.** The gateway sends ring alerts only to a modem
+  whose location it has registered: after any SBDIX, or `AT+SBDREG`. The
+  driver never sends SBDREG on its own, because whether Rock7 bills it is
+  unverified. A freshly powered modem may therefore not ring until its
+  first send. The hardware plan covers this.
 - **Polling is off by default.** An empty check costs a credit, so a 10-minute
   poll is 144 credits/day, about $22/day. Mail is fetched on ring alerts
   (free to receive the alert; the message itself is billed) and in the same
@@ -103,13 +146,15 @@ stops it), Mode Live (the cost gate makes it effectively manual), Range
 `<dataDir>/iridium.json`:
 
 ```json
-{"device": "/dev/ttyUSB0", "peers": ["0012345"], "creditUSD": 0.10, "pollMinutes": 0}
+{"device": "/dev/ttyUSB0", "peers": ["0012345"], "creditUSD": 0.10, "pollMinutes": 0, "receiveCreditsPerDay": 20}
 ```
 
 `CONCORD_IRIDIUM` overrides the device, and `CONCORD_IRIDIUM_PEERS`
 (comma-separated) overrides the peers. If `device` is empty, Probe picks the
 first FTDI (`0403`) `/dev/ttyUSB*`. That is RockBLOCK's USB chip, and it is
-excluded from Meshtastic's auto-detect. Probe never opens the port. Without at
+excluded from Meshtastic's auto-detect. Probe never opens the port. On enable the port is opened exclusively
+(`TIOCEXCL`), and only `AT` is written until the device answers `OK`. A
+device that doesn't answer is closed with nothing else sent. Without at
 least one valid peer serial, the link shows an error and refuses to start.
 
 ## What is simulated
@@ -164,7 +209,13 @@ antenna pointing up.
 5. **Ring alerts:** with the receiver idle, send from the other side. The
    receiver must fetch within ~1–2 minutes with no polling. If it does not, check
    ring alerts in the console (and `AT+SBDMTA?`). Also check whether ring alerts
-   need a recent `AT+SBDREG`, which the driver does not send yet.
+   need a recent `AT+SBDREG`, which the driver does not send yet. Send
+   one by hand and check whether the console bills it.
+9. **Lost answers:** unplug the USB while a send's session is running. Plug
+   it back in and re-enable. The status shows the pending send settled, and
+   the console shows one MO, not two.
+10. **Receive cap:** set `receiveCreditsPerDay` to 6. Queue 5 messages from the
+   console. Concord stops answering rings at the cap and says so.
 6. **Fragmented:** a ~600 B ciphertext (3 frames) arrives whole. Then block
    the antenna halfway through and check the remaining frames stay queued and
    go after a second send.

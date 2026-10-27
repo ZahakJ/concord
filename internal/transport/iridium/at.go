@@ -22,9 +22,12 @@ const (
 	maxLine     = 512     // longer "lines" are line noise
 	cmdTimeout  = 5 * time.Second
 	csqTimeout  = 20 * time.Second // AT+CSQ waits for a fresh reading
-	sbdTimeout  = 90 * time.Second // AT+SBDIX can take a minute
 	readyTimout = 5 * time.Second
 )
+
+// sbdTimeout bounds one AT+SBDIX; a session can take a minute. A variable so
+// tests can shorten it.
+var sbdTimeout = 90 * time.Second
 
 var (
 	errATError  = errors.New("iridium: modem answered ERROR")
@@ -58,6 +61,7 @@ type modem struct {
 	idle   bool
 	notify chan struct{} // poked when bytes arrive or the port closes
 	ring   chan struct{} // poked on SBDRING
+	ringAt time.Time     // when the latest SBDRING was read
 	done   chan struct{}
 }
 
@@ -119,6 +123,20 @@ func (m *modem) busy(on bool) {
 	m.mu.Unlock()
 }
 
+// dead reports whether the port has closed.
+func (m *modem) dead() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closed
+}
+
+// lastRing is when the latest ring alert was heard.
+func (m *modem) lastRing() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.ringAt
+}
+
 // close shuts the port and waits for the reader.
 func (m *modem) close() {
 	m.port.Close()
@@ -162,6 +180,7 @@ func (m *modem) lineLocked() (string, bool) {
 			continue
 		}
 		if s == "SBDRING" {
+			m.ringAt = time.Now()
 			select {
 			case m.ring <- struct{}{}:
 			default:
@@ -384,6 +403,49 @@ func (m *modem) session(answer bool) (SBDIX, error) {
 	return SBDIX{}, fmt.Errorf("iridium: no +SBDIX in %q", info)
 }
 
+// SBDSX is the modem's SBD status (AT+SBDSX):
+// +SBDSX: <MO flag>, <MOMSN>, <MT flag>, <MTMSN>, <RA flag>, <msg waiting>
+// MOMSN advances with every completed session, which is how a session whose
+// +SBDIX answer was lost is reconciled.
+type SBDSX struct {
+	MOFlag, MOMSN, MTFlag, MTMSN, RAFlag, Waiting int
+}
+
+// ParseSBDSX parses a +SBDSX line.
+func ParseSBDSX(s string) (SBDSX, error) {
+	v, ok := strings.CutPrefix(strings.TrimSpace(s), "+SBDSX:")
+	if !ok {
+		return SBDSX{}, fmt.Errorf("iridium: not an SBDSX line: %q", s)
+	}
+	parts := strings.Split(v, ",")
+	if len(parts) != 6 {
+		return SBDSX{}, fmt.Errorf("iridium: SBDSX has %d fields: %q", len(parts), s)
+	}
+	var n [6]int
+	for i, p := range parts {
+		x, err := strconv.Atoi(strings.TrimSpace(p))
+		if err != nil || x < 0 || x > 65535 {
+			return SBDSX{}, fmt.Errorf("iridium: bad SBDSX field %q", p)
+		}
+		n[i] = x
+	}
+	return SBDSX{n[0], n[1], n[2], n[3], n[4], n[5]}, nil
+}
+
+// status is AT+SBDSX. It is local to the modem: no session, no bill.
+func (m *modem) status() (SBDSX, error) {
+	info, err := m.cmd("AT+SBDSX", cmdTimeout)
+	if err != nil {
+		return SBDSX{}, err
+	}
+	for _, s := range info {
+		if strings.HasPrefix(s, "+SBDSX:") {
+			return ParseSBDSX(s)
+		}
+	}
+	return SBDSX{}, fmt.Errorf("iridium: no +SBDSX in %q", info)
+}
+
 // readMT is AT+SBDRB: length ‖ message ‖ checksum, then OK.
 func (m *modem) readMT() ([]byte, error) {
 	m.discard()
@@ -412,6 +474,9 @@ func (m *modem) readMT() ([]byte, error) {
 		if b[0] == 'S' {
 			if w, err := m.peek(7, deadline); err == nil && string(w) == "SBDRING" {
 				_, _ = m.readN(7, deadline)
+				m.mu.Lock()
+				m.ringAt = time.Now()
+				m.mu.Unlock()
 				select {
 				case m.ring <- struct{}{}:
 				default:
