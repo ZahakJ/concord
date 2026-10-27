@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -14,7 +15,6 @@ import (
 type recorder struct {
 	mu      sync.Mutex
 	seen    []string
-	ads     [][]byte
 	conns   []bool
 	lost    []string
 	inbound [][]byte
@@ -24,9 +24,9 @@ type recorder struct {
 func (r *recorder) events() Events {
 	return Events{
 		Inbound: func(f []byte) { r.mu.Lock(); r.inbound = append(r.inbound, f); r.mu.Unlock() },
-		Seen: func(id string, ad []byte, c bool) {
+		Seen: func(id string, c bool) {
 			r.mu.Lock()
-			r.seen, r.ads, r.conns = append(r.seen, id), append(r.ads, ad), append(r.conns, c)
+			r.seen, r.conns = append(r.seen, id), append(r.conns, c)
 			r.mu.Unlock()
 		},
 		Lost:       func(id string) { r.mu.Lock(); r.lost = append(r.lost, id); r.mu.Unlock() },
@@ -35,7 +35,8 @@ func (r *recorder) events() Events {
 	}
 }
 
-// fakeUp puts a BlueZ into the state Up leaves it in, minus the bus.
+// fakeUp puts a BlueZ into the state Up leaves it in, minus the bus. Only
+// paths that need no D-Bus call may be exercised.
 func fakeUp(t *testing.T) (*BlueZ, *recorder) {
 	b := NewBlueZ(BlueZConfig{})
 	r := &recorder{}
@@ -43,68 +44,92 @@ func fakeUp(t *testing.T) (*BlueZ, *recorder) {
 	b.adapter = "/org/bluez/hci0"
 	b.ev = r.events()
 	b.devices = map[dbus.ObjectPath]*devState{}
+	b.known = map[dbus.ObjectPath]bool{}
+	b.dialed = map[dbus.ObjectPath]bool{}
+	b.writers = map[dbus.ObjectPath]time.Time{}
+	b.inboundSince = map[dbus.ObjectPath]time.Time{}
 	b.txPaths = map[dbus.ObjectPath]dbus.ObjectPath{}
-	b.seenAll = map[dbus.ObjectPath]struct{}{}
 	return b, r
 }
 
-func sdVariant(uuid string, data []byte) dbus.Variant {
-	return dbus.MakeVariant(map[string]dbus.Variant{uuid: dbus.MakeVariant(data)})
-}
+func uuids(u ...string) dbus.Variant { return dbus.MakeVariant(u) }
+func rssi(v int16) dbus.Variant      { return dbus.MakeVariant(v) }
 
-func TestBlueZMatchesOnlyConcordDevices(t *testing.T) {
+func TestBlueZMatchesOnlyConcordDevicesHeardOnAir(t *testing.T) {
 	b, r := fakeUp(t)
-	const us, them, other = "/org/bluez/hci0/dev_AA", "/org/bluez/hci0/dev_BB", "/org/bluez/hci0/dev_CC"
-	ad := encodeAd(nonce{1, 2, 3, 4})
-	// Upper-case UUID as some stacks report it.
+	const us, cached, other = "/org/bluez/hci0/dev_AA", "/org/bluez/hci0/dev_BB", "/org/bluez/hci0/dev_CC"
+	// Heard on air, with the UUID in upper case as some stacks report it.
 	b.device(us, map[string]dbus.Variant{
-		"ServiceData": sdVariant("1C317699-815C-4666-9F0B-3452F8763F76", ad),
-		"Connected":   dbus.MakeVariant(false),
+		"UUIDs": uuids("1C317699-815C-4666-9F0B-3452F8763F76"), "RSSI": rssi(-50),
+		"Connected": dbus.MakeVariant(false),
 	})
-	b.device(them, map[string]dbus.Variant{"UUIDs": dbus.MakeVariant([]string{ServiceUUID})}) // iOS-style
+	// A Concord device straight out of BlueZ's cache: no RSSI, not heard.
+	b.device(cached, map[string]dbus.Variant{"UUIDs": uuids(ServiceUUID), "Connected": dbus.MakeVariant(false)})
 	b.device(other, map[string]dbus.Variant{
-		"ServiceData": sdVariant("0000feaa-0000-1000-8000-00805f9b34fb", []byte{1}),
-		"Name":        dbus.MakeVariant("someone's headphones"),
+		"UUIDs": uuids("0000180f-0000-1000-8000-00805f9b34fb"), "RSSI": rssi(-40),
+		"Name": dbus.MakeVariant("someone's headphones"),
 	})
-	// An RSSI update on a known device refreshes it with the cached data.
-	b.device(us, map[string]dbus.Variant{"RSSI": dbus.MakeVariant(int16(-60))})
-	// An RSSI update on a stranger is ignored.
-	b.device(other, map[string]dbus.Variant{"RSSI": dbus.MakeVariant(int16(-70))})
+	b.device(us, map[string]dbus.Variant{"RSSI": rssi(-60)})     // refresh of a known device
+	b.device(other, map[string]dbus.Variant{"RSSI": rssi(-70)})  // stranger: ignored, no lookup
+	b.device(cached, map[string]dbus.Variant{"RSSI": rssi(-65)}) // cached one finally heard
 
-	if got := len(r.seen); got != 3 {
-		t.Fatalf("seen %d events (%v), want 3", got, r.seen)
-	}
-	if !bytes.Equal(r.ads[0], ad) || !bytes.Equal(r.ads[2], ad) || r.ads[1] != nil {
-		t.Fatalf("ads %x", r.ads)
+	if want := []string{us, us, cached}; len(r.seen) != 3 || r.seen[0] != want[0] || r.seen[1] != want[1] || r.seen[2] != want[2] {
+		t.Fatalf("seen %v, want %v", r.seen, want)
 	}
 	if all, concord := b.Counts(); all != 3 || concord != 2 {
 		t.Fatalf("counts %d/%d", all, concord)
 	}
 
+	// A Connected flag on its own does not count as heard, but is passed on
+	// so that Link does not dial back over an existing link.
 	b.device(us, map[string]dbus.Variant{"Connected": dbus.MakeVariant(true)})
 	if !r.conns[len(r.conns)-1] {
 		t.Fatal("connected flag not passed")
 	}
 	b.device(us, map[string]dbus.Variant{"Connected": dbus.MakeVariant(false)})
-	b.forget(them)
-	b.forget(other) // not ours: no Lost
-	if len(r.lost) != 2 || r.lost[0] != us || r.lost[1] != them {
+	b.forget(cached)
+	b.forget(other) // not ours, so no Lost
+	if len(r.lost) != 2 || r.lost[0] != us || r.lost[1] != cached {
 		t.Fatalf("lost %v", r.lost)
 	}
 }
 
+func TestBlueZDeviceTableEvictsStalest(t *testing.T) {
+	b, _ := fakeUp(t)
+	for i := 0; i < maxDevices+5; i++ {
+		p := dbus.ObjectPath("/org/bluez/hci0/dev_" + string(rune('A'+i%26)) + "_" + itoa(i))
+		b.device(p, map[string]dbus.Variant{"UUIDs": uuids(ServiceUUID), "RSSI": rssi(-50)})
+	}
+	if _, concord := b.Counts(); concord != maxDevices {
+		t.Fatalf("tracked %d, cap %d", concord, maxDevices)
+	}
+}
+
+func itoa(i int) string {
+	var buf [8]byte
+	n := len(buf)
+	for {
+		n--
+		buf[n] = byte('0' + i%10)
+		i /= 10
+		if i == 0 {
+			return string(buf[n:])
+		}
+	}
+}
+
 func TestBlueZIgnoresDevicesOnOtherAdapters(t *testing.T) {
-	b, r := fakeUp(t)
+	b, _ := fakeUp(t)
 	if b.under("/org/bluez/hci1/dev_AA") || !b.under("/org/bluez/hci0/dev_AA") || b.under("/org/bluez/hci0") {
 		t.Fatal("under() wrong")
 	}
-	_ = r
 }
 
-func TestRxCharFraming(t *testing.T) {
+func TestRxCharFramingAndWriterTracking(t *testing.T) {
 	b, r := fakeUp(t)
 	rx := rxChar{b}
-	if err := rx.WriteValue([]byte{0xc1, 1, 2}, map[string]dbus.Variant{"type": dbus.MakeVariant("command")}); err != nil {
+	dev := dbus.MakeVariant(dbus.ObjectPath("/org/bluez/hci0/dev_DD"))
+	if err := rx.WriteValue([]byte{0xc1, 1, 2}, map[string]dbus.Variant{"type": dbus.MakeVariant("command"), "device": dev}); err != nil {
 		t.Fatal(err)
 	}
 	if err := rx.WriteValue([]byte{0xc1}, map[string]dbus.Variant{"offset": dbus.MakeVariant(uint16(20))}); err == nil {
@@ -119,6 +144,9 @@ func TestRxCharFraming(t *testing.T) {
 	if len(r.inbound) != 1 || !bytes.Equal(r.inbound[0], []byte{0xc1, 1, 2}) {
 		t.Fatalf("inbound %x", r.inbound)
 	}
+	if _, ok := b.writers["/org/bluez/hci0/dev_DD"]; !ok {
+		t.Fatal("writer not remembered for Down to disconnect")
+	}
 	tx := txChar{b}
 	_ = tx.StartNotify()
 	_ = tx.StopNotify()
@@ -127,22 +155,20 @@ func TestRxCharFraming(t *testing.T) {
 	}
 }
 
-// What BlueZ reads to build the advertisement: service data and the
-// discoverable flag, nothing that names or identifies the device.
+// What BlueZ reads to build the advertisement: the service UUID and the
+// discoverable flag. Nothing that names or distinguishes the device.
 func TestAdvertisementObjectHasNoIdentity(t *testing.T) {
 	b, _ := fakeUp(t)
-	b.advData = encodeAd(nonce{9, 8, 7, 6})
 	adv := b.objects()[b.advPath()][ifAdvert]
 	for k := range adv {
 		switch k {
-		case "Type", "ServiceData", "Discoverable":
+		case "Type", "ServiceUUIDs", "Discoverable":
 		default:
 			t.Errorf("advertisement carries %q", k)
 		}
 	}
-	sd := adv["ServiceData"].Value().(map[string]dbus.Variant)
-	if len(sd) != 1 || !bytes.Equal(sd[ServiceUUID].Value().([]byte), b.advData) {
-		t.Fatalf("service data %v", sd)
+	if u := adv["ServiceUUIDs"].Value().([]string); len(u) != 1 || u[0] != ServiceUUID {
+		t.Fatalf("UUIDs %v", u)
 	}
 	app, _ := gattApp{b}.GetManagedObjects()
 	if _, ok := app[b.advPath()]; ok {

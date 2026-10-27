@@ -72,162 +72,155 @@ type node struct {
 	in  *inbox
 }
 
-func startNode(t *testing.T, air *fakeAir, id string, n nonce) *node {
+// startNode starts a link that dials a newly heard device after delay.
+func startNode(t *testing.T, air *fakeAir, id string, delay time.Duration) *node {
 	t.Helper()
 	r := air.radio(id)
 	l := New(r)
 	clk := &clock{t: time.Unix(1_700_000_000, 0)}
 	l.now = clk.now
+	l.dialDelay = func() time.Duration { return delay }
 	in := &inbox{}
 	if err := l.Start(context.Background(), in.add); err != nil {
-		t.Fatal(err)
-	}
-	// Pin the nonce so tests decide who dials.
-	l.mu.Lock()
-	l.nonce = n
-	l.mu.Unlock()
-	if err := r.Advertise(encodeAd(n)); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = l.Stop() })
 	return &node{l, r, clk, in}
 }
 
-func TestAdvertisementCarriesOnlyVersionAndNonce(t *testing.T) {
-	a, b := newNonce(), newNonce()
-	if a == b {
-		t.Fatal("two fresh nonces were equal")
-	}
-	ad := encodeAd(a)
-	if len(ad) != 5 || ad[0] != adVersion || !bytes.Equal(ad[1:], a[:]) {
-		t.Fatalf("ad = %x", ad)
-	}
-	if n, ok := decodeAd(ad); !ok || !bytes.Equal(n, a[:]) {
-		t.Fatal("round trip failed")
-	}
-	if n, ok := decodeAd(nil); !ok || n != nil {
-		t.Fatal("UUID-only advertiser should decode to no nonce")
-	}
-	for _, bad := range [][]byte{{}, {2, 1, 2, 3, 4}, {1, 2, 3}, {1, 2, 3, 4, 5, 6}} {
-		if _, ok := decodeAd(bad); ok {
-			t.Errorf("accepted foreign service data %x", bad)
-		}
-	}
+func (n *node) dials() int {
+	n.r.mu.Lock()
+	defer n.r.mu.Unlock()
+	return len(n.r.conns)
 }
 
-// Two devices in range end up with exactly one connection, dialed by the
-// lower nonce, and frames cross it once in each direction.
+const never = time.Hour
+
+// Two devices in range end up with one connection, dialed by whichever
+// one's delay ran out first, and frames cross it once in each direction.
 func TestPairMakesOneConnectionAndCarriesFramesBothWays(t *testing.T) {
 	air := newFakeAir()
-	lo := startNode(t, air, "lo", nonce{0, 0, 0, 1})
-	hi := startNode(t, air, "hi", nonce{9, 9, 9, 9})
+	fast := startNode(t, air, "fast", 0)
+	slow := startNode(t, air, "slow", 2*time.Second)
 	air.announce()
-	eventually(t, "lo to dial hi", func() bool { return lo.l.Stats().Dialed == 1 })
-	air.announce() // hi now sees the link exists and must not dial back
-	hi.l.tick()
+	eventually(t, "fast to dial slow", func() bool { return fast.l.Stats().Dialed == 1 })
+	slow.clk.advance(3 * time.Second)
+	air.announce() // slow now sees the link exists and must not dial back
+	slow.l.tick()
 	time.Sleep(20 * time.Millisecond)
-	if n := hi.r.openConns(); n != 0 {
-		t.Fatalf("higher nonce dialed %d connections, want 0", n)
+	if n := slow.dials(); n != 0 {
+		t.Fatalf("second device dialed %d connections, want 0", n)
 	}
-	if !hi.l.Stats().Subscribed {
-		t.Fatal("hi should have a subscribed central")
+	if !slow.l.Stats().Subscribed {
+		t.Fatal("slow should have a subscribed central")
 	}
 
-	f1, f2 := []byte("\xc1frame-lo-to-hi"), []byte("\xc1frame-hi-to-lo")
-	if err := lo.l.Send(context.Background(), f1); err != nil {
+	f1, f2 := []byte("\xc1frame-fast-to-slow"), []byte("\xc1frame-slow-to-fast")
+	if err := fast.l.Send(context.Background(), f1); err != nil {
 		t.Fatal(err)
 	}
-	if err := hi.l.Send(context.Background(), f2); err != nil {
+	if err := slow.l.Send(context.Background(), f2); err != nil {
 		t.Fatal(err)
 	}
-	if hi.in.count(f1) != 1 || lo.in.count(f2) != 1 {
-		t.Fatalf("hi got %d, lo got %d; want 1 each", hi.in.count(f1), lo.in.count(f2))
+	if slow.in.count(f1) != 1 || fast.in.count(f2) != 1 {
+		t.Fatalf("slow got %d, fast got %d; want 1 each", slow.in.count(f1), fast.in.count(f2))
 	}
-	if lo.in.count(f1) != 0 || hi.in.count(f2) != 0 {
+	if fast.in.count(f1) != 0 || slow.in.count(f2) != 0 {
 		t.Fatal("a frame echoed back to its sender")
 	}
 }
 
-// A higher-nonce peer that never dials us (an iOS phone in the background, a
-// full controller) is dialed after the fallback window.
-func TestHigherNoncePeerIsDialedAfterFallback(t *testing.T) {
+func TestDialWaitsForItsDelay(t *testing.T) {
 	air := newFakeAir()
-	hi := startNode(t, air, "hi", nonce{9, 9, 9, 9})
-	// A peripheral-only peer with a lower nonce that will never dial.
-	shy := air.radio("shy")
-	if err := shy.Up(context.Background(), Events{
-		Inbound: func([]byte) {}, Seen: func(string, []byte, bool) {}, Lost: func(string) {},
-		Notified: func(string, []byte) {}, Subscribed: func(bool) {},
-	}); err != nil {
+	n := startNode(t, air, "n", 3*time.Second)
+	startNode(t, air, "p", never)
+	air.announce()
+	n.l.tick()
+	time.Sleep(20 * time.Millisecond)
+	if n.dials() != 0 {
+		t.Fatal("dialed before the random delay")
+	}
+	n.clk.advance(3 * time.Second)
+	air.announce()
+	eventually(t, "dial after delay", func() bool { return n.l.Stats().Dialed == 1 })
+	for i := 0; i < 1000; i++ {
+		if d := New(nil).dialDelay(); d < 0 || d >= maxDialDelay {
+			t.Fatalf("dial delay %v", d)
+		}
+	}
+}
+
+// The reviewer's repro: a peer that accepts every connection and hangs up at
+// once must back off 10, 20, 40 s… — not be redialled every 2 s because each
+// hang-up resets the retry time.
+func TestHangUpPeerBacksOff(t *testing.T) {
+	air := newFakeAir()
+	n := startNode(t, air, "n", 0)
+	startNode(t, air, "rude", never)
+	hangUp := func() {
+		eventually(t, "connection", func() bool { return n.l.Stats().Dialed == 1 })
+		n.l.lost("rude")
+	}
+	air.announce()
+	hangUp()
+	for i, wait := range []time.Duration{backoff(1), backoff(2), backoff(3)} {
+		n.clk.advance(wait - time.Second)
+		air.announce()
+		n.l.tick()
+		time.Sleep(20 * time.Millisecond)
+		if got := n.dials(); got != i+1 {
+			t.Fatalf("after %v: %d dials, want %d (backoff not respected)", wait-time.Second, got, i+1)
+		}
+		n.clk.advance(time.Second)
+		air.announce()
+		hangUp()
+	}
+	if backoff(2) != 20*time.Second || backoff(20) != maxBackoff {
+		t.Fatal("backoff schedule changed")
+	}
+}
+
+// A connection that carried traffic and lasted counts as healthy: its
+// failures reset, and losing it allows a prompt redial.
+func TestHealthyConnectionClearsBackoff(t *testing.T) {
+	air := newFakeAir()
+	n := startNode(t, air, "n", 0)
+	startNode(t, air, "p", never)
+	air.announce()
+	eventually(t, "dial", func() bool { return n.l.Stats().Dialed == 1 })
+	n.l.mu.Lock()
+	n.l.peers["p"].failures = 3
+	n.l.mu.Unlock()
+	if err := n.l.Send(context.Background(), []byte{0xc1}); err != nil {
 		t.Fatal(err)
 	}
-	_ = shy.Advertise(encodeAd(nonce{0, 0, 0, 0}))
-
+	n.clk.advance(healthyAfter)
+	n.l.lost("p")
+	n.l.mu.Lock()
+	f := n.l.peers["p"].failures
+	n.l.mu.Unlock()
+	if f != 0 {
+		t.Fatalf("failures %d after a healthy connection", f)
+	}
+	n.clk.advance(reconnectGap)
 	air.announce()
-	hi.l.tick()
-	time.Sleep(20 * time.Millisecond)
-	if hi.l.Stats().Dialed != 0 {
-		t.Fatal("dialed a lower-nonce peer before the fallback window")
-	}
-	hi.clk.advance(fallbackAfter + time.Second)
-	air.announce()
-	eventually(t, "fallback dial", func() bool { return hi.l.Stats().Dialed == 1 })
+	eventually(t, "prompt redial", func() bool { return n.l.Stats().Dialed == 1 })
 }
 
-func TestPeerWithoutNonceIsDialed(t *testing.T) {
+func TestLostNeverShortensBackoff(t *testing.T) {
 	air := newFakeAir()
-	n := startNode(t, air, "n", nonce{9, 9, 9, 9})
-	n.l.seen("ios", nil, false)
-	// "ios" does not exist on the air, so the dial fails and backs off; what
-	// matters is that it was attempted at once.
-	eventually(t, "dial attempt", func() bool {
-		n.l.mu.Lock()
-		defer n.l.mu.Unlock()
-		p := n.l.peers["ios"]
-		return p != nil && p.failures == 1
-	})
-}
-
-func TestForeignServiceDataIsIgnored(t *testing.T) {
-	air := newFakeAir()
-	n := startNode(t, air, "n", nonce{0, 0, 0, 0})
-	n.l.seen("stranger", []byte{7, 7}, false)
-	if n.l.Stats().Seen != 0 {
-		t.Fatal("tracked a device whose service data is not ours")
-	}
-}
-
-func TestRotationReplacesTheNonce(t *testing.T) {
-	air := newFakeAir()
-	n := startNode(t, air, "n", nonce{1, 2, 3, 4})
-	before := len(n.r.ads)
-	seen := map[string]bool{}
-	for i := 0; i < 5; i++ {
-		if err := n.l.Rotate(); err != nil {
-			t.Fatal(err)
-		}
-		n.r.mu.Lock()
-		ad := n.r.ad
-		n.r.mu.Unlock()
-		if len(ad) != adLen {
-			t.Fatalf("advertised %d bytes", len(ad))
-		}
-		if seen[string(ad)] {
-			t.Fatal("a rotation repeated an advertisement")
-		}
-		seen[string(ad)] = true
-		if !bytes.Equal(ad[1:], n.l.Stats().Nonce) {
-			t.Fatal("advertised nonce is not the link's nonce")
-		}
-	}
-	if len(n.r.ads) != before+5 {
-		t.Fatalf("expected 5 new advertisements, got %d", len(n.r.ads)-before)
-	}
-	for i := 0; i < 1000; i++ {
-		d := jitter(RotateEvery)
-		if d < RotateEvery*9/10 || d > RotateEvery*11/10 {
-			t.Fatalf("jitter %v outside ±10%%", d)
-		}
+	n := startNode(t, air, "n", never)
+	n.l.seen("x", false)
+	n.l.mu.Lock()
+	far := n.l.now().Add(time.Hour)
+	n.l.peers["x"].retryAt = far
+	n.l.mu.Unlock()
+	n.l.lost("x")
+	n.l.mu.Lock()
+	got := n.l.peers["x"].retryAt
+	n.l.mu.Unlock()
+	if !got.Equal(far) {
+		t.Fatalf("lost moved retryAt from %v to %v", far, got)
 	}
 }
 
@@ -255,11 +248,44 @@ func TestSendLimitsAndEmptyAir(t *testing.T) {
 	}
 }
 
+// One peer whose writes hang must not stall delivery to the others, and
+// Send must return within the per-peer timeout.
+func TestStuckPeerDoesNotStallOthers(t *testing.T) {
+	air := newFakeAir()
+	n := startNode(t, air, "n", 0)
+	good := startNode(t, air, "good", never)
+	startNode(t, air, "stuck", never)
+	air.announce()
+	eventually(t, "two dials", func() bool { return n.l.Stats().Dialed == 2 })
+	n.r.mu.Lock()
+	for _, c := range n.r.conns {
+		if c.to.id == "stuck" {
+			c.stuck = true
+		}
+	}
+	n.r.mu.Unlock()
+	f := []byte("\xc1to-everyone")
+	start := time.Now()
+	if err := n.l.Send(context.Background(), f); err != nil {
+		t.Fatal(err)
+	}
+	if el := time.Since(start); el > writeTimeout+time.Second {
+		t.Fatalf("Send took %v", el)
+	}
+	if good.in.count(f) != 1 {
+		t.Fatal("good peer did not get the frame")
+	}
+	if n.l.Stats().Dialed != 1 {
+		t.Fatal("stuck peer was not dropped")
+	}
+}
+
 func TestInboundRejectsOversizeAndEmpty(t *testing.T) {
 	air := newFakeAir()
-	n := startNode(t, air, "n", nonce{})
+	n := startNode(t, air, "n", never)
 	n.l.inbound(nil)
 	n.l.inbound(make([]byte, MaxFrame+1))
+	n.l.notified("x", make([]byte, MaxFrame+1))
 	n.l.inbound([]byte{0xc1, 1})
 	n.in.mu.Lock()
 	got := len(n.in.frames)
@@ -271,37 +297,37 @@ func TestInboundRejectsOversizeAndEmpty(t *testing.T) {
 
 func TestFailedWriteDropsPeerAndBacksOff(t *testing.T) {
 	air := newFakeAir()
-	lo := startNode(t, air, "lo", nonce{0, 0, 0, 1})
-	startNode(t, air, "hi", nonce{9, 9, 9, 9})
+	n := startNode(t, air, "n", 0)
+	startNode(t, air, "p", never)
 	air.announce()
-	eventually(t, "dial", func() bool { return lo.l.Stats().Dialed == 1 })
-	lo.r.mu.Lock()
-	c := lo.r.conns[0]
-	lo.r.mu.Unlock()
+	eventually(t, "dial", func() bool { return n.l.Stats().Dialed == 1 })
+	n.r.mu.Lock()
+	c := n.r.conns[0]
+	n.r.mu.Unlock()
 	c.mu.Lock()
 	c.failNext = errors.New("gatt write failed")
 	c.mu.Unlock()
-	if err := lo.l.Send(context.Background(), []byte{0xc1}); err == nil {
+	if err := n.l.Send(context.Background(), []byte{0xc1}); err == nil {
 		t.Fatal("send succeeded with every peer failing")
 	}
-	if lo.l.Stats().Dialed != 0 || !c.isClosed() {
+	if n.l.Stats().Dialed != 0 || !c.isClosed() {
 		t.Fatal("failed peer was not dropped")
 	}
 	air.announce()
-	lo.l.tick()
+	n.l.tick()
 	time.Sleep(20 * time.Millisecond)
-	if lo.l.Stats().Dialed != 0 {
+	if n.l.Stats().Dialed != 0 {
 		t.Fatal("redialed inside the backoff window")
 	}
-	lo.clk.advance(backoff(1) + time.Second)
+	n.clk.advance(backoff(1) + time.Second)
 	air.announce()
-	eventually(t, "redial after backoff", func() bool { return lo.l.Stats().Dialed == 1 })
+	eventually(t, "redial after backoff", func() bool { return n.l.Stats().Dialed == 1 })
 }
 
-func TestLostPeerIsForgottenWhenStale(t *testing.T) {
+func TestUnheardDeviceIsForgotten(t *testing.T) {
 	air := newFakeAir()
-	n := startNode(t, air, "n", nonce{9, 9, 9, 9})
-	n.l.seen("ghost", encodeAd(nonce{0, 0, 0, 0}), false) // lower: it dials, we wait
+	n := startNode(t, air, "n", never)
+	n.l.seen("ghost", false)
 	if n.l.Stats().Seen != 1 {
 		t.Fatal("not tracked")
 	}
@@ -312,51 +338,120 @@ func TestLostPeerIsForgottenWhenStale(t *testing.T) {
 	}
 }
 
+// A full table makes room by forgetting the longest-unheard device, so that
+// a flood of spoofed adverts cannot lock real peers out.
+func TestFullTableEvictsStalest(t *testing.T) {
+	air := newFakeAir()
+	n := startNode(t, air, "n", never)
+	for i := 0; i < maxTracked; i++ {
+		n.l.seen(fmt.Sprintf("spoof%d", i), false)
+		n.clk.advance(time.Millisecond)
+	}
+	n.l.seen("real", false)
+	n.l.mu.Lock()
+	_, real := n.l.peers["real"]
+	_, first := n.l.peers["spoof0"]
+	size := len(n.l.peers)
+	n.l.mu.Unlock()
+	if !real || first || size != maxTracked {
+		t.Fatalf("real=%v spoof0=%v size=%d", real, first, size)
+	}
+}
+
+// Seven devices that accept connections and then say nothing cannot hold
+// every slot: once they have been idle for evictIdle, a waiting peer takes a
+// slot from the quietest.
+func TestIdleConnectionsAreEvictedForWaitingPeer(t *testing.T) {
+	air := newFakeAir()
+	n := startNode(t, air, "hub", 0)
+	for i := 0; i < maxPeers; i++ {
+		startNode(t, air, fmt.Sprintf("mute%d", i), never)
+	}
+	air.announce()
+	eventually(t, "slots full", func() bool { return n.l.Stats().Dialed == maxPeers })
+	startNode(t, air, "real", never)
+	air.announce()
+	n.l.tick()
+	time.Sleep(20 * time.Millisecond)
+	if n.dials() != maxPeers {
+		t.Fatal("evicted a connection that was not idle yet")
+	}
+	n.clk.advance(evictIdle)
+	air.announce()
+	eventually(t, "real peer dialed", func() bool {
+		n.l.mu.Lock()
+		defer n.l.mu.Unlock()
+		p := n.l.peers["real"]
+		return p != nil && p.conn != nil
+	})
+	if d := n.l.Stats().Dialed; d != maxPeers {
+		t.Fatalf("dialed %d, cap is %d", d, maxPeers)
+	}
+}
+
+// No connection outlives MaxConnAge (±10%): an open connection pins both
+// sides' addresses.
+func TestOldConnectionsAreRetired(t *testing.T) {
+	air := newFakeAir()
+	n := startNode(t, air, "n", 0)
+	startNode(t, air, "p", never)
+	air.announce()
+	eventually(t, "dial", func() bool { return n.l.Stats().Dialed == 1 })
+	n.r.mu.Lock()
+	c := n.r.conns[0]
+	n.r.mu.Unlock()
+	n.clk.advance(MaxConnAge * 11 / 10)
+	n.l.tick()
+	if !c.isClosed() {
+		t.Fatal("connection kept past MaxConnAge")
+	}
+	n.clk.advance(reconnectGap)
+	air.announce()
+	eventually(t, "fresh connection", func() bool { return n.l.Stats().Dialed == 1 })
+}
+
 // Stop must really stop: no advertisement, no scanning, every connection
-// closed, the radio brought down — and the link must start again cleanly.
+// closed, the radio brought down. The link must also start again cleanly.
 func TestStopTearsEverythingDownAndRestarts(t *testing.T) {
 	air := newFakeAir()
-	lo := startNode(t, air, "lo", nonce{0, 0, 0, 1})
-	hi := startNode(t, air, "hi", nonce{9, 9, 9, 9})
+	n := startNode(t, air, "n", 0)
+	p := startNode(t, air, "p", never)
 	air.announce()
-	eventually(t, "dial", func() bool { return lo.l.Stats().Dialed == 1 })
+	eventually(t, "dial", func() bool { return n.l.Stats().Dialed == 1 })
 
-	if err := lo.l.Stop(); err != nil {
+	if err := n.l.Stop(); err != nil {
 		t.Fatal(err)
 	}
-	lo.r.mu.Lock()
-	up, ad, scanning, downs := lo.r.up, lo.r.ad, lo.r.scanning, lo.r.downs
-	lo.r.mu.Unlock()
-	if up || ad != nil || scanning || downs != 1 {
-		t.Fatalf("after Stop: up=%v ad=%x scanning=%v downs=%d", up, ad, scanning, downs)
+	n.r.mu.Lock()
+	up, adv, scanning, downs := n.r.up, n.r.advertising, n.r.scanning, n.r.downs
+	n.r.mu.Unlock()
+	if up || adv || scanning || downs != 1 {
+		t.Fatalf("after Stop: up=%v adv=%v scanning=%v downs=%d", up, adv, scanning, downs)
 	}
-	if lo.r.openConns() != 0 {
+	if n.r.openConns() != 0 {
 		t.Fatal("a connection survived Stop")
 	}
-	if hi.l.Stats().Subscribed {
+	if p.l.Stats().Subscribed {
 		t.Fatal("peer still sees our subscription")
 	}
-	if err := lo.l.Send(context.Background(), []byte{1}); !errors.Is(err, ErrNotRunning) {
+	if err := n.l.Send(context.Background(), []byte{1}); !errors.Is(err, ErrNotRunning) {
 		t.Fatal("send after stop")
 	}
-	if err := lo.l.Stop(); err != nil {
+	if err := n.l.Stop(); err != nil {
 		t.Fatal("second Stop:", err)
 	}
-	lo.r.mu.Lock()
-	downs = lo.r.downs
-	lo.r.mu.Unlock()
+	n.r.mu.Lock()
+	downs = n.r.downs
+	n.r.mu.Unlock()
 	if downs != 1 {
 		t.Fatal("second Stop touched the radio again")
 	}
 
-	if err := lo.l.Start(context.Background(), lo.in.add); err != nil {
+	if err := n.l.Start(context.Background(), n.in.add); err != nil {
 		t.Fatal(err)
 	}
-	lo.l.mu.Lock()
-	lo.l.nonce = nonce{0, 0, 0, 1}
-	lo.l.mu.Unlock()
 	air.announce()
-	eventually(t, "redial after restart", func() bool { return lo.l.Stats().Dialed == 1 })
+	eventually(t, "redial after restart", func() bool { return n.l.Stats().Dialed == 1 })
 }
 
 func TestStartFailureLeavesNothingRunning(t *testing.T) {
@@ -392,15 +487,24 @@ func TestContextEndStopsLink(t *testing.T) {
 
 func TestDialCapRespected(t *testing.T) {
 	air := newFakeAir()
-	n := startNode(t, air, "hub", nonce{0, 0, 0, 0})
+	n := startNode(t, air, "hub", 0)
 	for i := 0; i < maxPeers+3; i++ {
-		startNode(t, air, fmt.Sprintf("p%d", i), nonce{9, 9, 9, byte(i)})
+		startNode(t, air, fmt.Sprintf("p%d", i), never)
 	}
 	air.announce()
 	eventually(t, "dials", func() bool { return n.l.Stats().Dialed == maxPeers })
 	time.Sleep(20 * time.Millisecond)
 	if d := n.l.Stats().Dialed; d != maxPeers {
 		t.Fatalf("dialed %d, cap is %d", d, maxPeers)
+	}
+}
+
+func TestJitterStaysWithinTenPercent(t *testing.T) {
+	for i := 0; i < 1000; i++ {
+		d := jitter(MaxConnAge)
+		if d < MaxConnAge*9/10 || d > MaxConnAge*11/10 {
+			t.Fatalf("jitter %v outside ±10%%", d)
+		}
 	}
 }
 
@@ -416,16 +520,16 @@ func TestManagersRelayAcrossBLEMesh(t *testing.T) {
 		p  [][]byte
 	}
 	var recv [3]got
-	var links [3]*Link
 	var mgrs [3]*transport.Manager
 	for i, id := range []string{"A", "B", "C"} {
-		links[i] = New(air.radio(id))
+		link := New(air.radio(id))
+		link.dialDelay = func() time.Duration { return 0 }
 		mgrs[i] = transport.NewManager(filepath.Join(t.TempDir(), "t.json"), func(_ string, p []byte) {
 			recv[i].mu.Lock()
 			recv[i].p = append(recv[i].p, p)
 			recv[i].mu.Unlock()
 		})
-		mgrs[i].Register(links[i])
+		mgrs[i].Register(link)
 		mgrs[i].Start(context.Background())
 		if i != 1 {
 			mgrs[i].Carry(topic)
@@ -440,7 +544,7 @@ func TestManagersRelayAcrossBLEMesh(t *testing.T) {
 		return air.linked("A", "B") && air.linked("B", "C") && !air.linked("A", "C")
 	})
 
-	payload := bytes.Repeat([]byte("ciphertext-"), 40) // > one frame: fragments
+	payload := bytes.Repeat([]byte("ciphertext-"), 40) // more than one frame, so it fragments
 	mgrs[0].Send(topic, payload)
 	eventually(t, "C to receive via B", func() bool {
 		recv[2].mu.Lock()

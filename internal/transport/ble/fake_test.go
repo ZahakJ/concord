@@ -57,10 +57,10 @@ func (a *fakeAir) announce() {
 				continue
 			}
 			adv.mu.Lock()
-			ad, advertising := adv.ad, adv.ad != nil && adv.up
+			advertising := adv.advertising && adv.up
 			adv.mu.Unlock()
 			if advertising {
-				ev.Seen(adv.id, ad, a.linked(obs.id, adv.id))
+				ev.Seen(adv.id, a.linked(obs.id, adv.id))
 			}
 		}
 	}
@@ -91,18 +91,18 @@ type fakeRadio struct {
 	air *fakeAir
 	id  string
 
-	mu       sync.Mutex
-	up       bool
-	ev       Events
-	ad       []byte
-	ads      [][]byte // every advertisement ever set
-	scanning bool
-	subs     map[string]bool // centrals subscribed to us
-	downs    int
-	failUp   error
-	failConn error
-	conns    []*fakeConn
-	notified [][]byte
+	mu          sync.Mutex
+	up          bool
+	ev          Events
+	advertising bool
+	ads         int // advertisements registered
+	scanning    bool
+	subs        map[string]bool // centrals subscribed to us
+	downs       int
+	failUp      error
+	failConn    error
+	conns       []*fakeConn
+	notified    [][]byte
 }
 
 func (r *fakeRadio) Probe() transport.Status { return transport.Status{State: transport.Available} }
@@ -117,14 +117,14 @@ func (r *fakeRadio) Up(_ context.Context, ev Events) error {
 	return nil
 }
 
-func (r *fakeRadio) Advertise(data []byte) error {
+func (r *fakeRadio) Advertise() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if !r.up {
 		return errors.New("not up")
 	}
-	r.ad = append([]byte(nil), data...)
-	r.ads = append(r.ads, r.ad)
+	r.advertising = true
+	r.ads++
 	return nil
 }
 
@@ -191,7 +191,7 @@ func (r *fakeRadio) Connect(ctx context.Context, id string) (PeerConn, error) {
 
 func (r *fakeRadio) Down() error {
 	r.mu.Lock()
-	r.up, r.ad, r.scanning = false, nil, false
+	r.up, r.advertising, r.scanning = false, false, false
 	r.downs++
 	r.subs = map[string]bool{}
 	r.mu.Unlock()
@@ -215,6 +215,7 @@ type fakeConn struct {
 	mu       sync.Mutex
 	closed   bool
 	failNext error
+	stuck    bool // Write blocks until its context ends
 }
 
 func (c *fakeConn) isClosed() bool {
@@ -223,10 +224,14 @@ func (c *fakeConn) isClosed() bool {
 	return c.closed
 }
 
-func (c *fakeConn) Write(_ context.Context, frame []byte) error {
+func (c *fakeConn) Write(ctx context.Context, frame []byte) error {
 	c.mu.Lock()
-	closed, fail := c.closed, c.failNext
+	closed, fail, stuck := c.closed, c.failNext, c.stuck
 	c.mu.Unlock()
+	if stuck {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	if closed {
 		return errors.New("closed")
 	}

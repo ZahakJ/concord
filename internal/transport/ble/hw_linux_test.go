@@ -94,13 +94,11 @@ func TestHardware(t *testing.T) {
 	if a := prop("Alias").(string); a != genericAlias {
 		t.Errorf("alias %q while running", a)
 	}
-	ad1, _ := radio.AdvertisementData()
-	if err := link.Rotate(); err != nil {
-		t.Fatal(err)
+	if !radio.Advertising() {
+		t.Error("advertisement not registered")
 	}
-	ad2, on := radio.AdvertisementData()
-	if !on || string(ad1) == string(ad2) || instances() != inst0+1 {
-		t.Errorf("rotation: on=%v %x -> %x, instances %d", on, ad1, ad2, instances())
+	if prop("Pairable").(bool) {
+		t.Error("adapter pairable while the link runs")
 	}
 	time.Sleep(3 * time.Second)
 	all, concord := radio.Counts()
@@ -139,6 +137,9 @@ func TestHardware(t *testing.T) {
 	}
 	if a, b := prop("Alias").(string), before["Alias"].Value().(string); a != b {
 		t.Errorf("alias %q after stop, was %q", a, b)
+	}
+	if p, b := prop("Pairable").(bool), before["Pairable"].Value().(bool); p != b {
+		t.Errorf("pairable %v after stop, was %v", p, b)
 	}
 	if p, b := prop("Powered").(bool), before["Powered"].Value().(bool); p != b {
 		t.Errorf("powered %v after stop, was %v", p, b)

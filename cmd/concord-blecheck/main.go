@@ -41,7 +41,6 @@ func main() {
 	dur := flag.Duration("for", 60*time.Second, "how long to run")
 	every := flag.Duration("every", 2*time.Second, "send a test frame this often (0: never)")
 	size := flag.Int("size", ble.MaxFrame, "test frame size in bytes")
-	rotate := flag.Duration("rotate", 0, "rotate the advertised nonce this often (0: the link's default, ~15m)")
 	flag.Parse()
 
 	radio := ble.NewBlueZ(ble.BlueZConfig{Adapter: *adapter, AllowPublicAddress: *unsafePublic})
@@ -89,8 +88,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "start:", err)
 		os.Exit(1)
 	}
-	ad, on := radio.AdvertisementData()
-	fmt.Printf("up: me=%s advertising=%v service-data=%x service=%s\n", hex.EncodeToString(me[:]), on, ad, ble.ServiceUUID)
+	fmt.Printf("up: me=%s advertising=%v service=%s\n", hex.EncodeToString(me[:]), radio.Advertising(), ble.ServiceUUID)
 
 	var seq uint32
 	var sendC <-chan time.Time
@@ -98,12 +96,6 @@ func main() {
 		t := time.NewTicker(*every)
 		defer t.Stop()
 		sendC = t.C
-	}
-	var rotC <-chan time.Time
-	if *rotate > 0 {
-		t := time.NewTicker(*rotate)
-		defer t.Stop()
-		rotC = t.C
 	}
 	status := time.NewTicker(5 * time.Second)
 	defer status.Stop()
@@ -128,17 +120,11 @@ loop:
 			} else {
 				sent++
 			}
-		case <-rotC:
-			if err := link.Rotate(); err != nil {
-				fmt.Println("rotate:", err)
-			}
-			ad, on := radio.AdvertisementData()
-			fmt.Printf("rotated: advertising=%v service-data=%x\n", on, ad)
 		case <-status.C:
 			s := link.Stats()
 			all, concord := radio.Counts()
-			fmt.Printf("status: LE devices heard %d, Concord devices %d, dialed %d, subscribed-to-us %v, nonce %x\n",
-				all, concord, s.Dialed, s.Subscribed, s.Nonce)
+			fmt.Printf("status: devices reported %d, Concord devices %d, dialed %d, subscribed-to-us %v, advertising %v, probe %q\n",
+				all, concord, s.Dialed, s.Subscribed, radio.Advertising(), radio.Probe().Detail)
 		}
 	}
 	if err := link.Stop(); err != nil {
