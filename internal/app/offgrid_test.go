@@ -38,8 +38,10 @@ func TestMessageCrossesOffGridLinkWithoutInternet(t *testing.T) {
 	a := startService(t, ctx)
 	b := startService(t, ctx)
 	for _, s := range []*Service{a, b} {
-		if s.OffGrid().Links()[1].Running {
-			t.Fatal("a link was running before the user enabled it")
+		for _, l := range s.OffGrid().Links() {
+			if l.Running {
+				t.Fatalf("link %q was running before the user enabled it", l.Name)
+			}
 		}
 		if err := s.OffGrid().SetEnabled("sim", true); err != nil {
 			t.Fatal(err)
