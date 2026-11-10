@@ -13,7 +13,9 @@
 export function joinFailure(err) {
   const text = String(err?.message ?? err ?? "").toLowerCase();
   const has = (...words) => words.some((w) => text.includes(w));
-  if (has("banned")) {
+  // The callers pass humanError()'s sentence (App.svelte joinGuild), so the
+  // mapped words are matched as well as the core's own.
+  if (has("banned", "can't join this guild")) {
     return {
       title: "You're banned from this guild.",
       detail: "A new code won't help unless an admin lifts the ban.",

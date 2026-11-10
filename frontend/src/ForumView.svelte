@@ -24,6 +24,7 @@
   import { flip } from "svelte/animate";
   import { cubicOut } from "svelte/easing";
   import Icon from "./Icon.svelte";
+  import { humanError } from "./lib/errors.js";
   import { tooltip } from "./lib/tooltip.js";
   import Avatar from "./Avatar.svelte";
   import EmptyState from "./EmptyState.svelte";
@@ -108,7 +109,7 @@
       errMsg = "";
     } catch (err) {
       if (mine !== gen || forumId !== forum.id) return;
-      errMsg = err?.message || String(err);
+      errMsg = humanError(err);
       // A refresh that fails behind an already-painted board must not blank it:
       // the cards on screen are still true, they're just not the newest truth.
       if (!board) phase = "error";

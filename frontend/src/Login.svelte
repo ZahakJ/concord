@@ -56,7 +56,7 @@
       await finishUnlock(onLogin, humanError);
       return true;
     } catch (err) {
-      error = err.message;
+      error = humanError(err);
       errField = "";
       return false;
     }

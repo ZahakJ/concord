@@ -6,6 +6,7 @@
   import { api } from "../lib/api.js";
   import { linkURLFor } from "../lib/deeplink.js";
   import { flash } from "../lib/state.svelte.js";
+  import { humanError } from "../lib/errors.js";
   import { newlyLinked } from "../lib/linkwatch.js";
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
@@ -77,7 +78,7 @@
       // in-app scanner and the paste box accept both forms.
       qr = await QRCode.toDataURL(linkURLFor(code), { margin: 1, width: 320, errorCorrectionLevel: "L" });
     } catch (e) {
-      error = String(e?.message || e);
+      error = humanError(e);
     }
   });
 

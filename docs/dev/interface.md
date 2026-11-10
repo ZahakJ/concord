@@ -150,8 +150,6 @@ The strip is a shortcut, not the inventory. Which guilds earn a tile is `stripTi
 
 `navModel` (a device-local pref, `"sidebar"` by default) can put the classic slim guild rail beside the list instead of the strip. The inspector docks beside the conversation only when the conversation keeps 640px with it there, measured on the app's own box so the app's zoom counts; otherwise it overlays the conversation below its header. `.app` carries `data-inspector="docked"` or `"overlay"`. On a phone (≤ 768px) the sidebar is the Guilds page, the conversation and the inspector are pages pushed over it, and the tab bar reads Guilds · Messages · Inbox · You.
 
-**Planned** for the screens: the copy map in `lib/errors.js` covering every raw error the core can return.
-
 ## Motion
 
 Motion says that something arrived or left, and is over before you think about it. Nothing in the interface overshoots or bounces.
@@ -182,7 +180,7 @@ Density changes the feed; it never moves the header, the sidebar's width or the 
 ## Words on screen
 
 1. Write for the person looking at the screen: what happened, and what they can do about it. Two sentences at most.
-2. Never show a raw error from the core — no package prefixes, addresses, status codes or paths. `humanError()` in `lib/errors.js` is where they are turned into words.
+2. Never show a raw error from the core — no package prefixes, addresses, status codes or paths. `humanError()` in `lib/errors.js` is where they are turned into words: it maps the errors people actually meet to a sentence each, passes the core's own sentences that were written for a person, and shows anything else that still looks like plumbing as "Something went wrong on this device. Try again — if it keeps happening, restart Concord.", logging the raw text to the console.
 3. Be specific: name the person, the guild and the channel.
 4. Don't alarm. Never say something was lost unless it was.
 5. Buttons say what they will do: "Leave guild", "Copy invite", "Retry". Never "OK".

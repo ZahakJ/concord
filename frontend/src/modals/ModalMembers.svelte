@@ -9,6 +9,7 @@
   // made from somewhere else — the row overflow is the same shared moderation
   // menu the card's ⋯ and the member list's right-click render.
   import RailShell from "./RailShell.svelte";
+  import { humanError } from "../lib/errors.js";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import Select from "../Select.svelte";
@@ -100,7 +101,7 @@
         await api.assignRole(S.activeGuildId, fpr, roleID, add);
         ok++;
       } catch (err) {
-        failed.push(String(err?.message || err));
+        failed.push(humanError(err));
       }
     }
     await refreshRightPanel();

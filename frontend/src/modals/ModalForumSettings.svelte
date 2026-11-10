@@ -14,6 +14,7 @@
   import Banner from "../Banner.svelte";
   import { BANNER_BY_ID } from "../lib/banners.js";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
+  import { humanError } from "../lib/errors.js";
   import { api } from "../lib/api.js";
   import { tooltip } from "../lib/tooltip.js";
   import { PERM, has } from "../lib/perms.js";
@@ -228,7 +229,7 @@
       await refreshGuilds();
       flash(payload.length ? "Tags saved" : "Tags cleared", "success");
     } catch (e) {
-      err = e?.message || String(e);
+      err = humanError(e);
     } finally {
       busy = false;
     }

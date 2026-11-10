@@ -48,8 +48,7 @@ const BARE_HTTP = /^HTTP \d{3}$/;
 // sentence each one is read as. A code is a promise about what happened; the
 // sentence that came with it is for a log.
 const BY_CODE = {
-  "wrong-passphrase":
-    "That passphrase didn't work. Check Caps Lock and the keyboard language, then try again.",
+  "wrong-passphrase": "That passphrase doesn't unlock this device. Check caps lock and try again.",
 };
 
 // Core sentences that reach the login card, in the words they should have had.
@@ -69,6 +68,34 @@ const KNOWN = [
     "That can't open while Concord is reconnecting — try again in a moment."],
   [/recovery phrase isn'?t valid|valid 24-word recovery phrase/i, "phrase",
     "That recovery phrase isn't valid. Check each word and their order — it is 24 words."],
+  // The login card, by the core's words when no code came with them.
+  [/wrong passphrase or corrupted keystore/i, "pass",
+    "That passphrase doesn't unlock this device. Check caps lock and try again."],
+  // A node restarted under an open page: the identity is merely locked again.
+  // It used to be answered with a sentence about erased data, which was false.
+  [/identity is locked/i, "",
+    "Concord restarted in the background. Enter your passphrase to carry on — nothing was lost."],
+  // Joining.
+  [/invite rejected: you are banned/i, "",
+    "You can't join this guild. An admin has removed you from it."],
+  [/^bad invite code|invalid invite code/i, "",
+    "That isn't a complete invite code. Paste the whole code — codes are long and easy to clip."],
+  // Sending.
+  [/attachment must be a data URL/i, "",
+    "That file is empty, so there's nothing to send."],
+  [/database is locked/i, "",
+    "Concord is busy saving — try again in a moment."],
+  // Bookings.
+  [/add at least one office-hours window/i, "",
+    "Add at least one open hour before turning on your booking page."],
+  [/a booking page needs a rendezvous server/i, "",
+    "A booking page needs a rendezvous server. Add one in Settings › Connection first."],
+  [/a window must start before it ends/i, "",
+    "An open hour has to start before it ends, on the same day."],
+  [/a window must fit at least one slot/i, "",
+    "That open hour is shorter than one slot. Make it longer or the slots shorter."],
+  [/two windows on the same day overlap/i, "",
+    "Two of your open hours on the same day overlap."],
   // The chat-archive importer, about the folder it was pointed at.
   [/holds no \.json export files/i, "",
     "That folder has no exported channel files in it. Choose the folder that holds the .json files."],
@@ -107,5 +134,31 @@ export function humanError(msg) {
   // captured once: ten seconds later it was stating a falsehood and thirty
   // seconds later it still said wait when Retry would have worked.
   if (slowModeWait(text)) return "Slow mode in this channel";
+  // Anything left is the core's own sentence. Most of those were written for
+  // a person ("they're already in this guild") and pass; one that still looks
+  // like plumbing — a package chain, an address, a path, a Go runtime phrase —
+  // never reaches the screen. The raw text goes to the console for whoever is
+  // debugging.
+  if (looksRaw(text)) {
+    console.warn("concord: unmapped error:", text);
+    return UNKNOWN;
+  }
   return text;
+}
+
+// What a person reads for an error nothing above recognised.
+export const UNKNOWN =
+  "Something went wrong on this device. Try again — if it keeps happening, restart Concord.";
+
+const RAW_MARKS = [
+  /^[a-z][a-z0-9_ ]*: [a-z][a-z0-9_ ]*: /, // a chain of lowercase "pkg: op: …" clauses
+  /\/(ip4|ip6|dns4?|dns6|tcp|udp|quic(-v1)?|p2p|webtransport)\//i, // a multiaddr
+  /(^|\s)(\/[\w.-]+){2,}/, // a filesystem path
+  /\b(EOF|nil pointer|panic|goroutine|context canceled|no such host|connection refused|i\/o timeout|unexpected end of JSON|invalid character|sql(?=:)|SQLITE_|0x[0-9a-f]{6,})\b/i,
+  /\b12D3Koo\w{20,}/, // a peer id
+];
+export function looksRaw(text) {
+  const t = String(text || "").trim();
+  if (!t) return true;
+  return RAW_MARKS.some((re) => re.test(t));
 }

@@ -2,6 +2,7 @@
 // must never be the message, and an offline inviter must not be blamed on the
 // code.
 import { joinFailure } from "./joinerror.js";
+import { humanError } from "./errors.js";
 
 let failures = 0;
 const assert = (cond, msg) => {
@@ -32,6 +33,11 @@ assert(/isn't in the guild/.test(gone.title), "inviter who left");
 const raw = "app: invite rejected: something nobody planned for";
 const other = joinFailure(raw);
 assert(!other.title.includes("app:") && !other.detail.includes("app:"), "no raw core string");
+
+// The dialog is handed humanError()'s sentence, not the core's: the mapped
+// words must still find their cause.
+assert(/banned/.test(joinFailure(humanError("app: invite rejected: you are banned from this guild")).title), "mapped ban");
+assert(joinFailure(humanError("app: bad invite code")).field === true, "mapped bad code is the field's fault");
 
 if (failures) {
   console.error(`\n${failures} joinerror test(s) failed`);
