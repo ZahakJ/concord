@@ -139,6 +139,12 @@ export const S = $state({
   // load is only the recent window; older rows are paged in on demand.
   loadingOlder: false,
   feedReachedStart: false,
+  // historyError: the last history fetch for the open channel failed —
+  // { msg, older } where `older` says it was a page of scrollback rather than
+  // the channel's first page. A failed first page used to leave an empty feed,
+  // which drew the brand-new-channel welcome ("Say hi") over a channel that
+  // has history: the reader was told it was empty.
+  historyError: null,
   // The imported archive that sits ABOVE live history. `chronicle` is the
   // active guild's index (null when it has none); the rest is the same
   // scroll-up pagination as loadingOlder/feedReachedStart, one channel at a
@@ -3025,13 +3031,14 @@ export async function selectChannel(id) {
   S.feedLoading = true;
   S.loadingOlder = false;
   S.feedReachedStart = false;
+  S.historyError = null;
   let msgs;
   try {
     msgs = (await api.messages(id)) || [];
   } catch (err) {
     if (S.activeChannelId === id) {
       S.feedLoading = false;
-      flash(err);
+      S.historyError = { msg: humanError(err), older: false };
     }
     return;
   }
@@ -3061,6 +3068,17 @@ export async function selectChannel(id) {
   else if (!restoreReadingPosition(id)) scrollSoon();
 }
 
+// retryHistory answers the feed's "Try again" after a failed history fetch.
+// The channel's first page goes through selectChannel again, so everything it
+// sets up (the NEW divider, the landing) happens as it would have; a failed
+// page of scrollback just clears, and the feed asks for it again.
+export async function retryHistory() {
+  const e = S.historyError;
+  if (!e) return;
+  S.historyError = null;
+  if (!e.older && S.activeChannelId) await selectChannel(S.activeChannelId);
+}
+
 // loadOlder pages in the messages just before the oldest row currently loaded.
 // Returns the number of rows prepended (0 = nothing more / no-op), so the caller
 // can hold the reader's scroll position steady across the insert.
@@ -3071,7 +3089,7 @@ const OLDER_PAGE_TRIES = 5;
 
 export async function loadOlder() {
   const id = S.activeChannelId;
-  if (!id || S.loadingOlder || S.feedReachedStart) return 0;
+  if (!id || S.loadingOlder || S.feedReachedStart || S.historyError) return 0;
   if (!feedOldest) return 0;
   S.loadingOlder = true;
   let prepended = 0;
@@ -3079,7 +3097,10 @@ export async function loadOlder() {
     let older;
     try {
       older = (await api.messagesBefore(id, feedOldest, 200)) || [];
-    } catch {
+    } catch (err) {
+      // Said in the feed with a retry, and it stops the scroll handler asking
+      // again on every frame until the reader does.
+      if (S.activeChannelId === id) S.historyError = { msg: humanError(err), older: true };
       break;
     }
     // Bail if the channel changed while the fetch was in flight.

@@ -30,6 +30,7 @@
     flash,
     markRead,
     loadOlder,
+    retryHistory,
     clockOpts,
     nudge,
     refreshGuilds,
@@ -414,7 +415,9 @@
   // The welcome card is the room's introduction while nobody has said anything
   // yet: not while it loads, not over an archive (where "the start of #plans"
   // would be false), and not while the setup card has the spot.
-  const showHero = $derived(noConversation && !S.feedLoading && !arcChan && !setupOwnsHero);
+  const showHero = $derived(
+    noConversation && !S.feedLoading && !S.historyError && !arcChan && !setupOwnsHero,
+  );
   const arcRange = $derived(arcChan ? rangeLabel(arcChan.firstNano, arcChan.lastNano) : "");
   const showArchive = $derived(S.feedReachedStart && !!arcChan && !S.feedLoading);
 
@@ -1185,7 +1188,7 @@
   // page lands.
   async function pageMore() {
     if (!feedEl || feedEl.scrollTop >= 240) return;
-    if (!S.feedLoading && !S.loadingOlder && !S.feedReachedStart) {
+    if (!S.feedLoading && !S.loadingOlder && !S.feedReachedStart && !S.historyError) {
       await pageBack(loadOlder);
       return;
     }
@@ -1598,7 +1601,27 @@
       </EmptyState>
     </div>
   {/if}
-  {#if S.loadingOlder}
+  {#if S.historyError}
+    <!-- Not the empty-channel welcome: a channel whose history failed to load
+         is not a channel nobody has spoken in. -->
+    <div class="feed-error" role="alert">
+      <span class="fe-text">
+        {S.historyError.older ? "Couldn't load older messages." : "Couldn't load this conversation's messages."}
+        <span class="fe-why">{S.historyError.msg}</span>
+      </span>
+      <button
+        type="button"
+        class="fe-retry"
+        onclick={async () => {
+          const older = S.historyError?.older;
+          await retryHistory();
+          if (older) pageMore();
+        }}
+      >
+        Try again
+      </button>
+    </div>
+  {:else if S.loadingOlder}
     <div class="older-loading"><span class="ol-spin"></span> Loading older messages…</div>
   {:else if showArchive}
     <!-- Above the seam: whatever of the archive has been paged in so far, and
@@ -2463,6 +2486,33 @@
   }
   .new-below .arrow {
     font-size: var(--fs-ui);
+  }
+  .feed-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-4) 12px;
+    text-align: center;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+  }
+  .fe-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: var(--text);
+  }
+  .fe-why {
+    color: var(--text-muted);
+  }
+  .fe-retry {
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: var(--accent-fg);
+    font: inherit;
+    font-weight: 600;
   }
   .older-loading,
   .feed-start {
