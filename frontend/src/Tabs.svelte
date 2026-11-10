@@ -53,7 +53,7 @@
   .tabs {
     display: flex;
     align-items: stretch;
-    gap: 20px;
+    gap: var(--sp-3);
     min-height: 40px;
     /* The hairline is an inset shadow, not a border, so the underline below can
        sit on it without being clipped by the strip's own overflow. */
@@ -66,7 +66,9 @@
     display: inline-flex;
     align-items: center;
     flex: none;
-    padding: 0;
+    /* A little air either side so the inset focus ring clears the label;
+       the strip's gap is 20px less this padding on both sides. */
+    padding: 0 var(--sp-1);
     background: transparent;
     border-radius: 0;
     color: var(--text-muted);
@@ -87,8 +89,8 @@
   button.on::after {
     content: "";
     position: absolute;
-    left: 0;
-    right: 0;
+    left: var(--sp-1);
+    right: var(--sp-1);
     bottom: 0;
     height: 2px;
     border-radius: 2px;
