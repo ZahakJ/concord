@@ -83,6 +83,7 @@ export const SECTIONS = [
       ["protocol", "docs/dev/protocol.md", "Protocol and data model"],
       ["building", "docs/dev/building.md", "Building from source"],
       ["testing", "docs/dev/testing.md", "Testing"],
+      ["interface", "docs/dev/interface.md", "Interface"],
       ["contributing", "CONTRIBUTING.md", "Contributing"],
       ["releasing", "docs/RELEASING.md", "Releasing"],
       ["design", "docs/DESIGN.md", "Design in depth"],
