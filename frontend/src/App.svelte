@@ -1902,8 +1902,13 @@
                  its scroll position and its state because it is still mounted,
                  which is the whole reason the post is a layer over it rather
                  than a navigation away from it. -->
+            <!-- Inert while the search results cover it: still mounted (see
+                 above), but Tab used to walk from the search box into the
+                 hidden feed, popping a message toolbar over the results and
+                 putting Enter on a message nobody could see. -->
             <div
               class="feedwrap"
+              inert={!!searchTakeover.C && (S.searchResults !== null || S.searchLoading || !!S.searchHint)}
               class:aspanel={!!postObj}
               class:overboard={!!boardObj}
               class:beside={!!boardObj && !S.narrow && !S.isMobile}

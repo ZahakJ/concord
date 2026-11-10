@@ -230,6 +230,15 @@
         bind:value={S.searchQuery}
         oninput={() => queueSearch()}
         onkeydown={(e) => {
+          // ↓ walks into the results (SearchPanel answers the arrows there).
+          if (e.key === "ArrowDown" && !e.altKey) {
+            const hit = document.querySelector(".search-panel .sp-hit");
+            if (hit) {
+              e.preventDefault();
+              hit.focus();
+            }
+            return;
+          }
           if (e.key === "Escape") {
             // blur FIRST: closeSearch homes focus to the composer, and a blur
             // after it would take that away again and land on <body>.

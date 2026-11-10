@@ -133,12 +133,33 @@
       return "";
     }
   }
+
+  // The results are a list you walk with the arrows, entered from the search
+  // box with ↓ (ChatHeader) and left back to it with ↑ from the first hit.
+  // Before this, ↓ did nothing in the box and Tab walked the header and then
+  // the feed hidden UNDER this panel; no result was reachable at all.
+  function onListKey(e) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const hits = [...e.currentTarget.querySelectorAll(".sp-hit")];
+    const i = hits.indexOf(document.activeElement);
+    if (i < 0) return;
+    let next = null;
+    if (e.key === "ArrowDown") next = hits[Math.min(hits.length - 1, i + 1)];
+    else if (e.key === "ArrowUp") next = i === 0 ? document.querySelector(".search-box") : hits[i - 1];
+    else if (e.key === "Home") next = hits[0];
+    else if (e.key === "End") next = hits[hits.length - 1];
+    if (!next) return;
+    e.preventDefault();
+    next.focus();
+  }
 </script>
 
 {#if open}
   <div class="search-panel" role="region" aria-label="Search results">
     <div class="sp-head">
-      <span class="sp-title">
+      <!-- A status: "11 results" is the answer to what was just typed, and
+           without a live region nothing said it out loud. -->
+      <span class="sp-title" role="status">
         <Icon name="search" size={13} />
         {#if S.searchLoading}
           Searching…
@@ -196,7 +217,8 @@
       </div>
     {/if}
 
-    <div class="sp-list" class:dim={S.searchLoading}>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="sp-list" class:dim={S.searchLoading} onkeydown={onListKey}>
       {#if S.searchLoading && !results.length}
         {#each [0, 1, 2] as i (i)}
           <div class="sp-skel" aria-hidden="true">
