@@ -18,6 +18,7 @@
   import { openContextMenu, flash, S, memberByFpr, nameFor } from "./lib/state.svelte.js";
   import { longpress, haptic } from "./lib/touch.js";
   import { pointOf, rectOf } from "./lib/place.js";
+  import { portal } from "./lib/portal.js";
 
   // `messageId`/`own` exist only for "Edit meme": editing a picture in place
   // means editing the message that carries it, and only its author may.
@@ -65,14 +66,7 @@
         // Honour a sender-supplied file name when there is one: it is the only
         // thing the v2 token's name field is good for, and without this the
         // rename control in the composer has no observable effect anywhere.
-        onClick: async () => {
-          const how = await saveImageSrc(
-            src,
-            tok.name || `concord-${(tok.blobId || "image").slice(0, 8)}.png`,
-          );
-          if (how === "gallery") flash("Saved to your gallery", "success");
-          else if (!how) flash("Couldn't save that image");
-        },
+        onClick: saveThis,
       },
       { sep: true },
       editable() && {
@@ -202,6 +196,12 @@
   let overlayEl; // for backdrop-click detection and pointer math
   let imgEl; // for pan clamping (fitted size × zoom = rendered size)
 
+  async function saveThis() {
+    const how = await saveImageSrc(src, tok.name || `concord-${(tok.blobId || "image").slice(0, 8)}.png`);
+    if (how === "gallery") flash("Saved to your gallery", "success");
+    else if (!how) flash("Couldn't save that image");
+  }
+
   function openLightbox() {
     zoom = 1;
     tx = 0;
@@ -227,6 +227,7 @@
   function onKeydown(e) {
     if (!lightbox) return;
     if (e.key === "Escape") closeLightbox();
+
     else if (e.key === "+" || e.key === "=") zoomAround(center(), zoom * 1.5);
     else if (e.key === "-") zoomAround(center(), zoom / 1.5);
     else if (e.key === "0") zoomAround(center(), 1);
@@ -416,8 +417,13 @@
   {/if}
   {#if lightbox}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <!-- Out at <body>: inside the message row it was trapped in the row's
+         stacking context, so the channel header drew over the dimmed viewer —
+         and on a phone over its close button, where a tap opened the channel
+         menu instead. -->
     <div
       class="lightbox"
+      use:portal
       class:flinging
       style="--lb-dim:{backdrop}"
       role="dialog"
@@ -443,6 +449,10 @@
       />
       <div class="lb-bar">
         <span class="lb-zoom" class:show={zoom > 1}>{Math.round(zoom * 100)}%</span>
+        {#if tok.name}<span class="lb-name">{tok.name}</span>{/if}
+        <button class="lb-close" onclick={saveThis} aria-label="Save image">
+          <Icon name="download" size={18} />
+        </button>
         <button class="lb-close" onclick={closeLightbox} aria-label="Close image (Esc)">
           <Icon name="close" size={18} />
         </button>
@@ -653,6 +663,14 @@
     display: flex;
     align-items: center;
     gap: 10px;
+  }
+  .lb-name {
+    max-width: 40vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-compact);
+    color: rgba(255, 255, 255, 0.85);
   }
   .lb-zoom {
     font-size: var(--fs-compact);
