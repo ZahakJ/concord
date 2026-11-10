@@ -536,6 +536,33 @@ func (s *Service) UpsertRole(guildID, roleID, name, color string, perms Permissi
 	if !s.hasPerm(guildID, PermManageRoles) {
 		return "", fmt.Errorf("app: you don't have permission to manage roles")
 	}
+	// The replay refuses a role above the issuer's own powers or rank, and it
+	// did so silently: the op was signed, logged as "not permitted" and folded
+	// to nothing, while this call handed back a fresh id for a role that never
+	// existed. Ask the same questions first and say which one failed.
+	me := s.id.Fingerprint()
+	s.mu.RLock()
+	owner := s.effectiveOwnerLocked(guildID)
+	st := s.govState[guildID]
+	mine, top := st.permsOf(owner, me), st.topPosition(owner, me)
+	existing, editing := st.Roles[roleID]
+	s.mu.RUnlock()
+	if me != owner {
+		if !mine.Has(perms & permAll) {
+			return "", fmt.Errorf("app: you can only give a role permissions you have yourself")
+		}
+		if editing && existing.Position >= top {
+			return "", fmt.Errorf("app: you can only edit roles below your own")
+		}
+		if position >= top {
+			if editing || top <= 0 {
+				return "", fmt.Errorf("app: a role you create or edit has to rank below your own")
+			}
+			// A new role defaults to the top of the list, which for anyone but
+			// the owner is above themselves; place it just below instead.
+			position = top - 1
+		}
+	}
 	if roleID == "" {
 		roleID = newRoleID()
 	}

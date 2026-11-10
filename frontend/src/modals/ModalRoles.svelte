@@ -5,9 +5,9 @@
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
-  import { S, refreshRightPanel, flash } from "../lib/state.svelte.js";
+  import { S, activeGuild, refreshRightPanel, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
-  import { PERM_LIST, has } from "../lib/perms.js";
+  import { PERM_LIST, PERM_ALL, has } from "../lib/perms.js";
 
   let { onClose } = $props();
 
@@ -43,6 +43,9 @@
     const row = id && document.querySelector(`button.role[data-role-id="${CSS.escape(id)}"]`);
     (row || document.querySelector("button.role"))?.focus({ preventScroll: true });
   }
+  // A role can only carry permissions its maker holds (the core refuses the
+  // rest). Ticking one you lack used to look fine and save nothing.
+  const mine = $derived(activeGuild()?.isOwner ? PERM_ALL : activeGuild()?.myPerms || 0);
   function togglePerm(bit) {
     editing.perms = has(editing.perms, bit) ? editing.perms & ~bit : editing.perms | bit;
   }
@@ -114,18 +117,20 @@
         <div class="perms">
           {#each PERM_LIST as p (p.bit)}
             {@const on = has(editing.perms, p.bit)}
+            {@const locked = !on && !has(mine, p.bit)}
             <button
               type="button"
               class="perm"
               class:on
               role="checkbox"
               aria-checked={on}
+              disabled={locked}
               onclick={() => togglePerm(p.bit)}
             >
               <span class="box" aria-hidden="true"><Icon name="check" size={12} /></span>
               <span class="perm-text">
                 <strong>{p.label}</strong>
-                <span class="muted tiny">{p.hint}</span>
+                <span class="muted tiny">{locked ? "You can only grant permissions you have" : p.hint}</span>
               </span>
             </button>
           {/each}
@@ -291,6 +296,10 @@
     text-align: left;
     padding: 8px 10px;
     border-radius: var(--radius-sm);
+  }
+  .perm:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
   .perm.on {
     border-color: var(--accent);
