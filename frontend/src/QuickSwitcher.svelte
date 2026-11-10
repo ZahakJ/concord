@@ -15,7 +15,11 @@
     channelShort,
     isDMChannel,
     guildUnread,
+    startDM,
+    flash,
   } from "./lib/state.svelte.js";
+  import { api } from "./lib/api.js";
+  import { parseQuery, buildDests, recentFirst, rank, inMode } from "./lib/switcher.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
 
   // Escape used to be answered here as well as in the desktop keymap's ladder;
@@ -29,22 +33,21 @@
 
   $effect(() => inputEl?.focus());
 
-  // Subsequence fuzzy match; lower score = better. Returns the matched char
-  // indices so the list can highlight them, or null on no match.
-  function fuzzy(text, q) {
-    const lower = text.toLowerCase();
-    let ti = 0;
-    let score = 0;
-    const idx = [];
-    for (const c of q) {
-      const found = lower.indexOf(c, ti);
-      if (found < 0) return null;
-      score += found - ti; // penalize gaps
-      idx.push(found);
-      ti = found + 1;
-    }
-    return { score: score + lower.length * 0.01, idx };
-  }
+  // People to offer: everyone you know (contacts), plus the guild you are in.
+  let contacts = $state([]);
+  api
+    .contacts()
+    .then((cs) => (contacts = cs || []))
+    .catch(() => {});
+  const people = $derived([
+    ...contacts,
+    ...S.members.map((m) => ({ fingerprint: m.fingerprint, name: m.name })),
+  ]);
+
+  // Stable ids for aria-activedescendant.
+  const uid = Math.random().toString(36).slice(2, 8);
+  const listId = `qs-list-${uid}`;
+  const optId = (i) => `qs-opt-${uid}-${i}`;
 
   // Split a label into plain/highlighted runs from fuzzy-match indices.
   function toParts(label, idx) {
@@ -101,49 +104,23 @@
   });
 
   const grouped = $derived.by(() => {
-    const raw = query.trim();
-    const actionOnly = raw.startsWith(">") || raw.startsWith("/");
-    const q = (actionOnly ? raw.slice(1) : raw).trim().toLowerCase();
-
-    const dests = [];
-    if (!actionOnly) {
-      for (const g of S.guilds) {
-        if (g.kind === "dm") {
-          dests.push({ kind: "dm", key: `dm:${g.id}`, label: g.name, sub: "direct", g, icon: "edit" });
-          continue;
-        }
-        dests.push({ kind: "guild", key: `g:${g.id}`, label: g.name, sub: "guild", g, icon: "diamond" });
-        for (const c of g.channels) {
-          const icon = c.type === "voice" ? "speaker" : c.type === "announcement" ? "megaphone" : "hash";
-          dests.push({ kind: "channel", key: `c:${c.id}`, label: c.name, sub: g.name, c, g, icon });
-        }
-      }
-    }
-
+    const { mode, q } = parseQuery(query);
+    const actionOnly = mode === "actions";
+    const dests = actionOnly ? [] : buildDests(S.guilds, people, S.identity?.fingerprint);
     if (!q) {
-      // Empty query = recency. "Jump to" is the MRU trail (minus where you
-      // already are), padded with the raw channel list for fresh installs.
-      const byId = new Map();
-      for (const d of dests) if (d.kind === "channel") byId.set(d.c.id, d);
-      const recent = S.recentChannels
-        .filter((cid) => cid !== S.activeChannelId)
-        .map((cid) => byId.get(cid))
-        .filter(Boolean);
-      const seen = new Set(recent);
-      const rest = dests.filter((i) => i.kind === "channel" && !seen.has(i));
+      // Empty query = recency: the conversations you visited (channels and
+      // DMs), newest first, padded with the channel list for fresh installs.
       return {
-        jump: [...recent, ...rest].slice(0, 6),
-        acts: actionOnly ? actions : actions.slice(0, 5),
+        jump: recentFirst(dests, S.recentChannels, S.activeChannelId, mode),
+        acts: mode === "all" ? actions.slice(0, 5) : actionOnly ? actions : [],
       };
     }
-    const rank = (list, cap) =>
-      list
-        .map((i) => ({ i, m: fuzzy(i.label, q) }))
-        .filter((x) => x.m)
-        .sort((a, b) => a.m.score - b.m.score)
-        .slice(0, cap)
-        .map((x) => ({ ...x.i, parts: toParts(x.i.label, x.m.idx) }));
-    return { jump: rank(dests, 8), acts: rank(actions, actionOnly ? 12 : 5) };
+    const pool = dests.filter((d) => inMode(d, mode));
+    const ranked = (list, cap) => rank(list, q, cap).map((x) => ({ ...x, parts: toParts(x.label, x.idx) }));
+    return {
+      jump: ranked(pool, 8),
+      acts: mode === "all" || actionOnly ? ranked(actions, actionOnly ? 12 : 5) : [],
+    };
   });
 
   const flat = $derived([...grouped.jump, ...grouped.acts]);
@@ -183,6 +160,14 @@
           await joinVoiceChannel(item.c.id);
         }
       } else await jumpToChannel(item.c.id);
+    } else if (item.kind === "person") {
+      try {
+        await startDM(item.fpr);
+      } catch (err) {
+        flash(err);
+      }
+    } else if (item.kind === "dm" && item.channelId) {
+      await jumpToChannel(item.channelId);
     } else {
       await selectGuild(item.g.id);
     }
@@ -203,7 +188,15 @@
 </script>
 
 {#snippet row(item, i)}
-  <button class="hit" class:sel={i === sel} onclick={() => go(item)}>
+  <button
+    class="hit"
+    class:sel={i === sel}
+    id={optId(i)}
+    role="option"
+    aria-selected={i === sel}
+    tabindex="-1"
+    onclick={() => go(item)}
+  >
     <span class="hit-icon">
       <Icon name={item.icon} size={13} />
     </span>
@@ -233,32 +226,45 @@
 {/snippet}
 
 <div class="overlay" role="presentation" onclick={() => (S.quickSwitcher = false)}>
-  <div class="switcher" role="dialog" aria-label="Command palette" onclick={(e) => e.stopPropagation()}>
+  <div class="switcher" role="dialog" aria-modal="true" aria-label="Command palette" onclick={(e) => e.stopPropagation()}>
+    <!-- A combobox over a listbox: the highlighted result is announced as you
+         arrow (aria-activedescendant) while the caret stays in the field. It
+         used to be a CSS class on a plain button, invisible to a screen
+         reader. -->
     <input
+      role="combobox"
+      aria-expanded="true"
+      aria-controls={listId}
+      aria-autocomplete="list"
+      aria-activedescendant={flat[sel] ? optId(sel) : undefined}
       bind:this={inputEl}
       bind:value={query}
       placeholder="Jump anywhere, or type “&gt;” for commands…"
       aria-label="Jump to a conversation, or run a command"
       onkeydown={onKeydown}
     />
-    <div class="results scroll-fade" bind:this={listEl}>
+    <div class="results scroll-fade" bind:this={listEl} id={listId} role="listbox" aria-label="Results">
       {#if grouped.jump.length}
-        <div class="sec muted">Jump to</div>
+        <div class="sec muted" role="presentation">Jump to</div>
         {#each grouped.jump as item, i (item.key)}
           {@render row(item, i)}
         {/each}
       {/if}
       {#if grouped.acts.length}
-        <div class="sec muted">Actions</div>
+        <div class="sec muted" role="presentation">Actions</div>
         {#each grouped.acts as item, i (item.key)}
           {@render row(item, grouped.jump.length + i)}
         {/each}
       {/if}
       {#if !flat.length}
-        <div class="muted none">Nothing matches “{query}”</div>
+        <div class="muted none">
+          Nothing matches “{query}”.
+          <span class="none-tip">Start with # for channels, @ for people, ! for voice, * for guilds, &gt; for commands.</span>
+        </div>
       {/if}
     </div>
-    <div class="hint muted">↑↓ navigate · ↵ select · esc close</div>
+    <span class="sr-only" role="status">{flat.length ? `${flat.length} results` : "No results"}</span>
+    <div class="hint muted">↑↓ navigate · ↵ select · esc close · # @ ! * &gt; to narrow</div>
   </div>
 </div>
 
@@ -439,6 +445,11 @@
   .none {
     padding: 10px;
     font-size: var(--fs-ui);
+  }
+  .none-tip {
+    display: block;
+    margin-top: var(--sp-1);
+    font-size: var(--fs-small);
   }
   .hint {
     font-size: var(--fs-small);
