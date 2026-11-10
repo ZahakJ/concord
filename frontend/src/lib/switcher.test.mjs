@@ -1,5 +1,5 @@
 // What the command palette finds, and in what order (`npm test` runs it).
-import { parseQuery, buildDests, recentFirst, rank, inMode } from "./switcher.js";
+import { parseQuery, buildDests, recentFirst, rank, inMode, fuzzy } from "./switcher.js";
 
 let failures = 0;
 const assert = (cond, msg) => {
@@ -56,3 +56,12 @@ if (failures) {
   process.exit(1);
 }
 console.log("switcher: all tests passed");
+
+// Highlights mark the characters that matched as the reader typed them.
+assert(JSON.stringify(fuzzy("workshop", "op").idx) === "[6,7]", "a run beats scattered letters");
+assert(JSON.stringify(fuzzy("Lantern Makers", "ma").idx) === "[8,9]", "a word start beats a mid-word run");
+assert(JSON.stringify(fuzzy("brainstorm", "bstm").idx) === "[0,5,6,9]", "scattered letters still match");
+assert(fuzzy("general", "general").score < fuzzy("general-chat", "general").score, "the whole name ranks first");
+assert(fuzzy("help-desk", "desk").score < fuzzy("deskside", "desk").score + 1000, "word start found after a hyphen");
+assert(fuzzy("abc", "x") === null, "no match is null");
+console.log("switcher highlight ok");

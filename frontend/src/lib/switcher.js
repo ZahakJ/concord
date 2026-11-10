@@ -77,10 +77,27 @@ export function recentFirst(dests, recent, activeChannelId, mode = "all", cap = 
   return [...trail, ...rest].slice(0, cap);
 }
 
-// fuzzy — subsequence match; lower score is better. Returns the matched
-// character indices for highlighting, or null.
+// fuzzy — lower score is better. Returns the matched character indices for
+// highlighting, or null. The order of preference is the order a reader expects:
+// the whole name, then the query as a run at the start of a word ("shop" in
+// "workshop" is not a word start, "make" in "Lantern Makers" is), then the query
+// as a run anywhere, and only then the letters scattered in order. The scattered
+// match used to be the only one, and it took the FIRST occurrence of each
+// letter — so "op" lit the "o" of "work" and the "p" of "shop" in "workshop",
+// highlighting characters that were not the match the reader typed.
+const WORD_EDGE = /[\s\-_#@.:/·]/;
 export function fuzzy(text, q) {
   const lower = String(text || "").toLowerCase();
+  q = String(q || "").toLowerCase();
+  if (!q) return { score: 0, idx: [] };
+  const run = (at) => Array.from({ length: q.length }, (_, k) => at + k);
+  const tail = lower.length * 0.01;
+  if (lower === q) return { score: -1000, idx: run(0) };
+  for (let at = lower.indexOf(q); at >= 0; at = lower.indexOf(q, at + 1)) {
+    if (at === 0 || WORD_EDGE.test(lower[at - 1])) return { score: -500 + at * 0.5 + tail, idx: run(at) };
+  }
+  const at = lower.indexOf(q);
+  if (at >= 0) return { score: -200 + at * 0.5 + tail, idx: run(at) };
   let ti = 0;
   let score = 0;
   const idx = [];
@@ -92,7 +109,7 @@ export function fuzzy(text, q) {
     ti = found + 1;
   }
   // A match at the very start of the name beats the same match mid-word.
-  return { score: score + (idx[0] || 0) * 0.5 + lower.length * 0.01, idx };
+  return { score: score + (idx[0] || 0) * 0.5 + tail, idx };
 }
 
 export function rank(list, q, cap) {
@@ -101,5 +118,5 @@ export function rank(list, q, cap) {
     .filter((x) => x.m)
     .sort((a, b) => a.m.score - b.m.score)
     .slice(0, cap)
-    .map((x) => ({ ...x.i, idx: x.m.idx }));
+    .map((x) => ({ ...x.i, idx: x.m.idx, score: x.m.score }));
 }

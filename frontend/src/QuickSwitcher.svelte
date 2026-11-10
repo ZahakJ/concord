@@ -3,6 +3,8 @@
   // actions. A leading ">" or "/" filters to actions only; otherwise actions
   // rank alongside destinations under their own section header.
   import Icon from "./Icon.svelte";
+  import Kbd from "./Kbd.svelte";
+  import Badge from "./Badge.svelte";
   import {
     S,
     jumpToChannel,
@@ -103,27 +105,52 @@
     return list.map((a) => ({ ...a, kind: "action", key: `act:${a.id}` }));
   });
 
-  const grouped = $derived.by(() => {
+  // Empty query: Unread (mentions first), Recent, and four actions. With a
+  // query: ONE ranked list, no headers — the leading glyph says what each row
+  // is, and unread is a boost in the ranking rather than a section of its own.
+  const sections = $derived.by(() => {
     const { mode, q } = parseQuery(query);
     const actionOnly = mode === "actions";
     const dests = actionOnly ? [] : buildDests(S.guilds, people, S.identity?.fingerprint);
     if (!q) {
-      // Empty query = recency: the conversations you visited (channels and
-      // DMs), newest first, padded with the channel list for fresh installs.
-      return {
-        jump: recentFirst(dests, S.recentChannels, S.activeChannelId, mode),
-        acts: mode === "all" ? actions.slice(0, 5) : actionOnly ? actions : [],
-      };
+      if (actionOnly) return [{ title: "Actions", items: actions }];
+      const recent = recentFirst(dests, S.recentChannels, S.activeChannelId, mode, 8);
+      if (mode !== "all") return [{ title: "Recent", items: recent }];
+      const unread = dests
+        .filter((d) => d.kind === "channel" && d.channelId !== S.activeChannelId && unreadFor(d)?.count)
+        .sort((x, y) => (unreadFor(y).mentions > 0) - (unreadFor(x).mentions > 0))
+        .slice(0, 5);
+      const seen = new Set(unread.map((d) => d.key));
+      return [
+        { title: "Unread", items: unread },
+        { title: "Recent", items: recent.filter((d) => !seen.has(d.key)) },
+        { title: "Actions", items: actions.filter((x) => ["read", "newdm", "create", "settings"].includes(x.id)).slice(0, 4) },
+      ].filter((sec) => sec.items.length);
     }
     const pool = dests.filter((d) => inMode(d, mode));
-    const ranked = (list, cap) => rank(list, q, cap).map((x) => ({ ...x, parts: toParts(x.label, x.idx) }));
-    return {
-      jump: ranked(pool, 8),
-      acts: mode === "all" || actionOnly ? ranked(actions, actionOnly ? 12 : 5) : [],
+    const boost = (x) => {
+      const u = x.kind === "action" ? null : unreadFor(x);
+      return u?.mentions > 0 ? 150 : u?.count ? 60 : 0;
     };
+    const list = [...rank(pool, q, 12), ...(mode === "all" || actionOnly ? rank(actions, q, actionOnly ? 12 : 5) : [])]
+      .map((x) => ({ ...x, s: x.score - boost(x) }))
+      .sort((x, y) => x.s - y.s)
+      .slice(0, 10)
+      .map((x) => ({ ...x, parts: toParts(x.label, x.idx) }));
+    return [{ title: "", items: list }];
   });
-
-  const flat = $derived([...grouped.jump, ...grouped.acts]);
+  const flat = $derived(sections.flatMap((sec) => sec.items));
+  const offsets = $derived(sections.map((_, i) => sections.slice(0, i).reduce((n, sec) => n + sec.items.length, 0)));
+  const scope = $derived(parseQuery(query).mode);
+  const empty = $derived(!parseQuery(query).q);
+  const SCOPES = [
+    ["#", "Channels"],
+    ["@", "People"],
+    ["!", "Voice"],
+    ["*", "Guilds"],
+    [">", "Actions"],
+    ["?", "Help"],
+  ];
 
   $effect(() => {
     query;
@@ -139,6 +166,7 @@
   // Unread state for a result row, so the list shows which hit needs you.
   // Channels read their own counter; guild/DM rows aggregate like the rail.
   function unreadFor(item) {
+    if (!item) return null;
     if (item.kind === "channel") return S.unread[item.c.id] || null;
     if (item.kind === "guild" || item.kind === "dm") {
       const u = guildUnread(item.g);
@@ -198,7 +226,7 @@
     onclick={() => go(item)}
   >
     <span class="hit-icon">
-      <Icon name={item.icon} size={13} />
+      <Icon name={item.icon} size={16} />
     </span>
     <span class="hit-label">
       {#if item.parts}
@@ -207,104 +235,109 @@
         {item.label}
       {/if}
     </span>
-    {#if item.sub}
-      <!-- Action subs are keyboard shortcuts — render them as kbd chips. -->
+    {#if item.sub && item.kind !== "action"}
+      <span class="hit-sub">{item.sub}</span>
+    {/if}
+    <span class="hit-end">
       {#if item.kind === "action"}
-        <kbd class="hit-kbd">{item.sub}</kbd>
+        {#if item.sub}<Kbd>{item.sub}</Kbd>{/if}
       {:else}
-        <span class="muted hit-sub">{item.sub}</span>
+        {@const u = unreadFor(item)}
+        {#if u?.mentions > 0}
+          <Badge count={u.mentions} />
+        {:else if u?.count}
+          <Badge dot label="Unread" />
+        {/if}
       {/if}
-    {/if}
-    {#if item.kind !== "action"}
-      {@const u = unreadFor(item)}
-      {#if u?.count}
-        <span class="hit-unread" class:mention={u.mentions > 0}>{u.mentions > 0 ? u.mentions : u.count}</span>
-      {/if}
-    {/if}
-    <span class="hit-enter" aria-hidden="true">↵</span>
+    </span>
   </button>
 {/snippet}
 
 <div class="overlay" role="presentation" onclick={() => (S.quickSwitcher = false)}>
   <div class="switcher" role="dialog" aria-modal="true" aria-label="Command palette" onclick={(e) => e.stopPropagation()}>
     <!-- A combobox over a listbox: the highlighted result is announced as you
-         arrow (aria-activedescendant) while the caret stays in the field. It
-         used to be a CSS class on a plain button, invisible to a screen
-         reader. -->
-    <input
-      role="combobox"
-      aria-expanded="true"
-      aria-controls={listId}
-      aria-autocomplete="list"
-      aria-activedescendant={flat[sel] ? optId(sel) : undefined}
-      bind:this={inputEl}
-      bind:value={query}
-      placeholder="Jump anywhere, or type “&gt;” for commands…"
-      aria-label="Jump to a conversation, or run a command"
-      onkeydown={onKeydown}
-    />
-    <div class="results scroll-fade" bind:this={listEl} id={listId} role="listbox" aria-label="Results">
-      {#if grouped.jump.length}
-        <div class="sec muted" role="presentation">Jump to</div>
-        {#each grouped.jump as item, i (item.key)}
-          {@render row(item, i)}
+         arrow (aria-activedescendant) while the caret stays in the field. -->
+    <div class="qs-input">
+      <Icon name="search" size={20} />
+      <input
+        role="combobox"
+        aria-expanded="true"
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={flat[sel] ? optId(sel) : undefined}
+        bind:this={inputEl}
+        bind:value={query}
+        placeholder="Jump to a conversation, person or action"
+        aria-label="Jump to a conversation, person or action"
+        onkeydown={onKeydown}
+      />
+    </div>
+    {#if empty}
+      <!-- The scopes, said out loud: typing the prefix does the same. -->
+      <div class="scopes" role="group" aria-label="Narrow to">
+        {#each SCOPES as [p, name] (p)}
+          <button
+            type="button"
+            class="scope"
+            class:on={scope !== "all" && query.trimStart()[0] === p}
+            onclick={() => {
+              if (p === "?") {
+                S.quickSwitcher = false;
+                S.modal = { kind: "shortcuts" };
+                return;
+              }
+              query = p;
+              inputEl?.focus();
+            }}><span class="scope-p">{p}</span> {name}</button
+          >
         {/each}
-      {/if}
-      {#if grouped.acts.length}
-        <div class="sec muted" role="presentation">Actions</div>
-        {#each grouped.acts as item, i (item.key)}
-          {@render row(item, grouped.jump.length + i)}
+      </div>
+    {/if}
+    <div class="results" bind:this={listEl} id={listId} role="listbox" aria-label="Results">
+      {#each sections as sec, si (sec.title + si)}
+        {#if sec.title}<div class="sec" role="presentation">{sec.title}</div>{/if}
+        {#each sec.items as item, i (item.key)}
+          {@render row(item, offsets[si] + i)}
         {/each}
-      {/if}
+      {/each}
       {#if !flat.length}
-        <div class="muted none">
+        <div class="none">
           Nothing matches “{query}”.
-          <span class="none-tip">Start with # for channels, @ for people, ! for voice, * for guilds, &gt; for commands.</span>
+          <span class="none-tip">Start with # for channels, @ for people, ! for voice, * for guilds, &gt; for actions.</span>
         </div>
       {/if}
     </div>
     <span class="sr-only" role="status">{flat.length ? `${flat.length} results` : "No results"}</span>
-    <div class="hint muted">↑↓ navigate · ↵ select · esc close · # @ ! * &gt; to narrow</div>
+    <div class="hint">↑ ↓ to move · ↵ to open · Esc to close</div>
   </div>
 </div>
 
 <style>
-  /* Just a dim — the frosted look comes from the palette's OWN backdrop-filter
-     below (a small, bounded region). A full-screen blur here would be the exact
-     GPU hazard we avoid, for no visible gain over the glass panel. */
+  /* The palette: one lifted surface over a scrim, centred near the top. */
   .overlay {
     position: fixed;
     inset: 0;
     background: var(--scrim);
     display: flex;
     justify-content: center;
-    padding-top: calc(12 * var(--vh));
-    /* Above a dialog's overlay, not level with it. Ctrl+K is refused while a
-       modal is open (lib/shortcuts.js), but a tie here meant that whenever the
-       two did coexist the switcher lost on DOM order and took the keyboard from
-       behind the scrim. */
+    padding-top: 96px;
+    /* Above a dialog's overlay, not level with it (lib/shortcuts.js refuses
+       Ctrl+K behind a modal, but a tie lost the keyboard on DOM order). */
     z-index: 110;
     animation: qs-fade var(--dur-quick) ease;
   }
   .switcher {
-    width: 460px;
-    max-width: calc(92 * var(--vw));
+    width: 640px;
+    max-width: calc(100% - 32px);
     height: fit-content;
-    /* Opaque, not glass. This used to be a 12% hole over a blur(14px), which
-       is the most expensive filter on the screen for the software renderer the
-       desktop ships with (WEBKIT_DISABLE_DMABUF_RENDERER) — and where the blur
-       does not land, the hole is just channel names printed over messages. The
-       scrim behind the palette is what separates it from the app. */
-    background: var(--bg-elevated, var(--bg-1));
+    background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: var(--sp-3);
     display: flex;
     flex-direction: column;
-    gap: var(--sp-2);
     box-shadow: var(--shadow-pop);
-    transform-origin: top center;
-    animation: qs-pop var(--dur-standard) var(--ease-out);
+    overflow: hidden;
+    animation: qs-pop var(--dur-quick) var(--ease-spring);
   }
   @keyframes qs-fade {
     from {
@@ -314,7 +347,7 @@
   @keyframes qs-pop {
     from {
       opacity: 0;
-      transform: translateY(-6px) scale(0.97);
+      transform: translateY(4px);
     }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -323,172 +356,153 @@
       animation: none;
     }
   }
+  .qs-input {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    height: 56px;
+    padding: 0 var(--sp-4);
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .qs-input input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+    color: var(--text);
+    font-size: var(--fs-title);
+  }
+  .qs-input input:focus {
+    outline: none;
+    box-shadow: none;
+  }
+  .scopes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px var(--sp-4) 2px;
+  }
+  .scope {
+    height: 26px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+    font-weight: 500;
+  }
+  .scope:hover,
+  .scope.on {
+    color: var(--text);
+  }
+  .scope-p {
+    font-family: var(--mono-font);
+    color: var(--text);
+  }
   .results {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    max-height: min(52 * var(--vh), 430px);
+    max-height: min(56 * var(--vh), 440px);
     overflow-y: auto;
     overscroll-behavior: contain;
+    padding: 6px 8px 8px;
   }
   .sec {
-    font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 4px 10px 2px;
-  }
-  .sec + .sec,
-  .hit + .sec {
-    margin-top: 6px;
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 10px 10px 4px;
   }
   .hit {
-    position: relative;
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 10px;
     flex-shrink: 0;
+    min-height: 40px;
+    padding: 0 10px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--text);
-    text-align: left;
-    padding: 8px 10px;
-    border-radius: var(--radius-sm);
+    text-align: start;
     font-size: var(--fs-ui);
-    transition:
-      background var(--dur-quick) ease,
-      transform var(--dur-quick) ease;
   }
+  /* One active row: pointer and keyboard move the same selection. */
   .hit.sel {
     background: var(--bg-3);
-    transform: translateX(2px);
-  }
-  @media (pointer: fine) {
-    .hit:hover {
-      background: var(--bg-3);
-      transform: translateX(2px);
-    }
-  }
-  .hit:active {
-    background: var(--bg-3);
-  }
-  /* The selected row carries an accent edge + tinted icon, so keyboard focus
-     reads instantly even while the mouse hovers elsewhere. */
-  .hit.sel {
-    background: color-mix(in srgb, var(--accent) 12%, var(--bg-3));
-    box-shadow: inset 2px 0 0 var(--accent);
-  }
-  .hit.sel .hit-icon {
-    color: var(--accent-hover);
   }
   .hit-icon {
-    color: var(--text-muted);
     display: grid;
     place-items: center;
-    transition: color var(--dur-quick) ease;
-  }
-  /* ↵ affordance surfaces only on the selected row. */
-  .hit-enter {
-    color: var(--accent-hover);
-    font-size: var(--fs-small);
-    opacity: 0;
-    transform: translateX(-3px);
-    transition:
-      opacity var(--dur-quick) ease,
-      transform var(--dur-quick) ease;
-  }
-  .hit.sel .hit-enter {
-    opacity: 0.9;
-    transform: none;
-  }
-  .hit-kbd {
-    font-family: inherit;
-    font-size: var(--fs-tiny);
+    width: 24px;
+    flex: none;
     color: var(--text-muted);
-    background: var(--bg-2);
-    border: 1px solid var(--border);
-    border-bottom-width: 2px;
-    border-radius: var(--radius-sm);
-    padding: 1px 6px;
-    white-space: nowrap;
-  }
-  /* Same pill the channel list wears, so "this one needs you" reads the same
-     everywhere. Mentions swap the count for the mention tally in accent. */
-  .hit-unread {
-    min-width: 18px;
-    padding: 0 5px;
-    height: 16px;
-    border-radius: var(--radius-md);
-    background: var(--text-muted);
-    color: var(--bg-1);
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    display: grid;
-    place-items: center;
-    font-variant-numeric: tabular-nums;
-  }
-  .hit-unread.mention {
-    background: var(--accent);
-    color: var(--accent-fg);
   }
   .hit-label {
-    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 0 1 auto;
+  }
+  /* Matched characters: weight, not colour. */
+  .hl {
+    font-weight: 600;
+    color: var(--text);
+  }
+  .hit-label:has(.hl) {
+    color: var(--text-muted);
+  }
+  .hit-sub {
+    min-width: 0;
+    flex: 1 1 0;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .hl {
-    color: var(--accent-hover);
-    font-weight: 600;
-  }
-  .hit-sub {
-    font-size: var(--fs-compact);
+  .hit-end {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
   }
   .none {
-    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+    padding: 18px 12px;
+    color: var(--text-muted);
     font-size: var(--fs-ui);
   }
   .none-tip {
-    display: block;
-    margin-top: var(--sp-1);
     font-size: var(--fs-small);
   }
   .hint {
-    font-size: var(--fs-small);
-    text-align: center;
-    padding-top: 2px;
-    border-top: 1px solid var(--border);
+    height: 36px;
+    display: flex;
+    align-items: center;
+    padding: 0 var(--sp-4);
+    border-top: 1px solid var(--hairline);
+    font-size: var(--fs-tiny);
+    color: var(--text-faint);
   }
-  /* Mobile: the palette drops in full-width from the top edge; keyboard
-     shortcut hints are meaningless on touch. */
   @media (max-width: 768px) {
     .overlay {
-      padding-top: 0;
-      align-items: flex-start;
+      padding-top: var(--safe-top, 0px);
     }
     .switcher {
       width: 100%;
-      max-width: none;
-      border: none;
-      border-radius: 0 0 16px 16px;
-      padding-top: calc(12px + var(--safe-top));
-    }
-    .switcher input {
-      font-size: 16px; /* stops iOS auto-zoom on focus */
+      max-width: 100%;
+      border-radius: 0 0 var(--radius-lg) var(--radius-lg);
     }
     .hit {
-      min-height: var(--tap-min);
-      font-size: var(--fs-body);
-    }
-    /* Both name keys nobody can press, and both steal width from .hit-label,
-       which ellipsizes — so a shortcut chip was truncating channel names to
-       make room for itself. */
-    .hit-kbd,
-    .hit-enter {
-      display: none;
-    }
-    .results {
-      /* dvh: the keyboard is up the whole time this palette is open, and vh
-         does not shrink for it in an Android WebView. */
-      max-height: calc(60 * var(--dvh));
+      min-height: 48px;
     }
     .hint {
       display: none;
