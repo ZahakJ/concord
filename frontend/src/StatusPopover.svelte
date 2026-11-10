@@ -3,6 +3,7 @@
   // Positioning mirrors ProfilePopover: measure the card, place it above the
   // anchor (below when there's no room), clamped to the viewport. Every change
   // applies via api.setProfile while preserving the rest of the profile.
+  import { popoverFocus } from "./lib/popoverfocus.js";
   import Icon from "./Icon.svelte";
   import GameShelf from "./GameShelf.svelte";
   import { S, flash, refreshRightPanel, patchProfile } from "./lib/state.svelte.js";
@@ -150,6 +151,7 @@
   role="dialog"
   aria-label="Set status"
   use:fieldEscape
+  use:popoverFocus
 >
   {#if S.isMobile}
     <!-- This sheet had no grip at all — no handle, and nothing to pull. The

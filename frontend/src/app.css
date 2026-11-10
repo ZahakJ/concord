@@ -1763,6 +1763,12 @@ button:disabled {
      own radius, so forcing one squared off circular/pill controls (call buttons,
      reaction pills, avatars) on focus. Let each control keep its shape. */
 }
+/* A dialog or popover holding focus itself is a PLACE focus was parked (it
+   had nothing else to focus, or Escape stepped out of one of its fields), not
+   a control; ringing the whole surface reads as a selection. */
+[role="dialog"][tabindex="-1"]:focus-visible {
+  outline: none;
+}
 
 input,
 textarea {

@@ -10,6 +10,7 @@
   // Floating profile card. Reads S.profilePopover ({fingerprint,
   // rect}); positions itself above the anchor (or below when there's no room),
   // clamped to the viewport. Rendered once at the app root so nothing clips it.
+  import { popoverFocus } from "./lib/popoverfocus.js";
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import GameShelf, { coverStyle, gameHue } from "./GameShelf.svelte";
@@ -529,6 +530,7 @@
     role="dialog"
     aria-label="{mem.name || 'Member'} profile"
     use:fieldEscape
+    use:popoverFocus={!S.profilePopover.hover}
     onmouseenter={holdProfilePopover}
     onmouseleave={() => !S.contextMenu && scheduleCloseProfilePopover()}
   >

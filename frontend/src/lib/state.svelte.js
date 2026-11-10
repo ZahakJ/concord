@@ -2282,7 +2282,9 @@ export function openProfilePopover(fingerprint, anchorEl, { delay = 0 } = {}) {
   const r = anchorEl.getBoundingClientRect();
   const rect = { x: r.left, y: r.top, w: r.width, h: r.height };
   const show = () => {
-    S.profilePopover = { fingerprint, rect };
+    // `hover`: opened by resting the pointer on a mention, which must not
+    // take focus away from what the keyboard is doing.
+    S.profilePopover = { fingerprint, rect, hover: !!delay };
     popOpenedAt = Date.now();
   };
   if (delay) popTimer = setTimeout(show, delay);
