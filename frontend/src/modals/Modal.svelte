@@ -26,6 +26,14 @@
     openCount = Math.max(0, openCount - 1);
     if (!openCount) delete document.documentElement.dataset.modal;
   }
+
+  // Who opened the panel, carried across a panel swap. A rail click or a
+  // drill-down replaces one dialog component with another, so the incoming one
+  // finds focus on a button inside the outgoing one (about to be detached) and
+  // would remember THAT as its opener — and closing Settings after visiting a
+  // second page dropped focus on <body>. The outgoing panel leaves its own
+  // opener here; the incoming one takes it if it arrives within the same swap.
+  let handoff = null;
 </script>
 
 <script>
@@ -50,6 +58,7 @@
   let { title, onClose, wide = false, size = "", rail = null, children } = $props();
   const railed = $derived(!!rail && !S.isMobile);
   let dialog = $state(null);
+  let titleEl = $state(null);
   // TalkBack/VoiceOver announce a dialog by its label; without an id to point
   // aria-labelledby at, every sheet in the app opened as an unnamed group.
   const titleId = "modal-title-" + Math.random().toString(36).slice(2, 9);
@@ -112,11 +121,17 @@
 
   onMount(() => {
     const active = document.activeElement;
-    opener = active instanceof HTMLElement && active !== document.body ? active : null;
+    const own = active instanceof HTMLElement && active !== document.body ? active : null;
+    opener = own;
     // One tick, so a panel with its own opening focus (ConfirmDialog puts it on
     // Cancel, several fields carry autofocus) has already had its say. We only
     // place focus when nothing inside the dialog has claimed it.
     tick().then(() => {
+      // By now the dialog this one replaced (if any) has been torn down and
+      // has left its opener in `handoff`; the button we found focused at
+      // mount was inside it and is gone.
+      if (handoff && performance.now() - handoff.at < 1000 && (!opener || !opener.isConnected)) opener = handoff.el;
+      handoff = null;
       if (!dialog || dialog.contains(document.activeElement)) return;
       // Never the ✕ or the back arrow: they live in the pinned strip, and a
       // dialog whose first keystroke closes it is a dialog you can't use.
@@ -154,27 +169,43 @@
       // channel dialog leads with four channel-TYPE buttons and follows them
       // with the name box; first-in-the-tree would put the caret on "Text" and
       // leave the one thing you came here to type unfocused.
+      //
+      // With nothing to focus, the TITLE takes it, not the dialog box: the
+      // box drew the focus ring around the entire dialog (a third of the
+      // dialogs opened framed in accent, the rest did not), and a heading is
+      // what a screen reader should read first anyway.
       const target =
         body.find((el) => el.hasAttribute("autofocus")) ||
         body.find((el) => !el.hasAttribute("data-no-initial-focus")) ||
         body[0] ||
+        titleEl ||
         dialog;
       if (target === dialog) dialog.tabIndex = -1;
       target.focus?.({ preventScroll: true });
     });
   });
 
+  // The S.modal this dialog was raised for. If a different one is current
+  // when we are torn down, we were replaced (a rail click, a drill-down); if
+  // the same one is, we were a confirm closing over the panel that stays.
+  const shownFor = S.modal;
+
   // Closing for real drops the whole trail; navigating to another panel keeps
   // it. Which happened is simply whether a modal is still open by the time this
   // one is torn down.
   onDestroy(() => {
     if (!S.modal) S.modalStack = [];
+    // Being replaced rather than closed: hand the opener to whoever replaces
+    // us. A confirm closing over its panel is not a swap: S.modal is unchanged.
+    const replaced = !!S.modal && S.modal !== shownFor;
+    if (replaced && opener) handoff = { el: opener, at: performance.now() };
     // Hand focus back to whatever opened us — but only if nothing else has
-    // claimed it in the meantime (drilling into a settings sub-panel unmounts
-    // this dialog and mounts the next one on the same frame).
+    // claimed it in the meantime, and never on a swap: the replacement is
+    // about to place focus inside itself, and restoring to the button behind
+    // the scrim first would leave a keyboard user on the page underneath.
     const back = opener;
     opener = null;
-    if (!back) return;
+    if (!back || replaced) return;
     tick().then(() => {
       const now = document.activeElement;
       if (now && now !== document.body && now !== document.documentElement) return;
@@ -219,6 +250,24 @@
   function unwind() {
     if (canBack) backPanel();
     else dismiss();
+  }
+
+  // Focus that dies with the control holding it — a Back button that swaps
+  // an editor for a list, a row deleted from under the caret — falls to
+  // <body>, outside the dialog, where Tab starts from the top of the page and
+  // the dialog's own keys stop answering. Catch it and keep it in the dialog.
+  function onFocusOut(e) {
+    if (e.relatedTarget) return;
+    const lost = e.target;
+    // Two frames: a layer closing inside the dialog (a picker) hands focus
+    // back to its own opener one frame after it goes (lib/navstack), and that
+    // is a better place than the title.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!dialog?.isConnected || lost.isConnected || !me.isInnermostOfKind) return;
+      const now = document.activeElement;
+      if (now && now !== document.body && now !== document.documentElement) return;
+      (titleEl || dialog).focus({ preventScroll: true });
+    }));
   }
 
   // Tab is trapped within the dialog so focus can't wander onto the page
@@ -281,6 +330,7 @@
     class:deeper={enterDir === 1}
     class:shallower={enterDir === -1}
     onclick={(e) => e.stopPropagation()}
+    onfocusout={onFocusOut}
     role="dialog"
     aria-modal="true"
     aria-labelledby={titleId}
@@ -307,7 +357,7 @@
               <Icon name="chevron" size={16} />
             </button>
           {/if}
-          <h3 id={titleId}>{title}</h3>
+          <h3 id={titleId} tabindex="-1" bind:this={titleEl}>{title}</h3>
           <button class="x" onclick={dismiss} aria-label="Close">✕</button>
         </div>
       </div>
@@ -751,6 +801,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+  }
+  /* Focus parks on the title only when a dialog has nothing else to focus or
+     the control holding it went away; it is a place, not a control. */
+  h3:focus {
+    outline: none;
   }
   h3 {
     margin: 0;

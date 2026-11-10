@@ -1,6 +1,7 @@
 <script>
   // Define guild roles: name, color, and a set of permissions. Requires the
   // "Manage roles" permission (the backend re-checks and enforces rank rules).
+  import { tick } from "svelte";
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
@@ -32,6 +33,15 @@
   }
   function edit(r) {
     editing = { ...r };
+  }
+  // Back swaps the editor for the list, which takes the focused Back button
+  // with it; land on the role you were editing rather than nowhere.
+  async function backToList() {
+    const id = editing?.id;
+    editing = null;
+    await tick();
+    const row = id && document.querySelector(`button.role[data-role-id="${CSS.escape(id)}"]`);
+    (row || document.querySelector("button.role"))?.focus({ preventScroll: true });
   }
   function togglePerm(bit) {
     editing.perms = has(editing.perms, bit) ? editing.perms & ~bit : editing.perms | bit;
@@ -122,7 +132,7 @@
         </div>
       </div>
       <div class="actions">
-        <button class="ghost" onclick={() => (editing = null)}>Back</button>
+        <button class="ghost" onclick={backToList}>Back</button>
         <button onclick={save} disabled={!editing.name.trim() || busy}>Save role</button>
       </div>
     </div>
@@ -133,7 +143,7 @@
       <div class="list">
         {#each roles as r (r.id)}
           <div class="role-row">
-            <button class="role" onclick={() => edit(r)}>
+            <button class="role" data-role-id={r.id} onclick={() => edit(r)}>
               <span class="swatch" style="background:{r.color || 'var(--text-faint)'}"></span>
               <span class="role-name" style={r.color ? `color:${r.color}` : ""}>{r.name}</span>
             </button>
