@@ -197,10 +197,14 @@ func TestPeerDM(t *testing.T) {
 		t.Fatalf("DM guild kind = %q, want dm", dm.Kind)
 	}
 
-	// B auto-redeems the pushed invite and joins the DM group.
+	// B auto-redeems the pushed invite and joins the DM group. It is found by
+	// its id, not by its kind: B's Notes is a DM too, and it exists from the
+	// moment B does, so "B holds a DM" is true before any invite arrives.
+	var bDM string
 	waitUntil(t, 25*time.Second, func() bool {
 		for _, gg := range b.Guilds() {
-			if gg.Kind == "dm" {
+			if gg.ID == dm.ID && len(gg.Channels) > 0 {
+				bDM = gg.Channels[0].ID
 				return true
 			}
 		}
@@ -216,12 +220,6 @@ func TestPeerDM(t *testing.T) {
 
 	sendUntilReceived(t, a, dmChannel, "hey euclid, DM test", rb)
 	// B replies on its copy of the DM.
-	var bDM string
-	for _, gg := range b.Guilds() {
-		if gg.Kind == "dm" {
-			bDM = gg.Channels[0].ID
-		}
-	}
 	sendUntilReceived(t, b, bDM, "got it, works!", ra)
 
 	// Starting a DM with the same person again returns the SAME conversation.
