@@ -544,6 +544,13 @@ func (s *Service) LeaveGuild(guildID string) error {
 		// member ignores the word, and one offline right now does not hear it.
 		s.publishMeta(g.GroupID, guildMeta{Type: "member_left", Fingerprint: s.id.Fingerprint()})
 	}
+	if !isDM && g.Kind == "" && s.EvictedFrom(guildID) == "" {
+		first := ""
+		if len(g.Channels) > 0 {
+			first = g.Channels[0].ID
+		}
+		s.announceLeave(guildID, g.GroupID, first)
+	}
 	return s.deleteGuildLocal(guildID)
 }
 
@@ -3023,7 +3030,14 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		s.mu.RLock()
 		lg, ok := s.guilds[guildID]
 		isDM := ok && lg.Kind == "dm"
+		isGuild := ok && lg.Kind == ""
 		s.mu.RUnlock()
+		if isGuild {
+			// A guild has many committers, and two commits at one epoch fork
+			// it, so exactly one of them takes the leaf out (leave.go).
+			s.handleMemberLeft(guildID, msg.SenderID)
+			return
+		}
 		if !isDM {
 			return
 		}
