@@ -664,9 +664,8 @@
       if (atBottom) a = b - MAX_WINDOW;
       else b = a + MAX_WINDOW;
     }
-    // An edit in progress must not be unmounted: the textarea's blur handler
-    // commits, so scrolling away from it would silently save a half-written
-    // message and throw the rest of it away.
+    // An edit in progress must not be unmounted: the half-written text lives
+    // only in the mounted row, and scrolling away from it would throw it away.
     const pin = S.editing?.id;
     if (pin) {
       const p = items.findIndex((x) => x.k === pin);

@@ -40,6 +40,7 @@ import { isGameToken } from "./games.js";
 import { plainSnippet } from "./snippet.js";
 import { typistsAfter } from "./typing.js";
 import { landsOnWelcome } from "./firstrun.js";
+import { isBlankText } from "./compose.js";
 import {
   LEVELS as NOTIF_LEVELS,
   normalize as normalizeNotifs,
@@ -3361,13 +3362,22 @@ export async function forwardMessage(m, destChannelId) {
 // A confirmation is also what every other destructive action here already does
 // — channel, category, kick, ban — and the hover bar's Delete is one stray
 // click from a message that is gone for everyone.
-export function deleteMsg(m) {
+// opts.now: Shift held on the delete button — the fast path deletes without
+// asking. opts.emptied: an edit cleared the whole text, and an empty message is
+// not something the core will store, so the honest offer is to delete it.
+export function deleteMsg(m, opts = {}) {
   const g = activeGuild();
   const isDM = g?.kind === "dm";
+  if (opts.now) {
+    api.deleteMessage(m.channelId, m.id).catch((err) => flash(err));
+    return;
+  }
   S.modal = {
     kind: "confirm",
-    title: "Delete this message?",
-    body: isDM
+    title: opts.emptied ? "Delete this message instead?" : "Delete this message?",
+    body: opts.emptied
+      ? "A message can't be empty. Deleting it removes it from the conversation."
+      : isDM
       ? "It is erased for both of you — the content is gone, not hidden."
       : "It is hidden from members here, but moderators can still read the original. In a DM, deleting erases it for both people.",
     confirmLabel: "Delete",
@@ -3389,7 +3399,13 @@ export function deleteMsg(m) {
 export async function saveEdit(m, text, dir = "") {
   S.editing = null;
   text = text.trim();
-  if (!m || !text) return;
+  if (!m) return;
+  // Emptied (or left holding only invisible characters): the editor used to
+  // just close with the message unchanged and nothing said.
+  if (isBlankText(text)) {
+    deleteMsg(m, { emptied: true });
+    return;
+  }
   if (text === m.content && !dir) return;
   try {
     await api.editMessage(m.channelId, m.id, text, dir);

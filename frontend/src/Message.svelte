@@ -555,7 +555,6 @@
   const editDirToken = $derived(
     editDir === (m.dir || "") ? "" : editDir === "" ? "auto" : editDir,
   );
-  let editCancelled = false;
   let wasEditing = false;
   let editEl = $state(null);
   let editPicker = $state(false);
@@ -581,7 +580,6 @@
       // across the pane, into a box laid out left-to-right, and there was no
       // control to say so.
       editDir = untrack(() => m.dir || "");
-      editCancelled = false;
     }
     wasEditing = editing;
   });
@@ -662,7 +660,6 @@
     autosizeEdit();
   }
   function cancelEdit() {
-    editCancelled = true; // so the textarea's blur handler doesn't save it
     S.editing = null;
     // The edit box is about to be unmounted from under the caret, and every
     // other Escape rung in the app says where focus goes next. <body> is not an
@@ -671,7 +668,7 @@
   }
   function commitEdit() {
     // Same shortcode treatment as the composer: :fire: saves as 🔥.
-    if (!editCancelled) saveEdit(m, replaceShortcodes(editDraft), editDirToken);
+    saveEdit(m, replaceShortcodes(editDraft), editDirToken);
   }
 
   // The ":colon command" while editing — same autocomplete as the composer:
@@ -1308,8 +1305,7 @@
       <div class="edit-wrap" class:pick-below={editPickerBelow}>
         <!-- The same bar the composer has, over the same engine, routed at this
              textarea. Its buttons swallow mousedown, so pressing one never
-             takes focus out of the box and never trips the blur-commits rule
-             below. -->
+             takes focus out of the box. -->
         <!-- The same bar, with the same ⇄ the composer has: the control that
              sets a direction existed only where a message is written, so the
              one place you might need to CORRECT one had no way to say it. -->
@@ -1331,15 +1327,6 @@
             bind:this={editEl}
             oninput={onEditInput}
             onkeydown={onEditKeydown}
-            onblur={(e) => {
-              // Focus moving WITHIN the edit UI must not commit-and-close. That
-              // is the emoji button and its picker (.edit-wrap) — and Cancel and
-              // Save, which live in a SIBLING .edit-actions row. A mouse never
-              // noticed the gap because those buttons swallow mousedown, but Tab
-              // does not, so tabbing to Cancel saved the edit on the way there
-              // and then cancelled nothing.
-              if (!e.relatedTarget?.closest?.(".edit-wrap, .edit-actions")) commitEdit();
-            }}
           ></textarea>
           <button
             type="button"
@@ -1385,19 +1372,14 @@
       <!-- Buttons as well as the shortcuts. The keyboard path is faster once you
            know it, but a hint line only TELLS you it exists; something you can
            click is what makes it discoverable — and on a touchscreen there is no
-           Escape key at all. onmousedown/preventDefault matters: the textarea's
-           blur handler commits, so a plain click on Cancel would save the edit
-           on the way down and then cancel nothing. -->
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-      <div
-        class="edit-actions"
-        onfocusout={(e) => {
-          // The textarea hands the edit to these buttons rather than committing;
-          // leaving THEM for somewhere else outside the edit is the real "you
-          // walked away", and still commits, exactly as before.
-          if (!e.relatedTarget?.closest?.(".edit-wrap, .edit-actions")) commitEdit();
-        }}
-      >
+           Escape key at all. onmousedown/preventDefault keeps the caret in the
+           box while they are pressed. -->
+      <!-- Leaving the box does nothing: the edit stays open until Enter/Save
+           or Escape/Cancel. It used to save on blur, so clicking anywhere else
+           published a half-finished edit to everyone — the opposite of what a
+           box that says "escape to cancel" promises. The window pins the row
+           being edited, so scrolling away cannot unmount it either. -->
+      <div class="edit-actions">
         <button
           type="button"
           class="edit-btn"
@@ -1411,7 +1393,6 @@
           class="edit-btn save"
           onmousedown={(e) => e.preventDefault()}
           onclick={() => {
-            editCancelled = false;
             commitEdit();
             S.editing = null;
             focusComposer();
@@ -1686,7 +1667,7 @@
           {#if !uneditableReason(m.content)}
             <button use:tooltip aria-label="Edit" onclick={startEdit}><Icon name="edit" size={15} /></button>
           {/if}
-          <button class="danger" use:tooltip aria-label="Delete" onclick={() => deleteMsg(m)}>
+          <button class="danger" use:tooltip aria-label="Delete" onclick={(e) => deleteMsg(m, { now: e.shiftKey })}>
             <Icon name="trash" size={15} />
           </button>
         </div>
@@ -1697,7 +1678,7 @@
             class="danger"
             use:tooltip={"Delete (moderator)"}
             aria-label="Delete message"
-            onclick={() => deleteMsg(m)}
+            onclick={(e) => deleteMsg(m, { now: e.shiftKey })}
           >
             <Icon name="trash" size={15} />
           </button>
