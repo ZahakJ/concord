@@ -28,6 +28,11 @@ eq(
   "a send that found no route is said as a sentence",
 );
 eq(humanError("HTTP 404"), "Concord's core rejected it — try again", "a bare status code");
+eq(
+  humanError("app: you don't have permission to remove members"),
+  "Your role doesn't let you remove members here any more — it may have changed while you were away.",
+  "a refused moderation action explains itself instead of printing the core's words",
+);
 eq(humanError("rpc Foo: HTTP 503 "), "Concord's core rejected it — try again", "trailing space");
 // …and what must NOT be swallowed by that rule: a status code inside a real
 // sentence is somebody explaining something.

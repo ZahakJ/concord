@@ -85,6 +85,11 @@ export function humanError(msg) {
   if (msg?.code && BY_CODE[msg.code]) return BY_CODE[msg.code];
   const text = String(msg?.message ?? msg ?? "").replace(GO_PREFIX, "");
   for (const [re, , human] of KNOWN) if (re.test(text.trim())) return human;
+  // The core refuses a moderation action the caller's role no longer allows,
+  // in its own lowercase words. The usual way to get here is a role taken
+  // away while this device was offline, with the menu not yet caught up.
+  const denied = /^you don'?t have permission to (.+?)\.?$/i.exec(text.trim());
+  if (denied) return `Your role doesn't let you ${denied[1]} here any more — it may have changed while you were away.`;
   if (msg?.offline || RAW_NETWORK.test(text.trim()))
     return "Concord isn't responding — trying to reconnect";
   if (RAW_DIAL.test(text))
