@@ -14,12 +14,10 @@
   // says the consequence out loud with the two doors that answer it beside the
   // sentence rather than three panels away.
   import RailShell from "./RailShell.svelte";
-  import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
   import {
     S,
     activeGuild,
-    leaveGuildCopy,
     leaveGuildLabel,
     leaveGuildNow,
     switchPanel,
@@ -29,9 +27,6 @@
   let { onClose } = $props();
 
   const g = $derived(activeGuild());
-  // Raised INSIDE the page rather than by swapping S.modal for it: a page that
-  // replaces itself with its own question cannot be cancelled back to.
-  let asking = $state(false);
   const others = $derived(Math.max(0, (S.members || []).filter((m) => !m.isSelf).length));
   const heirNamed = $derived(!!g?.heir);
 </script>
@@ -83,7 +78,7 @@
       </li>
       <li>Rejoining takes a new invite — leaving does not hold your place.</li>
       <li>
-        If you want to keep the words, <button class="linkish" onclick={() => switchPanel("exportGuild")}
+        If you want to keep the words, <button class="link" onclick={() => switchPanel("exportGuild")}
           >export the history</button
         > before you go.
       </li>
@@ -91,7 +86,9 @@
 
     <div class="actions">
       <button class="ghost" onclick={onClose}>Cancel</button>
-      <button class="danger" onclick={() => (asking = true)}>
+      <!-- This page IS the question: its words, Cancel and the verb. A second
+           confirm repeating the same sentence was asking twice. -->
+      <button class="danger" onclick={() => leaveGuildNow(g)}>
         <Icon name={g.isOwner ? "trash" : "door"} size={14} />
         {leaveGuildLabel(g)}
       </button>
@@ -99,16 +96,6 @@
   {/if}
 </RailShell>
 
-{#if asking && g}
-  {@const copy = leaveGuildCopy(g)}
-  <ConfirmDialog
-    title={copy.title}
-    body={copy.body}
-    confirmLabel={copy.confirmLabel}
-    onConfirm={() => leaveGuildNow(g)}
-    onClose={() => (asking = false)}
-  />
-{/if}
 
 <style>
   .lead {

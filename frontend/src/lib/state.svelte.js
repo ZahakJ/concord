@@ -3622,7 +3622,7 @@ export function deleteMsg(m, opts = {}) {
       ? "A message can't be empty. Deleting it removes it from the conversation."
       : isDM
       ? "It is erased for both of you — the content is gone, not hidden."
-      : "It is hidden from members here, but moderators can still read the original. In a DM, deleting erases it for both people.",
+      : "It is hidden from members here, but moderators can still read the original.",
     confirmLabel: "Delete",
     onConfirm: async () => {
       S.modal = null;

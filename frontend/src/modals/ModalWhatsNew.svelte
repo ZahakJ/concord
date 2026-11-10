@@ -43,21 +43,17 @@
 
   // Deliberately no confetti here. The splash already arrives unannounced on
   // top of a fresh login; adding a burst to it made opening the app feel like
-  // being shouted at. The gradient header is the celebration.
+  // being shouted at.
 </script>
 
-<Modal title="" {onClose}>
-  <div class="hero" aria-hidden="true">
-    <span class="mark">◆</span>
-  </div>
-  <h2>What's new{version ? ` in ${version}` : ""}</h2>
+<Modal title={`What's new${version ? ` in ${version}` : ""}`} size="m" {onClose}>
   <div class="rows">
     {#each HIGHLIGHTS as h (h.title)}
       <div class="row">
         <span class="ric"><Icon name={h.icon} size={16} /></span>
         <span class="rtext">
           <strong>{h.title}</strong>
-          <span class="tiny muted">{h.desc}</span>
+          <span class="desc">{h.desc}</span>
         </span>
       </div>
     {/each}
@@ -68,34 +64,12 @@
 </Modal>
 
 <style>
-  /* Banner-grade gradient header, no image bytes: layered radials in the
-     accent family, same trick the guild banner presets use. */
-  .hero {
-    height: 96px;
-    margin: -4px -4px 14px;
-    border-radius: var(--radius-md);
-    background:
-      radial-gradient(70% 120% at 15% 20%, color-mix(in srgb, var(--accent) 55%, transparent), transparent 65%),
-      radial-gradient(60% 110% at 85% 30%, color-mix(in srgb, var(--accent) 30%, #7a6ff0), transparent 70%),
-      linear-gradient(135deg, color-mix(in srgb, var(--accent) 40%, var(--bg-3)), var(--bg-3));
-    display: grid;
-    place-items: center;
-    overflow: hidden;
-  }
-  .mark {
-    font-size: 34px;
-    color: #fff;
-    text-shadow: 0 2px 18px rgb(0 0 0 / 0.35);
-  }
-  h2 {
-    margin: 0 0 12px;
-    font-size: var(--fs-title, 18px);
-    text-align: center;
-  }
+  /* A list of changes: each a 16px glyph, a title in ink and one muted
+     sentence under it — the title is the larger of the two. */
   .rows {
     display: flex;
     flex-direction: column;
-    gap: var(--sp-3);
+    gap: var(--sp-4);
   }
   .row {
     display: flex;
@@ -107,10 +81,10 @@
     width: 32px;
     height: 32px;
     border-radius: var(--radius-md);
+    border: 1px solid var(--border);
     display: grid;
     place-items: center;
-    background: var(--accent-soft, color-mix(in srgb, var(--accent) 14%, transparent));
-    color: var(--accent);
+    color: var(--text-muted);
   }
   .rtext {
     display: flex;
@@ -120,10 +94,11 @@
   }
   .rtext strong {
     font-size: var(--fs-ui);
+    font-weight: 600;
   }
-  .actions {
-    margin-top: var(--sp-4);
-    display: flex;
-    justify-content: center;
+  .desc {
+    font-size: var(--fs-compact);
+    line-height: 1.5;
+    color: var(--text-muted);
   }
 </style>

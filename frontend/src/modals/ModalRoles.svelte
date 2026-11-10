@@ -5,7 +5,7 @@
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
-  import { S, activeGuild, refreshRightPanel, flash } from "../lib/state.svelte.js";
+  import { S, activeGuild, refreshRightPanel, flash, nameInk } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { PERM_LIST, PERM_ALL, has } from "../lib/perms.js";
 
@@ -150,7 +150,7 @@
           <div class="role-row">
             <button class="role" data-role-id={r.id} onclick={() => edit(r)}>
               <span class="swatch" style="background:{r.color || 'var(--text-faint)'}"></span>
-              <span class="role-name" style={r.color ? `color:${r.color}` : ""}>{r.name}</span>
+              <span class="role-name" style={r.color ? `color:${nameInk(r.color)}` : ""}>{r.name}</span>
             </button>
             <button class="del" title="Delete role" aria-label="Delete role" onclick={() => (confirmDel = r)}>
               <Icon name="trash" size={13} />

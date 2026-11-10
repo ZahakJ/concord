@@ -16,7 +16,7 @@
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import EmptyState from "../EmptyState.svelte";
-  import { S, flash, activeGuild } from "../lib/state.svelte.js";
+  import { S, flash, activeGuild, nameInk } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { tooltip } from "../lib/tooltip.js";
   import { plural } from "../lib/plural.js";
@@ -139,7 +139,7 @@
                 {#if part.k === "person"}<span class="who">{part.v}</span
                   >{:else if part.k === "role"}<span
                     class="role"
-                    style={part.color ? `color:${part.color}` : null}>{part.v}</span
+                    style={part.color ? `color:${nameInk(part.color)}` : null}>{part.v}</span
                   >{:else if part.k === "channel"}<span class="chan">{part.v}</span
                   >{:else if part.k === "time"}<span class="chan">{stamp(part.v)}</span
                   >{:else}{part.v}{/if}

@@ -1073,6 +1073,8 @@
     border-top: 1px solid var(--border);
   }
   .gate-text {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -1087,26 +1089,32 @@
     flex-direction: column;
     gap: var(--sp-2);
   }
+  /* Every switch in one column at the row's trailing edge: the text takes the
+     slack, whatever its length. */
   .toggle {
     display: flex;
     align-items: center;
-    gap: var(--sp-3);
-    padding: 8px 0;
+    gap: var(--sp-5);
+    width: 100%;
+    min-height: 58px;
+    padding: 10px 0;
     background: transparent;
     color: var(--text);
     text-align: left;
   }
   .toggle + .toggle {
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--hairline);
   }
   .toggle-text {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 3px;
   }
   .toggle-title {
     font-size: var(--fs-ui);
-    font-weight: 600;
+    font-weight: 500;
   }
   /* The button is the hit area and the accessible control; the switch inside
      it is the picture. app.css fills a bare button with the accent, so the

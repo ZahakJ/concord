@@ -118,17 +118,33 @@
       {#if icon}<img src={icon} alt="" />{:else}<span>{guildInitials(name) || "?"}</span>{/if}
       {#if canEdit}<span class="cam-badge" aria-hidden="true"><Icon name="camera" size={13} /></span>{/if}
     </button>
-    <label class="field grow">
-      <span class="muted">Guild name</span>
-      <input bind:value={name} maxlength={GUILD_NAME_MAX} disabled={!canEdit} />
-    </label>
+    {#if canEdit}
+      <label class="field grow">
+        <span class="muted">Guild name</span>
+        <input bind:value={name} maxlength={GUILD_NAME_MAX} />
+      </label>
+    {:else}
+      <!-- Read-only is plain text, not a disabled box that looks editable. -->
+      <div class="field grow">
+        <span class="muted">Guild name</span>
+        <span class="ro">{name}</span>
+      </div>
+    {/if}
   </div>
 
-  <label class="field">
-    <span class="muted">Description</span>
-    <textarea bind:value={description} rows="3" maxlength="1000" disabled={!canEdit}
-      placeholder="What's this guild about?"></textarea>
-  </label>
+  {#if canEdit}
+    <label class="field">
+      <span class="muted">Description</span>
+      <textarea bind:value={description} rows="3" maxlength="1000"
+        placeholder="What's this guild about?"></textarea>
+    </label>
+  {:else}
+    <div class="field">
+      <span class="muted">Description</span>
+      <span class="ro" class:none={!description}>{description || "No description"}</span>
+    </div>
+    <p class="muted tiny">Only members with Manage guild can change these.</p>
+  {/if}
 
   <details class="art-fold" bind:open={picking}>
     <summary>
@@ -201,13 +217,20 @@
       <button class="ghost" onclick={onClose}>Cancel</button>
       <button class="primary" onclick={save} disabled={busy || !name.trim()}>Save</button>
     </div>
-  {:else}
-    <p class="muted tiny">Only members with Manage Guild can edit this.</p>
   {/if}
 
 </RailShell>
 
 <style>
+  .ro {
+    font-size: var(--fs-ui);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .ro.none {
+    color: var(--text-faint);
+  }
   /* The disclosure that keeps the 24-tile gallery from pushing the guild's own
      NAME below the fold, which is what the panel is for. */
   .art-fold {
