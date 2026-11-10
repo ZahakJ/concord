@@ -3697,9 +3697,17 @@ function initEvents() {
       } else if (isMention) {
         playMention();
       }
+      const direct = isMention || isDMChannel(m.channelId);
+      const where =
+        owner?.kind === "dm"
+          ? { kind: owner.dmPeer ? "dm" : "group", place: owner.name || "" }
+          : { channel: owner?.channels.find((c) => c.id === m.channelId)?.name || "", place: owner?.name || "" };
       notify(m, {
         selfFpr: S.identity.fingerprint,
+        direct,
         mention: isMention,
+        where,
+        mobile: !!S.isMobile,
         onClick: () => jumpToChannel(m.channelId),
       });
       // ...and if that notification went nowhere because the OS grant was never

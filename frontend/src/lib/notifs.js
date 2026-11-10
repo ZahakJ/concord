@@ -97,3 +97,40 @@ export function wantsAlert(level, { mention = false, dnd = false } = {}) {
 // is the only level that hides — DND is about noise, not about losing track of
 // where you were, so it deliberately does NOT suppress badges.
 export const showsBadge = (level) => level !== "none";
+
+// ---- when an allowed alert becomes an OS notification ----
+
+// shouldNotify is the last gate, after wantsAlert has said the message deserves
+// attention at all: would the person see it anyway? One rule for every kind of
+// message, with `direct` meaning aimed at you — an @mention, an alert word, or
+// any message in a DM or group DM:
+//
+//   window hidden (minimised, another tab, phone screen elsewhere) → notify;
+//   visible but not focused (behind another window)               → only direct;
+//   focused                                                        → never; the
+//     app's own sound and badges are already in front of them.
+//
+// A DM used to be held to the plain-message rule here while the chime treated
+// it as a mention, so a DM in an unfocused window made a sound and no
+// notification. Phones report hasFocus() false while you look at them, so
+// `mobile` treats a visible phone as focused.
+export function shouldNotify({ hidden, focused, mobile = false, direct = false }) {
+  if (hidden) return true;
+  if (mobile || focused) return false;
+  return !!direct;
+}
+
+// notificationTitle says who AND where, because the OS shows nothing else:
+// "Ada" alone was the same for a DM and for chatter in a guild.
+//   DM:        "Ada (direct message)"
+//   group DM:  "Ada in Book club"
+//   guild:     "Ada in #general · Dee Guild"
+// An @mention keeps its "@ " lead.
+export function notificationTitle({ sender, mention = false, kind = "", place = "", channel = "" }) {
+  const who = sender || "Someone";
+  let where = "";
+  if (kind === "dm") where = " (direct message)";
+  else if (kind === "group") where = place ? ` in ${place}` : " (group)";
+  else if (channel) where = ` in #${channel}${place ? ` · ${place}` : ""}`;
+  return `${mention ? "@ " : ""}${who}${where}`;
+}

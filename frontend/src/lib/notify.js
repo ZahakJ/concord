@@ -3,14 +3,15 @@
 // by the channel's notification level (lib/notifs.js); by the time it gets here
 // that question is settled and only "would they see it anyway" is left.
 //
-// Rules: never notify for your own/system/deleted messages;
-// notify when the window is hidden, or (for @mentions) merely unfocused. On
+// Rules: never notify for your own/system/deleted messages; otherwise
+// shouldNotify (lib/notifs.js) decides. On
 // desktop/browser we use the web Notification API; on mobile (Capacitor) the
 // Android WebView doesn't surface that to the tray, so we hand off to our native
 // ConcordCorePlugin.postNotification instead. Either way, if nothing's available
 // we stay silent — the unread badges still light up.
 
 import { plainSnippet } from "./snippet.js";
+import { shouldNotify, notificationTitle } from "./notifs.js";
 
 // The native notification bridge (Android/iOS), or null on web/desktop.
 function nativeNotifier() {
@@ -114,18 +115,18 @@ export async function openSystemSettings() {
   }
 }
 
-export function notify(m, { selfFpr, mention, onClick }) {
+// notify raises the OS notification for a message the caller has already
+// decided deserves one (wantsAlert). `direct` is "aimed at you" — a mention or
+// any DM message — and `where` names the place ({ kind, place, channel }, see
+// notificationTitle). When it fires is shouldNotify's rule (lib/notifs.js).
+export function notify(m, { selfFpr, direct = false, mention = false, where = {}, mobile = false, onClick }) {
   if (m.kind !== "" || m.deleted || m.sender === selfFpr) return;
 
-  const hidden = document.hidden;
-  const unfocused = !document.hasFocus();
-  // Plain messages: only when the window is hidden. Mentions: any time the user
-  // isn't actively looking (unfocused), even for the current channel. (When the
-  // mobile app is backgrounded the WebView reports document.hidden, so the same
-  // gate covers "the phone's screen is elsewhere".)
-  if (!(mention ? hidden || unfocused : hidden)) return;
+  // (When the mobile app is backgrounded the WebView reports document.hidden,
+  // so the same gate covers "the phone's screen is elsewhere".)
+  if (!shouldNotify({ hidden: document.hidden, focused: document.hasFocus(), mobile, direct })) return;
 
-  const title = (mention ? "@ " : "") + (m.senderName || m.sender.slice(0, 9));
+  const title = notificationTitle({ sender: m.senderName || m.sender.slice(0, 9), mention, ...where });
   // plainSnippet, not previewText: this string is read out by the OS and
   // there is no second chance to render it. previewText only knows about
   // attachments, so a disappearing timer, a send effect, a sealed timestamp, a
