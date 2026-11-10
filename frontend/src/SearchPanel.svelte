@@ -9,7 +9,7 @@
   import {
     S,
     jumpToChannel,
-    scrollToMessage,
+    jumpToMessage,
     memberByFpr,
     flash,
     clockOpts,
@@ -98,13 +98,7 @@
     const { id, channelId } = m;
     // No focus homing: the jump lands on the row and owns focus from there.
     closeSearch({ home: false });
-    await jumpToChannel(channelId);
-    await tick();
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        if (!scrollToMessage(id)) flash("That message isn't loaded yet");
-      }),
-    );
+    await jumpToMessage(channelId, id);
   }
 
   // An archived hit lands in the live channel the archive sits above, at the

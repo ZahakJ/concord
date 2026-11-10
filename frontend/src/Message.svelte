@@ -60,7 +60,7 @@
     react,
     deleteMsg,
     saveEdit,
-    scrollToMessage,
+    jumpToMessage,
     flash,
     openProfilePopover,
     scheduleCloseProfilePopover,
@@ -762,7 +762,7 @@
   const fmtTime = fmtClock; // honors the 12/24h clock pref
 
   function jumpToReply() {
-    if (m.replyTo && !scrollToMessage(m.replyTo)) flash("Original message not loaded");
+    if (m.replyTo) jumpToMessage(m.channelId, m.replyTo);
   }
 
   // Reply preview: the original message reduced to one line of prose. It used

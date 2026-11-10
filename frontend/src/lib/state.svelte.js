@@ -1722,13 +1722,7 @@ export function openInbox() {
 export async function jumpToInboxEntry(entry) {
   if (!entry?.channelId) return;
   S.modal = null;
-  await jumpToChannel(entry.channelId);
-  await tick();
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => {
-      if (!scrollToMessage(entry.messageId)) flash("That message isn't loaded yet");
-    }),
-  );
+  await jumpToMessage(entry.channelId, entry.messageId);
 }
 
 // ---- the catch-up card -----------------------------------------------------
@@ -2147,6 +2141,53 @@ export function scrollToMessage(id) {
   }, 24);
   return true;
 }
+
+// jumpToMessage opens a message wherever it is: in another conversation, and
+// further back than anything loaded. Search hits, pins, saved messages, the
+// inbox, replies and message links all said "That message isn't loaded yet"
+// for anything older than the newest page or two, which in a busy channel is
+// most of its history. The feed only ever holds a contiguous run ending at the
+// newest message, so reaching an old one means paging back to it — bounded,
+// with the usual "Loading older messages…" line showing while it goes.
+const JUMP_MAX_PAGES = 60; // 12,000 messages back
+let jumping = false;
+export async function jumpToMessage(channelId, id) {
+  if (!id) return false;
+  if (channelId && channelId !== S.activeChannelId) {
+    if (!(await jumpToChannel(channelId))) {
+      flash("You're not in that conversation");
+      return false;
+    }
+  }
+  const ch = S.activeChannelId;
+  // A channel switch is still fetching its first page.
+  for (let i = 0; i < 100 && S.feedLoading && S.activeChannelId === ch; i++) await sleep(50);
+  const have = () => S.messages.some((m) => m.id === id);
+  // Held until the feed has been told where to go: the history paged in here
+  // is exactly what the feed's at-the-bottom trim would otherwise drop again
+  // on the next scroll event, target and all.
+  jumping = true;
+  try {
+    for (let p = 0; p < JUMP_MAX_PAGES && !have() && !S.feedReachedStart && !S.historyError; p++) {
+      await loadOlder();
+      if (S.activeChannelId !== ch) return false;
+    }
+    if (!have()) {
+      flash(S.historyError ? S.historyError.msg : "That message is gone — it may have been deleted");
+      return false;
+    }
+    await tick();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const ok = scrollToMessage(id);
+    // Loaded but not drawn: a deleted row with "show deleted" off, or one you
+    // hid.
+    if (!ok) flash("That message isn't shown here — it was deleted or hidden");
+    return ok;
+  } finally {
+    jumping = false;
+  }
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---- floating profile popover ----
 // Single shared timer gives hover-intent: a small open delay, and a close
@@ -3139,7 +3180,7 @@ export async function loadOlder() {
 const MAX_LOADED_ROWS = 600;
 
 export function trimLoadedHistory() {
-  if (S.messages.length <= MAX_LOADED_ROWS) return false;
+  if (S.messages.length <= MAX_LOADED_ROWS || jumping) return false;
   if (S.loadingOlder || S.feedLoading || S.archiveLoading) return false;
   const keep = S.messages.slice(-MAX_LOADED_ROWS);
   if (S.editing && !keep.some((m) => m.id === S.editing.id)) return false;

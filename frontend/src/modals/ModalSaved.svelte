@@ -5,11 +5,10 @@
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import EmptyState from "../EmptyState.svelte";
-  import { S, jumpToChannel, scrollToMessage, channelShort, isDMChannel, flash } from "../lib/state.svelte.js";
+  import { S, jumpToMessage, channelShort, isDMChannel, flash } from "../lib/state.svelte.js";
   import { saved, refreshSaved } from "../lib/saved.svelte.js";
   import { api } from "../lib/api.js";
   import { plainSnippet } from "../lib/snippet.js";
-  import { tick } from "svelte";
 
   let { onClose } = $props();
 
@@ -23,13 +22,7 @@
 
   async function open(m) {
     onClose();
-    await jumpToChannel(m.channelId);
-    await tick();
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        if (!scrollToMessage(m.id)) flash("That message isn't loaded yet");
-      }),
-    );
+    await jumpToMessage(m.channelId, m.id);
   }
 
   async function unsave(m) {

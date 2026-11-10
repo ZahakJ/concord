@@ -2,8 +2,9 @@
 // hold it to what a reader sees: the screen is never blank, scrolling up
 // reaches the true first message, the reading position does not move when an
 // older page lands above it or a new message arrives below it, a channel with
-// a few enormous messages still fills the screen, and dragging a window across
-// the phone breakpoint does not leave stale row heights behind.
+// a few enormous messages still fills the screen, dragging a window across the
+// phone breakpoint does not leave stale row heights behind, and a search hit
+// far back in history opens on that message.
 import { test, sleep } from "../harness.mjs";
 
 // Seeds n messages "<prefix> 0001".."<prefix> nnnn" from peer, a few at a time
@@ -240,4 +241,35 @@ test("dragging a window across the phone breakpoint keeps the feed's heights tru
     swept.sh < fresh.sh * 1.3,
     `after the sweep the feed is ${swept.sh}px tall, a fresh load ${fresh.sh}px — stale heights from the narrow widths`,
   );
+});
+
+test("a search hit far back in history opens on that message", async ({ world, assert, step, waitFor, shot }) => {
+  const [alice, bashir] = await world.peers(2);
+  const g = await world.guild({ name: "Finds", members: [alice, bashir], channels: ["archive"] });
+  const ch = g.channels.archive;
+  await seed(alice, bashir, ch, 900, { prefix: "old", every: (i, t) => (i === 20 ? "NEEDLE-EARLY the oldest needle" : t), waitFor });
+  const b = await bashir.open();
+  await b.openChannel("general", "Finds");
+
+  step("search, and click the hit");
+  const q = b.page.getByPlaceholder(/^Search/).first();
+  await q.click();
+  await q.fill("NEEDLE-EARLY");
+  await q.press("Enter");
+  await b.page.locator(".sp-hit").first().click();
+
+  const landed = await waitFor(
+    () =>
+      b.page.evaluate(() => {
+        const el = [...document.querySelectorAll(".feed .msg[data-msg-id]")].find((e) => e.innerText.includes("NEEDLE-EARLY"));
+        if (!el) return null;
+        const f = document.querySelector(".feed").getBoundingClientRect();
+        const body = el.querySelector(".body").getBoundingClientRect();
+        return body.top >= f.top && body.bottom <= f.bottom ? { flash: el.classList.contains("flash-highlight") } : null;
+      }),
+    { timeout: 20000, message: "the feed to land on the old message" },
+  );
+  await shot(b, "landed on the hit");
+  assert.ok(landed);
+  assert.equal(await b.page.getByText("That message isn't loaded yet").count(), 0);
 });

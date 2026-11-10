@@ -22,7 +22,7 @@
     trimLoadedHistory,
     scrollSoon,
     feedNearBottom,
-    scrollToMessage,
+    jumpToMessage,
     memberByFpr,
     nameFor,
     voiceMembersFor,
@@ -193,8 +193,8 @@
   // Clicking a pinned message jumps to it in the feed and
   // closes the panel so the flash-highlighted row isn't hidden behind it.
   function jumpToPin(m) {
-    if (scrollToMessage(m.id)) S.showPins = false;
-    else flash("That message isn't loaded yet");
+    S.showPins = false;
+    jumpToMessage(S.activeChannelId, m.id);
   }
 
   // Unpinning is irreversible and changes the channel for everyone, and on a
