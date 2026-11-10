@@ -977,22 +977,19 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 		ch.GuildID = guildID
 		s.addChannel(guildID, ch)
 	}
-	// Adopt the guild profile (name/icon/banner/description) the peer served —
-	// the catch-up path for a member that was offline when the owner changed the
-	// logo, so the gossip'd guild_profile update never reached it. Only non-empty
-	// values are taken (like the rename above), so a peer that simply hasn't
-	// learned the new image yet can't clobber ours back to blank. Images are
-	// validated defensively, same as receiveGuildMeta.
+	// Adopt the guild profile (icon/banner/description) the peer served — the
+	// catch-up path for a member that was offline when the owner changed the
+	// logo, so the gossip'd guild_profile update never reached it. Only
+	// non-empty values are taken, so a peer that simply hasn't learned the new
+	// image yet can't clobber ours back to blank. Images are validated
+	// defensively, same as receiveGuildMeta. The name is settled further down,
+	// once the governance log in this payload is in (adoptSyncedGuildName).
 	validImg := func(v string) bool {
 		return strings.HasPrefix(v, "data:image/") && len(v) <= maxGuildImageBytes
 	}
 	s.mu.Lock()
 	if g, ok := s.guilds[guildID]; ok {
 		changed := false
-		if payload.Guild.Name != "" && g.Name != payload.Guild.Name {
-			g.Name = payload.Guild.Name
-			changed = true
-		}
 		if payload.Guild.Icon != "" && g.Icon != payload.Guild.Icon && validImg(payload.Guild.Icon) {
 			g.Icon = payload.Guild.Icon
 			changed = true
@@ -1071,6 +1068,8 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 		s.applySyncedEvent(guildID, ev)
 	}
 	s.ingestGovOpsRaw(guildID, payload.GovOps)
+	// The name, after the log it is checked against. See adoptSyncedGuildName.
+	s.adoptSyncedGuildName(guildID, payload.Guild.Name)
 
 	// Pack records, AFTER the governance ops, for the reason the archives below
 	// give: the op that granted somebody Manage Guild may be arriving in this very
@@ -1350,4 +1349,74 @@ func (s *Service) advanceSyncCursor(p peer.ID, cur syncCursor, payload *syncPayl
 			}
 		}
 	}
+}
+
+// adoptSyncedGuildName settles the guild's name after a catch-up.
+//
+// A snapshot's name is only what the serving member last heard, and it used to
+// be taken as it came. A member the rename had not reached yet answered a sync
+// with the old name and put it back — on every device that asked them,
+// including the one that made the rename, so an owner could rename a guild and
+// watch it quietly revert the next time a lagging member was asked for history.
+// Any member could also rename the guild on everybody else this way, since a
+// snapshot carries no authority at all.
+//
+// A rename is a signed guild_rename op in the governance log, and the log is
+// ordered the same way on every device, so when it holds one, the newest
+// authorized rename is the name and the snapshot's is ignored. Only a guild
+// whose log has never recorded a rename (a DM's label, or a guild from before
+// the log existed) still takes the served name, as before.
+func (s *Service) adoptSyncedGuildName(guildID, served string) {
+	name := s.loggedGuildName(guildID)
+	if name == "" {
+		name = served
+	}
+	if strings.TrimSpace(name) == "" {
+		return
+	}
+	s.mu.Lock()
+	g, ok := s.guilds[guildID]
+	if !ok || g.Name == name {
+		s.mu.Unlock()
+		return
+	}
+	g.Name = name
+	gc := g.Clone()
+	s.mu.Unlock()
+	_ = s.store.SaveGuild(gc)
+	s.emitGuildUpdate()
+}
+
+// loggedGuildName is the name the guild's governance log last gave it: the
+// newest guild_rename, in the log's canonical order, whose signer held manage-
+// guild at that point. "" when the log holds no rename.
+func (s *Service) loggedGuildName(guildID string) string {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	if !ok {
+		s.mu.RUnlock()
+		return ""
+	}
+	ops := append([]govOp(nil), s.govOps[guildID]...)
+	owner := append([]byte(nil), g.OwnerID...)
+	s.mu.RUnlock()
+
+	renamed := false
+	for _, o := range ops {
+		if o.Type == "guild_rename" {
+			renamed = true
+			break
+		}
+	}
+	if !renamed {
+		return ""
+	}
+	_, verdicts := replayGuildOpsVerifying(owner, ops, true, s.govSigs.verify)
+	name := ""
+	for _, o := range canonicalOps(ops) {
+		if o.Type == "guild_rename" && o.Name != "" && verdicts[o.hash()].Applied {
+			name = o.Name
+		}
+	}
+	return name
 }
