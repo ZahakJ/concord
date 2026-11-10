@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/nacl/secretbox"
+	"golang.org/x/text/unicode/norm"
 )
 
 // Keystore persistence: the identity seed is the crown-jewel secret, so it is
@@ -57,6 +59,46 @@ type keystoreFile struct {
 	// seed being set).
 	DeviceNonce      []byte `json:"device_nonce,omitempty"`
 	DeviceCiphertext []byte `json:"device_ciphertext,omitempty"`
+	// AccountPub is the account's PUBLIC key, in the clear. It is the only
+	// thing a locked device can say about whose account it holds, and the
+	// flows that replace the identity on a locked device (recovery phrase,
+	// re-link) need exactly that to tell "the same account under a new
+	// passphrase" from "a different account that would erase this one". It is
+	// no secret — every peer the account talks to holds it — and it is never
+	// trusted for anything but that comparison: the seed is still what
+	// unlocks. Absent in files written before it existed; LoadOrCreate adds it
+	// on the next unlock.
+	AccountPub []byte `json:"account_pub,omitempty"`
+}
+
+// NormalizePassphrase is the form a passphrase is sealed under. The same
+// visible text reaches us as different code points depending on the input
+// method — a composed "é" from one keyboard, "e" plus a combining accent from
+// another, a full-width digit from an IME left in wide mode — and Argon2 sees
+// bytes, so a passphrase typed correctly on a new phone used to be "wrong".
+// NFKC folds all of those to one form.
+func NormalizePassphrase(p string) string { return norm.NFKC.String(p) }
+
+// passphraseForms lists what to try when opening a keystore, raw input first.
+// Keystores sealed before normalisation hold whatever bytes were typed then,
+// so the raw form has to keep working, and the decomposed and composed forms
+// cover a file sealed from one input method and opened from the other. An
+// ASCII passphrase is the same in every form and costs a single derivation.
+func passphraseForms(p string) []string {
+	out := []string{p}
+	for _, f := range []string{norm.NFKC.String(p), norm.NFC.String(p), norm.NFD.String(p)} {
+		dup := false
+		for _, o := range out {
+			if o == f {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // SaveKeystore encrypts id's seed under passphrase and writes it to path,
@@ -75,7 +117,7 @@ func SaveKeystore(path, passphrase string, id *Identity) error {
 		return fmt.Errorf("identity: read nonce: %w", err)
 	}
 
-	key := deriveKey(passphrase, salt)
+	key := deriveKey(NormalizePassphrase(passphrase), salt)
 	sealed := secretbox.Seal(nil, id.Seed(), &nonce, &key)
 
 	env := keystoreFile{
@@ -87,6 +129,7 @@ func SaveKeystore(path, passphrase string, id *Identity) error {
 		ArgonThreads: argonThreads,
 		Nonce:        nonce[:],
 		Ciphertext:   sealed,
+		AccountPub:   id.PublicKey(),
 	}
 	// Seal the device seed too, under the same derived key with a fresh nonce.
 	if ds := id.DeviceSeed(); ds != nil {
@@ -108,15 +151,69 @@ func SaveKeystore(path, passphrase string, id *Identity) error {
 		}
 	}
 	// Write to a temp file then rename, so a crash mid-write can never leave a
-	// half-written (unopenable) keystore.
+	// half-written (unopenable) keystore. The sync before the rename is what
+	// makes that true across a power cut: without it the rename can reach the
+	// disk before the bytes it points at, and a passphrase change interrupted
+	// there would leave neither the old file nor a readable new one.
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, blob, 0o600); err != nil {
+	if err := writeSynced(tmp, blob); err != nil {
 		return fmt.Errorf("identity: write keystore: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("identity: finalize keystore: %w", err)
 	}
 	return nil
+}
+
+func writeSynced(path string, blob []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(blob); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// ReadAccountPub returns the account public key recorded in the clear in the
+// keystore at path, or nil when the file predates that field. It needs no
+// passphrase, which is the point: it is how a LOCKED device names the account
+// it holds.
+func ReadAccountPub(path string) (ed25519.PublicKey, error) {
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var env keystoreFile
+	if err := json.Unmarshal(blob, &env); err != nil {
+		return nil, fmt.Errorf("identity: parse keystore: %w", err)
+	}
+	if len(env.AccountPub) != ed25519.PublicKeySize {
+		return nil, nil
+	}
+	return ed25519.PublicKey(env.AccountPub), nil
+}
+
+// ChangePassphrase re-seals the keystore at path under newPass, after proving
+// oldPass opens it. The account and device seeds are carried over unchanged.
+// The new file is written beside the old one and renamed over it, so at every
+// instant exactly one complete keystore is on disk, sealed under one of the
+// two passphrases.
+func ChangePassphrase(path, oldPass, newPass string) error {
+	if newPass == "" {
+		return errors.New("identity: passphrase must not be empty")
+	}
+	id, err := LoadKeystore(path, oldPass)
+	if err != nil {
+		return err
+	}
+	return SaveKeystore(path, newPass, id)
 }
 
 // LoadKeystore reads and decrypts the identity at path using passphrase.
@@ -140,11 +237,18 @@ func LoadKeystore(path, passphrase string) (*Identity, error) {
 		return nil, errors.New("identity: bad nonce length in keystore")
 	}
 
-	key := deriveKeyWithParams(passphrase, env.Salt, env.ArgonTime, env.ArgonMemory, env.ArgonThreads)
 	var nonce [nonceSize]byte
 	copy(nonce[:], env.Nonce)
 
-	seed, ok := secretbox.Open(nil, env.Ciphertext, &nonce, &key)
+	var key [keySize]byte
+	var seed []byte
+	ok := false
+	for _, form := range passphraseForms(passphrase) {
+		key = deriveKeyWithParams(form, env.Salt, env.ArgonTime, env.ArgonMemory, env.ArgonThreads)
+		if seed, ok = secretbox.Open(nil, env.Ciphertext, &nonce, &key); ok {
+			break
+		}
+	}
 	if !ok {
 		return nil, ErrWrongPassphrase
 	}
@@ -174,7 +278,12 @@ func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
 		// Transparently upgrade a legacy (v1) keystore: give it a device seed and
 		// persist as v2. Non-fatal if the re-save fails — the device seed lives in
 		// memory for this session and the upgrade retries next unlock.
-		if created, derr := id.ensureDeviceSeed(); derr == nil && created {
+		created, derr := id.ensureDeviceSeed()
+		pub, _ := ReadAccountPub(path)
+		// Also re-sealed when the file does not yet name its account in the
+		// clear (see keystoreFile.AccountPub), so a device that has been
+		// unlocked once by this build can say whose it is while locked.
+		if (derr == nil && created) || pub == nil {
 			_ = SaveKeystore(path, passphrase, id)
 		}
 		return id, false, nil
