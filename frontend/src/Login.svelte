@@ -552,12 +552,54 @@
       if (document.activeElement === el) el.scrollIntoView({ block: "center", behavior: "smooth" });
     }, 350);
   }
+
+  // One decision per screen, each named by its heading; the three steps of a
+  // new account say where you are in them.
+  const heading = $derived(
+    backupPhrase && verifying
+      ? "Check your recovery phrase"
+      : backupPhrase || resumeBackup
+        ? "Save your recovery phrase"
+        : !checked
+          ? "Concord"
+          : naming
+            ? "What should people call you?"
+            : replaceAsk
+              ? "Before anything is erased"
+              : offerBio
+                ? "Unlock faster next time"
+                : confirmingReset
+                  ? "Start over on this device?"
+                  : linking
+                    ? "Link this device"
+                    : restoring
+                      ? "Restore your account"
+                      : forgot
+                        ? "Forgot your passphrase?"
+                        : hasIdentity
+                          ? "Unlock Concord"
+                          : "Create your account",
+  );
+  const step = $derived(
+    !checked || resumeBackup
+      ? ""
+      : backupPhrase && verifying
+        ? "3 of 3"
+        : backupPhrase
+          ? "2 of 3"
+          : !hasIdentity && !linking && !restoring && !forgot && !confirmingReset && !replaceAsk && !naming && !offerBio
+            ? "1 of 3"
+            : "",
+  );
 </script>
 
 <div class="login" onfocusin={keepFieldInView}>
   <form class="card" class:wide={!!backupPhrase} onsubmit={submit}>
-    <div class="logo"><Icon name="concorde" size={44} /></div>
-    <h1>{backupPhrase || resumeBackup ? "Save your recovery phrase" : "Concord"}</h1>
+    <!-- The app's own mark on a tile of its own, so it reads on the dark
+         ground as well as on paper. -->
+    <div class="logo"><Icon name="concorde" size={28} /></div>
+    {#if step}<p class="step">{step}</p>{/if}
+    <h1>{heading}</h1>
 
     {#if endedReason && !backupPhrase && !resumeBackup}
       <p class="notice" role="status">
@@ -668,7 +710,7 @@
       <div class="error slot" role="alert">{error}</div>
       <button
         type="button"
-        class="danger-btn"
+        class="danger"
         disabled={busy || (replaceAsk.kind === "link" && !linkCode.trim())}
         onclick={replaceAsk.kind === "link" ? doLink : doRestore}
       >
@@ -683,7 +725,7 @@
       {#if replaceAsk.match === "same"}
         <button
           type="button"
-          class="ghost-sm"
+          class="ghost"
           onclick={() => ((replaceAsk = null), (restoring = false), (linking = true), (error = ""))}
         >
           Re-link from my other device instead
@@ -742,7 +784,7 @@
       <!-- Never a lock-out: someone who cannot answer needs the words MORE, not
            less, and refusing to let them into an account they just made would
            be the app breaking its own promise about who holds the keys. -->
-      <button type="button" class="ghost-sm" onclick={askAgain}>Show me the words again</button>
+      <button type="button" class="ghost" onclick={askAgain}>Show me the words again</button>
     {:else if backupPhrase}
       <p class="muted">
         These 24 words are the <strong>only</strong> way to get your account back if you lose this
@@ -755,10 +797,10 @@
         {/each}
       </div>
       <div class="phrase-actions">
-        <button type="button" class="ghost-sm" onclick={toggleReveal}>
+        <button type="button" class="quiet sm" onclick={toggleReveal}>
           {showPhrase ? "Hide" : "Show phrase"}
         </button>
-        <button type="button" class="ghost-sm" disabled={!showPhrase} onclick={copyPhrase}>
+        <button type="button" class="quiet sm" disabled={!showPhrase} onclick={copyPhrase}>
           {copiedPhrase ? "Copied ✓" : "Copy"}
         </button>
       </div>
@@ -781,7 +823,7 @@
         cannot be undone.
       </p>
       <div class="error slot" role="alert">{error}</div>
-      <button type="button" class="danger-btn" disabled={busy} onclick={doReset}>
+      <button type="button" class="danger" disabled={busy} onclick={doReset}>
         {busy ? "Resetting…" : "Yes, delete and start over"}
       </button>
       <button type="button" class="link" onclick={() => (confirmingReset = false)}>Cancel</button>
@@ -920,7 +962,8 @@
       </button>
       <button type="button" class="link" onclick={() => (forgot = false)}>Back</button>
     {:else if hasIdentity}
-      <p class="muted">Welcome back — enter your passphrase to unlock.</p>
+      <p class="muted">Enter the passphrase you chose for this device.</p>
+      <span class="field-lbl" aria-hidden="true">Passphrase</span>
       <!-- No autofocus on a phone. onMount raises the OS biometric sheet on the
            same frame; autofocus slid the software keyboard up underneath it,
            and dismissing the biometric prompt left the keyboard covering a card
@@ -933,19 +976,21 @@
         {busy ? "Unlocking…" : "Unlock"}
       </button>
       {#if bioOn}
-        <button type="button" class="ghost-sm" disabled={busy} onclick={tryBiometricUnlock}>
+        <button type="button" class="ghost" disabled={busy} onclick={tryBiometricUnlock}>
           Unlock with biometrics
         </button>
       {/if}
-      <button type="button" class="link" onclick={() => ((forgot = true), (error = ""))}>
-        Forgot passphrase?
-      </button>
-      <!-- Re-link works over an existing keystore too (the device key is kept,
-           only the account material is re-adopted) — handy for refreshing a
-           device from the desktop without digging through recovery flows. -->
-      <button type="button" class="link" onclick={() => ((linking = true), (error = ""))}>
-        Re-link from another device
-      </button>
+      <div class="links">
+        <button type="button" class="link" onclick={() => ((forgot = true), (error = ""))}>
+          Forgot passphrase?
+        </button>
+        <!-- Re-link works over an existing keystore too (the device key is kept,
+             only the account material is re-adopted) — handy for refreshing a
+             device from the desktop without digging through recovery flows. -->
+        <button type="button" class="link" onclick={() => ((linking = true), (error = ""))}>
+          Re-link from another device
+        </button>
+      </div>
     {:else}
       <p class="muted">
         Pick a name and a passphrase to protect your identity on this device.
@@ -981,10 +1026,7 @@
     {/if}
 
     {#if !backupPhrase && !resumeBackup && !naming && !replaceAsk}
-      <p class="muted tiny">
-        To join a friend, just unlock then paste their invite code — it sets up
-        everything for you.
-      </p>
+      <p class="foot"><Icon name="lock" size={14} /> Your keys never leave this device.</p>
     {/if}
   </form>
 </div>
@@ -1026,154 +1068,118 @@
       animation: none;
     }
   }
+  /* The lock and onboarding screens: no card, a 340px column on the canvas,
+     everything left-aligned to it — the mark, the heading in the display
+     face, one sentence, the field, the full-width primary, the links. */
   .login {
-    /* The door is deliberately UNBRANDED: a neutral silver stands in for the
-       accent here, because whatever color the user later picks (profile or
-       preset) shouldn't be presumed — or clashed with — before they're even
-       in. The derived accent vars are re-declared since :root computed them
-       from ITS --accent; a scoped override alone wouldn't reach them. */
-    --accent: #97a1b2;
-    --accent-hover: #b9c1cd;
-    --accent-fg: #141419;
-    --accent-soft: rgba(151, 161, 178, 0.16);
-    --accent-glow: 0 0 24px rgba(151, 161, 178, 0.3);
     height: 100%;
     display: grid;
     place-items: center;
-    /* Subtle vignette, same silver whisper. */
-    background:
-      radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 55%),
-      radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--bg-3) 70%, var(--bg)), var(--bg));
+    background: var(--bg-2);
+    overflow-y: auto;
   }
-  /* The error keeps its line whether or not there is an error. It used to
-     appear between the fields and the button, which moved the button a
-     half-second after a failed attempt — right under a finger already on its
-     way to click it again. */
   .error.slot {
     min-height: 1.3em;
     margin: -4px 0;
-    text-align: left;
+    text-align: start;
+    font-size: var(--fs-small);
+    color: var(--danger-text);
+  }
+  .error.slot:empty {
+    min-height: 0;
+    margin: -6px 0 0;
   }
   .card {
     width: 340px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: var(--sp-6);
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    text-align: center;
-    box-shadow: var(--shadow-pop);
+    gap: var(--sp-3);
+    padding: var(--sp-6) 0;
+    text-align: start;
   }
+  /* The existing mark, on a raised tile with a hairline so it holds on the
+     graphite canvas as well as on paper. */
   .logo {
-    /* Hero badge: a soft conic accent ring around the jet, breathing a slow
-       ambient glow (the app's one continuously-running animation). */
-    position: relative;
-    /* text-align:center on the card centres the copy but not a fixed-size flex
-       item — the badge was sitting flush against the card's left edge. */
-    align-self: center;
-    color: var(--text);
     display: grid;
     place-items: center;
-    width: 72px;
-    height: 72px;
-    border-radius: 50%;
-    border: 2px solid transparent;
-    background:
-      linear-gradient(var(--bg-3), var(--bg-3)) padding-box,
-      conic-gradient(
-          from 210deg,
-          var(--accent),
-          color-mix(in srgb, var(--accent) 25%, transparent) 40%,
-          color-mix(in srgb, var(--accent) 55%, transparent) 75%,
-          var(--accent)
-        )
-        border-box;
-    animation:
-      takeoff 0.6s ease both,
-      logo-breathe 4.5s ease-in-out 0.6s infinite;
-  }
-  @keyframes takeoff {
-    from {
-      transform: translateY(6px) rotate(-8deg);
-      opacity: 0;
-    }
-    to {
-      transform: none;
-      opacity: 1;
-    }
-  }
-  @keyframes logo-breathe {
-    0%,
-    100% {
-      box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 16%, transparent);
-    }
-    50% {
-      box-shadow: 0 0 34px color-mix(in srgb, var(--accent) 36%, transparent);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .logo {
-      animation: none;
-    }
-  }
-  /* Primary CTAs: gradient fill + a soft lift on hover. (Quiet buttons — the
-     .link/.ghost-sm/.danger-btn variants — keep their own styling.) */
-  .card button:not(.link):not(.ghost-sm):not(.danger-btn):not(.rescan):not(.ghost) {
-    background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 72%, var(--accent-hover)));
-    font-weight: 600;
-    box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 28%, transparent);
-    transition:
-      transform var(--dur-standard) ease,
-      box-shadow var(--dur-standard) ease,
-      filter var(--dur-standard) ease;
-  }
-  /* Disabled must not look like a slightly greyer enabled: a flat recessed
-     slab with faint ink, so the enabled silver reads as the thing to press. */
-  .card button:not(.link):not(.ghost-sm):not(.danger-btn):not(.rescan):not(.ghost):disabled {
-    background: var(--bg-3);
-    color: var(--text-faint);
-    box-shadow: none;
-    opacity: 1;
-  }
-  /* A second choice, not a second primary: outlined, readable ink. It used to
-     inherit the silver fill with white text on it. */
-  .card button.ghost {
-    background: transparent;
+    width: 48px;
+    height: 48px;
+    margin-bottom: var(--sp-3);
+    border-radius: var(--radius-lg);
+    background: var(--bg-elevated);
     border: 1px solid var(--border);
     color: var(--text);
-    font-weight: 600;
   }
-  .card button.ghost:hover {
-    border-color: var(--text-muted);
-  }
-  .card button:not(.link):not(.ghost-sm):not(.danger-btn):not(.rescan):not(.ghost):hover:not(:disabled) {
-    transform: translateY(-1px);
-    filter: brightness(1.07);
-    box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 38%, transparent);
-  }
-  .card button:not(.link):not(.ghost-sm):not(.danger-btn):not(.rescan):not(.ghost):active:not(:disabled) {
-    transform: none;
-    filter: brightness(0.97);
+  .step {
+    margin: 0 0 -6px;
+    font-size: var(--fs-small);
+    color: var(--text-faint);
   }
   h1 {
     margin: 0;
+    font-family: var(--display-font);
     font-size: var(--fs-display);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
   }
   p {
     margin: 0;
-    /* 13px on a desktop card, 14px held at arm's length — the token carries
-       both, so the phone block no longer has to restate it. */
     font-size: var(--fs-ui);
     line-height: 1.5;
   }
+  .muted {
+    color: var(--text-muted);
+  }
+  .field-lbl {
+    margin: var(--sp-2) 0 -6px;
+    font-size: var(--fs-compact);
+    font-weight: 500;
+  }
+  .card input,
+  .card textarea {
+    min-height: 40px;
+  }
+  /* The one primary: 40px, full width, the accent. Disabled is the shared
+     45% so an enabled Unlock never looks like a disabled one. */
+  .card button.primary,
+  .card button.danger {
+    min-height: 40px;
+    width: 100%;
+    font-size: var(--fs-ui);
+  }
+  .card button.ghost {
+    min-height: 36px;
+    width: 100%;
+  }
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1) var(--sp-5);
+    margin-top: var(--sp-1);
+  }
+  .link {
+    font-size: var(--fs-compact);
+    align-self: flex-start;
+    text-align: start;
+  }
+  .warn-link {
+    color: var(--danger-text);
+  }
+  .foot {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-top: 40px;
+    font-size: var(--fs-small);
+    color: var(--text-faint);
+  }
   .card.wide {
-    width: 430px;
-    max-width: calc(100 * var(--vw) - 32px);
+    width: 440px;
+    max-width: calc(100 * var(--vw) - 28px);
   }
   .phrase-in {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono-font);
     font-size: var(--fs-ui);
     resize: vertical;
   }
@@ -1183,7 +1189,6 @@
     justify-content: center;
     gap: var(--sp-2);
   }
-  /* "or paste it" divider between the scan CTA and the manual box. */
   .or {
     display: flex;
     align-items: center;
@@ -1196,25 +1201,23 @@
     content: "";
     flex: 1;
     height: 1px;
-    background: var(--border);
+    background: var(--hairline);
   }
-  /* Post-scan confirmation — the scan clearly "took". */
   .scanned-ok {
     display: flex;
     align-items: center;
     gap: 9px;
-    padding: 11px 13px;
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--ok) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent);
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: var(--bg-1);
+    border: 1px solid var(--border);
     font-size: var(--fs-ui);
-    text-align: left;
   }
   .scanned-ok .tick {
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
+    width: 24px;
+    height: 24px;
     flex: none;
     border-radius: 50%;
     background: var(--ok);
@@ -1222,44 +1225,37 @@
   }
   .scanned-ok .rescan {
     margin-left: auto;
-    padding: 4px 10px;
+    padding: 0 10px;
+    min-height: 28px;
     font-size: var(--fs-compact);
-    background: transparent;
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     color: var(--text-muted);
-    cursor: pointer;
   }
-  /* Why you are looking at a login screen you did not ask for. Warm rather than
-     alarming: nothing has gone wrong, this device was told to let go. */
   .notice {
-    margin: 0 0 4px;
     padding: 10px 12px;
-    border-radius: var(--r-md, 10px);
-    background: var(--bg-2);
-    border: 1px solid var(--line);
-    color: var(--text-2);
-    font-size: var(--fs-sm, 13px);
+    border-radius: var(--radius-md);
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: var(--fs-compact);
     line-height: 1.5;
-    text-align: left;
   }
-
-  /* The erase confirmation: the one screen in the login flow that destroys
-     something, so it reads as a warning and names both accounts. */
+  /* The erase question keeps its weight: a danger-tinted panel, and the
+     verb on a danger button under it. */
   .replace {
     padding: var(--sp-3);
-    border-radius: var(--radius-md, 10px);
+    border-radius: var(--radius-md);
     border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);
-    background: color-mix(in srgb, var(--danger) 10%, transparent);
-    text-align: left;
+    background: var(--danger-soft);
   }
   .replace h2 {
     margin: 0 0 var(--sp-2);
     font-size: var(--fs-ui);
+    font-weight: 600;
   }
   .small {
     font-size: var(--fs-compact);
-    text-align: left;
   }
   .count {
     margin: -8px 0 0;
@@ -1273,40 +1269,33 @@
   .phrase-in[aria-invalid="true"] {
     border-color: var(--danger);
   }
-
-  /* The 24-word grid: numbered, monospace, blurred until revealed so nobody
-     shoulder-surfs it before the user is ready. */
+  /* The 24 words: numbered cells in a 3×8 grid on --bg-1 with hairlines. */
   .words {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 5px 10px;
-    padding: var(--sp-3);
-    background: var(--bg-input, var(--bg-3));
+    gap: 1px;
+    background: var(--hairline);
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    font-family: ui-monospace, monospace;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    font-family: var(--mono-font);
     font-size: var(--fs-compact);
-    text-align: left;
   }
-  /* This grid is the ONLY copy of the user's account key, and it used to
-     ellipsize: a long BIP-39 word in a narrow column was silently cut and
-     replaced with "…", with the blur on top hiding that it had happened. The
-     user transcribes a truncated word onto paper and finds out months later.
-     A phrase grid is not allowed to lie — it wraps or it grows, never clips. */
   .word {
     display: flex;
     gap: 6px;
     align-items: baseline;
+    padding: 6px var(--sp-2);
+    background: var(--bg-1);
     overflow-wrap: anywhere;
     transition: filter var(--dur-standard) ease;
   }
-  /* Which word this is, not decoration — you read it to check word 17. */
   .wn {
-    color: var(--text-muted);
+    color: var(--text-faint);
     font-size: var(--fs-tiny);
     min-width: 16px;
     flex: none;
-    text-align: right;
+    text-align: end;
   }
   .words.veiled .word {
     filter: blur(6px);
@@ -1315,7 +1304,12 @@
   .phrase-actions {
     display: flex;
     gap: var(--sp-2);
-    justify-content: center;
+  }
+  .warn {
+    color: var(--danger-text);
+  }
+  .tiny {
+    font-size: var(--fs-small);
   }
   .verify {
     display: flex;
@@ -1332,105 +1326,37 @@
     font-size: var(--fs-small);
     color: var(--text-faint);
   }
-  .ghost-sm {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    font-size: var(--fs-compact);
-    padding: 5px 12px;
-  }
-  .ghost-sm:hover:not(:disabled) {
-    color: var(--text);
-    border-color: var(--text-muted);
-  }
-  .ghost-sm:disabled {
-    opacity: 0.45;
-  }
-  .warn {
-    color: var(--danger-text);
-  }
-  .link {
-    background: transparent;
-    color: var(--text-muted);
-    font-size: var(--fs-compact);
-    padding: 2px;
-  }
-  .link:hover {
-    color: var(--text);
-    text-decoration: underline;
-  }
-  .warn-link:hover {
-    color: var(--danger-text);
-  }
-  .danger-btn {
-    background: var(--danger);
-    color: var(--danger-fg);
-  }
-  .tiny {
-    font-size: var(--fs-small);
-    margin-top: var(--sp-1);
-  }
-
-  /* ---- touch adjustments ---- */
   @media (max-width: 768px) {
-    /* flex + margin:auto centers like place-items but still scrolls when the
-       card outgrows the screen (recovery-phrase step with the keyboard up). */
+    /* The same column, 14px from the edges, its top a fifth of the way down
+       below the safe area. It scrolls when a step and the keyboard need it. */
     .login {
       display: flex;
-      overflow-y: auto;
       overscroll-behavior: contain;
-      /* The top inset is a BORDER, not padding: a scroller clips its content
-         at the padding edge, so content scrolled up stops below the status
-         bar instead of passing under the clock, while the border still shows
-         this page's own background behind the bar. --kb: an edge-to-edge
-         WebView does not shrink for the keyboard, so without it the confirm
-         field and the verify words sit under the IME with nowhere to go. */
       border-top: var(--safe-top) solid transparent;
-      padding: 12px var(--sp-edge) calc(12px + var(--safe-bottom) + var(--kb, 0px));
+      padding: 0 14px calc(12px + var(--safe-bottom) + var(--kb, 0px));
     }
-    /* Full-bleed onboarding on a phone — no floating "card in a box". It blends
-       into the screen like every other native sheet, top-aligned with room to
-       breathe, and still scrolls if the recovery-phrase step + keyboard need it. */
-    .card {
-      margin: calc(6 * var(--vh)) auto auto;
+    .card,
+    .card.wide {
+      margin: calc(14 * var(--vh)) auto auto;
       width: 100%;
       max-width: 460px;
-      padding: 8px 20px 20px;
-      gap: var(--sp-4);
-      background: transparent;
-      border: none;
-      box-shadow: none;
     }
-    .card.wide {
-      max-width: 460px;
-    }
-    /* 16px inputs: readable at arm's length, and iOS won't auto-zoom. */
     input,
     .phrase-in {
       font-size: 16px;
-      padding: var(--sp-3);
     }
-    button {
+    .card button.primary,
+    .card button.danger,
+    .card button.ghost {
       min-height: 48px;
-    }
-    .phrase-actions .ghost-sm {
-      min-height: 44px;
     }
     .link {
       min-height: var(--tap-min);
     }
-    /* Two columns, not three. At 360px a three-up grid leaves ~72px for the
-       word itself — right at the edge for the longest BIP-39 entries, and over
-       it on a 320px device. Two columns give every word room at a size you can
-       transcribe from without leaning in. */
     .words {
       grid-template-columns: repeat(2, 1fr);
       font-size: var(--fs-ui);
-      gap: var(--sp-2) var(--sp-3);
-      padding: 14px 12px;
     }
-    /* The "Rescan" chip is inline with a line of copy, so it can't grow without
-       shoving the confirmation around — pad the hit box instead. */
     .scanned-ok .rescan {
       position: relative;
     }
@@ -1438,10 +1364,6 @@
       content: "";
       position: absolute;
       inset: -10px -6px;
-    }
-    /* Tracked-out micro-caps are the least legible thing on the screen, and
-       this one is only a divider label. */
-    .or {
     }
   }
 </style>
