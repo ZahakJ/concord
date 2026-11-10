@@ -54,6 +54,7 @@
   let feedEl = $state(null);
   let atBottom = $state(true);
   let lastScrollTop = 0;
+  let layoutHold = 0; // until then, scroll events are the layout settling, not the reader
   $effect(() => registerFeed(feedEl));
 
   // Below this the full hover bar cannot be reserved without leaving the text a
@@ -70,7 +71,30 @@
   // every size change as long as we were already at the bottom.
   $effect(() => {
     if (!feedEl) return;
+    let lastW = feedEl.clientWidth;
+    let lastH = feedEl.clientHeight;
     const repin = () => {
+      const w = feedEl.clientWidth;
+      const h = feedEl.clientHeight;
+      if (w !== lastW || h !== lastH) {
+        layoutHold = performance.now() + 500;
+        // Every cached height was measured at the old width. Kept, they
+        // described a different layout: crossing the phone breakpoint measured
+        // rows at a transient sliver of a width, cached advances of thousands
+        // of pixels, and the "known heights" fast path then never looked again
+        // — 128,000px of feed with two rows in it.
+        if (w !== lastW) {
+          const anchor = atBottom ? null : takeAnchor();
+          advance.clear();
+          typeMean.clear();
+          typeSamples.clear();
+          measure();
+          applyPads();
+          settle(atBottom, anchor);
+        }
+        lastW = w;
+        lastH = h;
+      }
       // The hover bar's gutter is reserved out of every row, so the pane has to
       // say which of the two reservations it can afford. Its OWN width, not the
       // window's: the same feed is 1290px wide in a maximised window and 483px
@@ -506,7 +530,15 @@
   // grouped rows pull themselves up with a negative margin; the gap between two
   // rows belongs to the row above as far as this arithmetic is concerned.
   const advance = new Map();
-  const typeMean = new Map(); // item type -> mean measured advance
+  // item type -> the typical measured advance, as the MEDIAN of recent samples.
+  // It was a running mean, and one 10,000px message (a pasted log, a 500-line
+  // list) dragged every unmeasured row's guess into the thousands: the bottom
+  // window then held a single row, the screen above it was spacer, and nothing
+  // corrected it until the reader scrolled. A median does not care how tall
+  // the outlier was.
+  const typeSamples = new Map(); // type -> recent advances (bounded)
+  const typeMean = new Map(); // type -> median of typeSamples
+  const SAMPLE_CAP = 255;
   let headerH = 0; // the push + the loading/seam markers that sit above the top spacer
   let cum = [0]; // cum[i] = summed advance of items 0..i-1
 
@@ -573,25 +605,31 @@
     headerH = top.offsetTop;
     const els = [];
     for (let n = top.nextElementSibling; n && n !== bot; n = n.nextElementSibling) els.push(n);
-    const sums = new Map();
-    // The last rendered element is skipped: the bottom spacer cancels the gap
-    // above itself, so measuring against it would record an advance one gap
-    // short. It is measured on the next pass, when something follows it.
-    for (let i = 0; i + 1 < els.length; i++) {
+    const touched = new Set();
+    // The bottom spacer cancels the gap above itself (see .vs), so the last
+    // rendered element measured against it comes out one gap short; the gap is
+    // added back. It used to be skipped instead, and a window of ONE row — the
+    // shape a single very tall message forces at the bottom of a channel —
+    // then measured nothing at all and never corrected itself.
+    const gap = parseFloat(getComputedStyle(feedEl).rowGap) || 0;
+    for (let i = 0; i < els.length; i++) {
       const it = items[lo + i];
       if (!it) break;
-      const next = els[i + 1];
-      const h = next.offsetTop - els[i].offsetTop;
+      const next = els[i + 1] || bot;
+      const h = next.offsetTop - els[i].offsetTop + (next === bot ? gap : 0);
       if (h <= 0) continue; // mid-transition or display:none; keep the old value
+      if (advance.get(it.k) === h) continue;
       advance.set(it.k, h);
-      const s2 = sums.get(it.t) || [0, 0];
-      sums.set(it.t, [s2[0] + h, s2[1] + 1]);
+      let list = typeSamples.get(it.t);
+      if (!list) typeSamples.set(it.t, (list = []));
+      list.push(h);
+      if (list.length > SAMPLE_CAP) list.shift();
+      touched.add(it.t);
     }
     // Guesses for rows nobody has scrolled to yet come from the rows they have.
-    for (const [t, [total, n]] of sums) {
-      const seen = typeMean.get(t);
-      const fresh = total / n;
-      typeMean.set(t, seen == null ? fresh : Math.round(seen * 0.8 + fresh * 0.2));
+    for (const t of touched) {
+      const sorted = [...typeSamples.get(t)].sort((a, b) => a - b);
+      typeMean.set(t, sorted[sorted.length >> 1]);
     }
     rebuildCum();
   }
@@ -613,6 +651,14 @@
   }
 
   // The row under the top of the viewport, and how far under it is.
+  //
+  // Only a MESSAGE can be an anchor. Day dividers and the NEW line come and go
+  // with the rows around them: the divider over the oldest loaded message is
+  // exactly the item an older page removes (the day now starts further up), so
+  // anchoring on it lost the reader's place on every page-back and parked them
+  // at the very top of the new page — where no scroll event can ever fire to
+  // ask for the next one.
+  const stableItem = (it) => it?.t === "row" || it?.t === "arc" || it?.t === "pending";
   function takeAnchor() {
     const s = spacers();
     if (!s || !feedEl) return null;
@@ -620,7 +666,8 @@
     const st = feedEl.scrollTop;
     let i = lo;
     for (let n = top.nextElementSibling; n && n !== bot; n = n.nextElementSibling, i++) {
-      if (n.offsetTop + n.offsetHeight > st) return { k: items[i]?.k, delta: n.offsetTop - st };
+      if (n.offsetTop + n.offsetHeight > st && stableItem(items[i]))
+        return { k: items[i].k, delta: n.offsetTop - st };
     }
     return null;
   }
@@ -758,6 +805,11 @@
     if (pin) feedEl.scrollTop = feedEl.scrollHeight;
     else restoreAnchor(anchor);
     checkLastRow();
+    // The measurements just taken can change the answer to "which rows belong
+    // on screen" — a first guess that was far too tall leaves the viewport half
+    // empty. Ask again rather than waiting for a scroll that may never come.
+    const [a, b] = windowFor();
+    if (a !== lo || b !== hi) scheduleWindow();
   }
 
   // Switching channel is the thing a person does a hundred times an hour, and
@@ -781,6 +833,7 @@
     untrack(() => {
       advance.clear();
       typeMean.clear();
+      typeSamples.clear();
       headerH = 0;
       atBottom = true;
       lastScrollTop = 0;
@@ -1093,16 +1146,22 @@
   async function pageBack(fetchOlder) {
     if (!feedEl) return 0;
     const anchor = takeAnchor();
-    const firstKey = items[lo]?.k;
+    let firstKey = "";
+    let firstAt = 0; // how far into the window that row sat
+    for (let i = lo; i < hi && !firstKey; i++)
+      if (stableItem(items[i])) {
+        firstKey = items[i].k;
+        firstAt = i - lo;
+      }
     const added = await fetchOlder();
     if (added > 0) {
       await tick();
       if (!feedEl) return added;
       const moved = firstKey ? items.findIndex((x) => x.k === firstKey) : -1;
       if (moved >= 0) {
-        const shift = moved - lo;
-        lo += shift;
-        hi = Math.min(items.length, hi + shift);
+        const next = Math.max(0, moved - firstAt);
+        hi = Math.min(items.length, hi + (next - lo));
+        lo = next;
       }
       rebuildCum();
       applyPads();
@@ -1113,7 +1172,35 @@
       await settle(atBottom, anchor);
       scheduleWindow();
     }
+    // Still within reach of the top (a fast fling, or a page that did not
+    // fill the screen): carry on. Paging was only ever asked for by a scroll
+    // event, and at scrollTop 0 the browser sends none, so the reader sat on
+    // the first loaded page believing it was the start of the channel.
+    if (feedEl && !atBottom) queueMicrotask(() => pageMore());
     return added;
+  }
+
+  // The one place that decides whether to fetch more history above, shared by
+  // the scroll handler, the wheel at the very top, and the follow-up after a
+  // page lands.
+  async function pageMore() {
+    if (!feedEl || feedEl.scrollTop >= 240) return;
+    if (!S.feedLoading && !S.loadingOlder && !S.feedReachedStart) {
+      await pageBack(loadOlder);
+      return;
+    }
+    // Live history has run out and this channel has an archive above it: keep
+    // going, into pages fetched from whoever holds them. A metered refusal
+    // stops here until the reader answers the card offering to fetch anyway.
+    if (
+      S.feedReachedStart &&
+      arcChan &&
+      !S.archiveLoading &&
+      !S.archiveReachedStart &&
+      !S.archiveMetered
+    ) {
+      await pageBack(() => loadArchiveOlder(false));
+    }
   }
 
   function fmtDay(day) {
@@ -1392,7 +1479,11 @@
     // positions it passes through are not the reader deciding anything.
     if (!revealPending()) {
       const st = feedEl?.scrollTop ?? 0;
-      atBottom = st < lastScrollTop - 2 ? feedNearBottom() : atBottom || feedNearBottom();
+      // A scroll the LAYOUT caused — the pane resized (a rotation, a window
+      // dragged across the phone breakpoint) and the content reflowed under a
+      // clamped scrollTop — is not the reader scrolling up.
+      if (performance.now() >= layoutHold)
+        atBottom = st < lastScrollTop - 2 ? feedNearBottom() : atBottom || feedNearBottom();
       lastScrollTop = st;
     }
     if (S.newBelow && atBottom) S.newBelow = false;
@@ -1404,23 +1495,12 @@
     if (atBottom && trimLoadedHistory()) return;
     // Near the top: page in older history and hold the reader's position — the
     // prepended rows would otherwise jump the viewport.
-    if (!feedEl || feedEl.scrollTop >= 240) return;
-    if (!S.loadingOlder && !S.feedReachedStart) {
-      await pageBack(loadOlder);
-      return;
-    }
-    // Live history has run out and this channel has an archive above it: keep
-    // going, into pages fetched from whoever holds them. A metered refusal
-    // stops here until the reader answers the card offering to fetch anyway.
-    if (
-      S.feedReachedStart &&
-      arcChan &&
-      !S.archiveLoading &&
-      !S.archiveReachedStart &&
-      !S.archiveMetered
-    ) {
-      await pageBack(() => loadArchiveOlder(false));
-    }
+    await pageMore();
+  }}
+  onwheel={(e) => {
+    // Already at the very top, a wheel moves nothing and fires no scroll —
+    // the one gesture that most plainly means "older, please".
+    if (e.deltaY < 0 && feedEl && feedEl.scrollTop <= 0) pageMore();
   }}
 >
   {#if pullDist > 0 || pullRefreshing}
