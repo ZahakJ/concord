@@ -55,6 +55,12 @@
   const uiScale = $derived(Number(S.prefs.uiScale) || 1);
   const profileColor = $derived(S.identity.color || "#14a394");
   const themePack = $derived(S.prefs.themePack || "");
+  // Picking a theme is asking for that ground, which a pack overrides; it used
+  // to do nothing visible. Hand the ground back to the theme.
+  function pickTheme(id) {
+    if (themePack) setAppearance("themePack", "");
+    setAppearance("theme", id);
+  }
   const themeFx = $derived(S.prefs.themeFx || "");
   // The specular pass on a live backdrop (see app.css, "Shine off"). Only the
   // literal false is off, so a pref written by a newer build reads as the
@@ -303,7 +309,7 @@
           class:sel={theme === t.id}
           role="radio"
           aria-checked={theme === t.id}
-          onclick={() => setAppearance("theme", t.id)}
+          onclick={() => pickTheme(t.id)}
         >
           <!-- Mini preview painted with fixed colors, so the Light card shows
                light even while the app is dark (and vice versa). -->
@@ -315,7 +321,17 @@
         </button>
       {/each}
     </div>
-    <p class="muted tiny">System follows your OS setting, live.</p>
+    {#if themePack}
+      <!-- A pack brings its own ground, so Light/Dark/System changed nothing
+           while one was chosen: the card said "Light" over a dark app. Say so,
+           and make picking one mean it (see pickTheme). -->
+      <p class="muted tiny">
+        {currentPack.label} brings its own colours, so it is used instead. Picking Light, Dark or
+        System here switches the pack back to Default — or choose a ☀ Daylight pack below.
+      </p>
+    {:else}
+      <p class="muted tiny">System follows your OS setting, live.</p>
+    {/if}
   {/snippet}
 
   {#snippet packsBody()}
