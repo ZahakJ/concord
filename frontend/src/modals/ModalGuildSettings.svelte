@@ -12,6 +12,7 @@
   import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import Banner from "../Banner.svelte";
+  import { GUILD_NAME_MAX } from "../lib/limits.js";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { PERM, has } from "../lib/perms.js";
@@ -119,7 +120,7 @@
     </button>
     <label class="field grow">
       <span class="muted">Guild name</span>
-      <input bind:value={name} maxlength="40" disabled={!canEdit} />
+      <input bind:value={name} maxlength={GUILD_NAME_MAX} disabled={!canEdit} />
     </label>
   </div>
 

@@ -2356,7 +2356,9 @@
         onClose={() => (S.modal = null)}
         title="Rename guild"
         hint="Renames the guild for everyone."
-        placeholder={activeGuild()?.name || "New name"}
+        placeholder="Guild name"
+        initial={activeGuild()?.name || ""}
+        confirmLabel="Rename"
       />
     {:else if modalLoadedKind === "profile"}
       <ModalView identity={S.identity} onSubmit={saveProfile} onClose={() => (S.modal = null)} />

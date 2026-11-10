@@ -2,6 +2,8 @@
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import { S } from "../lib/state.svelte.js";
+  import { untrack } from "svelte";
+  import { GUILD_NAME_MAX } from "../lib/limits.js";
   import { pickImageFile } from "../lib/pickimage.js";
   import {
     GUILD_TEMPLATES,
@@ -16,8 +18,11 @@
     title = "Create a guild",
     hint = "A guild is your own end-to-end-encrypted space with channels.",
     placeholder = "Guild name",
+    // The same dialog renames a guild; its button and starting text follow.
+    confirmLabel = "Create",
+    initial = "",
   } = $props();
-  let name = $state("");
+  let name = $state(untrack(() => initial));
 
   // This dialog is reused for categories and renames (App.svelte passes a
   // custom title) — everything below the name field only makes sense for a new
@@ -101,7 +106,7 @@
     aria-label={placeholder}
     bind:value={name}
     autofocus={!S.isMobile}
-    maxlength="48"
+    maxlength={GUILD_NAME_MAX}
     onkeydown={(e) => e.key === "Enter" && name.trim() && submit()}
   />
 
@@ -170,7 +175,7 @@
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button onclick={submit} disabled={!name.trim()}>Create</button>
+    <button onclick={submit} disabled={!name.trim() || (!!initial && name.trim() === initial)}>{confirmLabel}</button>
   </div>
 </Modal>
 
