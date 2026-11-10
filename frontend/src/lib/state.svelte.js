@@ -39,6 +39,7 @@ import { humanError } from "./errors.js";
 import { isGameToken } from "./games.js";
 import { plainSnippet } from "./snippet.js";
 import { typistsAfter } from "./typing.js";
+import { landsOnWelcome } from "./firstrun.js";
 import {
   LEVELS as NOTIF_LEVELS,
   normalize as normalizeNotifs,
@@ -234,6 +235,11 @@ export const S = $state({
     // LINKED rather than created never sets it, because the phrase for that
     // account is already written down somewhere else.
     backupPending: false,
+    // Set while the signup's "save your recovery phrase" step is on screen and
+    // cleared when it is finished. The core is already unlocked by then, so a
+    // reload used to skip the step for good; while this is set App.svelte
+    // sends an open session back through Login to finish it.
+    backupGate: false,
     // Set the one time this install is told that its Web Audio reaches nothing
     // Set while the signup's "save your recovery phrase" step is on screen and
     // cleared when it is finished. The core is already unlocked by then, so a
@@ -2699,6 +2705,9 @@ export async function refreshGuilds() {
     // No memory yet: land on the top GUILD in the rail rather than Notes/DMs,
     // which sort first in the raw list because they're usually the oldest.
     const first = resume || S.guilds.find((g) => g.kind !== "dm") || S.guilds[0];
+    // Nothing here but Notes: leave the welcome showing (lib/firstrun.js).
+    // The phone's Home list carries the same welcome, so it browses as before.
+    if (!resume && !S.isMobile && landsOnWelcome(S.guilds)) return;
     // With nothing remembered, a phone lands on its Home page (the guild's
     // channel list) rather than inside whichever channel the guild resumes to:
     // a first launch that opens straight into a conversation nobody chose is
