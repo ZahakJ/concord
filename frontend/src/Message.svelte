@@ -584,7 +584,12 @@
   // Seed the edit draft ONCE, when this message becomes the edit target (via the
   // menu or ArrowUp in an empty composer). untrack keeps a later reaction/edit
   // event that swaps `m` from wiping what the user is typing.
-  $effect(() => {
+  // $effect.pre: before the DOM update, so the edit box mounts already holding
+  // the text. Seeded after it, the box existed empty for a moment, and anything
+  // typed or selected in that moment was joined onto the old text when the
+  // seed and the caret placement below landed: a fast "select all, type the
+  // correction" saved "first draft of a thoughtsecond draft".
+  $effect.pre(() => {
     const editing = S.editing?.id === m.id;
     if (editing && !wasEditing) {
       editDraft = untrack(() => m.content);
@@ -619,6 +624,9 @@
     tick().then(() =>
       requestAnimationFrame(() => {
         if (S.editing?.id !== m.id) return;
+        // Already in the box (clicked, or typing has begun): the caret and any
+        // selection are the person's, not ours to move.
+        if (document.activeElement === el) return;
         el.focus({ preventScroll: true });
         const end = el.value.length;
         el.setSelectionRange(end, end);
