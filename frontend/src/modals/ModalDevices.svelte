@@ -1,5 +1,6 @@
 <script>
   // Pick the microphone, speaker and camera calls use — and hear/see the
+  import Segmented from "../Segmented.svelte";
   // choice before trusting it to a real call. Device-local, like the theme.
   //
   // Layering: the three pickers and the call volume are what anyone might touch,
@@ -561,14 +562,15 @@
     {#if !S.isMobile}
     <div class="act">
       <span class="gate-title">Mic activation</span>
-      <div class="seg two" role="radiogroup" aria-label="Mic activation">
-        <button class:sel={!ptt} role="radio" aria-checked={!ptt} onclick={() => setActivation(false)}>
-          Voice activity
-        </button>
-        <button class:sel={ptt} role="radio" aria-checked={ptt} onclick={() => setActivation(true)}>
-          Push to talk
-        </button>
-      </div>
+      <Segmented
+        label="Mic activation"
+        value={ptt ? "ptt" : "vad"}
+        onChange={(v) => setActivation(v === "ptt")}
+        options={[
+          { value: "vad", label: "Voice activity" },
+          { value: "ptt", label: "Push to talk" },
+        ]}
+      />
       {#if ptt}
         <div class="ptt" transition:slide={{ duration: 180 }}>
           <div class="knob">
@@ -703,19 +705,12 @@
                 label="Why? Noise reduction"
               />
             </span>
-            <div class="seg" role="radiogroup" aria-label="Noise reduction">
-              {#each NR_LEVELS as l (l.id)}
-                <button
-                  class:sel={(S.prefs.micNr || "") === l.id}
-                  role="radio"
-                  aria-checked={(S.prefs.micNr || "") === l.id}
-                  title={l.hint}
-                  onclick={() => knob("micNr", l.id, (v) => S.voice?.mesh.setNoiseReduction(v))}
-                >
-                  {l.label}
-                </button>
-              {/each}
-            </div>
+            <Segmented
+              label="Noise reduction"
+              value={S.prefs.micNr || ""}
+              onChange={(v) => knob("micNr", v, (x) => S.voice?.mesh.setNoiseReduction(x))}
+              options={NR_LEVELS.map((l) => ({ value: l.id, label: l.label, title: l.hint }))}
+            />
           </div>
         {/if}
 
@@ -851,10 +846,8 @@
     display: none;
   }
   .dev-title {
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-faint);
     margin-right: auto;
   }
@@ -1036,33 +1029,7 @@
     padding-top: var(--sp-2);
     border-top: 1px solid var(--border);
   }
-  .seg {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 6px;
-    margin-top: 2px;
-  }
-  .seg > button {
-    padding: 6px 4px;
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text-muted);
-    font-size: var(--fs-compact);
-  }
-  .seg > button:hover {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  .seg > button.sel {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-    color: var(--text);
-  }
   /* Two choices, not four — the NR strip's grid would leave half of it empty. */
-  .seg.two {
-    grid-template-columns: repeat(2, 1fr);
-  }
   /* Mic activation: the mode picker plus, in push-to-talk, its key. */
   .act {
     display: flex;

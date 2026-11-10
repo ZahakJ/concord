@@ -504,11 +504,7 @@
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-2);
     border-radius: var(--radius-md);
-    background: linear-gradient(
-      120deg,
-      color-mix(in srgb, var(--accent) 10%, var(--bg-1)),
-      var(--bg-1) 62%
-    );
+    background: var(--bg-1);
     border: 1px solid var(--border);
     flex: none;
   }
@@ -738,7 +734,7 @@
     display: block;
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    background: var(--accent);
     /* Progress, not a state change — see ModalChronicle. */
     transition: width 0.3s ease;
   }

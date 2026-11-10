@@ -19,7 +19,7 @@
     hint = "A guild is your own end-to-end-encrypted space with channels.",
     placeholder = "Guild name",
     // The same dialog renames a guild; its button and starting text follow.
-    confirmLabel = "Create",
+    confirmLabel = "",
     initial = "",
   } = $props();
   let name = $state(untrack(() => initial));
@@ -28,6 +28,8 @@
   // custom title) — everything below the name field only makes sense for a new
   // guild, and a rename dialog offering a channel template would be absurd.
   const isGuild = title === "Create a guild";
+  // The primary names what it makes: "Create guild", "Create category".
+  const verb = $derived(confirmLabel || title.replace(/^Create an? /, "Create "));
 
   let icon = $state("");
   let description = $state("");
@@ -175,7 +177,7 @@
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button class="primary" onclick={submit} disabled={!name.trim() || (!!initial && name.trim() === initial)}>{confirmLabel}</button>
+    <button class="primary" onclick={submit} disabled={!name.trim() || (!!initial && name.trim() === initial)}>{verb}</button>
   </div>
 </Modal>
 
@@ -244,7 +246,7 @@
   /* The moment it has a name, the placeholder solidifies into a real bubble. */
   .bubble.named {
     color: var(--accent-fg);
-    background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, var(--accent-hover)));
+    background: var(--accent);
     border: 1px solid transparent;
   }
   .bubble.hasicon {
@@ -375,9 +377,7 @@
   .mini-cat {
     margin-top: 3px;
     font-size: 8px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+    font-weight: 600;
     color: var(--text-faint);
   }
   .mini-cat:first-child {

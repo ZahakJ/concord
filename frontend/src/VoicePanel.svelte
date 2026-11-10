@@ -2457,10 +2457,8 @@
     align-items: baseline;
     gap: var(--sp-2);
     padding: 0 2px;
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-faint);
   }
   .sfx-hint {
@@ -2632,10 +2630,8 @@
     max-width: 640px;
     margin-inline: auto;
     padding: 0 2px;
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-faint);
   }
   .knock {

@@ -227,7 +227,6 @@
   @keyframes knock {
     50% {
       transform: scale(1.05);
-      box-shadow: 0 0 34px color-mix(in srgb, var(--accent) 50%, transparent);
     }
   }
   .dest {

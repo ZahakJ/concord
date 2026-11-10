@@ -179,9 +179,7 @@
   }
   .k {
     font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-weight: 600;
     color: var(--text-faint);
   }
   .v {

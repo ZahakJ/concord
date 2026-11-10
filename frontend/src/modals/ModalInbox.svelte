@@ -10,6 +10,7 @@
   // recorded when they arrived, nothing is transmitted to build it, and the only
   // thing written down is one "I have looked at this" timestamp, here.
   import Modal from "./Modal.svelte";
+  import Segmented from "../Segmented.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import EmptyState from "../EmptyState.svelte";
@@ -52,6 +53,14 @@
       has(g.myPerms || 0, PERM.MUTE_MEMBERS));
   const modGuilds = $derived(S.guilds.filter(canModerate));
 
+  // Each filter's own empty state: it names what would land here.
+  const EMPTY = {
+    all: { icon: "bell", headline: "Nothing is waiting for you", sub: "" },
+    mention: { icon: "bell", headline: "No mentions", sub: "When someone writes your name with an @, it lands here." },
+    reply: { icon: "reply", headline: "No replies", sub: "Replies to something you wrote land here." },
+    keyword: { icon: "search", headline: "No alert words", sub: "Messages that say one of your alert words land here." },
+    event: { icon: "calendar", headline: "No events", sub: "Invitations and reminders for events land here." },
+  };
   const FILTERS = $derived([
     { id: "all", label: "Everything" },
     { id: "mention", label: "Mentions" },
@@ -160,25 +169,31 @@
   }
 </script>
 
-<Modal title="Inbox" {onClose} wide>
-  <div class="head" role="group" aria-label="Filter the inbox">
-    {#each FILTERS as f (f.id)}
-      <button
-        class="quiet chip"
-        class:on={filter === f.id}
-        aria-pressed={filter === f.id}
-        onclick={() => (filter = f.id)}
-      >
-        {f.label}
-      </button>
-    {/each}
+<Modal title="Inbox" {onClose} size="l">
+  <!-- The filters scroll sideways on a phone instead of wrapping, so the
+       row is one height whatever is chosen. -->
+  <div class="head">
+    <Segmented
+      label="Filter the inbox"
+      value={filter}
+      onChange={(v) => (filter = v)}
+      options={FILTERS.map((f) => ({ value: f.id, label: f.label }))}
+    />
   </div>
+  <!-- One height for every filter: the sheet used to jump as a filter emptied
+       or filled its list. -->
+  <div class="body">
 
   {#if filter === "moderation"}
     {#if modLoading && !modEntries.length}
       <p class="note">Reading the signed record…</p>
     {:else if !modEntries.length}
-      <p class="note">Nothing has been moderated in the guilds you can act in.</p>
+      <EmptyState
+        compact
+        icon="shield"
+        headline="No moderation yet"
+        sub="Nothing has been moderated in the guilds you can act in."
+      />
     {:else}
       <div class="groups scroll-fade">
         <section>
@@ -213,7 +228,7 @@
       {actions}
     />
   {:else if !entries.length}
-    <p class="note">Nothing of that kind. Try another filter.</p>
+    <EmptyState compact icon={EMPTY[filter]?.icon || "bell"} headline={EMPTY[filter]?.headline || "Nothing here"} sub={EMPTY[filter]?.sub || ""} />
   {:else}
     <div class="groups scroll-fade">
       {#each groups as g (g.key)}
@@ -276,6 +291,7 @@
       </button>
     </div>
   {/if}
+  </div>
 </Modal>
 
 {#snippet actions()}
@@ -288,47 +304,31 @@
      the footer with the count — that is where a reader looks when they have
      finished reading the list, which is when both of those buttons are for. */
   .head {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--sp-1);
     min-width: 0;
-    margin-bottom: var(--sp-3);
+    margin-bottom: var(--sp-2);
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex: none;
   }
-  /* `quiet` (app.css) carries the fill AND the ink. The ink is the point: the
-     global button rule paints --accent-fg, which is chosen to survive on the
-     accent and is near-black in the dark theme, so a chip that repainted only
-     its background wrote black on charcoal. */
-  .chip {
-    padding: 5px 11px;
-    min-width: 0;
-    font-size: var(--fs-compact);
-    color: var(--text-muted);
-    border-radius: 999px;
-  }
-  .chip.on {
-    background: var(--accent);
-    color: var(--accent-fg);
+  .head::-webkit-scrollbar {
+    display: none;
   }
   .act {
-    padding: 5px 11px;
     min-width: 0;
     flex: none;
     font-size: var(--fs-compact);
-    border-radius: var(--radius-sm);
     display: inline-flex;
     align-items: center;
     gap: 5px;
   }
-  /* Both states restated, because app.css's `button.quiet:hover` is specific
-     enough to outrank a bare `.chip.on` and would grey out the selected one. */
-  @media (pointer: fine) {
-    .chip:not(.on):hover {
-      background: var(--border);
-      color: var(--text);
-    }
-    .chip.on:hover {
-      background: var(--accent-hover);
-      color: var(--accent-fg);
+  .body {
+    display: flex;
+    flex-direction: column;
+    min-height: min(420px, calc(56 * var(--vh)));
+  }
+  @media (max-width: 768px) {
+    .body {
+      min-height: calc(60 * var(--dvh));
     }
   }
   .note {
@@ -360,10 +360,8 @@
     margin: 0;
     padding: var(--sp-2) var(--sp-1) 5px;
     background: var(--bg-elevated);
-    font-size: var(--fs-tiny);
+    font-size: var(--fs-small);
     font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
     color: var(--text-muted);
     unicode-bidi: plaintext;
   }
@@ -372,47 +370,34 @@
      rows drawn as tinted plates with a rule down the side, so a list of nine
      things looked like two lists. The card, the rule and the padding are the
      row; unread turns the rule on and warms the ground. */
+  /* A row, not a card: unread is a 6px accent dot before the name and the
+     name in full weight; read rows are the same row in quieter ink. */
   .entry {
     display: flex;
     width: 100%;
     align-items: flex-start;
-    gap: var(--sp-2);
-    /* A real inset on both ends. The row used to pad 4px and then give 2 of
-       them to the rule, so the face (and the unread dot after it) sat against
-       the card's edge — on a phone, where the card is the whole width, that
-       read as a list drawn without margins. Logical properties, so the rule
-       and the inset swap sides under dir=rtl instead of staying on the left
-       of a right-to-left row. */
-    padding: var(--sp-2) var(--sp-3);
-    padding-inline-start: calc(var(--sp-3) - 2px);
-    border-inline-start: 2px solid transparent;
+    gap: var(--sp-3);
+    padding: var(--sp-2);
     min-width: 0;
     text-align: start;
-    background: color-mix(in srgb, var(--bg-3) 40%, transparent);
+    background: transparent;
     color: var(--text);
     border-radius: var(--radius-sm);
   }
-  .entry:hover {
-    background: var(--bg-3);
+  @media (pointer: fine) {
+    .entry:hover {
+      background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+    }
   }
-  /* An unread item wears the same gutter rule the channel list uses for an
-     unread channel, so the vocabulary is one thing app-wide — plus a ground
-     it can be picked out by at a glance and a dot beside the name, because the
-     rail promises a number ("Inbox — 4 unread items") and a list where every
-     row is drawn identically cannot say which four. */
-  .entry.unread {
-    border-inline-start-color: var(--accent);
-    background: var(--accent-soft);
-  }
-  .entry.unread:hover {
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  .entry strong {
+    font-weight: 500;
   }
   .entry.unread strong {
-    font-weight: 700;
+    font-weight: 600;
   }
   .dot {
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--accent);
     flex: none;
@@ -448,26 +433,8 @@
        any script, so the pill isolates it like every other name in the app. */
     unicode-bidi: plaintext;
   }
-  /* Three reasons, three tints, matching the row highlights in the feed: amber
-     for "someone meant you", accent for "you asked to be told". */
-  .why.event {
-    color: var(--accent-hover);
-  }
-  .why.mention,
-  .why.reply {
-    background: var(--warn-soft);
-    color: var(--warn-text);
-  }
-  .why.keyword {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-  }
-  /* Governance is neither: it is the record, not somebody addressing you. It
-     names the guild rather than a reason, in the panel's quietest ink. */
-  .why.moderation {
-    background: var(--bg-3);
-    color: var(--text-muted);
-  }
+  /* The reason is a quiet tag in every case: what kind of thing it is, not
+     a colour to decode. */
   .when {
     margin-left: auto;
     font-size: var(--fs-tiny);

@@ -640,9 +640,7 @@
   .sec-head h4 {
     margin: 0;
     font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-weight: 600;
     color: var(--text-faint);
   }
   .small {
@@ -673,10 +671,8 @@
     text-overflow: ellipsis;
   }
   .tl {
-    font-size: var(--fs-tiny);
+    font-size: var(--fs-small);
     color: var(--text-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
   .tbl {
     display: flex;
@@ -715,10 +711,8 @@
     border: none;
     padding: 0;
     color: var(--text-faint);
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     text-align: left;
     cursor: pointer;
   }
@@ -829,7 +823,7 @@
     display: block;
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    background: var(--accent);
     min-width: 2px;
   }
   .hn {
@@ -998,7 +992,7 @@
     display: block;
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    background: var(--accent);
     /* Progress, not a state change — see ModalChronicle. */
     transition: width 0.3s ease;
   }

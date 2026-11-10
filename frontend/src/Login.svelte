@@ -1190,8 +1190,6 @@
     gap: 10px;
     color: var(--text-muted);
     font-size: var(--fs-small);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
   }
   .or::before,
   .or::after {
@@ -1331,9 +1329,7 @@
     text-align: left;
   }
   .vnum {
-    font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-size: var(--fs-small);
     color: var(--text-faint);
   }
   .ghost-sm {
@@ -1446,7 +1442,6 @@
     /* Tracked-out micro-caps are the least legible thing on the screen, and
        this one is only a divider label. */
     .or {
-      letter-spacing: 0.04em;
     }
   }
 </style>

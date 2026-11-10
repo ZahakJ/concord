@@ -700,7 +700,7 @@ export class App {
   async createGuild(name) {
     await this.switcherAction("Create a guild");
     await this.dialog().getByLabel("Guild name").fill(name);
-    await this.dialog().getByRole("button", { name: "Create", exact: true }).click();
+    await this.dialog().getByRole("button", { name: "Create guild", exact: true }).click();
     await this.page
       .locator('nav[aria-label="Guilds"]')
       .getByRole("button", { name, exact: true })

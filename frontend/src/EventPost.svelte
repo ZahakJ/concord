@@ -57,9 +57,7 @@
     align-items: center;
     gap: 5px;
     font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    font-weight: 600;
     color: var(--accent-hover);
   }
   .ghost {

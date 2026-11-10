@@ -1398,10 +1398,9 @@
     padding-right: 2px;
   }
   .lbl {
-    font-size: var(--fs-tiny);
-    font-weight: 700;
+    font-size: var(--fs-small);
+    font-weight: 600;
     letter-spacing: 0.4px;
-    text-transform: uppercase;
     color: var(--text-muted);
   }
   .caphead {

@@ -1317,10 +1317,8 @@
   }
   .pop-head {
     padding: 4px 8px 6px;
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
   }
   .mi {
@@ -1699,10 +1697,8 @@
     min-width: 140px;
   }
   .attedit span {
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
   }
   .done {
@@ -1830,10 +1826,8 @@
   }
   .s-head {
     padding: 4px 10px 3px;
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
   }
   .s-item {
@@ -1884,10 +1878,8 @@
     align-items: center;
     gap: 6px;
     margin-bottom: var(--sp-2);
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
   }
   .plabel .dot {
@@ -2003,9 +1995,7 @@
     position: absolute;
     top: 3px;
     right: 8px;
-    font-size: var(--fs-tiny);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
     color: var(--text-faint);
   }
   .md :global(blockquote) {

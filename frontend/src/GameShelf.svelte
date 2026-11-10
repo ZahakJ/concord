@@ -318,9 +318,7 @@
     gap: var(--sp-2);
   }
   .sec-label {
-    font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-size: var(--fs-small);
   }
   .g-add {
     display: inline-flex;
@@ -645,11 +643,9 @@
     position: relative;
     z-index: 1;
     padding: 10px 8px;
-    font-size: var(--fs-micro);
-    font-weight: 800;
+    font-size: var(--fs-small);
+    font-weight: 600;
     line-height: 1.25;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
     text-align: center;
     color: rgba(255, 255, 255, 0.92);
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);

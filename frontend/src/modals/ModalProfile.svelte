@@ -617,11 +617,11 @@
     {#if fromDraft && dirty}
       <span class="draft-note">
         Unsaved changes from before.
-        <button type="button" class="linkish" onclick={discardDraft}>Discard them</button>
+        <button type="button" class="link" onclick={discardDraft}>Discard them</button>
       </span>
     {/if}
     <button class="ghost" onclick={cancel}>Cancel</button>
-    <button onclick={save} disabled={!nameOk || room.over || saving || !dirty}>
+    <button class="primary" onclick={save} disabled={!nameOk || room.over || saving || !dirty}>
       {saving ? "Saving…" : "Save"}
     </button>
   </div>
@@ -1081,7 +1081,6 @@
     text-align: left;
     font-size: var(--fs-ui);
     line-height: 1.6;
-    letter-spacing: 0.04em;
     word-break: normal;
     overflow-wrap: break-word;
     background: var(--bg-input);

@@ -63,7 +63,7 @@
     {/each}
   </div>
   <div class="actions">
-    <button class="primary" onclick={onClose}>Nice</button>
+    <button class="primary" onclick={onClose}>Done</button>
   </div>
 </Modal>
 

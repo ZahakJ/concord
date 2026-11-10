@@ -250,32 +250,6 @@
     gap: 10px;
     overflow: hidden;
   }
-  /* One shimmer sweep on open — "here's the valuable thing". */
-  .code-well::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      105deg,
-      transparent 30%,
-      color-mix(in srgb, var(--accent) 14%, transparent) 50%,
-      transparent 70%
-    );
-    transform: translateX(-100%);
-    animation: shimmer 1.1s ease 0.25s 1 forwards;
-    pointer-events: none;
-  }
-  @keyframes shimmer {
-    to {
-      transform: translateX(100%);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .code-well::after {
-      animation: none;
-      opacity: 0;
-    }
-  }
   /* The picture is the share surface — a few hundred characters of reach-me
      addresses is not a thing anyone reads, and wrapping it into a wall next to
      the QR made the dialog look like a dump. Copy still takes every byte. */
@@ -348,7 +322,6 @@
   .copy.copied {
     background: var(--ok);
     color: var(--ok-fg);
-    box-shadow: 0 0 14px color-mix(in srgb, var(--ok) 45%, transparent);
     animation: copied-pop 0.3s var(--ease-spring);
   }
   @keyframes copied-pop {

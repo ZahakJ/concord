@@ -199,7 +199,7 @@
   {#if canEdit}
     <div class="actions">
       <button class="ghost" onclick={onClose}>Cancel</button>
-      <button onclick={save} disabled={busy || !name.trim()}>Save</button>
+      <button class="primary" onclick={save} disabled={busy || !name.trim()}>Save</button>
     </div>
   {:else}
     <p class="muted tiny">Only members with Manage Guild can edit this.</p>
@@ -352,9 +352,7 @@
     }
   }
   .gtitle {
-    font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-size: var(--fs-small);
     color: var(--text-faint);
     margin: 9px 0 4px;
   }

@@ -212,7 +212,7 @@
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button disabled={!canPost} onclick={post}>{posting ? "Posting…" : "Post"}</button>
+    <button class="primary" disabled={!canPost} onclick={post}>{posting ? "Posting…" : "Post"}</button>
   </div>
 </Modal>
 
@@ -298,9 +298,7 @@
     }
   }
   .gtitle {
-    font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-size: var(--fs-small);
     color: var(--text-faint);
     margin: 9px 0 4px;
   }

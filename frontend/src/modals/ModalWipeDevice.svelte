@@ -142,7 +142,6 @@
   button.danger {
     background: var(--danger);
     color: var(--danger-fg);
-    box-shadow: 0 0 12px color-mix(in srgb, var(--danger) 35%, transparent);
     transition: background var(--dur-standard) ease;
   }
   button.danger:hover:not(:disabled) {

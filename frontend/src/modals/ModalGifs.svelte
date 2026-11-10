@@ -23,6 +23,7 @@
   //   `source`, and every sentence below is built from that. Do not put a vendor
   //   name back into this file.
   import Modal from "./Modal.svelte";
+  import Tabs from "../Tabs.svelte";
   import Icon from "../Icon.svelte";
   import EmptyState from "../EmptyState.svelte";
   import { S, activeGuild, flash, refreshGuilds, setOffDeviceSearch } from "../lib/state.svelte.js";
@@ -532,21 +533,16 @@
   }
 </script>
 
-<Modal title="GIFs — {g?.name ?? ''}" {onClose} wide>
-  <div class="tabs" role="tablist">
-    <button
-      role="tab"
-      aria-selected={tab === "pack"}
-      class:on={tab === "pack"}
-      onclick={() => (tab = "pack")}>This guild</button
-    >
-    <button
-      role="tab"
-      aria-selected={tab === "search"}
-      class:on={tab === "search"}
-      onclick={() => (tab = "search")}>Search</button
-    >
-  </div>
+<Modal title="GIFs" subtitle={g?.name ?? ""} {onClose} size="l">
+  <Tabs
+    label="GIF source"
+    value={tab}
+    onChange={(id) => (tab = id)}
+    tabs={[
+      { id: "pack", label: "This guild" },
+      { id: "search", label: "Search" },
+    ]}
+  />
 
   {#if tab === "pack"}
     <div class="bar">
@@ -794,25 +790,6 @@
 </Modal>
 
 <style>
-  .tabs {
-    display: flex;
-    gap: var(--sp-1);
-    margin-bottom: var(--sp-2);
-    border-bottom: 1px solid var(--border);
-  }
-  .tabs button {
-    padding: 6px 10px;
-    font-size: var(--fs-compact);
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-muted);
-    border-radius: 0;
-  }
-  .tabs button.on {
-    color: var(--text);
-    border-bottom-color: var(--accent);
-  }
   .bar {
     display: flex;
     align-items: center;

@@ -113,7 +113,7 @@
     <p class="muted hint">{TYPES.find((t) => t.id === type)?.hint}</p>
     <div class="actions">
       <button type="button" class="ghost" onclick={onClose}>Cancel</button>
-      <button class="primary" type="submit" disabled={!slugged}>Create</button>
+      <button class="primary" type="submit" disabled={!slugged}>Create channel</button>
     </div>
   </form>
 </Modal>

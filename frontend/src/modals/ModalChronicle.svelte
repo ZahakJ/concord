@@ -235,9 +235,7 @@
   .sec-head h4 {
     margin: var(--sp-2) 0 0;
     font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-weight: 600;
     color: var(--text-faint);
   }
   .totals {
@@ -263,10 +261,8 @@
     text-overflow: ellipsis;
   }
   .tl {
-    font-size: var(--fs-tiny);
+    font-size: var(--fs-small);
     color: var(--text-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
   .tbl {
     display: flex;
@@ -343,7 +339,7 @@
     display: block;
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    background: var(--accent);
     transform-origin: left center;
     animation: bar-across 0.55s var(--ease-spring) both;
   }

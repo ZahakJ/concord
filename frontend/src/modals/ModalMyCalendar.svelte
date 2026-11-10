@@ -9,6 +9,7 @@
   // never in anyone else's view. Read-mostly: RSVPs and reminders work here,
   // creating/editing happens in each room's own calendar.
   import Modal from "./Modal.svelte";
+  import Segmented from "../Segmented.svelte";
   import Icon from "../Icon.svelte";
   import EmptyState from "../EmptyState.svelte";
   import EventCard from "../EventCard.svelte";
@@ -256,14 +257,15 @@
         <div class="mnext quiet">Nothing else today</div>
       {/if}
     </div>
-    <div class="seg" role="tablist" aria-label="Calendar view">
-      <button class="seg-btn" class:on={view === "agenda"} role="tab" aria-selected={view === "agenda"} onclick={() => setView("agenda")}>
-        <Icon name="list" size={13} /> Agenda
-      </button>
-      <button class="seg-btn" class:on={view === "month"} role="tab" aria-selected={view === "month"} onclick={() => setView("month")}>
-        <Icon name="calendar" size={13} /> Month
-      </button>
-    </div>
+    <Segmented
+      label="Calendar view"
+      value={view}
+      onChange={setView}
+      options={[
+        { value: "agenda", label: "Agenda" },
+        { value: "month", label: "Month" },
+      ]}
+    />
   </header>
 
   {#if view === "month"}
@@ -405,34 +407,6 @@
     min-width: 0;
     flex: 1;
   }
-  /* ModalEvents' segmented control, verbatim geometry — same words, same
-     place in the eye's grammar (view navigation, quiet thumb). */
-  .seg {
-    display: inline-flex;
-    padding: 3px;
-    gap: 2px;
-    background: var(--bg-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    flex-shrink: 0;
-    margin-top: 2px;
-  }
-  .seg-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 11px;
-    border-radius: calc(var(--radius-md) - 3px);
-    background: transparent;
-    color: var(--text-muted);
-    font-size: var(--fs-compact);
-    font-weight: 600;
-  }
-  .seg-btn.on {
-    background: var(--bg-1);
-    color: var(--text);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-  }
   .mday {
     color: var(--text-faint);
   }
@@ -541,10 +515,8 @@
   }
   .dow {
     text-align: center;
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    font-size: var(--fs-small);
+    font-weight: 600;
     padding: 2px 0 6px;
     color: var(--text-faint);
   }
@@ -695,7 +667,6 @@
   }
   .dh-none {
     font-weight: 600;
-    letter-spacing: 0.04em;
     color: var(--text-faint);
   }
   .riser {
@@ -774,14 +745,6 @@
       flex-direction: column;
       align-items: stretch;
       gap: var(--sp-2);
-    }
-    .seg {
-      align-self: stretch;
-    }
-    .seg-btn {
-      flex: 1;
-      justify-content: center;
-      min-height: 40px;
     }
     .cell {
       min-height: 50px;

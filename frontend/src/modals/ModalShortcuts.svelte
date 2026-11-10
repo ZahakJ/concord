@@ -196,10 +196,8 @@
     align-items: center;
     gap: var(--sp-2);
     margin: 0;
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
   }
   .sc-ic {

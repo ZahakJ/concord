@@ -39,28 +39,15 @@
 
   <div class="fld">
     <span class="lbl">For how long</span>
-    <div class="seg" role="radiogroup" aria-label="Mute duration">
-      {#each MUTE_DURATIONS as d (d.minutes)}
-        <button
-          type="button"
-          role="radio"
-          aria-checked={!custom && minutes === d.minutes}
-          class:sel={!custom && minutes === d.minutes}
-          onclick={() => ((custom = false), (minutes = d.minutes))}
-        >
-          {d.label}
-        </button>
-      {/each}
-      <button
-        type="button"
-        role="radio"
-        aria-checked={custom}
-        class:sel={custom}
-        onclick={() => (custom = true)}
-      >
-        Custom
-      </button>
-    </div>
+    <Select
+      label="Mute duration"
+      value={custom ? "custom" : minutes}
+      onPick={(v) => (v === "custom" ? (custom = true) : ((custom = false), (minutes = Number(v))))}
+      options={[
+        ...MUTE_DURATIONS.map((d) => ({ value: d.minutes, label: d.label })),
+        { value: "custom", label: "Custom…" },
+      ]}
+    />
   </div>
 
   {#if custom}
@@ -102,7 +89,8 @@
 <style>
   p {
     margin: 0;
-    font-size: var(--fs-small);
+    color: var(--text-muted);
+    font-size: var(--fs-compact);
     line-height: 1.5;
   }
   .warn-line {
@@ -114,38 +102,13 @@
     gap: 6px;
   }
   .lbl {
-    font-size: var(--fs-small);
-    font-weight: 600;
-    color: var(--text-muted);
+    font-size: var(--fs-compact);
+    font-weight: 500;
+    color: var(--text);
   }
   .opt {
     font-weight: 500;
     color: var(--text-faint);
-  }
-  /* The app's segmented control, same skin as ModalChannelTopic's slow-mode
-     row — it wraps here because seven options do not fit one line. */
-  .seg {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .seg button {
-    padding: 6px 11px;
-    font-size: var(--fs-small);
-    background: var(--bg-3);
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    border-radius: var(--radius-sm);
-  }
-  .seg button:hover {
-    color: var(--text);
-    background: var(--bg-2);
-  }
-  .seg button.sel {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-    font-weight: 600;
   }
   .custom {
     flex-direction: row;

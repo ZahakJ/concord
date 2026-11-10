@@ -291,7 +291,7 @@
           </span>
         {/if}
         <button type="button" class="ghost" onclick={requestClose}>Cancel</button>
-        <button type="button" class="go" onclick={create} disabled={!canPost}>
+        <button type="button" class="primary go" onclick={create} disabled={!canPost}>
           {#if busy}
             <span class="spin" aria-hidden="true"></span> {step || "Posting…"}
           {:else}

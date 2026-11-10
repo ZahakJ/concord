@@ -1,5 +1,6 @@
 <script>
   // The guild's governance log, rendered as history.
+  import Segmented from "../Segmented.svelte";
   //
   // Nothing on this screen is fetched, computed by anyone else, or taken on
   // trust. Every row is one Ed25519-signed operation that already sits on this
@@ -107,17 +108,13 @@
     device, which is why every member can read it.
   </p>
 
-  <div class="filters" role="group" aria-label="Filter the log">
-    {#each GOV_FILTERS as f (f.id)}
-      <button
-        class="quiet chip"
-        class:on={filter === f.id}
-        aria-pressed={filter === f.id}
-        onclick={() => (filter = f.id)}
-      >
-        {f.label}
-      </button>
-    {/each}
+  <div class="filters">
+    <Segmented
+      label="Filter the log"
+      value={filter}
+      onChange={(v) => (filter = v)}
+      options={GOV_FILTERS.map((f) => ({ value: f.id, label: f.label }))}
+    />
   </div>
 
   {#if loading}
@@ -208,34 +205,9 @@
     color: var(--text-muted);
   }
   .filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--sp-1);
     margin-bottom: var(--sp-3);
-  }
-  /* `quiet` (app.css) carries both the fill and the ink — see the note there:
-     the global button rule's --accent-fg is near-black, so a chip that repainted
-     only its background wrote black on charcoal. */
-  .chip {
-    padding: 5px 11px;
-    min-width: 0;
-    font-size: var(--fs-compact);
-    color: var(--text-muted);
-    border-radius: 999px;
-  }
-  .chip.on {
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-  @media (pointer: fine) {
-    .chip:not(.on):hover {
-      background: var(--border);
-      color: var(--text);
-    }
-    .chip.on:hover {
-      background: var(--accent-hover);
-      color: var(--accent-fg);
-    }
+    overflow-x: auto;
+    scrollbar-width: none;
   }
   .log {
     list-style: none;

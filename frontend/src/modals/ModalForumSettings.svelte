@@ -458,7 +458,7 @@
     <span class="spacer"></span>
     <button class="ghost" onclick={onClose}>Close</button>
     {#if canManage}
-      <button disabled={busy || !valid} onclick={saveTags}>Save tags</button>
+      <button class="primary" disabled={busy || !valid} onclick={saveTags}>Save tags</button>
     {/if}
   </div>
 </Modal>
@@ -580,9 +580,8 @@
   h4 {
     margin: 0;
     font-size: var(--fs-ui);
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0.02em;
-    text-transform: uppercase;
     color: var(--text-muted);
   }
   .only,

@@ -707,9 +707,7 @@
   }
   .label {
     font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-weight: 600;
     color: var(--text-muted);
   }
   hr {
@@ -830,13 +828,12 @@
     width: 100%;
     height: var(--h, 2%);
     border-radius: 5px 5px 2px 2px;
-    background: linear-gradient(180deg, var(--accent-hover), var(--accent));
+    background: var(--accent);
     transform-origin: center bottom;
     animation: bar-up 0.55s var(--ease-spring) both;
     animation-delay: calc(60ms + var(--i, 0) * 28ms);
   }
   .sbar.now .sfill {
-    box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 42%, transparent);
   }
   .sline {
     position: absolute;
@@ -879,9 +876,7 @@
     display: block;
     margin-top: var(--sp-2);
     font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-weight: 600;
     color: var(--text-muted);
   }
   .rows {

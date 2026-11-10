@@ -1,5 +1,6 @@
 <script>
   import Modal from "./Modal.svelte";
+  import Select from "../Select.svelte";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { PERM, has } from "../lib/perms.js";
@@ -12,11 +13,11 @@
   // signed govOp (manage-channels); enforcement is advisory like mutes.
   const SLOW_OPTS = [
     [0, "Off"],
-    [5, "5s"],
-    [30, "30s"],
-    [60, "1m"],
-    [300, "5m"],
-    [900, "15m"],
+    [5, "5 seconds"],
+    [30, "30 seconds"],
+    [60, "1 minute"],
+    [300, "5 minutes"],
+    [900, "15 minutes"],
   ];
   let slow = $state(Number(channel?.slowMode) || 0);
   const slowChanged = $derived(slow !== (Number(channel?.slowMode) || 0));
@@ -83,7 +84,7 @@
   }
 </script>
 
-<Modal title={`#${channel?.name || "channel"} · Channel settings`} {onClose}>
+<Modal title="Channel settings" subtitle={`#${channel?.name || "channel"}`} size="m" {onClose}>
   <label class="fld">
     <strong class="slow-label">Topic</strong>
     <p class="muted">
@@ -100,16 +101,12 @@
   </label>
   <div class="slow">
     <strong class="slow-label">Slow mode</strong>
-    <div class="seg" role="radiogroup" aria-label="Slow mode interval">
-      {#each SLOW_OPTS as [secs, label] (secs)}
-        <button
-          class:sel={slow === secs}
-          role="radio"
-          aria-checked={slow === secs}
-          onclick={() => (slow = secs)}
-        >{label}</button>
-      {/each}
-    </div>
+    <Select
+      label="Slow mode interval"
+      value={slow}
+      options={SLOW_OPTS.map(([secs, label]) => ({ value: secs, label }))}
+      onPick={(v) => (slow = Number(v))}
+    />
     <p class="muted tiny">
       One message per member per interval. Moderators are exempt.
     </p>
@@ -117,16 +114,12 @@
   {#if canRetain}
     <div class="slow">
       <strong class="slow-label">Message history</strong>
-      <div class="seg" role="radiogroup" aria-label="How long this channel keeps messages">
-        {#each RETAIN as r (r.secs)}
-          <button
-            class:sel={retain === r.secs}
-            role="radio"
-            aria-checked={retain === r.secs}
-            onclick={() => (retain = r.secs)}
-          >{r.label}</button>
-        {/each}
-      </div>
+      <Select
+        label="How long this channel keeps messages"
+        value={retain}
+        options={RETAIN.map((r) => ({ value: r.secs, label: r.label }))}
+        onPick={(v) => (retain = Number(v))}
+      />
       <p class="muted tiny">
         {#if retain < 0}
           Follows the guild ({retainLabel(guildRetain)}).
@@ -148,7 +141,7 @@
 <style>
   p {
     margin: 0;
-    font-size: var(--fs-ui);
+    font-size: var(--fs-compact);
   }
   .fld {
     display: flex;
@@ -156,31 +149,14 @@
     gap: 6px;
   }
   .slow {
-    margin-top: 14px;
+    margin-top: var(--sp-3);
     display: flex;
     flex-direction: column;
     gap: 6px;
   }
   .slow-label {
-    font-size: var(--fs-ui);
-  }
-  .seg {
-    display: flex;
-    gap: var(--sp-1);
-  }
-  .seg button {
-    flex: 1;
-    padding: 6px 0;
-    font-size: var(--fs-ui);
-    border-radius: var(--radius-md);
-    background: var(--bg-2);
-    color: var(--text);
-    border: 1px solid var(--border);
-  }
-  .seg button.sel {
-    background: var(--accent);
-    color: var(--accent-fg);
-    border-color: var(--accent);
+    font-size: var(--fs-compact);
+    font-weight: 500;
   }
   textarea {
     width: 100%;
@@ -188,7 +164,7 @@
     font-family: inherit;
     font-size: var(--fs-ui);
     padding: 8px 10px;
-    margin-top: var(--sp-2);
+    margin-top: var(--sp-1);
     box-sizing: border-box;
   }
 </style>

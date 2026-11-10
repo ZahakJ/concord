@@ -597,9 +597,7 @@
   .eb h4 {
     margin: 0;
     font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-weight: 600;
     color: var(--text);
   }
   .ebhint {
