@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -2625,16 +2626,50 @@ func (s *Service) DeleteCategory(guildID, categoryID string) error {
 }
 
 // applyCategoryRemoved drops a category locally and un-categorizes its channels.
+//
+// Positions are per category, so a channel at the top of a category is at 0,
+// and dropping it into the uncategorized list as it was put it between
+// channels already there ("general, news, general…"). The orphans now follow
+// the existing uncategorized channels, in their old order. Every peer holds the
+// same positions, so every peer that runs this lands on the same order.
 func (s *Service) applyCategoryRemoved(guildID, categoryID string) {
+	type moved struct {
+		id, typ, topic string
+		pos            int
+	}
+	var out []moved
 	s.mu.Lock()
 	if g, ok := s.guilds[guildID]; ok {
+		next := 0
+		var orphans []int
 		for i := range g.Channels {
-			if g.Channels[i].Category == categoryID {
-				g.Channels[i].Category = ""
+			c := g.Channels[i]
+			switch {
+			case c.Category == categoryID:
+				orphans = append(orphans, i)
+			case c.Category == "" && c.Parent == "" && c.Position >= next:
+				next = c.Position + 1
 			}
+		}
+		sort.SliceStable(orphans, func(a, b int) bool {
+			ca, cb := g.Channels[orphans[a]], g.Channels[orphans[b]]
+			if ca.Position != cb.Position {
+				return ca.Position < cb.Position
+			}
+			return ca.ID < cb.ID
+		})
+		for _, i := range orphans {
+			g.Channels[i].Category = ""
+			g.Channels[i].Position = next
+			next++
+			c := g.Channels[i]
+			out = append(out, moved{c.ID, c.Type, c.Topic, c.Position})
 		}
 	}
 	s.mu.Unlock()
+	for _, m := range out {
+		_ = s.store.UpdateChannelMeta(m.id, m.typ, "", m.pos, m.topic)
+	}
 	_ = s.store.DeleteCategory(guildID, categoryID)
 	s.emitGuildUpdate()
 }
