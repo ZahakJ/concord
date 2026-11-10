@@ -201,6 +201,80 @@ assert(emojiName("✌🏻") === "v", "emojiName restores VS16 base");
 assert(emojiName(EMOJI.fire) === "fire", "emojiName direct hit");
 assert([...TONABLE].every((n) => EMOJI[n]), "every TONABLE name exists in EMOJI");
 
+
+// ---- links that end where they should --------------------------------------
+// <https://x.org> is the standard way to write a bare link; the brackets are
+// punctuation and must not end up inside the href.
+out = renderMarkdown("and <https://example.org>");
+assert(out.includes('href="https://example.org"') && !out.includes("&gt;\""), `autolink brackets dropped: ${out}`);
+assert(!/&lt;<a/.test(out) && !/<\/a>&gt;/.test(out), `autolink brackets not shown: ${out}`);
+out = renderMarkdown("src=https://x.com></iframe>");
+assert(out.includes('href="https://x.com"'), `a link stops at an escaped >: ${out}`);
+assert(!unsafe(out), `still inert: ${out}`);
+out = renderMarkdown('see https://x.org/a"onmouseover="alert(1)');
+assert(out.includes('href="https://x.org/a"') && !unsafe(out), `a link stops at a quote: ${out}`);
+// The sentence's punctuation is not part of the address.
+out = renderMarkdown("go to https://example.org/path.");
+assert(out.includes('href="https://example.org/path"') && out.endsWith("</a>."), `trailing period left out: ${out}`);
+out = renderMarkdown("(see https://en.wikipedia.org/wiki/Foo_(bar)) ok");
+assert(out.includes('href="https://en.wikipedia.org/wiki/Foo_(bar)"'), `balanced brackets kept: ${out}`);
+out = renderMarkdown("(https://x.org)");
+assert(out.includes('href="https://x.org"') && out.endsWith("</a>)"), `an enclosing bracket is not part of it: ${out}`);
+// Bare www. addresses link, with https.
+out = renderMarkdown("Visit www.example.org.");
+assert(out.includes('href="https://www.example.org"') && out.includes(">www.example.org</a>."), `www. links: ${out}`);
+assert(!renderMarkdown("wwwx.org and www.a").includes("<a "), "not every www is a link");
+assert(!unsafe(renderMarkdown('www.x.org/"><img src=x onerror=alert(1)>')), "www links stay inert");
+assert(!unsafe(renderMarkdown("www.javascript:alert(1)")), "no scheme smuggled into a www link");
+
+// ---- backslash escapes -----------------------------------------------------
+out = renderMarkdown("\\*escaped\\*");
+assert(out === "*escaped*", `\\* is a literal asterisk: ${out}`);
+out = renderMarkdown("\\_\\_init\\_\\_ and __init__");
+assert(out.startsWith("__init__ and <u>init</u>"), `escaped underscores stay: ${out}`);
+assert(renderMarkdown("\\# not a header") === "# not a header", "an escaped # is not a header");
+assert(renderMarkdown("a \\\\ b") === "a \\ b", "a doubled backslash is one backslash");
+assert(renderMarkdown("C:\\Users\\me") === "C:\\Users\\me", "a backslash before a letter is just a backslash");
+out = renderMarkdown("`\\*code\\*`");
+assert(out === "<code>\\*code\\*</code>", `no escapes inside code: ${out}`);
+assert(!unsafe(renderMarkdown("\\<script>alert(1)\\</script>")), "an escaped < stays escaped");
+out = renderMarkdown("\\<b\\>");
+assert(out === "&lt;b&gt;", `escaped angle brackets: ${out}`);
+out = renderMarkdown("\\@everyone \\#general", ["everyone"], null, { channels: [{ name: "general", id: "c1" }] });
+assert(!out.includes("mention"), `escaped @ and # are text: ${out}`);
+
+// ---- the shrug -------------------------------------------------------------
+out = renderMarkdown("hi ¯\\_(ツ)_/¯");
+assert(out === "hi ¯\\_(ツ)_/¯", `the shrug keeps its arms: ${out}`);
+out = renderMarkdown("¯\\_(ツ)_/¯ and _this_");
+assert(out === "¯\\_(ツ)_/¯ and <em>this</em>", `and emphasis still works beside it: ${out}`);
+
+// ---- emphasis inside emphasis ----------------------------------------------
+out = renderMarkdown("**bold *nested italic* bold**");
+assert(out === "<strong>bold <em>nested italic</em> bold</strong>", `italic inside bold: ${out}`);
+out = renderMarkdown("***bold italic***");
+assert(out === "<strong><em>bold italic</em></strong>", `triple stars: ${out}`);
+out = renderMarkdown("**a** and **b**");
+assert(out === "<strong>a</strong> and <strong>b</strong>", `two bold runs stay apart: ${out}`);
+out = renderMarkdown("unclosed **bold mixed ~~strike* end");
+assert(!/<strong>|<s>/.test(out) && !unsafe(out), `unbalanced markers stay literal: ${out}`);
+assert(!unsafe(renderMarkdown("**<img src=x onerror=alert(1)> *x* **")), "nested emphasis stays inert");
+
+// ---- nested lists ----------------------------------------------------------
+out = renderMarkdown("- bullet a\n- bullet b\n  - nested c\n- d");
+assert(
+  out === "<ul><li>bullet a</li><li>bullet b<ul><li>nested c</li></ul></li><li>d</li></ul>",
+  `an indented item nests: ${out}`,
+);
+out = renderMarkdown("1. one\n2. two\n   - sub\n3. three");
+assert(out === "<ol><li>one</li><li>two<ul><li>sub</li></ul></li><li>three</li></ol>", `bullets under a number: ${out}`);
+out = renderMarkdown("- a\n    - deep\n  - mid\n- top");
+assert(out === "<ul><li>a<ul><li>deep</li><li>mid</li></ul></li><li>top</li></ul>", `loose indents: ${out}`);
+assert(renderMarkdown("  - a\n- b") === "<ul><li>a</li><li>b</li></ul>", "an indented first item is still one list");
+assert(renderMarkdown("- a\n1. b") === "<ul><li>a</li></ul><ol><li>b</li></ol>", "a different kind starts a new list");
+assert(renderMarkdown("- a\ntext") === "<ul><li>a</li></ul>text", "text after a list closes it");
+assert(!unsafe(renderMarkdown("- a\n  - <svg onload=x>\n    - <script>")), "nested items are escaped");
+
 if (failures) {
   console.error(`${failures} failure(s)`);
   process.exit(1);
