@@ -758,3 +758,38 @@ func TestImportedReactionsNameTheEmojiThatExists(t *testing.T) {
 		}
 	}
 }
+
+// Two files of one channel whose date ranges overlap (a period exported twice)
+// used to put the overlap into the archive twice: 400 rows for 300 messages.
+func TestOverlappingExportFilesImportEachMessageOnce(t *testing.T) {
+	s := importTestService(t)
+	dir := t.TempDir()
+	write := func(name string, from, to int) {
+		var b strings.Builder
+		b.WriteString(`{"guild":{"name":"G"},"channel":{"id":"c1","name":"room"},"messages":[`)
+		for i := from; i < to; i++ {
+			if i > from {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, `{"id":"d-%d","type":"Default","timestamp":"2020-01-01T%02d:%02d:00Z","content":"message %d","author":{"id":"a","name":"ada"}}`,
+				i, i/60, i%60, i)
+		}
+		b.WriteString("]}")
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("room-1.json", 0, 200)
+	write("room-2.json", 100, 300)
+	stats, acc := runImportOffline(t, s, dir, chronimport.DefaultPolicy())
+	if stats.Messages != 300 || stats.Duplicates != 100 {
+		t.Fatalf("scan counted %d messages and %d duplicates, want 300 and 100", stats.Messages, stats.Duplicates)
+	}
+	rows := 0
+	for _, msgs := range acc.byChannel {
+		rows += len(msgs)
+	}
+	if rows != 300 || acc.count != 300 {
+		t.Fatalf("archived %d rows (count %d) for 300 distinct messages", rows, acc.count)
+	}
+}

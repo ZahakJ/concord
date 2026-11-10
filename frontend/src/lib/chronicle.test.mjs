@@ -17,6 +17,7 @@ import {
   phaseLabel,
   progressPct,
   resultLines,
+  billNotes,
   splitPlaceholders,
   foldName,
   channelTypeOf,
@@ -221,6 +222,28 @@ ok(lines.some((l) => l.includes("2 channels matched") && l.includes("2 created")
 ok(!lines.some((l) => l.includes("custom emoji")), "a zero is not printed as a line");
 ok(lines.some((l) => l.includes("left out by the policy")), "what the policy dropped is reported");
 ok(resultLines(null).length === 0, "no result, no lines");
+ok(
+  resultLines({ imported: 300, skippedDuplicates: 100, chunks: 1 }).some((l) => l.startsWith("100 repeated in more than one file")),
+  "duplicates folded together are reported",
+);
+
+// --- the bill's small print ---
+{
+  const notes = billNotes({
+    malformed: 4,
+    duplicates: 1,
+    fileErrors: [
+      { file: "garbage.json", reason: "x" },
+      { file: "cut.json", reason: "y", partial: true },
+    ],
+  }).join(" ");
+  ok(notes.includes("4 entries could not be read"), `malformed counted: ${notes}`);
+  ok(notes.includes("1 message appears in more than one file"), `duplicates counted: ${notes}`);
+  ok(notes.includes("1 file could not be opened at all (garbage.json)"), `unopened named: ${notes}`);
+  ok(notes.includes("1 file ends partway") && notes.includes("(cut.json)"), `a cut-off file is not "unopened": ${notes}`);
+  ok(!/opened at all \([^)]*cut\.json/.test(notes), "the cut-off file is not listed as unopened");
+  ok(billNotes({}).length === 0 && billNotes(null).length === 0, "nothing to say, nothing said");
+}
 {
   const split = resultLines({
     imported: 10,

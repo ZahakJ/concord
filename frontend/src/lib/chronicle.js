@@ -360,6 +360,32 @@ export function progressPct(status) {
 // channels that received messages vs structural matches — and print
 // "3 channels (2 created, 2 reused)", which does not add up. Count the
 // matches, then say how they split, then mention any that carried no history.
+// billNotes is the small print under the scan report: what will be left out
+// and why. A file that broke off partway is not one that "could not be opened":
+// everything before the break is read and counted, and saying otherwise made a
+// community think half a channel was lost when it was not.
+export function billNotes(stats) {
+  if (!stats) return [];
+  const out = [];
+  const files = (list) =>
+    list
+      .slice(0, 3)
+      .map((f) => f.file)
+      .join(", ") + (list.length > 3 ? "…" : "");
+  const n = (k, one, many) => `${fmtCount(k)} ${k === 1 ? one : many}`;
+  if (stats.notices) out.push(`${fmtCount(stats.notices)} join/pin notices will be left out.`);
+  if (stats.malformed) out.push(`${n(stats.malformed, "entry", "entries")} could not be read and will be skipped.`);
+  if (stats.duplicates)
+    out.push(`${n(stats.duplicates, "message appears", "messages appear")} in more than one file and will be imported once.`);
+  const errs = stats.fileErrors || [];
+  const broken = errs.filter((f) => !f.partial);
+  const partial = errs.filter((f) => f.partial);
+  if (broken.length) out.push(`${n(broken.length, "file", "files")} could not be opened at all (${files(broken)}).`);
+  if (partial.length)
+    out.push(`${n(partial.length, "file ends", "files end")} partway; what comes before the break is included (${files(partial)}).`);
+  return out;
+}
+
 export function resultLines(res) {
   if (!res) return [];
   const created = res.channelsCreated || 0;
@@ -383,6 +409,8 @@ export function resultLines(res) {
   if (res.emojiImported > 0) out.push(`${fmtCount(res.emojiImported)} custom emoji`);
   if (res.skippedByPolicy > 0) out.push(`${fmtCount(res.skippedByPolicy)} left out by the policy`);
   if (res.skippedMalformed > 0) out.push(`${fmtCount(res.skippedMalformed)} unreadable entries skipped`);
+  if (res.skippedDuplicates > 0)
+    out.push(`${fmtCount(res.skippedDuplicates)} repeated in more than one file, imported once`);
   out.push(`${fmtCount(res.chunks)} pages · ${fmtBytes(res.chunkBytes + res.manifestBytes)} on every member's device`);
   return out;
 }

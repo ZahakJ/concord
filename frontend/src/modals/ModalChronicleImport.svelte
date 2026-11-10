@@ -36,6 +36,7 @@
     nanoOfDate,
     fmtBytes,
     fmtCount,
+    billNotes,
     phaseLabel,
     progressPct,
     resultLines,
@@ -312,19 +313,8 @@
         </div>
       </div>
 
-      {#if stats.notices || stats.malformed || stats.fileErrors?.length}
-        <p class="note">
-          {#if stats.notices}{fmtCount(stats.notices)} join/pin notices will be left out.{/if}
-          {#if stats.malformed}
-            {fmtCount(stats.malformed)} entries could not be read.{/if}
-          {#if stats.fileErrors?.length}
-            {plural(stats.fileErrors.length, "file")} could not be opened at all
-            ({stats.fileErrors
-              .slice(0, 3)
-              .map((f) => f.file)
-              .join(", ")}{stats.fileErrors.length > 3 ? "…" : ""}).
-          {/if}
-        </p>
+      {#if billNotes(stats).length}
+        <p class="note">{billNotes(stats).join(" ")}</p>
       {/if}
 
       <div class="sec-head">
