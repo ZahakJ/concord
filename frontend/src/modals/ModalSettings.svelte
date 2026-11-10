@@ -21,27 +21,107 @@
   import { SETTINGS_GROUPS } from "../lib/settingsnav.js";
   import { haptic } from "../lib/touch.js";
   import { selfUpdateAllowed } from "../lib/installsource.js";
+  import PassphraseField from "../PassphraseField.svelte";
+  import { samePassphrase } from "../lib/passphrase.js";
+  import { errorField, humanError } from "../lib/errors.js";
+  import { bioEnrolled, disableBiometric } from "../lib/biometric.js";
 
   let { onClose } = $props();
   let phrase = $state("");
   let copiedPhrase = $state(false);
   let phraseOpen = $state(false);
 
-  // Recovery phrase disclosure: first open fetches the words, later opens just
-  // collapse/expand what's already revealed.
-  async function togglePhrase() {
-    if (!phraseOpen && !phrase) {
-      try {
-        phrase = await api.revealMnemonic();
-      } catch (err) {
-        flash(err);
-        return;
-      }
-      // Coming here and reading them is the thing the nudge was asking for, so
-      // reaching this line is the answer — no second confirmation to click.
-      if (S.prefs.backupPending) setPref("backupPending", false);
+  // Recovery phrase disclosure. The words ARE the account — the row itself
+  // says anyone who reads them can become you — and they used to appear on one
+  // click (on a phone, one tap anywhere on the row, easy to hit while
+  // scrolling). An unlocked laptop left on a desk is the realistic threat, so
+  // the first reveal asks for the passphrase again; the core checks it too.
+  let phraseAsk = $state(false);
+  let phrasePass = $state("");
+  let phraseErr = $state("");
+  function togglePhrase() {
+    if (phraseOpen) {
+      phraseOpen = false;
+      return;
     }
-    phraseOpen = !phraseOpen;
+    if (phrase) {
+      phraseOpen = true;
+      return;
+    }
+    phraseAsk = !phraseAsk;
+    phraseErr = "";
+  }
+  async function revealPhrase(e) {
+    e?.preventDefault();
+    if (!phrasePass) return;
+    try {
+      phrase = await api.revealMnemonic(phrasePass);
+    } catch (err) {
+      phraseErr = humanError(err);
+      return;
+    }
+    phrasePass = "";
+    phraseAsk = false;
+    phraseOpen = true;
+    // Coming here and reading them is the thing the nudge was asking for, so
+    // reaching this line is the answer — no second confirmation to click.
+    if (S.prefs.backupPending) setPref("backupPending", false);
+  }
+  // The backup nudge's "Show me" lands here with the reveal already asked for,
+  // rather than on the generic page with the row somewhere among four cards.
+  if (S.modal?.focus === "phrase") phraseAsk = true;
+
+  // ---- change passphrase ----
+  // There was no way to do this while signed in: the meter nudges toward a
+  // stronger passphrase on day one and then nothing could act on it, and the
+  // only other routes (recovery phrase, re-link) rebuild the device. The core
+  // re-seals the keystore beside the old one and renames it into place, so a
+  // failure part-way leaves the old passphrase working.
+  let changeOpen = $state(false);
+  let curPass = $state("");
+  let newPass = $state("");
+  let newPass2 = $state("");
+  let changeErr = $state("");
+  let changeField = $state("");
+  let changing = $state(false);
+  $effect(() => {
+    void [curPass, newPass, newPass2];
+    changeErr = "";
+    changeField = "";
+  });
+  async function changePassphrase(e) {
+    e?.preventDefault();
+    if (changing) return;
+    if (!curPass) return void ((changeErr = "Enter your current passphrase."), (changeField = "cur"));
+    if (!newPass) return void ((changeErr = "Choose a new passphrase."), (changeField = "new"));
+    if (!samePassphrase(newPass, newPass2)) {
+      changeErr = "The new passphrases don't match.";
+      changeField = "confirm";
+      return;
+    }
+    changing = true;
+    try {
+      await api.changePassphrase(curPass, newPass);
+      // A biometric unlock stores the OLD passphrase; it would now fail on
+      // every launch. Turn it off and say so rather than leave it broken.
+      let bioNote = "";
+      if (bioEnrolled()) {
+        try {
+          await disableBiometric();
+        } catch {
+          /* best effort */
+        }
+        bioNote = " Biometric unlock was turned off — turn it on again after your next unlock.";
+      }
+      curPass = newPass = newPass2 = "";
+      changeOpen = false;
+      flash(`Passphrase changed. Use the new one from now on.${bioNote}`, "success");
+    } catch (err) {
+      changeErr = humanError(err);
+      changeField = errorField(err) === "pass" ? "cur" : "";
+    } finally {
+      changing = false;
+    }
   }
   function copyPhrase() {
     navigator.clipboard?.writeText(phrase);
@@ -266,6 +346,17 @@
     >
       <span class="reveal" class:open={phraseOpen}>{phraseOpen ? "Hide" : "Reveal"}</span>
     </SettingRow>
+    {#if phraseAsk && !phraseOpen}
+      <form class="inline-form" onsubmit={revealPhrase}>
+        <span class="row-sub">Enter your passphrase to show the 24 words.</span>
+        <PassphraseField placeholder="Passphrase" bind:value={phrasePass} invalid={!!phraseErr} autofocus />
+        {#if phraseErr}<span class="form-err" role="alert">{phraseErr}</span>{/if}
+        <div class="form-actions">
+          <button type="button" class="ghost small-btn" onclick={() => ((phraseAsk = false), (phrasePass = ""))}>Cancel</button>
+          <button type="submit" class="small-btn" disabled={!phrasePass}>Show the words</button>
+        </div>
+      </form>
+    {/if}
     {#if phraseOpen && phrase}
       <div class="phrase-body">
         <div class="phrase">
@@ -280,6 +371,43 @@
           </button>
         </div>
       </div>
+    {/if}
+    <SettingRow
+      icon="lock"
+      title="Passphrase"
+      sub="What unlocks Concord on this device. Change it any time."
+      onclick={() => (changeOpen = !changeOpen)}
+    >
+      <span class="reveal" class:open={changeOpen}>{changeOpen ? "Close" : "Change"}</span>
+    </SettingRow>
+    {#if changeOpen}
+      <form class="inline-form" onsubmit={changePassphrase}>
+        <PassphraseField placeholder="Current passphrase" bind:value={curPass} invalid={changeField === "cur"} autofocus />
+        <PassphraseField
+          placeholder="New passphrase"
+          autocomplete="new-password"
+          meter
+          bind:value={newPass}
+          invalid={changeField === "new"}
+        />
+        <PassphraseField
+          placeholder="Confirm new passphrase"
+          autocomplete="new-password"
+          bind:value={newPass2}
+          invalid={changeField === "confirm"}
+        />
+        {#if changeErr}<span class="form-err" role="alert">{changeErr}</span>{/if}
+        <span class="row-sub">
+          Only this device changes. Each of your devices has its own passphrase, and your
+          recovery phrase stays the same.
+        </span>
+        <div class="form-actions">
+          <button type="button" class="ghost small-btn" onclick={() => (changeOpen = false)}>Cancel</button>
+          <button type="submit" class="small-btn" disabled={changing}>
+            {changing ? "Changing…" : "Change passphrase"}
+          </button>
+        </div>
+      </form>
     {/if}
   </SettingGroup>
 
@@ -447,6 +575,21 @@
     color: var(--text-muted);
   }
 
+  .inline-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: 0 14px 14px;
+  }
+  .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sp-2);
+  }
+  .form-err {
+    font-size: var(--fs-small);
+    color: var(--danger-text);
+  }
   .phrase-body {
     display: flex;
     flex-direction: column;

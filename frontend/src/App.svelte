@@ -1709,7 +1709,7 @@
       <strong>Write down your recovery phrase.</strong> It is the only way back into this account, and
       right now it exists on this device and nowhere else.
     </span>
-    <button class="ub-dl" onclick={() => (S.modal = { kind: "settings" })}>Show me</button>
+    <button class="ub-dl" onclick={() => (S.modal = { kind: "settings", focus: "phrase" })}>Show me</button>
     <button class="ub-close" onclick={() => (backupNudgeHidden = true)} aria-label="Later">×</button>
   </div>
 {/if}
