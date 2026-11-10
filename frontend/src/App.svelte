@@ -1208,6 +1208,20 @@
       // for the disconnect button). Clicking a different one switches rooms.
       if (inThisRoom) return;
     }
+    // Another window of this same node is already in a call. Joining from here
+    // too made the two windows take the node's one connection from each other
+    // every few seconds, and closing either pulled the node out under the
+    // other. One window holds the call; this one says where it is.
+    const heldElsewhere = await api.voiceHeldElsewhere().catch(() => "");
+    if (heldElsewhere) {
+      flash(
+        heldElsewhere === channelId
+          ? "You're already in this call in another window"
+          : "You're in a call in another window — leave it there first",
+        "info",
+      );
+      return;
+    }
     // A lock on an EMPTY call can only be stale — the one person who could
     // admit us would have to be inside. Rather than knock at a door with nobody
     // behind it, drop the lock and walk in. (forgetLock also covers the roster

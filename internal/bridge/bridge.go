@@ -3641,6 +3641,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		// The client id rides at the end. A caller built before it existed
 		// passes one argument and owns nothing, which is the old behaviour.
 		return nil, b.JoinVoiceFor(argStr(args, 0), argStr(args, 1))
+	case "VoiceHeldElsewhere":
+		return b.VoiceHeldElsewhere(argStr(args, 0)), nil
 	case "LeaveVoice":
 		return nil, b.LeaveVoice(argStr(args, 0))
 	case "SignalCall":

@@ -139,3 +139,23 @@ func TestTheStartingWindowLeavingDoesNotHangUpTheOther(t *testing.T) {
 		t.Error("the window that started the call closed and took a live one down with it")
 	}
 }
+
+// A second window of the same node must not join a call the first window is
+// in: the far side has one connection for the node, and the two windows took
+// it from each other. A window that has closed holds nothing.
+func TestASecondWindowIsToldTheCallIsElsewhere(t *testing.T) {
+	b := &Bridge{}
+	b.AttachClient("window-a")
+	b.AttachClient("window-b")
+	b.noteVoiceOwner("lounge", "window-a")
+	if got := b.VoiceHeldElsewhere("window-b"); got != "lounge" {
+		t.Fatalf("window B was not told the call is in window A: %q", got)
+	}
+	if got := b.VoiceHeldElsewhere("window-a"); got != "" {
+		t.Fatalf("window A was told its own call is elsewhere: %q", got)
+	}
+	b.DropClient("window-a")
+	if got := b.VoiceHeldElsewhere("window-b"); got != "" {
+		t.Fatalf("a closed window still holds the call: %q", got)
+	}
+}

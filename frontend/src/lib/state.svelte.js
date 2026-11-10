@@ -50,6 +50,7 @@ import {
   parseDecline,
   callPreview,
   sharersOf,
+  ghostsToReap,
 } from "./callflow.js";
 import { startCallClock } from "./calltimer.svelte.js";
 import {
@@ -4116,6 +4117,22 @@ function initEvents() {
     // it a crashed tab stayed on the stage as a healthy tile until WebRTC
     // finally gave up on the connection, which took eighteen seconds.
     for (const pid of gone) dropVoicePeer(pid);
+    // …and a connection to somebody presence has never listed, or stopped
+    // listing, goes too. The mesh opens one for any signalling blob from a
+    // peer it does not hold, so a window that closed while another window of
+    // the same account kept negotiating left a nameless "Joining…" tile on
+    // everybody's stage, and it never left: no heartbeat was ever going to
+    // expire for it, because none had ever arrived.
+    if (S.voice) {
+      const r = ghostsToReap(
+        [...S.voice.mesh.peers.keys()],
+        S.voiceRosters[S.voice.channelId] || {},
+        ghostSeen,
+        now,
+      );
+      ghostSeen = r.firstSeen;
+      for (const pid of r.reap) dropVoicePeer(pid);
+    } else ghostSeen = {};
   }, 3000);
 }
 
@@ -4135,6 +4152,8 @@ export const guestName = (fpr = "") => {
   return (cut > 0 ? s.slice(0, cut) : s) || "Guest";
 };
 const announcedGuests = new Set();
+// Mesh peers presence does not list, and since when. See ghostsToReap.
+let ghostSeen = {};
 // Knocking guests we have already nudged about, so a knock re-announced every
 // few seconds rings once rather than every tick.
 const announcedKnocks = new Set();

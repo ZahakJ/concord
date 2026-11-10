@@ -562,6 +562,8 @@ export const api = {
   // ending means the screen went off, not that anybody hung up.
   joinVoice: (channelID) => call("JoinVoice", channelID, isNativeShell() ? "" : clientID),
   leaveVoice: (channelID) => call("LeaveVoice", channelID),
+  // The call this node holds for another open window, or "" (voicelife.go).
+  voiceHeldElsewhere: () => call("VoiceHeldElsewhere", isNativeShell() ? "" : clientID),
   relaySignal: (toPeerID, data) => call("RelaySignal", toPeerID, data),
   callIceServers: () => call("CallIceServers"),
   revealDeleted: (channelID, messageID) => call("RevealDeleted", channelID, messageID),
