@@ -623,7 +623,8 @@ export class App {
   // in the rail.
   async createGuild(name) {
     await this.page.getByRole("button", { name: "Add a guild" }).click();
-    await this.page.getByText("Create a guild", { exact: true }).click();
+    // By role: a brand-new account's welcome card offers the same words.
+    await this.page.getByRole("menuitem", { name: "Create a guild" }).click();
     await this.dialog().getByLabel("Guild name").fill(name);
     await this.dialog().getByRole("button", { name: "Create", exact: true }).click();
     await this.page
@@ -637,7 +638,7 @@ export class App {
   // The "Add a guild" → "Join with an invite code" flow, as a person does it.
   async joinGuild(code, guildName) {
     await this.page.getByRole("button", { name: "Add a guild" }).click();
-    await this.page.getByText("Join with an invite code").click();
+    await this.page.getByRole("menuitem", { name: "Join with an invite code" }).click();
     const box = this.page.locator('textarea[placeholder="Paste invite code here…"]');
     await box.fill(code);
     await this.dialog().getByRole("button", { name: "Join", exact: true }).click();
