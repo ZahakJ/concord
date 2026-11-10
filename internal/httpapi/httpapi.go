@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -108,6 +109,11 @@ type rpcRequest struct {
 type rpcResponse struct {
 	Result any    `json:"result,omitempty"`
 	Error  string `json:"error,omitempty"`
+	// Code and Detail are set for an error the UI branches on (one that has an
+	// ErrorCode method, see bridge.CodedError), so the outcome is read from a
+	// field and never from the wording of Error.
+	Code   string `json:"code,omitempty"`
+	Detail any    `json:"detail,omitempty"`
 }
 
 // applyCORS emits CORS headers when the request Origin is an allowed webview
@@ -175,6 +181,13 @@ func (s *Server) HandleRPC(w http.ResponseWriter, r *http.Request) {
 	resp := rpcResponse{Result: result}
 	if err != nil {
 		resp.Error = err.Error()
+		var coded interface {
+			ErrorCode() string
+			ErrorDetail() any
+		}
+		if errors.As(err, &coded) {
+			resp.Code, resp.Detail = coded.ErrorCode(), coded.ErrorDetail()
+		}
 	}
 	writeJSON(w, resp)
 }

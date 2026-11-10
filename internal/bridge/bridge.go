@@ -36,6 +36,10 @@ type Bridge struct {
 
 	mu  sync.Mutex
 	svc *appsvc.Service
+	// lockReason says why there is no session, for a window that had one (a
+	// Lock* value; "" = nothing in this process ended a session, so the core
+	// must have started since). See SessionState.
+	lockReason string
 	// The visibility vote. See visibility.go: shellBackground is the native
 	// mobile lifecycle's answer, clientVisible is what each attached UI says
 	// about itself, and the two are ANDed. All three are remembered across a
@@ -137,7 +141,7 @@ func (b *Bridge) Close() {
 	}
 }
 
-var errLocked = errors.New("identity is locked; log in first")
+var errLocked = &CodedError{Code: CodeLocked, Msg: "identity is locked; log in first"}
 
 func (b *Bridge) service() (*appsvc.Service, error) {
 	b.mu.Lock()
@@ -384,6 +388,7 @@ func (b *Bridge) Logout() error {
 		_ = b.svc.Close()
 		b.svc = nil
 	}
+	b.lockReason = LockSignedOut
 	return nil
 }
 
@@ -395,16 +400,6 @@ func (b *Bridge) HasIdentity() (bool, error) {
 		return false, err
 	}
 	return appsvc.HasIdentity(dir), nil
-}
-
-// RevealMnemonic returns the unlocked identity's recovery phrase, for the user
-// to write down. Requires an unlocked session.
-func (b *Bridge) RevealMnemonic() (string, error) {
-	svc, err := b.service()
-	if err != nil {
-		return "", err
-	}
-	return svc.Mnemonic()
 }
 
 // RestoreFromMnemonic reconstructs the identity from a recovery phrase, sealing
@@ -435,7 +430,14 @@ func (b *Bridge) RestoreFromMnemonic(phrase, passphrase string) error {
 // The phrase is validated FIRST — a typo can never destroy data — and only then
 // is the old local keystore/data replaced. Account, guilds, and history re-sync
 // from peers on the next login.
-func (b *Bridge) RestoreOverExisting(phrase, passphrase string) error {
+//
+// It is NOT always the same account, and it used to erase whatever was here
+// whichever account the phrase belonged to. Now the same account on a
+// never-linked install keeps everything (only the keystore is re-sealed);
+// any other case erases the device, and is refused with CodeReplaceRefused
+// unless confirm is the fingerprint of the phrase's account — what the UI
+// sends after showing CheckRecoveryPhrase's answer and getting a yes.
+func (b *Bridge) RestoreOverExisting(phrase, passphrase, confirm string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.svc != nil {
@@ -446,18 +448,13 @@ func (b *Bridge) RestoreOverExisting(phrase, passphrase string) error {
 	}
 	// Validate the recovery phrase before touching anything on disk.
 	if _, err := identity.SeedFromMnemonic(phrase); err != nil {
-		return errors.New("that doesn't look like a valid 24-word recovery phrase — check the words and their order")
+		return errBadPhrase
 	}
 	dir, err := appsvc.DataDir()
 	if err != nil {
 		return err
 	}
-	if appsvc.HasIdentity(dir) {
-		if err := appsvc.ResetIdentity(dir); err != nil {
-			return err
-		}
-	}
-	return appsvc.RestoreIdentity(dir, phrase, passphrase)
+	return codeReplace(appsvc.RestoreOverExisting(dir, phrase, passphrase, confirm))
 }
 
 // ResetIdentity deletes the identity and all data tied to it so a new identity
@@ -586,7 +583,7 @@ func (b *Bridge) Login(passphrase string) error {
 	// rather than silently succeeding.
 	if b.svc != nil {
 		if !appsvc.VerifyPassphrase(dataDir, passphrase) {
-			return errors.New("wrong passphrase")
+			return wrongPassphrase()
 		}
 		return nil
 	}
@@ -599,6 +596,9 @@ func (b *Bridge) Login(passphrase string) error {
 	}
 	svc, err := appsvc.Start(b.ctx, cfg)
 	if err != nil {
+		if errors.Is(err, identity.ErrWrongPassphrase) {
+			return wrongPassphrase()
+		}
 		return err
 	}
 	svc.OnMessage(func(m domain.Message) {
@@ -631,6 +631,7 @@ func (b *Bridge) Login(passphrase string) error {
 		b.mu.Lock()
 		if b.svc == svc {
 			b.svc = nil
+			b.lockReason = LockUnlinked
 		}
 		b.mu.Unlock()
 		if b.OnPresence != nil {
@@ -692,6 +693,7 @@ func (b *Bridge) Login(passphrase string) error {
 		}
 	})
 	b.svc = svc
+	b.lockReason = ""
 	// The shell may have declared the app backgrounded before the unlock
 	// happened; a service born after that call must not start on the eager
 	// foreground cadence.
@@ -2617,7 +2619,11 @@ func (b *Bridge) CancelLinkOffer() error {
 // It is NOT an error: by the time it can be produced the device is linked and
 // logged in, and reporting that as a failure would be a lie that also leaves
 // the UI on the login screen in front of a working session.
-func (b *Bridge) RedeemLinkCode(code, passphrase string) (string, error) {
+//
+// confirm is the fingerprint of the account the user agreed may replace the
+// one on this device; a code from a different account than the one here is
+// refused with CodeReplaceRefused, before anything is written, until then.
+func (b *Bridge) RedeemLinkCode(code, passphrase, confirm string) (string, error) {
 	dataDir, err := appsvc.DataDir()
 	if err != nil {
 		return "", err
@@ -2628,9 +2634,9 @@ func (b *Bridge) RedeemLinkCode(code, passphrase string) (string, error) {
 	if hasSvc {
 		return "", errors.New("log out before linking this device to an account")
 	}
-	res, err := appsvc.RedeemLink(b.ctx, dataDir, code, passphrase)
+	res, err := appsvc.RedeemLink(b.ctx, dataDir, code, passphrase, confirm)
 	if err != nil {
-		return "", err
+		return "", codeReplace(err)
 	}
 	// Start the service in linked mode (the marker written by RedeemLink flips it).
 	if err := b.Login(passphrase); err != nil {
@@ -3372,7 +3378,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "CancelLinkOffer":
 		return nil, b.CancelLinkOffer()
 	case "RedeemLinkCode":
-		return b.RedeemLinkCode(argStr(args, 0), argStr(args, 1))
+		return b.RedeemLinkCode(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "Logout":
 		return nil, b.Logout()
 	case "HasIdentity":
@@ -3384,11 +3390,19 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "ConfirmWipe":
 		return nil, b.ConfirmWipe(argStr(args, 0), argStr(args, 1))
 	case "RevealMnemonic":
-		return b.RevealMnemonic()
+		return b.RevealMnemonicWith(argStr(args, 0))
+	case "ChangePassphrase":
+		return nil, b.ChangePassphrase(argStr(args, 0), argStr(args, 1))
+	case "SessionState":
+		return b.SessionState(), nil
+	case "LockedAccount":
+		return b.LockedAccount()
+	case "CheckRecoveryPhrase":
+		return b.CheckRecoveryPhrase(argStr(args, 0))
 	case "RestoreFromMnemonic":
 		return nil, b.RestoreFromMnemonic(argStr(args, 0), argStr(args, 1))
 	case "RestoreOverExisting":
-		return nil, b.RestoreOverExisting(argStr(args, 0), argStr(args, 1))
+		return nil, b.RestoreOverExisting(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "Login":
 		return nil, b.Login(argStr(args, 0))
 	case "Identity":

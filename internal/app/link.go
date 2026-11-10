@@ -306,7 +306,12 @@ func (s *Service) ownerAddrs(fingerprint string) (peer.ID, []string, bool) {
 // starts in linked mode. It returns the guild invites, profile, and verified
 // fingerprints for the caller to apply after logging in, so the new device
 // joins every existing group and knows who the account has verified.
-func RedeemLink(ctx context.Context, dataDir, code, passphrase string) (LinkResult, error) {
+//
+// confirm is the fingerprint of the account the user agreed to erase this
+// device's current account for (see replaceGate); "" when they have agreed to
+// nothing. A different account is refused before anything is written, with a
+// *ReplaceRefusedError naming both accounts.
+func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) (LinkResult, error) {
 	if passphrase == "" {
 		return LinkResult{}, errors.New("app: passphrase required")
 	}
@@ -384,6 +389,26 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase string) (LinkResu
 	accountSeed, err := verifyLinkResponse(off.Secret, joiner.DevicePublicKey(), &resp)
 	if err != nil {
 		return LinkResult{}, err
+	}
+
+	// Whose account is this? Only now can we know — the code does not say —
+	// and nothing has been written yet. The same account keeps this device's
+	// data, as re-linking always has. Another account would erase it, so that
+	// needs the user's word for exactly this account; and its data goes, all
+	// of it, before the new keystore lands. Keeping the database is what used
+	// to publish the erased account's profile over the real one: its edit
+	// stamp was newer, so the handover lost to it and every device adopted it.
+	keep, err := replaceGate(dataDir, accountSeed, confirm, resp.Profile.Name)
+	if err != nil {
+		return LinkResult{}, err
+	}
+	if !keep {
+		// With no keystore whatever else is here belongs to nobody that can
+		// open it, and its settings are readable: they must not become the
+		// new account's.
+		if err := ResetIdentity(dataDir); err != nil {
+			return LinkResult{}, err
+		}
 	}
 
 	// Adopt the account: keystore = received account seed + our device seed;

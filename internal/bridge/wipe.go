@@ -158,6 +158,7 @@ func (b *Bridge) ConfirmWipe(ticket, typed string) error {
 	}
 	b.mu.Unlock()
 
+	b.lockReason = LockWiped
 	if err := appsvc.ResetIdentity(dir); err != nil {
 		return err
 	}

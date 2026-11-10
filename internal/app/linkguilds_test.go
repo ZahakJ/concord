@@ -100,7 +100,7 @@ func TestLinkedDeviceJoinsAServerTheIssuerDoesNotOwn(t *testing.T) {
 		t.Fatalf("LinkOffer: %v", err)
 	}
 	deviceDir := t.TempDir()
-	res, err := RedeemLink(ctx, deviceDir, offer, "test-pass")
+	res, err := RedeemLink(ctx, deviceDir, offer, "test-pass", "")
 	if err != nil {
 		t.Fatalf("RedeemLink: %v", err)
 	}

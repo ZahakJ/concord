@@ -57,7 +57,7 @@ func TestContactDeviceLinkRaisesNotice(t *testing.T) {
 		t.Fatalf("LinkOffer: %v", err)
 	}
 	phoneDir := t.TempDir()
-	res, err := RedeemLink(ctx, phoneDir, linkCode, "test-pass")
+	res, err := RedeemLink(ctx, phoneDir, linkCode, "test-pass", "")
 	if err != nil {
 		t.Fatalf("RedeemLink: %v", err)
 	}
