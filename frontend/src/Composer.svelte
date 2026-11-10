@@ -656,8 +656,14 @@
       if ("everyone".startsWith(q)) {
         items.push({ key: "e:everyone", name: "everyone", kind: "everyone" });
       }
-      suggest = items.length ? { kind: "mention", start: mention.start, items, sel: 0 } : null;
-      return;
+      if (items.length) {
+        suggest = { kind: "mention", start: mention.start, items, sel: 0 };
+        return;
+      }
+      // Nobody matches, so this "@" is not a mention being typed — a query may
+      // run on past spaces (names have them), and "@Ali see #ran" read as one
+      // long @-query that ended the search here before the #channel after it
+      // was ever looked at. Fall through to the later trigger.
     }
     const chref = activeChannelRef(draft, caret);
     if (chref) {
@@ -1058,6 +1064,14 @@
   // other files alike are STAGED; nothing sends until submit.
   export async function attachFile(file) {
     if (!file || !S.activeChannelId) return;
+    // An empty file reads as a data URL with nothing in it, which the core
+    // refuses ("attachment must be a data URL") — after the row was already in
+    // the feed, with a Retry that could only fail the same way. Said here,
+    // before anything is staged.
+    if (file.size === 0) {
+      flash(`${displayFileName(file.name) || "That file"} is empty — there's nothing in it to send`, "error");
+      return;
+    }
     if (file.type.startsWith("image/")) {
       if (await stageImage(file)) return;
       // Fell through: it is named as an image and is not one this renderer can
