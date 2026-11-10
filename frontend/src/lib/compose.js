@@ -38,3 +38,15 @@ export function addStaged(channelId, item) {
 export function stagedCount(channelId) {
   return (held.get(channelId) || []).length;
 }
+
+// Characters that occupy no space and draw nothing. A message made only of
+// these (plus ordinary whitespace) posts an empty row with an author and a
+// time on every screen — an invisible message — so it is refused like a
+// whitespace-only one. Zero-width joiners inside real text (emoji sequences,
+// Indic and Arabic shaping) are untouched: only a body with nothing else in
+// it counts as blank.
+const INVISIBLE = /[\s­͏؜ᅟᅠ឴឵᠎​-‏‪-‮⁠-⁤⁦-⁯ㅤ︀-️﻿ﾠ]/gu;
+
+export function isBlankText(text) {
+  return String(text || "").replace(INVISIBLE, "") === "";
+}

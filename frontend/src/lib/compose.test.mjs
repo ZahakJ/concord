@@ -1,6 +1,6 @@
-// compose.test.mjs — per-conversation staged trays.
+// compose.test.mjs — per-conversation staged trays and the blank-text guard.
 import assert from "node:assert/strict";
-import { stashStaged, takeStaged, addStaged, stagedCount } from "./compose.js";
+import { stashStaged, takeStaged, addStaged, stagedCount, isBlankText } from "./compose.js";
 
 // A tray parked in one conversation is not handed to another.
 stashStaged("dm-1", [{ id: "a" }]);
@@ -22,5 +22,13 @@ addStaged("c3", { id: "late" });
 assert.deepEqual(takeStaged("c3").map((x) => x.id), ["late"]);
 stashStaged("", [{ id: "nowhere" }]);
 assert.deepEqual(takeStaged(""), []);
+
+// Blank: whitespace and characters that draw nothing.
+for (const t of ["", "   \n\t", "​", "​​ ", "﻿", "⁠", "‍", "‮", "­", "ㅤ"]) {
+  assert.equal(isBlankText(t), true, JSON.stringify(t));
+}
+for (const t of ["a", " x ", "👋", "👨‍👩", "​hi", "مرحبا", "‍.", "0"]) {
+  assert.equal(isBlankText(t), false, JSON.stringify(t));
+}
 
 console.log("compose: ok");

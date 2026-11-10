@@ -32,7 +32,7 @@
   import { resampleEnvelope, voiceFileName } from "./lib/voicemsg.js";
   import { encodeFx, FX_EFFECTS } from "./lib/fxtoken.js";
   import { noteDraft } from "./lib/drafts.svelte.js";
-  import { stashStaged, takeStaged, addStaged } from "./lib/compose.js";
+  import { stashStaged, takeStaged, addStaged, isBlankText } from "./lib/compose.js";
   import Avatar from "./Avatar.svelte";
   import { stagedImage, dataUrlBytes } from "./lib/attachopts.js";
   import { fmtBytes } from "./lib/chronicle.js";
@@ -866,7 +866,9 @@
       queueAutosize();
       return;
     }
-    const text = replaceShortcodes(applySlash(raw).trim());
+    const typed = replaceShortcodes(applySlash(raw).trim());
+    // Only invisible characters is nothing typed — see lib/compose.js.
+    const text = isBlankText(typed) ? "" : typed;
     const atts = pending;
     if ((!text && atts.length === 0) || !S.activeChannelId) return;
     // The Send button has been disabled all along; Enter went straight past it
