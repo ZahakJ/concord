@@ -20,7 +20,7 @@
   import { haptic } from "./lib/touch.js";
   import { emoteText } from "./lib/emote.js";
   import { plainSnippet } from "./lib/snippet.js";
-  import { S, activeChannel, activeGuild, react, flash, flashSlot, nameColorFor, mentionRefs, focusFeed } from "./lib/state.svelte.js";
+  import { S, activeChannel, activeGuild, react, flash, flashSlot, nameColorFor, mentionRefs } from "./lib/state.svelte.js";
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
@@ -35,6 +35,8 @@
   import Avatar from "./Avatar.svelte";
   import { stagedImage, dataUrlBytes } from "./lib/attachopts.js";
   import { fmtBytes } from "./lib/chronicle.js";
+  import { wantsTypeToFocus } from "./lib/typetofocus.js";
+  import { isPttKey } from "./lib/shortcuts.js";
 
   let draft = $state("");
   // The draft's BASE DIRECTION, when the writer has asked for one: "" (decide
@@ -1440,10 +1442,8 @@
   // down for as long as it is open — one rule, not one exception per surface.
   function typeToFocus(e) {
     if (!ch || S.modal || S.contextMenu || S.editing || S.keySurfaces) return;
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key.length !== 1) return; // printable characters only
-    const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    // Which keys may pull the caret in, and from where: lib/typetofocus.js.
+    if (!wantsTypeToFocus(e, e.target, { ptt: isPttKey(e) })) return;
     composerEl?.focus();
   }
 
@@ -1512,15 +1512,6 @@
   $effect(() => {
     if (moreOpen) return pushLayer("sheet", () => (moreOpen = false));
   });
-
-  // Tab out of the composer's last toolbar goes to the message feed, not past
-  // it. See focusFeed(): the rows are earlier in the DOM than the composer, so
-  // forward Tab skipped them and landed in the Moments tray. Shift+Tab is left
-  // alone — backwards out of the cluster is the textarea, which is right.
-  function onClusterKeydown(e) {
-    if (e.key !== "Tab" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (focusFeed()) e.preventDefault();
-  }
 
   function openAdvanced() {
     S.modal = {
@@ -2058,7 +2049,6 @@
           aria-label="Composer actions"
           tabindex="-1"
           use:roving
-          onkeydown={onClusterKeydown}
         >
         {#if canRecord && !draft.trim() && pending.length === 0}
           <!-- Mic replaces nothing; it appears when there's no text/attachment to

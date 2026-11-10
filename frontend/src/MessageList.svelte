@@ -1,6 +1,7 @@
 <script>
   // The feed: date dividers, consecutive-sender grouping, drag-and-drop
   // attachments, pins/search panels, and the out-of-sync banner.
+  import { feedTabs } from "./lib/feedtabs.js";
   import Icon from "./Icon.svelte";
   import EmptyState from "./EmptyState.svelte";
   import { pushLayer } from "./lib/navstack.svelte.js";
@@ -1368,6 +1369,7 @@
   bind:this={feedEl}
   role="log"
   aria-label="Messages"
+  use:feedTabs
   onkeydown={onFeedKeydown}
   onfocusin={onFeedFocusIn}
   ondragenter={onDragEnter}
