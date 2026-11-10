@@ -166,6 +166,33 @@
 
   const rightW = $derived(Math.min(vw * 0.82, 300));
 
+  // Landscape with the keyboard up. A phone on its side is about 390 CSS px
+  // tall, and a tall IME (a half-open foldable reaches 336px) leaves the page
+  // less than its own chrome: the top bar alone took most of what was left,
+  // and the composer — the thing being typed into — was barely on screen.
+  // While the keyboard is up and the page has less room than the bar, one
+  // message and the composer need, the bar folds away to its status-bar inset,
+  // the way the bar of a phone messenger scrolls off while you type. It comes
+  // back the moment the keyboard goes. Gated on the keyboard because without
+  // one a short page is a split screen, where the bar's back button is the
+  // only way out.
+  // Measured on the page, not computed from the viewport: the page's box is
+  // what the shell's --kb padding actually left, whatever the zoom. The page
+  // is inset into the stack, so folding its own bar never changes its height
+  // and cannot feed back into the observer.
+  const CRAMPED_BELOW = 160;
+  let pageEl = $state();
+  let cramped = $state(false);
+  $effect(() => {
+    if (!pageEl || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => {
+      const kb = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb")) || 0;
+      cramped = kb > 0 && entry.contentRect.height < CRAMPED_BELOW;
+    });
+    ro.observe(pageEl);
+    return () => ro.disconnect();
+  });
+
   // External opens/closes (the chevron, the back gesture, a row picked) sync
   // the fractions — but never mid-drag, where the finger owns them.
   $effect(() => {
@@ -652,6 +679,8 @@
       class:moving
       class:drag={dragging}
       class:parked={pageParked}
+      class:cramped
+      bind:this={pageEl}
       style:transform={home === 0 && !dragging ? "none" : `translateX(${home * 100}%)`}
       inert={pageParked}
     >
@@ -1502,6 +1531,35 @@
       flex-direction: row;
       gap: 6px;
     }
+  }
+  /* See `cramped`. Folded to the status-bar inset, not removed: in landscape
+     the status bar is usually still drawn, and the page has no inset of its
+     own above the feed. */
+  .page.cramped .mtopbar {
+    height: 0;
+    border-bottom-width: 0;
+    box-shadow: none;
+  }
+  .page.cramped .mtopbar > * {
+    display: none;
+  }
+  /* The rest of what stands between the feed and the composer goes with it:
+     the connection bar is still one tap away once the keyboard is down, and the
+     typing line reserves its height even when nobody is typing. */
+  .page.cramped .conn,
+  .page.cramped :global(.typing-line) {
+    display: none;
+  }
+  /* What is left can still be shorter than the composer itself. Overflow then
+     spills off the top — the history — instead of off the bottom, where the
+     text being typed is. */
+  .page.cramped .feedwrap {
+    justify-content: flex-end;
+  }
+  /* And the composer's own bottom gutter, which sits on the keyboard here:
+     those 8px are what the input box was missing to fit a 336px keyboard. */
+  .page.cramped :global(.composer.mobile) {
+    padding-bottom: 0;
   }
   /* The narrow floor: at 360px a guild channel shows back/title/members/⋯, and
      at an 8px gap the title ellipsises to about two words.
