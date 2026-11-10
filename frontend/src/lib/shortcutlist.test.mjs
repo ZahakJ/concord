@@ -103,7 +103,7 @@ for (const [file, keys] of scope) {
 
 // Sanity: the entries the sheet lost once, by name.
 for (const label of [
-  "Member panel",
+  "Inspector (members, pins, files)",
   "Deafen",
   "This list",
 ]) {

@@ -21,7 +21,9 @@
     channelShort,
     callRoster,
     callHealth,
+    markRead,
   } from "./lib/state.svelte.js";
+  import { PERM, has } from "./lib/perms.js";
   import { callClock } from "./lib/calltimer.svelte.js";
   import { api } from "./lib/api.js";
   import { saveText } from "./lib/savefile.js";
@@ -66,7 +68,18 @@
       (voiceMembersFor(ch.id) || []).some((m) => !m.self),
   );
   const peerSharing = $derived(peerInCall && (voiceMembersFor(ch.id) || []).some((m) => !m.self && m.sharing));
-  const pinnedCount = $derived(S.messages.filter((m) => m.pinned && !m.deleted).length);
+  // The inspector toggle wears the member count (tabular figures): the people
+  // glyph alone said nothing about how many were in here.
+  const memberCount = $derived(S.members.length);
+  const canManageChannels = $derived(!!g && (g.isOwner || has(g.myPerms || 0, PERM.MANAGE_CHANNELS)));
+  async function copyChannelLink() {
+    try {
+      await navigator.clipboard.writeText(`concord://channel?id=${encodeURIComponent(S.activeChannelId)}`);
+      flash("Copied channel link", "success");
+    } catch {
+      flash("Couldn't copy the link");
+    }
+  }
   // ---- how much room this header actually has -----------------------------
   //
   // Every tier here used to be a viewport media query, and a viewport is the
@@ -110,7 +123,6 @@
   // which the tier above it has run out of slack, measured on the real thing.
   //
   //   narrow  the topic leaves, and the buttons drop their word labels
-  //   tight   disappearing / events / invite fold into the ⋯ menu
   //   stub    the search field becomes a 32px magnifier
   //   packed  pins and the member-list toggle fold in too
   //
@@ -121,8 +133,7 @@
   // which puts this header at 864, 733, 624, 576, 532 and 384px in turn. 700 is
   // the last width at which the full row still fits — at 624 it overflowed by
   // 86px and put Invite and the ⋯ menu itself off the right edge.
-  const narrow = $derived(headW <= 700);
-  const tight = $derived(!S.isMobile && narrow);
+  const narrow = $derived(headW <= 640);
   const stub = $derived(headW <= 460);
   const packed = $derived(headW <= 380);
   const clock = $derived(callClock());
@@ -369,73 +380,32 @@
            elsewhere (ok). -->
       <button
         class="ghost iconbtn"
+        aria-label={g?.kind === "dm" || g?.kind === "meeting" ? "Start a call" : "Start a call in this channel"}
         use:tooltip={{ text: g?.kind === "dm" || g?.kind === "meeting" ? "Start a call" : "Start a call in this channel" }}
         onclick={() => onJoinVoice()}
       >
-        <Icon name="speaker" /> <span class="n">Start a call</span>
-      </button>
-    {/if}
-
-    {#if ch && !packed}
-      <button
-        class="ghost iconbtn"
-        class:pin-active={S.showPins}
-        use:tooltip
-        aria-label="Pinned messages"
-        onclick={() => (S.showPins = !S.showPins)}
-      >
-        <Icon name="pin" />{#if pinnedCount}<span class="n count">{pinnedCount}</span>{/if}
-      </button>
-    {/if}
-
-    {#if ch && !tight}
-      <button
-        class="ghost iconbtn"
-        class:pin-active={ephTTL > 0}
-        use:tooltip={{ text: ephTTL > 0 ? `Disappearing after ${ttlLabel(ephTTL)}` : "Disappearing messages" }}
-        aria-label="Disappearing messages"
-        onclick={() => (S.modal = { kind: "disappear", channelId: S.activeChannelId })}
-      >
-        <Icon name="clock" />
-      </button>
-    {/if}
-
-    {#if g && !tight}
-      <!-- The calendar — the thing that replaces "so when are we on?"
-           scroll-back. Every room gets one: a guild's is the crew's shared
-           board, a DM's is "when are we hopping on?" between its people, and
-           Notes' is your private list (a single-member group, so private by
-           construction). Mounted like Pins: a button here, a sheet entry on
-           phones (MobileShell's ⋯, since this header never renders there). -->
-      <button
-        class="ghost iconbtn"
-        use:tooltip={{ text: g.dmNotes ? "Private events" : "Events" }}
-        aria-label={g.dmNotes ? "Private events" : g.kind === "dm" ? "Events in this conversation" : "Guild events"}
-        onclick={() => (S.modal = { kind: "events" })}
-      >
-        <Icon name="calendar" />
+        <Icon name="speaker" />{#if g?.kind === "dm" || g?.kind === "meeting"}
+          <span class="n">Start a call</span>{/if}
       </button>
     {/if}
 
     {#if ch && g?.kind !== "dm" && !packed}
+      <!-- The inspector: members, pins, files and threads beside the
+           conversation. People glyph + the member count; Ctrl+U as before. -->
       <button
-        class="ghost iconbtn"
+        class="ghost iconbtn insp-toggle"
         class:pin-active={S.prefs.memberPanel}
-        use:tooltip={{ text: "Toggle member list (Ctrl+U)" }}
-        aria-label="Toggle member list"
+        use:tooltip={{ text: "Members, pins and files · Ctrl+U" }}
+        aria-label="Members, pins and files"
         aria-pressed={S.prefs.memberPanel}
         onclick={toggleMemberPanel}
       >
-        <Icon name="members" />
+        <Icon name="members" />{#if memberCount}<span class="n count">{memberCount}</span>{/if}
       </button>
     {/if}
 
-    {#if g?.canManage && g?.kind !== "dm" && !tight}
-      <button class="ghost iconbtn invite" onclick={showInvite}><span class="invite-label">Invite</span></button>
-    {/if}
-
     {#if g}
-      <Menu label="More" icon="chevron">
+      <Menu label="More" icon="dots">
         <!-- The overflow well. Everything that leaves the bar arrives here, in
              the order it left, so a squeezed header hides nothing — it moves
              things. Before this the last tier simply clipped: at 150% zoom
@@ -462,40 +432,51 @@
             <Icon name="speaker" size={14} /> Start a call
           </button>
         {/if}
-        {#if packed && ch}
-          <button class="menu-item" onclick={() => (S.showPins = !S.showPins)}>
-            <Icon name="pin" size={14} />
-            {pinnedCount ? `Pinned messages (${pinnedCount})` : "Pinned messages"}
-          </button>
-        {/if}
         {#if packed && ch && g.kind !== "dm"}
           <button class="menu-item" onclick={toggleMemberPanel}>
             <Icon name="members" size={14} />
-            {S.prefs.memberPanel ? "Hide the member list" : "Show the member list"}
+            {S.prefs.memberPanel ? "Hide members, pins and files" : "Members, pins and files"}
           </button>
         {/if}
-        {#if tight && ch}
+        {#if packed}
+          <div class="menu-sep"></div>
+        {/if}
+        {#if ch}
+          <button class="menu-item" onclick={() => markRead(S.activeChannelId)}>
+            <Icon name="check" size={14} /> Mark as read
+          </button>
+          <button class="menu-item" onclick={() => (S.modal = { kind: "scheduled" })}>
+            <Icon name="clock" size={14} /> Scheduled messages
+          </button>
+        {/if}
+        <button class="menu-item" onclick={() => (S.modal = { kind: "events" })}>
+          <Icon name="calendar" size={14} /> {g.dmNotes ? "Private events" : "Events"}
+        </button>
+        {#if g.canManage && g.kind !== "dm"}
+          <button class="menu-item" onclick={showInvite}>
+            <Icon name="personPlus" size={14} /> Invite people
+          </button>
+        {/if}
+        {#if ch}
           <button
             class="menu-item"
             onclick={() => (S.modal = { kind: "disappear", channelId: S.activeChannelId })}
           >
-            <Icon name="clock" size={14} />
+            <Icon name="eyeOff" size={14} />
             {ephTTL > 0 ? `Disappearing after ${ttlLabel(ephTTL)}` : "Disappearing messages"}
           </button>
         {/if}
-        {#if tight}
-          <button class="menu-item" onclick={() => (S.modal = { kind: "events" })}>
-            <Icon name="calendar" size={14} /> {g.dmNotes ? "Private events" : "Events"}
+        {#if ch && g.kind !== "dm" && canManageChannels && ch.type !== "voice" && !ch.parent}
+          <button class="menu-item" onclick={() => (S.modal = { kind: "channelTopic", channel: ch })}>
+            <Icon name="gear" size={14} /> Channel settings
           </button>
         {/if}
-        {#if tight && g.canManage && g.kind !== "dm"}
-          <button class="menu-item" onclick={showInvite}>
-            <Icon name="plus" size={14} /> Invite people
+        {#if ch && g.kind !== "dm"}
+          <button class="menu-item" onclick={copyChannelLink}>
+            <Icon name="link" size={14} /> Copy channel link
           </button>
         {/if}
-        {#if tight || packed}
-          <div class="menu-sep"></div>
-        {/if}
+        <div class="menu-sep"></div>
         {#if ch}
           <button class="menu-item" onclick={exportChannel}>
             <Icon name="download" size={14} /> Export history
@@ -546,11 +527,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 11px 16px;
+    min-height: var(--header-h);
+    box-sizing: border-box;
+    padding: 0 12px 0 var(--sp-edge);
     border-bottom: 1px solid var(--border);
     gap: 10px;
-    /* Faint drop under the header: elevation over the feed it caps. */
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     position: relative;
     /* Above the message rows (which raise their hover bar / attachments to
        z-30): the header's dropdown menus overhang the feed, and a menu that
@@ -560,20 +541,6 @@
   }
   /* An accent thread under the channel name, fading out rightward — the
      header quietly points at where you are. */
-  .chat-head::after {
-    content: "";
-    position: absolute;
-    left: 16px;
-    bottom: -1px;
-    /* Clamped to the bar. A flat 180px starting 16px in is 196px of box, which
-       on a 189px header is 7px of horizontal overflow — invisible, because it
-       is a one-pixel hairline, and enough to make the header report itself as
-       scrollable at the tightest zoom. */
-    width: min(180px, calc(100% - 32px));
-    height: 1px;
-    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
-    pointer-events: none;
-  }
   /* Where you ARE outranks everything you can do here, and this is the third
      time that has had to be said in CSS. First the title was a plain flex item
      beside an action row of nowrap buttons, and flex handed the width to the
@@ -627,15 +594,15 @@
      the title, so the field narrows to its floor first and only then does the
      topic start to give. Focus still widens it: you get the room when you are
      actually typing. */
+  /* Search is a 32px control until it is used; then it becomes a 280px
+     field in place, and the topic is what gives way to it. */
   .search-wrap {
-    flex: 0 1 clamp(84px, 20 * var(--vw), 190px);
-    min-width: 96px;
-    transition: flex-basis var(--dur-calm) var(--ease-out);
+    flex: 0 0 32px;
+    min-width: 0;
   }
   .search-wrap:focus-within,
   .search-wrap.open {
-    flex-basis: clamp(84px, 28 * var(--vw), 260px);
-    flex-shrink: 0;
+    flex-basis: min(280px, 40 * var(--vw));
   }
   .chat-head:not(.stub) > .row:last-child {
     flex-shrink: 40;
@@ -647,7 +614,7 @@
   }
   /* The channel-type glyph carries the accent — a small "you are here" tint. */
   .title :global(svg) {
-    color: var(--accent-hover);
+    color: var(--text-faint);
     flex-shrink: 0;
   }
   /* The cap is the one concession: a channel someone named with a sentence
@@ -655,6 +622,9 @@
      shorter than the cap is immune to the squeeze. */
   .title strong {
     color: var(--text);
+    font-family: var(--display-font);
+    font-size: var(--fs-title);
+    font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -741,7 +711,8 @@
     /* Fills .search-wrap, which owns the width (see above). */
     width: 100%;
     min-width: 0;
-    padding: 5px 10px;
+    height: 32px;
+    padding: 0 10px;
     font-size: var(--fs-ui);
     transition: width var(--dur-calm) var(--ease-out), border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease, background var(--dur-standard) ease;
   }
@@ -754,7 +725,31 @@
   .search-box.busy {
     padding-right: 26px;
   }
+  /* Collapsed: the box is a bare magnifier button. */
+  .search-wrap:not(:focus-within):not(.open) .search-box {
+    background: transparent;
+    box-shadow: none;
+    border-color: transparent;
+    color: transparent;
+    cursor: pointer;
+    padding: 0;
+  }
+  .search-wrap:not(:focus-within):not(.open) .search-box::placeholder {
+    color: transparent;
+  }
+  .search-wrap:not(:focus-within):not(.open):hover .search-box {
+    background: var(--bg-3);
+  }
   .search-glyph {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    inset: 0;
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+  .search-wrap:focus-within .search-glyph,
+  .search-wrap.open .search-glyph {
     display: none;
   }
   /* At the `stub` tier there is no width left to share: giving the channel name
@@ -830,22 +825,34 @@
   .iconbtn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 5px;
-    padding: 6px 9px;
-    transition:
-      background var(--dur-standard) ease,
-      color var(--dur-standard) ease,
-      border-color var(--dur-standard) ease,
-      transform var(--dur-quick) ease;
+    height: 32px;
+    min-width: 32px;
+    padding: 0 7px;
+    box-shadow: none;
+    border-color: transparent;
+    color: var(--text-muted);
   }
   .iconbtn:hover {
-    transform: translateY(-1px);
+    color: var(--text);
+    background: var(--bg-3);
   }
-  .iconbtn:active {
-    transform: none;
+  /* The ⋯ trigger is the fourth control and wears the same quiet glyph look. */
+  .chat-head :global(.trigger) {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+  }
+  .chat-head :global(.trigger:hover) {
+    background: var(--bg-3);
+    color: var(--text);
   }
   .n {
     font-size: var(--fs-compact);
+    font-variant-numeric: tabular-nums;
     /* These labels are two and three words now ("Start a call", "Return to
        call · 12:34"), and a header button that wraps its own label is a header
        button that grows a second line and shoves the row taller. */
@@ -857,10 +864,13 @@
   .chat-head.narrow .n:not(.count) {
     display: none;
   }
+  /* Pressed: the selected-control look, ink on the hover ground. */
   .pin-active {
-    color: var(--accent-hover);
-    border-color: var(--accent);
-    background: var(--accent-soft);
+    color: var(--text);
+    background: var(--bg-3);
+  }
+  .insp-toggle .count {
+    font-weight: 600;
   }
   .voice-pill {
     display: inline-flex;

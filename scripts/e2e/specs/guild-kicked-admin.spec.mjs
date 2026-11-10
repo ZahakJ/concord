@@ -15,7 +15,11 @@ test("a kicked admin loses every management affordance", async ({ world, assert,
   });
   const b = await admin.open();
   await b.openChannel(ch.name, "Riverside");
-  await b.page.getByRole("button", { name: /Invite/ }).first().waitFor({ state: "visible" });
+  // Invite people lives in the conversation header's ⋯ menu.
+  const headerMenu = b.page.locator("header.chat-head").getByRole("button", { name: "More", exact: true });
+  await headerMenu.click();
+  await b.page.getByRole("menuitem", { name: "Invite people" }).waitFor({ state: "visible" });
+  await b.page.keyboard.press("Escape");
 
   step("Alice kicks Bob");
   await owner.rpc("RemoveMember", g.id, admin.fingerprint, "");
@@ -34,6 +38,10 @@ test("a kicked admin loses every management affordance", async ({ world, assert,
   await waitFor(async () => (await b.page.getByRole("button", { name: /^Invite/ }).count()) === 0, {
     message: "the kicked admin still has an Invite button",
   });
+  await headerMenu.click();
+  await b.page.locator('[role="menu"]').waitFor({ state: "visible" });
+  assert.equal(await b.page.getByRole("menuitem", { name: "Invite people" }).count(), 0, "the header menu still offers Invite people");
+  await b.page.keyboard.press("Escape");
   assert.equal(await b.page.getByRole("button", { name: "Add channel or category" }).count(), 0);
   assert.equal(await b.page.getByRole("button", { name: /Start a call/ }).count(), 0);
   const view = (await admin.guilds()).find((x) => x.id === g.id);

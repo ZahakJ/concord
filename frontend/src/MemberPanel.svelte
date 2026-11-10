@@ -5,6 +5,7 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import StoryTray from "./StoryTray.svelte";
+  import Inspector from "./Inspector.svelte";
   import {
     S,
     activeGuild,
@@ -14,6 +15,8 @@
     openProfilePopover,
     openContextMenu,
     roleColorFor,
+    nameInk,
+    toggleMemberPanel,
     inviteToCall,
     isBlocked,
   } from "./lib/state.svelte.js";
@@ -33,6 +36,10 @@
   // for plain elements, and Android's synthesized one would double-fire
   // alongside the longpress action).
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+  // Mounted bare by the shell, this is the inspector (whose Members tab mounts
+  // this list again, `embedded`). The shell will host <Inspector> directly; until
+  // then the slot the member list has always had is where the inspector lives.
+  let { embedded = false } = $props();
 
   let showPeers = $state(false);
 
@@ -277,6 +284,9 @@
   }
 </script>
 
+{#if !embedded}
+  <Inspector docked={true} onClose={toggleMemberPanel} />
+{:else}
 <aside class="panel">
   {#if activeGuild()?.evicted}
     <!-- The roster a removed device holds is the one it had at the moment it was
@@ -342,8 +352,7 @@
   {/if}
   {#each filteredGroups as grp (grp.id)}
     <div class="section-head">
-      <span style={grp.color ? `color:${grp.color}` : ""}
-        >{grp.name} — {filtering ? `${grp.members.length} of ${grp.total}` : grp.total}</span>
+      <span>{grp.name} · {filtering ? `${grp.members.length} of ${grp.total}` : grp.total}</span>
     </div>
     {#each grp.members as mem (mem.fingerprint)}
       <div class="member-row" data-menu-row>
@@ -360,7 +369,7 @@
           emoji={mem.emoji}
           color={mem.color}
           image={mem.avatar}
-          size={30}
+          size={28}
           online={mem.online}
           presence={mem.presence}
           frame={mem.frame}
@@ -371,7 +380,7 @@
           <span class="member-name" title={mem.fingerprint}>
             <span
               class="mname"
-              style={roleColorFor(mem.fingerprint) ? `color:${roleColorFor(mem.fingerprint)}` : ""}
+              style={S.prefs.roleNameColors && roleColorFor(mem.fingerprint) ? `color:${nameInk(roleColorFor(mem.fingerprint))}` : ""}
             >{mem.name || mem.fingerprint.slice(0, 9)}</span>{mem.isSelf ? " (you)" : ""}
             {#if birthdayToday(mem)}
               <span class="bday" title="Birthday today">🎂</span>
@@ -385,9 +394,9 @@
                  owner/heir group, or an "Owner & heir" group where the two rows
                  differ. -->
             {#if mem.isOwner && !restates(grp, "owner")}
-              <span class="role-badge owner" title="Guild owner">owner</span>
+              <span class="role-badge owner" title="Guild owner">Owner</span>
             {:else if mem.isHeir && !restates(grp, "heir")}
-              <span class="role-badge heir" title="Named heir — can take ownership at any time">heir</span>
+              <span class="role-badge heir" title="Named heir — can take ownership at any time">Heir</span>
             {:else if topRole(mem) && !restates(grp, topRole(mem).name)}
               {@const r = topRole(mem)}
               <!-- A role colour is picked to be seen, not to be read: painting
@@ -404,7 +413,7 @@
               <span class="v-badge" title="Identity verified"><Icon name="check" size={11} /></span>
             {/if}
             {#if mem.pending}
-              <span class="pending-badge" title="Added — they'll appear once they accept &amp; sync">pending</span>
+              <span class="pending-badge" title="Added — they'll appear once they accept &amp; sync">Pending</span>
             {/if}
             {#if mem.mutedUntil > Date.now() / 1000}
               <span class="muted-badge" title="Muted"><Icon name="micOff" size={11} /></span>
@@ -480,6 +489,7 @@
   {/if}
   {/if}
 </aside>
+{/if}
 
 <style>
   .gone-note {
@@ -491,8 +501,7 @@
   }
 
   .panel {
-    background: var(--bg-1);
-    border-left: 1px solid var(--border);
+    background: transparent;
     /* No safe-area inset: the right-hand drawer that hosts this on a phone pads
        its own bottom, so repeating it here reserved the home indicator twice. */
     padding: var(--sp-3) var(--sp-2);
@@ -508,12 +517,10 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    text-transform: uppercase;
-    font-size: var(--fs-tiny);
-    letter-spacing: 0.07em;
-    font-weight: 700;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
-    margin: var(--sp-3) var(--sp-2) var(--sp-1);
+    margin: var(--sp-4) var(--sp-2) var(--sp-1);
   }
   /* The filter is background chrome like the rest of this panel — a quiet
      recessed well, no accent until the field itself is focused (the global
@@ -600,13 +607,16 @@
     gap: var(--sp-2);
     background: transparent;
     color: var(--text);
-    text-align: left;
-    padding: 6px 8px;
+    text-align: start;
+    min-height: 44px;
+    padding: var(--sp-1) var(--sp-2);
+    gap: 10px;
     min-width: 0;
+    border-radius: var(--radius-sm);
   }
   .member:hover,
   .member:active {
-    background: transparent;
+    background: color-mix(in srgb, var(--bg-3) 60%, transparent);
   }
   /* ---- the row a menu is about ----
      The menu opens at the cursor and says nothing about which row it belongs
@@ -623,19 +633,19 @@
   }
   /* Offline members recede so the online roster reads first;
      hovering or focusing a row brings the person fully back. */
-  .member.offline {
-    opacity: 0.62;
-    transition: opacity var(--dur-standard) ease;
+  /* Offline: the face recedes and the name drops to the muted tier; the
+     words stay legible (the name is information). */
+  .member.offline :global(.avatar) {
+    opacity: 0.55;
   }
-  .member-row:hover .member.offline,
-  .member.offline:focus-visible {
-    opacity: 1;
+  :global(:root[data-theme="light"]) .member.offline :global(.avatar) {
+    opacity: 0.65;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .member.offline {
-      transition: none;
-    }
+  .member.offline .mname {
+    color: var(--text-muted);
+    font-weight: 400;
   }
+
   /* Finger-sized rows in the mobile members drawer. */
   @media (pointer: coarse) {
     .member {
@@ -645,9 +655,7 @@
     }
     /* Touch never hovers/focuses, so the recede-then-restore can't kick in —
        keep offline members readable (a gentler dim than the desktop 0.62). */
-    .member.offline {
-      opacity: 0.8;
-    }
+
   }
   .member-text {
     display: flex;
@@ -665,6 +673,7 @@
   /* The name itself ellipsizes (text-overflow doesn't work on the flex parent);
      the role/verified badges keep their size instead of being shoved out. */
   .member-name .mname {
+    font-weight: 500;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -680,6 +689,7 @@
   }
   .member-status {
     font-size: var(--fs-small);
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -764,8 +774,6 @@
      size and grows it on touch; the tracking comes off there entirely. */
   .role-badge {
     font-size: var(--fs-micro);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
     padding: 1px 5px;
     border-radius: var(--radius-sm);
     font-weight: 600;
@@ -778,8 +786,6 @@
   }
   .pending-badge {
     font-size: var(--fs-micro);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
     padding: 1px 5px;
     border-radius: var(--radius-sm);
     font-weight: 600;

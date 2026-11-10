@@ -134,7 +134,13 @@ A theme pack may set surfaces, lines (including `--border-strong`), ink, accent 
 
 **Empty states** (`EmptyState.svelte`) are one pattern: an outlined mark, a headline that names the place, a sentence or two about what goes here, up to two actions and an optional meta line. They are left-aligned; where they sit is the parent's choice. `compact` is the size for panels and small dialogs.
 
-**Planned** for the screens: one dialog frame in four sizes (420, 560, 720 and 900px with a side rail) with the title and a close button in the header and one primary action named after what it does; a sidebar with a place header, a strip of shortcut tiles and a searchable guild switcher; an inspector for members, pins and files beside the conversation; a composer without a permanent formatting bar; and the copy map in `lib/errors.js` covering every raw error the core can return.
+**The conversation.** A message row is avatar, then the author line (name in text ink, time in the faint tier), then a reply's quote under the author line, then the body capped at `--measure`. Names take their role's colour only when Appearance's "Colour names by role" is on, mixed toward the ink until they clear 4.5:1. A message that mentions you gets the `--mention-wash` and a 2px accent bar on its start edge. Dividers are left-aligned labels with a hairline: days in the display face (with the year for any day outside this one), and "New" in your accent. The hover toolbar floats over the row's corner and moves nothing: three reactions, Add reaction, Reply, Start a thread and ⋯; holding Shift adds Edit, Pin and Delete. A focused row answers R, T, E, P, S and Delete. Messages longer than thirty lines fold to twenty behind "Show more".
+
+**The composer** is one surface: + (everything you can add: a file, a GIF, a voice message, a poll, a doodle, a sound, a game, a thread, scheduling, sealing, the full formatting bar, the advanced composer), the text, emoji and Send. There is no permanent formatting bar; selecting text raises a small toolbar for bold, italic, strike, code, spoiler and link, and the format chords work everywhere. The reply bar and the attachment tray sit inside the surface. A 24px strip above it holds "Juno is typing…" and is there, empty, when nobody is. Editing an older message turns its body into a plain box.
+
+**The header** has four controls: search (a field in place once used), the call button, the inspector toggle (people glyph and member count, Ctrl+U) and ⋯ for everything else. **The inspector** has Members, Pins, Files and Threads tabs; docked it is a flat column on `--bg-1`, as an overlay it is a lifted panel below the header. **The palette** (Ctrl+K) shows Unread, Recent and four actions when empty, and one ranked list with the matched characters in bold once you type.
+
+**Planned** for the screens: one dialog frame in four sizes (420, 560, 720 and 900px with a side rail) with the title and a close button in the header and one primary action named after what it does; a sidebar with a place header, a strip of shortcut tiles and a searchable guild switcher; the shell docking the inspector by width (open where the conversation keeps 640px) and overlaying it below the header otherwise; and the copy map in `lib/errors.js` covering every raw error the core can return.
 
 ## Motion
 
@@ -152,7 +158,7 @@ Motion says that something arrived or left, and is over before you think about i
 
 ## Density
 
-Appearance offers Compact, Cosy (the default) and Comfortable. One attribute on `<html>` moves the whole feed rhythm together, and a continuation row cancels the gap so a group of messages reads as one block.
+Appearance offers Compact, Cosy (the default) and Comfortable. One attribute on `<html>` moves the whole feed rhythm together. Groups are made in the markup: the row that starts a group carries `--msg-gap` above it and a continuation row carries nothing, so a group reads as one block. Compact draws no avatars; Cosy's are 36px and Comfortable's 40px.
 
 | | Compact | Cosy | Comfortable |
 |---|---|---|---|
