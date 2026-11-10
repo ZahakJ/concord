@@ -564,6 +564,7 @@ export const api = {
   callIceServers: () => call("CallIceServers"),
   revealDeleted: (channelID, messageID) => call("RevealDeleted", channelID, messageID),
   sendTyping: (channelID) => call("SendTyping", channelID),
+  stopTyping: (channelID) => call("StopTyping", channelID),
   // birthday ("MM-DD" — never a year) rides at the END of the positional list.
   // Leave it undefined to keep the stored value: the bridge reads the short
   // arity as "don't touch", so callers patching other fields can't silently

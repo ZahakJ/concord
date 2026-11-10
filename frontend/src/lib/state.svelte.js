@@ -3775,6 +3775,15 @@ function initEvents() {
 
   on("typing", (t) => {
     if (t.channelId !== S.activeChannelId) return;
+    // An explicit stop: they emptied the draft or left the channel.
+    if (t.stop) {
+      const gone = S.typingList.find((x) => x.from === t.from);
+      if (gone) {
+        clearTimeout(gone.timer);
+        S.typingList = S.typingList.filter((x) => x.from !== t.from);
+      }
+      return;
+    }
     // Your own typing, relayed from another of your devices, IS shown — typing
     // on your phone lighting up your name on your desktop is the proof the
     // devices are talking (suppressing it read as breakage; the user overruled

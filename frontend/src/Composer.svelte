@@ -24,6 +24,7 @@
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
+  import { typingSignal } from "./lib/typing.js";
   import { tooltip } from "./lib/tooltip.js";
   import { scheduleMessage } from "./lib/scheduled.svelte.js";
   import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
@@ -316,6 +317,9 @@
     const cur = S.activeChannelId;
     untrack(() => {
       if (cur === prevChannel) return;
+      // Leaving with a typing line up: end it now, not on the 4 s timer.
+      if (lastTypingSent && prevChannel) api.stopTyping(prevChannel).catch(() => {});
+      lastTypingSent = 0;
       saveDraft(prevChannel, draft);
       draft = loadDraft(cur);
       // The tray travels with the text: see lib/compose.js for what sending
@@ -830,7 +834,7 @@
     // which may well be a picker this composer opened.
   }
 
-  function onInput() {
+  function onInput(e) {
     // The wall-of-text offer lives exactly as long as the paste is the last
     // thing you did. That is what makes Tab safe to borrow for it below.
     if (wrapPending) {
@@ -840,10 +844,17 @@
     } else {
       wrapOffer = null;
     }
-    const now = Date.now();
-    if (now - lastTypingSent > 2000 && S.activeChannelId) {
-      lastTypingSent = now;
+    // What this edit tells the channel (lib/typing.js): insertions start the
+    // line, emptying the draft ends it, deleting alone says nothing.
+    const signal = S.activeChannelId
+      ? typingSignal({ inputType: e?.inputType || "", draft, sentAt: lastTypingSent })
+      : null;
+    if (signal === "start") {
+      lastTypingSent = Date.now();
       api.sendTyping(S.activeChannelId).catch(() => {});
+    } else if (signal === "stop") {
+      lastTypingSent = 0;
+      api.stopTyping(S.activeChannelId).catch(() => {});
     }
     saveDraft(S.activeChannelId, draft);
     queueAutosize();
@@ -894,6 +905,8 @@
     playLaunch();
     playSend();
     const chId = S.activeChannelId;
+    // The message itself ends the line on every receiver (lib/typing.js).
+    lastTypingSent = 0;
     draft = "";
     pending = [];
     saveDraft(chId, "");
