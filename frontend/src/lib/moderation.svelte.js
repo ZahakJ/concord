@@ -158,7 +158,9 @@ export function moderationItems(mem, { close } = {}) {
   const g = activeGuild();
   if (!mem || !g || g.kind === "dm") return [];
   const myPerms = g.myPerms || 0;
-  const canModerate = !mem.isSelf && !mem.isOwner && (g.isOwner || g.canManage);
+  // Equal or senior roles are out of reach (the core refuses too). A member
+  // view from a build without the flag reads as reachable, as before.
+  const canModerate = !mem.isSelf && !mem.isOwner && (g.isOwner || g.canManage) && mem.outranked !== false;
   const canMute = canModerate && has(myPerms, PERM.MUTE_MEMBERS);
   const canMakeAdmin = !mem.isSelf && (g.isOwner || has(myPerms, PERM_ALL));
   const adminRole = S.roles.find((r) => r.perms === PERM_ALL);

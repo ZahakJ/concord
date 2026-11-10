@@ -362,7 +362,10 @@ type MemberView struct {
 	CanManage   bool             `json:"canManage"`  // owner or manage-members holder
 	RoleIDs     []string         `json:"roleIds"`    // assigned role IDs (highest-first from Roles())
 	MutedUntil  int64            `json:"mutedUntil"` // unix seconds muted-until (0 = not muted)
-	Pending     bool             `json:"pending"`    // added but not yet joined (shown greyed)
+	// Outranked: the viewer stands above this member (owner, or a strictly
+	// higher top role), so mute/kick/ban may be offered.
+	Outranked bool `json:"outranked"`
+	Pending   bool `json:"pending"` // added but not yet joined (shown greyed)
 }
 
 type ContactView struct {
@@ -1952,6 +1955,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			CanManage:   isOwner || perms&uint32(appsvc.PermManageMembers) != 0,
 			RoleIDs:     svc.MemberRoleIDs(guildID, fpr),
 			MutedUntil:  svc.MutedUntil(guildID, fpr),
+			Outranked:   !isSelf && svc.Outranks(guildID, svc.Fingerprint(), fpr),
 		})
 	}
 	// The MLS library yields members in map order (random per call), which made

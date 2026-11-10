@@ -439,7 +439,7 @@
           {/if}
         </span>
       </button>
-        {#if g?.canManage && !mem.isSelf && !mem.isOwner}
+        {#if g?.canManage && !mem.isSelf && !mem.isOwner && mem.outranked !== false}
           <button class="kick" title={mem.pending ? "Cancel invite" : "Kick from guild"} aria-label="{mem.pending ? 'Cancel invite for' : 'Kick'} {mem.name || 'member'}" onclick={() => kick(mem)}>
             <Icon name="close" size={12} />
           </button>

@@ -379,6 +379,65 @@ func (s *Service) memberHasPerm(guildID, fpr string, need Permission) bool {
 	return s.govState[guildID].Can(s.effectiveOwnerLocked(guildID), fpr, need)
 }
 
+// outranks reports whether actor stands above target in the guild's hierarchy:
+// the owner above everyone, otherwise a strictly higher top role. It is what an
+// issuing client asks before it moderates anyone.
+//
+// The log's replay does not ask it. A moderator kicking or muting an admin is
+// accepted on every peer, old and new, and refusing it there would split a
+// guild between builds that fold the same op differently. So the rule lives on
+// the issuing side — this build will not create such an op, and its menus do
+// not offer it — and whether replay should enforce it is the owner's call.
+func (s *Service) outranks(guildID, actor, target string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	owner := s.effectiveOwnerLocked(guildID)
+	if actor == owner {
+		return target != owner
+	}
+	if target == owner {
+		return false
+	}
+	st := s.govState[guildID]
+	return st.topPosition(owner, actor) > st.topPosition(owner, target)
+}
+
+// Outranks is the exported read, for the member list's menus.
+func (s *Service) Outranks(guildID, actor, target string) bool {
+	return s.outranks(guildID, actor, target)
+}
+
+// errOutranked is the refusal when a moderator aims at an equal or senior.
+var errOutranked = fmt.Errorf("app: you can only do that to members whose highest role is below yours")
+
+// stripRoles revokes, one signed op each, every role a removed member holds
+// that this device may take away (manage-roles, and a role below its rank).
+//
+// The replay strips roles on a ban but not on a kick, so a kicked admin who
+// came back through an invite was an admin again on arrival. Changing the
+// replay would make builds disagree about who holds what; ordinary role_assign
+// revocations fold the same way on every build.
+func (s *Service) stripRoles(guildID, targetFpr string) {
+	if !s.hasPerm(guildID, PermManageRoles) {
+		return
+	}
+	me := s.id.Fingerprint()
+	s.mu.RLock()
+	owner := s.effectiveOwnerLocked(guildID)
+	st := s.govState[guildID]
+	mine := st.topPosition(owner, me)
+	var drop []string
+	for _, rid := range st.MemberRoles[targetFpr] {
+		if r, ok := st.Roles[rid]; ok && (me == owner || r.Position < mine) {
+			drop = append(drop, rid)
+		}
+	}
+	s.mu.RUnlock()
+	for _, rid := range drop {
+		_ = s.issueGovOp(guildID, govOp{Type: "role_assign", Target: targetFpr, RoleID: rid, Add: false})
+	}
+}
+
 // ---- exported accessors for the bridge ----
 
 // HasPermission reports whether this peer holds a permission bit in the guild.
@@ -541,6 +600,9 @@ func (s *Service) BanMember(guildID, targetFpr, reason string) error {
 	if !s.canManageMembers(guildID) {
 		return fmt.Errorf("app: you don't have permission to ban members")
 	}
+	if !s.outranks(guildID, s.id.Fingerprint(), targetFpr) {
+		return errOutranked
+	}
 	if err := s.issueGovOp(guildID, govOp{Type: "ban", Target: targetFpr, Name: sanitizeReason(reason)}); err != nil {
 		return err
 	}
@@ -569,9 +631,13 @@ func (s *Service) KickMember(guildID, targetFpr, reason string) error {
 	if targetFpr == s.id.Fingerprint() {
 		return fmt.Errorf("app: use Leave to remove yourself")
 	}
+	if !s.outranks(guildID, s.id.Fingerprint(), targetFpr) {
+		return errOutranked
+	}
 	if err := s.issueGovOp(guildID, govOp{Type: "remove_member", Target: targetFpr, Name: sanitizeReason(reason)}); err != nil {
 		return err
 	}
+	s.stripRoles(guildID, targetFpr)
 	return s.removeMemberByFingerprint(guildID, targetFpr)
 }
 
@@ -588,6 +654,9 @@ func (s *Service) ReadmitMember(guildID, targetFpr string) error {
 	if s.isBanned(guildID, targetFpr) {
 		return fmt.Errorf("app: they're banned — lift the ban first")
 	}
+	// Whatever the kick could not strip (its issuer lacked manage-roles) goes
+	// now, so the person comes back as a member and is promoted deliberately.
+	s.stripRoles(guildID, targetFpr)
 	return s.issueGovOp(guildID, govOp{Type: "readmit", Target: targetFpr})
 }
 
@@ -687,6 +756,9 @@ func (s *Service) UnbanMember(guildID, targetFpr string) error {
 func (s *Service) MuteMember(guildID, targetFpr string, minutes int, reason string) error {
 	if !s.hasPerm(guildID, PermMuteMembers) {
 		return fmt.Errorf("app: you don't have permission to mute members")
+	}
+	if !s.outranks(guildID, s.id.Fingerprint(), targetFpr) {
+		return errOutranked
 	}
 	if minutes <= 0 {
 		minutes = 10
