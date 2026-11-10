@@ -958,6 +958,13 @@
         {/if}
       </div>
 
+      {#if !(g?.channels || []).length}
+        <!-- On a phone this list is the whole screen, and it used to be empty
+             under the heading with nothing to say why. -->
+        <p class="no-ch">
+          No channels yet.{canManageChannels && !g?.evicted ? " Use + to make the first one." : ""}
+        </p>
+      {/if}
       {#each groups as grp (grp.id || "_uncat")}
         {#if grp.name}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1514,6 +1521,11 @@
 {/if}
 
 <style>
+  .no-ch {
+    margin: var(--sp-2) var(--sp-3);
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+  }
   .cols {
     background: var(--bg-1);
     border-right: 1px solid var(--border);

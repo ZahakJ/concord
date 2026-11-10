@@ -80,6 +80,8 @@
   import Composer from "./Composer.svelte";
   import MemberPanel from "./MemberPanel.svelte";
   import Welcome from "./Welcome.svelte";
+  import EmptyState from "./EmptyState.svelte";
+  import { PERM, has } from "./lib/perms.js";
   import ProfilePopover from "./ProfilePopover.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import Toasts from "./Toasts.svelte";
@@ -1964,6 +1966,26 @@
           {/if}
         </div>
         </div>
+      {:else if !S.callStage && activeGuild() && activeGuild().kind !== "dm" && !(activeGuild().channels || []).length}
+        <!-- A guild with nothing in it yet (or whose channels were all deleted).
+             The first-run welcome — "Create a guild", "Join…" — is the wrong
+             page for someone standing inside one. -->
+        {@const cg = activeGuild()}
+        <div class="no-channels">
+          <EmptyState
+            icon="hash"
+            headline="No channels yet"
+            sub={cg.isOwner || has(cg.myPerms || 0, PERM.MANAGE_CHANNELS)
+              ? "Make the first one and people have somewhere to talk."
+              : "Nothing to read here yet — someone with Manage channels can add one."}
+          >
+            {#snippet actions()}
+              {#if !cg.evicted && (cg.isOwner || has(cg.myPerms || 0, PERM.MANAGE_CHANNELS))}
+                <button onclick={() => (S.modal = { kind: "channel" })}>Create a channel</button>
+              {/if}
+            {/snippet}
+          </EmptyState>
+        </div>
       {:else if !S.callStage}
         <Welcome />
       {/if}
@@ -2414,6 +2436,12 @@
 {/if}
 
 <style>
+  .no-channels {
+    flex: 1;
+    display: grid;
+    place-items: center;
+    padding: var(--sp-6);
+  }
   /* Shown only when a dialog's code takes longer than a frame or two to arrive
      — a cold first open, or a slow disk. Deliberately not a full backdrop: the
      dialog is about to draw its own, and two of them fading over each other
