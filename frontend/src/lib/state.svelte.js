@@ -40,6 +40,7 @@ import { isGameToken } from "./games.js";
 import { plainSnippet } from "./snippet.js";
 import { typistsAfter } from "./typing.js";
 import { landsOnWelcome } from "./firstrun.js";
+import { insertBySent } from "./feedorder.js";
 import { isBlankText } from "./compose.js";
 import {
   LEVELS as NOTIF_LEVELS,
@@ -3538,7 +3539,8 @@ function initEvents() {
       if (i >= 0) {
         S.messages = S.messages.map((x) => (x.id === m.id ? m : x)); // update (edit/delete/react)
       } else {
-        S.messages = [...S.messages, m];
+        // In the store's order, not arrival order — see lib/feedorder.js.
+        S.messages = insertBySent(S.messages, m);
         // A sound for something already on screen. Off by default and it has
         // to be — but in a quiet room some people want to hear the room, and
         // the app had nothing at all for a message arriving in the channel you
