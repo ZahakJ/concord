@@ -35,6 +35,7 @@
   import { stashStaged, takeStaged, addStaged, isBlankText } from "./lib/compose.js";
   import Avatar from "./Avatar.svelte";
   import { stagedImage, dataUrlBytes } from "./lib/attachopts.js";
+  import { displayFileName } from "./lib/attachments.js";
   import { fmtBytes } from "./lib/chronicle.js";
   import { wantsTypeToFocus } from "./lib/typetofocus.js";
   import { isPttKey } from "./lib/shortcuts.js";
@@ -1038,7 +1039,7 @@
       // Defaults come from stagedImage (lib/attachopts.js), which keeps `name`
       // empty so an unedited image still goes out as the v1 token older peers
       // can render. See that file for why prefilling it here is a trap.
-      stageInto(into, stagedImage({ id: uid(), dataUrl, w, h, fileName: file.name || "" }));
+      stageInto(into, stagedImage({ id: uid(), dataUrl, w, h, fileName: displayFileName(file.name) }));
     } catch (err) {
       const msg = String(err?.message || err);
       flash(
@@ -1071,7 +1072,7 @@
     try {
       const dataUrl = await readAsDataURL(file);
       const isVideo = file.type.startsWith("video/");
-      stageInto(into, { id: uid(), dataUrl, name: file.name || "file", isImage: false, isVideo, bytes: file.size || dataUrlBytes(dataUrl) });
+      stageInto(into, { id: uid(), dataUrl, name: displayFileName(file.name) || "file", isImage: false, isVideo, bytes: file.size || dataUrlBytes(dataUrl) });
     } catch (err) {
       flash(err);
     } finally {

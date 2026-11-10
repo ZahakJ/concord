@@ -16,6 +16,7 @@ import {
   parseAttachTokens,
   parseFileTokens,
   placeholderName,
+  displayFileName,
 } from "./attachments.js";
 
 let failures = 0;
@@ -119,6 +120,22 @@ const file = parseFileTokens(
 )[0];
 eq(file.name, "meeting-notes.md", "a file token yields the file name");
 eq(fmtBytes(file.size), "5 KB", "a file token yields a real size");
+
+
+// A right-to-left override must not let a program wear a picture's extension.
+const spoof = "weird name (1) \u202Egnp.exe";
+const rlo = parseFileTokens(
+  `[file](concord://file/v1/${"b".repeat(64)}/${"A".repeat(75)}/5008/${Buffer.from("application/x-msdownload").toString("base64url")}/${Buffer.from(spoof).toString("base64url")})`,
+)[0];
+eq(rlo.name, "weird name (1) gnp.exe", "bidi overrides are dropped from a file token's name");
+eq(rlo.name.endsWith(".exe"), true, "the shown name ends in the real extension");
+const rloImg = parseAttachTokens(
+  `![image](concord://attach/v2/${"a".repeat(64)}/${"A".repeat(75)}/png/600x400/0/${Buffer.from("x\u2067gpj.exe\u2069").toString("base64url")}/)`,
+)[0];
+eq(rloImg.name, "xgpj.exe", "and from an image's name");
+eq(displayFileName("\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\u200E\u200F\u061Cok.txt"), "ok.txt", "every bidi control");
+eq(displayFileName("مرحبا.pdf"), "مرحبا.pdf", "right-to-left text itself is kept");
+eq(displayFileName("ünïcødé — (1).png"), "ünïcødé — (1).png", "other characters are kept");
 
 // ...but a spoiler must stay a spoiler even when it fails. A placeholder that
 // prints THE-KILLER-IS-THE-BUTLER.png has leaked the thing the sender covered.

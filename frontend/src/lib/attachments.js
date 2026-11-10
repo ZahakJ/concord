@@ -52,12 +52,22 @@ export function parseAttachTokens(content) {
         w: +m[9],
         h: +m[10],
         spoiler: (flags & ATTACH_SPOILER) !== 0,
-        name: b64urlDecode(m[12]),
+        name: displayFileName(b64urlDecode(m[12])),
         desc: b64urlDecode(m[13]),
       });
     }
   }
   return out;
+}
+
+// displayFileName is a file name fit to show. Bidirectional control characters
+// are removed: a right-to-left override in "photo (1) \u202Egnp.exe" draws the
+// name as "photo (1) exe.png", so a program wore a picture's extension on
+// every screen it was shown on. Nobody needs one in a file name, and a name
+// that renders the way its bytes read is the only kind a reader can check.
+const BIDI_CONTROLS = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+export function displayFileName(name) {
+  return String(name || "").replace(BIDI_CONTROLS, "");
 }
 
 // parseFileTokens returns FILE tokens [{blobId, keys, size, mime, name}].
@@ -69,7 +79,7 @@ export function parseFileTokens(content) {
       keys: m[2],
       size: +m[3],
       mime: b64urlDecode(m[4]),
-      name: b64urlDecode(m[5]) || "file",
+      name: displayFileName(b64urlDecode(m[5])) || "file",
     });
   }
   return out;
