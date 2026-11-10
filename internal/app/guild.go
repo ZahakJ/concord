@@ -837,6 +837,26 @@ func (s *Service) InviteCode(guildID string) (string, error) {
 	}), nil
 }
 
+// ShareableInviteCode is InviteCode for a code a person will hand to someone
+// else. Notes is one person's scratchpad and a 1:1 is two people's: a code for
+// either let whoever held it join and read what was there, and turned the
+// owner's Notes into a group they no longer had. The core's own uses of
+// InviteCode (a DM inviting its other half, a linked device adopting Notes)
+// stay as they are; people join a DM through AddMember, which makes it a group.
+func (s *Service) ShareableInviteCode(guildID string) (string, error) {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var gc domain.Guild
+	if ok {
+		gc = g.Clone()
+	}
+	s.mu.RUnlock()
+	if ok && gc.Kind == "dm" && (isNotesGuild(gc, s.PublicKey()) || !s.isGroupDM(guildID)) {
+		return "", fmt.Errorf("app: Notes and one-to-one conversations can't be shared with an invite code")
+	}
+	return s.InviteCode(guildID)
+}
+
 // JoinViaInvite redeems an invite code: it contacts the owner, exchanges an MLS
 // KeyPackage for a Welcome, joins the group, and subscribes to guild topics.
 // offerAfter tells this account's other devices about a guild we just gained, so
@@ -1082,6 +1102,11 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	g, ok := s.guilds[req.GuildID]
 	s.mu.RUnlock()
 	if !ok {
+		return json.Marshal(inviteResponse{Error: "unknown guild"})
+	}
+	// Notes admits this account's own devices and nobody else, whatever code
+	// they hold (one minted before ShareableInviteCode refused it, say).
+	if isNotesGuild(*g, s.PublicKey()) && len(req.Credential) > 0 && accountFingerprintOf(req.Credential) != s.id.Fingerprint() {
 		return json.Marshal(inviteResponse{Error: "unknown guild"})
 	}
 	// Serving the join advances the epoch and returns a Welcome. If WE aren't an

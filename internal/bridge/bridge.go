@@ -1556,7 +1556,7 @@ func (b *Bridge) InviteCode(guildID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return svc.InviteCode(guildID)
+	return svc.ShareableInviteCode(guildID)
 }
 
 func (b *Bridge) JoinViaInvite(code string) (GuildView, error) {
