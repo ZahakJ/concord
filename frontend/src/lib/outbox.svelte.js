@@ -196,28 +196,60 @@ export function sendAttachment(channelId, att, replyTo) {
   return run(entry);
 }
 
+// How long a send may go unanswered before its row stops saying "Sending…".
+// A wedged core (or a request lost on the way) used to leave the row clocked
+// forever, with no Retry and no Discard — the draft gone from the box and no
+// way to get it back short of a reload.
+export const SEND_TIMEOUT_MS = { text: 30000, att: 120000 };
+const TIMED_OUT = "No answer from Concord's core yet — it may still go out. Retry, or discard it.";
+
+function deliver(entry) {
+  if (entry.kind === "att") {
+    const a = entry.att;
+    if (a.isImage)
+      return api.sendAttachment(
+        entry.channelId,
+        a.dataUrl,
+        a.w,
+        a.h,
+        entry.replyTo,
+        !!a.spoiler,
+        a.name || "",
+        a.desc || "",
+      );
+    return api.sendFile(entry.channelId, a.dataUrl, a.name, entry.replyTo);
+  }
+  return api.sendMessage(entry.channelId, entry.body, entry.replyTo, entry.dir);
+}
+
 async function run(entry) {
+  const attempt = `${entry.id}:${Date.now()}`;
+  patch(entry.id, { attempt });
+  const call = deliver(entry);
+  // An answer that comes after the row gave up still counts: the message did
+  // go out, so the row goes and the real one takes its place. (A Retry pressed
+  // in between sends it twice; telling the two apart needs an idempotency key
+  // the core does not have.)
+  call.then(
+    () => {
+      const now = S.outbox.find((e) => e.id === entry.id);
+      if (now?.attempt === attempt && now.timedOut) drop(entry.id);
+    },
+    () => {},
+  );
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(TIMED_OUT), SEND_TIMEOUT_MS[entry.kind] || SEND_TIMEOUT_MS.text);
+  });
   try {
-    if (entry.kind === "att") {
-      const a = entry.att;
-      if (a.isImage)
-        await api.sendAttachment(
-          entry.channelId,
-          a.dataUrl,
-          a.w,
-          a.h,
-          entry.replyTo,
-          !!a.spoiler,
-          a.name || "",
-          a.desc || "",
-        );
-      else await api.sendFile(entry.channelId, a.dataUrl, a.name, entry.replyTo);
-    } else {
-      await api.sendMessage(entry.channelId, entry.body, entry.replyTo, entry.dir);
-    }
+    await Promise.race([call, deadline]);
     drop(entry.id);
     return true;
   } catch (err) {
+    if (err === TIMED_OUT) {
+      patch(entry.id, { state: "failed", error: TIMED_OUT, retryAt: 0, timedOut: true });
+      return false;
+    }
     // The row stays where it is and says so. It is NOT re-thrown: the caller
     // used to be the only thing that knew a send had failed, which is why the
     // recovery was "your draft is back, work out what happened".
@@ -234,8 +266,11 @@ async function run(entry) {
       retryAt: wait ? Date.now() + wait * 1000 : 0,
       // The core never heard it — see toFlush.
       offline: unheard(err),
+      timedOut: false,
     });
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -263,7 +298,7 @@ export async function flushOutbox() {
 export function retry(id) {
   const entry = S.outbox.find((e) => e.id === id);
   if (!entry || entry.state !== "failed") return;
-  patch(id, { state: "sending", error: "" });
+  patch(id, { state: "sending", error: "", timedOut: false });
   run({ ...entry, state: "sending" });
 }
 

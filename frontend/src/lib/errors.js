@@ -23,7 +23,7 @@ const RAW_NETWORK = /^(failed to fetch|networkerror when attempting to fetch res
 // in a red box under "That code didn't open the door". Every word of it is true
 // and none of it is for a person; the one fact it carries is that nobody
 // answered, which fits in a sentence.
-const RAW_DIAL = /failed to dial|all dials failed|no good addresses|dial backoff/i;
+const RAW_DIAL = /failed to dial|all dials failed|no good addresses|dial backoff|no route to peer|context deadline exceeded/i;
 
 // What the core says when a channel's slow mode refuses a send. Exported so the
 // composer can read the number back out and take ownership of the wait — the

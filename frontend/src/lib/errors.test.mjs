@@ -22,6 +22,11 @@ eq(humanError("store: net: nope"), "nope", "strips a stack of prefixes");
 
 // What was left over after the strip.
 eq(humanError("rpc SendMessage: HTTP 500"), "Concord's core rejected it — try again", "HTTP 500");
+eq(
+  humanError("send: no route to peer: context deadline exceeded"),
+  "Couldn't reach them — they're probably offline, or on a network this device can't get to from here.",
+  "a send that found no route is said as a sentence",
+);
 eq(humanError("HTTP 404"), "Concord's core rejected it — try again", "a bare status code");
 eq(humanError("rpc Foo: HTTP 503 "), "Concord's core rejected it — try again", "trailing space");
 // …and what must NOT be swallowed by that rule: a status code inside a real
