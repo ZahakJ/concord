@@ -334,7 +334,7 @@
     width: 320px;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     padding: 10px;
     display: flex;
     flex-direction: column;
@@ -347,7 +347,7 @@
   @keyframes ep-pop {
     from {
       opacity: 0;
-      transform: translateY(6px) scale(0.97);
+      transform: translateY(4px);
     }
   }
   .row {
@@ -400,7 +400,7 @@
   }
   .tone-cell.sel {
     background: var(--bg-input);
-    box-shadow: inset 0 0 0 1.5px var(--accent);
+    box-shadow: inset 0 0 0 1.5px var(--accent-hover);
   }
   /* Five categories became nine, and with recents and a guild pack that is
      eleven tabs in a 290px panel. They share the width evenly and clip nothing:
@@ -409,7 +409,7 @@
   .tabs {
     display: flex;
     gap: 1px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--hairline);
   }
   .tab {
     position: relative;
@@ -432,7 +432,8 @@
     bottom: -1px;
     height: 2px;
     border-radius: 2px;
-    background: var(--accent);
+    /* The tab underline is ink, as on every other tab strip. */
+    background: var(--text);
     opacity: 0;
     transform: scaleX(0.4);
     transition: opacity var(--dur-standard) ease, transform var(--dur-standard) ease;
@@ -497,11 +498,10 @@
   }
   .section-label {
     grid-column: 1 / -1;
-    font-size: var(--fs-micro);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
-    padding: 4px 2px 2px;
+    padding: 6px 2px 2px;
   }
   .none {
     grid-column: 1 / -1;

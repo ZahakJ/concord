@@ -2079,7 +2079,7 @@
                wait. -->
           <button
             type="button"
-            class="iconbtn"
+            class="iconbtn mic-round"
             use:tooltip
             aria-label="Record a voice message"
             disabled={!ch}
@@ -3384,15 +3384,42 @@
     min-width: var(--tap-min);
     min-height: var(--tap-min);
   }
-  .composer.mobile .sendbtn {
-    width: var(--tap-min);
-    height: var(--tap-min);
-    margin: 2px 0;
-  }
   /* The one control that opens something rather than doing something — tinted
      so the row reads as [more] [text] [emoji] [send] rather than four glyphs. */
-  .composer.mobile .morebtn {
-    color: var(--accent-hover);
+  /* The phone bar (prototype phone-channel): a hairline above, a round +,
+     the text in a pill, emoji beside it, and mic-or-send in a round button.
+     The visible circles are 40px; the hit areas stay at --tap-min. */
+  .composer.mobile .input-shell {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+  }
+  .composer.mobile .input-box {
+    align-items: center;
+    gap: var(--sp-1);
+    min-height: 0;
+  }
+  .composer.mobile .draft {
+    /* Beats the base rule's !important transparent ground: on the phone the
+       text sits in its own pill. */
+    background: var(--bg-3) !important;
+    border-radius: 20px;
+    min-height: 40px;
+    padding: 9px 14px;
+  }
+  .composer.mobile .morebtn,
+  .composer.mobile .mic-round {
+    color: var(--text-muted);
+    /* A 40px disc inside the 44px target: the ground stops at the padding. */
+    padding: 2px;
+    background: var(--bg-3);
+    background-clip: content-box;
+    border-radius: 50%;
+  }
+  .composer.mobile .sendbtn {
+    width: 40px;
+    height: 40px;
+    margin: 2px;
   }
   /* The recording transport is a different child set, and the row rules above
      were written for the composing one: with align-items:flex-end the 44px send
