@@ -46,6 +46,7 @@
 </script>
 
 <button
+  type="button"
   bind:this={scrimEl}
   class="bs-scrim"
   style:z-index={400 + depth * 2}

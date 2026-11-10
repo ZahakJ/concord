@@ -210,6 +210,20 @@
      A 4px rhythm. --sp-edge is the gutter between content and the screen edge;
      it tightens on a phone, where 16px of chrome on both sides is 8% of the
      viewport. */
+  /* The vertical order of the app. lib/layers.js holds the same scale and the
+     reasoning; layers.test.mjs keeps the two in step. Inside the layer band
+     the order things OPENED in decides — a portalled menu takes the z-index of
+     whatever opened it, plus one — so nothing in the band hardcodes its rank. */
+  --z-sticky: 30;
+  --z-raised: 60;
+  --z-dock: 90;
+  --z-layer: 100;
+  --z-veil: 210;
+  --z-studio: 400;
+  --z-fx: 420;
+  --z-toast: 450;
+  --z-tooltip: 500;
+
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;

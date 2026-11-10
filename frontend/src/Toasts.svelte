@@ -59,7 +59,7 @@
     right: 16px;
     /* Above the bottom sheets/scrims (400/401) so a toast fired from a sheet
        action is visible; still under the app lock (500). */
-    z-index: 450;
+    z-index: var(--z-toast);
     display: flex;
     flex-direction: column;
     gap: var(--sp-2);

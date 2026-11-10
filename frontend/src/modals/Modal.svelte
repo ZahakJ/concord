@@ -32,6 +32,7 @@
   import { onDestroy, onMount, tick } from "svelte";
   import { S, modalNav, backPanel } from "../lib/state.svelte.js";
   import { layer } from "../lib/navstack.svelte.js";
+  import { Z } from "../lib/layers.js";
   import { haptic } from "../lib/touch.js";
   import { sheetdrag, playExit } from "../lib/sheet.js";
   import Icon from "../Icon.svelte";
@@ -264,7 +265,7 @@
   class:continuing
   class:stacked={!continuing && me.isInnermostOfKind && me.hasOtherOfKind}
   data-modal-overlay
-  style:z-index={100 + me.index * 2}
+  style:z-index={Z.layer + me.index * 2}
   onclick={dismiss}
   role="presentation"
 >

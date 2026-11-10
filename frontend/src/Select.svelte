@@ -45,7 +45,7 @@
     <span class="pick-chev"><Icon name="chevron" size={12} /></span>
   </span>
 {:else}
-  <Menu {label} {wide} {align}>
+  <Menu {label} {wide} {align} name={`${label}: ${current?.label ?? (placeholder || "none")}`}>
     {#snippet trigger()}
       <span class="pick" class:wide>
         <span class="pick-name" class:faint={!current}>{current?.label ?? placeholder ?? label}</span>
@@ -53,7 +53,7 @@
       </span>
     {/snippet}
     {#each options as o (String(o.value))}
-      <button class="menu-item" class:active={same(o.value, value)} onclick={() => onPick?.(o.value)}>
+      <button type="button" class="menu-item" class:active={same(o.value, value)} onclick={() => onPick?.(o.value)}>
         <span class="opt-txt">
           {o.label}
           {#if o.sub}<span class="opt-sub">{o.sub}</span>{/if}

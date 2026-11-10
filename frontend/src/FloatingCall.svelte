@@ -365,7 +365,7 @@
     position: fixed;
     left: 0;
     right: 0;
-    z-index: 90; /* above chat, but BELOW modals (100) so dialogs aren't covered */
+    z-index: var(--z-dock); /* above chat, but BELOW modals (100) so dialogs aren't covered */
     display: flex;
     flex-direction: column;
   }
@@ -416,7 +416,7 @@
   .dock {
     position: fixed;
     width: 280px;
-    z-index: 90;
+    z-index: var(--z-dock);
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);

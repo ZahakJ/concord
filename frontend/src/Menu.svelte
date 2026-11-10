@@ -12,7 +12,10 @@
   import { syncLayer } from "./lib/navstack.svelte.js";
   import { portal } from "./lib/portal.js";
   import { rectOf, sizeOf, viewport } from "./lib/place.js";
+  import { zAbove } from "./lib/layers.js";
+  import { menuKeyTarget, moveFocusFrom } from "./lib/menukeys.js";
   import { S } from "./lib/state.svelte.js";
+  import { untrack } from "svelte";
 
   // `up` opens the dropdown ABOVE the trigger — for a trigger that lives at the
   // bottom of the window (the composer's overflow), where a menu hanging below
@@ -29,6 +32,10 @@
     compact = false,
     up = false,
     wide = false,
+    // The trigger's accessible name when it must say more than `label` — a
+    // picker has to announce what is currently chosen, which its visible
+    // text shows and `label` alone ("Microphone") hides.
+    name = "",
     trigger,
     children,
   } = $props();
@@ -97,7 +104,10 @@
     let left = align === "left" ? t.x : t.x + t.w - w;
     left = Math.max(EDGE, Math.min(left, vp.w - w - EDGE));
     const top = wantUp ? Math.max(EDGE, t.y - GAP - h) : Math.min(t.y + t.h + GAP, vp.h - h - EDGE);
-    pos = { left, top, up: wantUp, width: wide ? t.w : 0 };
+    // The z-index is read once per opening (untracked: place() runs inside an
+    // effect, and reading `pos` there would make it re-run on its own write).
+    const z = untrack(() => pos?.z) ?? zAbove(root);
+    pos = { left, top, up: wantUp, width: wide ? t.w : 0, z };
   }
 
   // Re-place on anything that can move the trigger. `scroll` is captured
@@ -134,15 +144,35 @@
     for (const el of panel.querySelectorAll(".menu-sep")) el.setAttribute("role", "separator");
   }
 
+  // The dropdown is `visibility: hidden` until place() has measured it, and a
+  // hidden element cannot take focus — focus() on it is a silent no-op. Running
+  // this the moment the panel mounted is why every Menu-built dropdown opened
+  // with the caret still on its trigger and the arrows doing nothing: the
+  // first row was asked for focus one frame before it could accept it. So the
+  // desktop panel waits for its placement; the sheet is visible from the start.
+  const ready = $derived(open && !!panel && (S.isMobile || !!pos));
   $effect(() => {
-    if (!open || !panel) return;
+    if (!ready) return;
     decorate();
     prevFocus = document.activeElement;
-    // preventScroll: an `up` menu sits on the bottom edge of the window, and
-    // focusing its first row without this scrolls the page out from under it.
-    panel.querySelector(".menu-item:not(:disabled)")?.focus({ preventScroll: true });
+    // The current choice if the menu is a picker (Select marks it .active),
+    // else the first row. preventScroll: an `up` menu sits on the bottom edge
+    // of the window, and focusing a row without it scrolls the page away.
+    //
+    // A frame later, not now: the effect that wrote `pos` runs in the same
+    // flush as this one, before the template has applied `.placed` — so the
+    // panel is still hidden at this instant.
+    const el = panel;
+    const raf = requestAnimationFrame(() => (el.querySelector(".menu-item.active:not(:disabled)") || el.querySelector(".menu-item:not(:disabled)"))?.focus({ preventScroll: true }));
     return () => {
-      if (prevFocus?.isConnected) prevFocus.focus();
+      cancelAnimationFrame(raf);
+      // Only hand focus back if it is still ours to hand: an item that opened
+      // a dialog has already moved it, and Tab out of the menu moved it on
+      // purpose. Focus left on a row that is about to unmount, or dropped to
+      // the body, goes back to the trigger.
+      const now = document.activeElement;
+      const lost = !now || now === document.body || panel?.contains(now) || root?.contains(now);
+      if (lost && prevFocus?.isConnected) prevFocus.focus({ preventScroll: true });
       prevFocus = null;
     };
   });
@@ -150,19 +180,34 @@
   // Roving focus. Enter/Space need no handling — the rows are real <button>s.
   // DOM order is visual order in both presentations, `up` included: that
   // variant repositions the whole panel, it does not reverse it.
+  //
+  // Tab closes the menu and lets the key carry on from the trigger: the panel
+  // is portalled to <body>, so the browser's own "next" after its last row is
+  // the end of the document, not the control after the trigger.
   function onMenuKey(e) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const from = root?.querySelector(".trigger");
+      open = false;
+      from?.focus({ preventScroll: true });
+      if (from) moveFocusFrom(from, e.shiftKey ? -1 : 1);
+      return;
+    }
     const items = [...e.currentTarget.querySelectorAll(".menu-item:not(:disabled)")];
-    if (!items.length) return;
-    const n = items.length;
-    const i = items.indexOf(document.activeElement);
-    let next = null;
-    if (e.key === "ArrowDown") next = items[i < 0 ? 0 : (i + 1) % n];
-    else if (e.key === "ArrowUp") next = items[i < 0 ? n - 1 : (i - 1 + n) % n];
-    else if (e.key === "Home") next = items[0];
-    else if (e.key === "End") next = items[n - 1];
+    const next = menuKeyTarget(items, document.activeElement, e);
     if (!next) return;
     e.preventDefault();
     next.focus();
+  }
+
+  // Arrow keys on the CLOSED trigger open it, the way a native select does.
+  // Enter and Space need nothing: the trigger is a real button.
+  function onTriggerKey(e) {
+    if (open || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      open = true;
+    }
   }
 </script>
 
@@ -170,11 +215,12 @@
 
 <div class="menu-root" class:wide bind:this={root}>
   {#if trigger}
-    <button class="trigger own" aria-label={label} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)}>
+    <button type="button" class="trigger own" aria-label={name || label} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)} onkeydown={onTriggerKey}>
       {@render trigger()}
     </button>
   {:else}
     <button
+      type="button"
       class="trigger"
       class:ghost={!compact}
       class:compact
@@ -183,6 +229,7 @@
       aria-haspopup="menu"
       aria-expanded={open}
       onclick={() => (open = !open)}
+      onkeydown={onTriggerKey}
     >
       <Icon name={icon} size={compact ? 12 : 16} />
     </button>
@@ -213,7 +260,7 @@
         bind:this={panel}
         use:portal
         style={pos
-          ? `left:${pos.left}px;top:${pos.top}px;${pos.width ? `width:${pos.width}px;min-width:0;` : ""}`
+          ? `left:${pos.left}px;top:${pos.top}px;z-index:${pos.z};${pos.width ? `width:${pos.width}px;min-width:0;` : ""}`
           : ""}
         onclick={() => (open = false)}
         onkeydown={onMenuKey}
@@ -302,7 +349,10 @@
     border-radius: var(--radius-md);
     padding: 5px;
     box-shadow: var(--shadow-pop);
-    z-index: 80;
+    /* The floor of the layer band. place() writes the real value inline, read
+       off the opener's own stacking chain (lib/layers.js zAbove), which is what
+       puts a picker opened inside a dialog above that dialog. */
+    z-index: var(--z-layer);
     display: flex;
     flex-direction: column;
     gap: 2px;

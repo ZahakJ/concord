@@ -42,7 +42,7 @@ function ensureTip() {
   style.textContent = `
     .app-tooltip {
       position: fixed;
-      z-index: 500; /* above ContextMenu (401) — a tip must never be under a menu it describes */
+      z-index: var(--z-tooltip); /* above ContextMenu (401) — a tip must never be under a menu it describes */
       display: none;
       max-width: 260px;
       padding: 5px 9px;

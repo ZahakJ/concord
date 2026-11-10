@@ -55,7 +55,7 @@
   .veil {
     position: fixed;
     inset: 0;
-    z-index: 210; /* above modals (100) and the context menu — the door closes over everything */
+    z-index: var(--z-veil); /* above modals (100) and the context menu — the door closes over everything */
     display: grid;
     place-items: center;
     /* Translucent over --bg-0: the room renders BEHIND the veil, so the exit

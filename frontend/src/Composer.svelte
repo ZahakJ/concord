@@ -2099,27 +2099,28 @@
                people reach for constantly — and the rest are words in a menu,
                which is what they wanted to be all along. -->
           <Menu label="Add to your message" icon="plus" up>
-            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "poll" })}>
+            <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "poll" })}>
               <Icon name="poll" size={14} /> Poll
             </button>
-            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "doodle" })}>
+            <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "doodle" })}>
               <Icon name="edit" size={14} /> Doodle
             </button>
-            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "soundboard" })}>
+            <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "soundboard" })}>
               <Icon name="speaker" size={14} /> Sound
             </button>
-            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "game" })}>
+            <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "game" })}>
               <Icon name="die" size={14} /> Game
             </button>
             {#if canStartThread}
-              <button class="menu-item" onclick={() => (S.modal = { kind: "newPost", forum: ch })}>
+              <button type="button" class="menu-item" onclick={() => (S.modal = { kind: "newPost", forum: ch })}>
                 <Icon name="forum" size={14} /> Start a thread
               </button>
             {/if}
-            <button class="menu-item" disabled={!ch} onclick={openAdvanced}>
+            <button type="button" class="menu-item" disabled={!ch} onclick={openAdvanced}>
               <Icon name="docpen" size={14} /> Advanced composer
             </button>
             <button
+              type="button"
               class="menu-item"
               disabled={!ch}
               onclick={() => { sealNext = !sealNext; if (sealNext) haptic("light"); composerEl?.focus(); }}
@@ -2127,7 +2128,7 @@
               <Icon name="stamp" size={14} />
               {sealNext ? "Don't seal the send time" : "Seal the send time"}
             </button>
-            <button class="menu-item" disabled={!ch} onclick={scheduleSend}>
+            <button type="button" class="menu-item" disabled={!ch} onclick={scheduleSend}>
               <Icon name="clock" size={14} />
               {draft.trim() ? "Schedule this message" : "Scheduled messages"}
             </button>
