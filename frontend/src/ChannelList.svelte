@@ -2193,7 +2193,12 @@
     display: inline-flex;
     opacity: 0;
   }
-  .channel-row:hover .ch-menu {
+  /* Focused, it has to show itself as it does under the pointer, or Tab lands
+     on a button drawn at opacity 0 and the focus ring rings nothing. Open
+     counts too: a menu hanging off an invisible trigger reads as a stray. */
+  .channel-row:hover .ch-menu,
+  .ch-menu:focus-within,
+  .ch-menu:has([aria-expanded="true"]) {
     opacity: 1;
   }
   /* ---- reclaiming the hover gutter (mouse only) ----

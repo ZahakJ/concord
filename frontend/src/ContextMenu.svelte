@@ -485,6 +485,15 @@
     color: var(--text);
     outline: none;
   }
+  /* …but the plate alone is not a focus indicator. --bg-3 and the menu's own
+     --bg-elevated are the same colour or nearly in the default dark theme and
+     in several packs (measured 1.00–1.01:1), so a keyboard user arrowing down
+     to Delete could not see which row Enter would run. The app's focus ring,
+     drawn inside the row so neighbouring rows do not clip it. */
+  .cm-item:focus-visible {
+    outline: 2px solid var(--accent-hover);
+    outline-offset: -2px;
+  }
   .cm-item.danger {
     color: var(--danger-text);
   }
