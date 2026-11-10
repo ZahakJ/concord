@@ -180,6 +180,8 @@ func flattenBody(body string) string {
 // flattenMarkdown reduces formatting to the words inside it. Paired markers
 // only, so snake_case and 3 * 4 survive, then a sweep for the multi-character
 // markers a truncated excerpt can leave dangling.
+const spoilerMask = "[spoiler]"
+
 func flattenMarkdown(s string) string {
 	s = snInlineRe.ReplaceAllString(s, "$1")
 	s = snImgMdRe.ReplaceAllString(s, " ")
@@ -190,7 +192,9 @@ func flattenMarkdown(s string) string {
 	s = snUnder3Re.ReplaceAllString(s, "$1")
 	s = snUnder2Re.ReplaceAllString(s, "$1")
 	s = snStrikeRe.ReplaceAllString(s, "$1")
-	s = snSpoilRe.ReplaceAllString(s, "$1")
+	// A spoiler stays covered: the inbox printed it in clear. Same mask as
+	// SPOILER_MASK in frontend/src/lib/forum.js.
+	s = snSpoilRe.ReplaceAllString(s, spoilerMask)
 	s = snDanglRe.ReplaceAllString(s, "")
 	s = snHeadRe.ReplaceAllString(s, "")
 	s = snQuoteRe.ReplaceAllString(s, "")
