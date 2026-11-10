@@ -12,6 +12,7 @@ package net
 import (
 	"context"
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"log"
 	stdnet "net"
@@ -311,6 +312,9 @@ type Host struct {
 	// see", which holds the discovery backoff at discoverWanted rather than
 	// letting it run out to discoverMax. See SetPeerDemand.
 	peerDemand func() bool
+	// openStream stands in for h.NewStream in tests that need a stream open to
+	// lose its connection at a chosen moment. nil in the product.
+	openStream func(context.Context, peer.ID, ...protocol.ID) (network.Stream, error)
 }
 
 // New brings up a libp2p host bound to cfg.Identity. The caller owns shutdown
@@ -443,7 +447,17 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		}
 	}
 
-	h, err := libp2p.New(append(opts, libp2p.ListenAddrStrings(listen...))...)
+	// The resource manager is built per attempt: the host closes it on the way
+	// out, so the fallback below cannot reuse the first attempt's.
+	newHost := func(listen []string) (host.Host, error) {
+		rm, err := newResourceManager()
+		if err != nil {
+			return nil, fmt.Errorf("resource manager: %w", err)
+		}
+		// See peerConnCap.
+		return libp2p.New(append(opts, libp2p.ResourceManager(rm), libp2p.ListenAddrStrings(listen...))...)
+	}
+	h, err := newHost(listen)
 	if fixedPort > 0 {
 		if err == nil && !listeningOn(h, fixedPort) {
 			err = fmt.Errorf("only part of port %d came up: %v", fixedPort, h.Network().ListenAddresses())
@@ -457,7 +471,7 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 			// instead; the user loses direct reachability, not their client.
 			log.Printf("concord/net: could not listen on port %d (%v), retrying with an ephemeral port", fixedPort, err)
 			portTaken, fixedPort = true, 0
-			h, err = libp2p.New(append(opts, libp2p.ListenAddrStrings(listenAddrs(0)...))...)
+			h, err = newHost(listenAddrs(0))
 		}
 	}
 	if err != nil {
@@ -618,8 +632,56 @@ func (n *Host) Connect(ctx context.Context, pi peer.AddrInfo) error {
 // call signalling — died that way while the connection between them sat there
 // carrying presence heartbeats. Concord's streams are small request/response
 // exchanges, exactly what a limited circuit is for, so accept it.
+//
+// It also survives the connection it picked dying under it, which is not rare.
+// Two devices that start dialling each other at once (a phone just linked, its
+// desktop reaching for its own devices, hole punching on a relayed connection)
+// race a connection per address and transport from both ends, and a resource
+// manager that admits only eight per peer (go-libp2p's default, and so every
+// older build's; see peerConnCap for ours) has its listener refuse the rest
+// AFTER the dialer's handshake has finished, so Connect reports success on a
+// connection the other side is already closing (application error 0x1001).
+// Opening the stream then fails with "connection failed" or that close code.
+// Under load this took down a large share of the joins of a freshly linked
+// device, which then never joined at all. Nothing has been sent at that
+// point, so opening again on whichever connection survived is always safe.
 func (n *Host) newStream(ctx context.Context, p peer.ID, proto protocol.ID) (network.Stream, error) {
-	return n.h.NewStream(network.WithAllowLimitedConn(ctx, "concord"), p, proto)
+	ctx = network.WithAllowLimitedConn(ctx, "concord")
+	open := n.openStream
+	if open == nil {
+		open = n.h.NewStream
+	}
+	for attempt := 1; ; attempt++ {
+		s, err := open(ctx, p, proto)
+		if err == nil || attempt >= streamOpenAttempts || !connWentAway(err) {
+			return s, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(time.Duration(attempt) * streamOpenPause):
+		}
+	}
+}
+
+// streamOpenAttempts and streamOpenPause bound newStream's retry: a few tries
+// a fraction of a second apart, enough for a duplicate-dial storm to settle
+// and short enough that a peer that really is gone fails as fast as before.
+const (
+	streamOpenAttempts = 5
+	streamOpenPause    = 200 * time.Millisecond
+)
+
+// connWentAway reports a stream open that failed because the connection was
+// closed under it, as opposed to the peer being unreachable or not speaking the
+// protocol. The host turns the swarm's ErrNoConn into a bare "connection
+// failed" (basic_host.go), so the text is the only handle on that case.
+func connWentAway(err error) bool {
+	var ce *network.ConnError
+	if errors.As(err, &ce) || errors.Is(err, network.ErrNoConn) {
+		return true
+	}
+	return err.Error() == "connection failed"
 }
 
 // Protect marks a peer connection as important so the connection manager won't

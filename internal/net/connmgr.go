@@ -1,6 +1,12 @@
 package net
 
-import "time"
+import (
+	"time"
+
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/network"
+	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
+)
 
 // connLimits is the connection manager's water marks: trimming starts once the
 // node holds more than high connections and sheds down towards low.
@@ -41,4 +47,37 @@ func peerConnLimits(mobile bool) connLimits {
 		return connLimits{low: 32, high: 48, grace: time.Minute}
 	}
 	return connLimits{low: 160, high: 192, grace: time.Minute}
+}
+
+// peerConnCap is how many connections the resource manager lets one peer hold
+// at once, in each direction and in total. go-libp2p's default is 8.
+//
+// Eight is a number about dials, not about trust: it was picked to match the
+// swarm's concurrent dials to one peer. Two Concord devices exceed it without
+// anybody misbehaving. Each advertises every interface it has (loopback, LAN,
+// container bridges, IPv6) over TCP and QUIC, and when both start dialling the
+// other at the same moment, as a phone and its desktop do the instant they are
+// linked, each side has a dial in flight per address while the other's arrive.
+// Every one of those holds a slot. The ninth is refused by the LISTENER after
+// the dialer's handshake has already succeeded, so the dialer is handed a
+// connection that is closed a moment later (application error 0x1001), and the
+// stream it opens on it, a guild join for instance, fails. Measured with
+// several loaded copies of the linked-device tests: about one join in five.
+//
+// Raising the cap does not change what a connection may do, only how many
+// spares one peer may hold for the seconds a dial storm lasts; the connection
+// manager trims the extras afterwards, and the system-wide limits still bound
+// the total.
+const peerConnCap = 32
+
+// newResourceManager is go-libp2p's default resource manager (the same scaled
+// limits and service limits libp2p.New would have built) with the per-peer
+// connection cap above.
+func newResourceManager() (network.ResourceManager, error) {
+	limits := rcmgr.DefaultLimits
+	libp2p.SetDefaultServiceLimits(&limits)
+	limits.PeerBaseLimit.Conns = peerConnCap
+	limits.PeerBaseLimit.ConnsInbound = peerConnCap
+	limits.PeerBaseLimit.ConnsOutbound = peerConnCap
+	return rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(limits.AutoScale()))
 }
