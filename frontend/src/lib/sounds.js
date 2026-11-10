@@ -30,11 +30,19 @@ function load() {
 // always been tuned at, so an existing install sounds identical.
 function loadVolume() {
   try {
-    const v = Number(localStorage.getItem("concord.soundVolume"));
-    return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 1;
+    return parseVolume(localStorage.getItem("concord.soundVolume"));
   } catch {
     return 1;
   }
+}
+
+// parseVolume reads a stored volume, 1 when there is none. Nothing stored is
+// null, and Number(null) is 0 — a perfectly valid volume — so every fresh
+// install used to start silent, "sounds on, volume 0", missing calls.
+export function parseVolume(raw) {
+  if (raw === null || raw === undefined || String(raw).trim() === "") return 1;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 1;
 }
 
 export function soundVolume() {
