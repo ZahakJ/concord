@@ -448,10 +448,19 @@
           {/if}
         </span>
       </button>
+        <!-- No bare trailing × that kicks: moderation lives in the row's menu
+             (the same one right-click and long-press open). A pending invite
+             keeps its one action, which only withdraws the invite. -->
         {#if g?.canManage && !mem.isSelf && !mem.isOwner && mem.outranked !== false}
-          <button class="kick" title={mem.pending ? "Cancel invite" : "Kick from guild"} aria-label="{mem.pending ? 'Cancel invite for' : 'Kick'} {mem.name || 'member'}" onclick={() => kick(mem)}>
-            <Icon name="close" size={12} />
-          </button>
+          {#if mem.pending}
+            <button class="kick" title="Cancel invite" aria-label="Cancel invite for {mem.name || 'member'}" onclick={() => kick(mem)}>
+              <Icon name="close" size={12} />
+            </button>
+          {:else}
+            <button class="kick" title="More" aria-label="More for {mem.name || 'member'}" onclick={(e) => memberMenu(e, mem)}>
+              <Icon name="dots" size={14} />
+            </button>
+          {/if}
         {/if}
       </div>
     {/each}
@@ -898,8 +907,9 @@
   }
   .kick {
     background: transparent;
-    color: var(--danger-text);
+    color: var(--text-muted);
     padding: var(--sp-1) var(--sp-2);
+    border-radius: var(--radius-sm);
     opacity: 0;
   }
   .member-row:hover .kick,
@@ -907,7 +917,8 @@
     opacity: 1;
   }
   .kick:hover {
-    background: var(--danger-soft);
+    background: var(--bg-3);
+    color: var(--text);
   }
   /* Hover doesn't exist on touch — keep the control visible but quiet (same
      treatment as ChannelList's always-visible affordances). */

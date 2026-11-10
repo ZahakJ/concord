@@ -29,6 +29,7 @@
     startDM,
     flash,
     roleColorFor,
+    nameInk,
     isBlocked,
     blockUser,
     unblockUser,
@@ -566,7 +567,7 @@
 
     <div class="body">
       <div class="name-row">
-        <strong style={roleColorFor(mem.fingerprint) ? `color:${roleColorFor(mem.fingerprint)}` : ""}
+        <strong style={S.prefs.roleNameColors && roleColorFor(mem.fingerprint) ? `color:${nameInk(roleColorFor(mem.fingerprint))}` : ""}
           >{mem.name || mem.fingerprint.slice(0, 9)}</strong
         >
         {#if mem.isSelf}<span class="tag">you</span>{/if}

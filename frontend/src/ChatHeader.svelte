@@ -22,6 +22,7 @@
     callRoster,
     callHealth,
     markRead,
+    setPref,
   } from "./lib/state.svelte.js";
   import { PERM, has } from "./lib/perms.js";
   import { callClock } from "./lib/calltimer.svelte.js";
@@ -474,6 +475,11 @@
         {#if ch && g.kind !== "dm"}
           <button class="menu-item" onclick={copyChannelLink}>
             <Icon name="link" size={14} /> Copy channel link
+          </button>
+        {/if}
+        {#if !S.isMobile}
+          <button class="menu-item" onclick={() => setPref("sidebarHidden", true)}>
+            <Icon name="menu" size={14} /> Hide sidebar
           </button>
         {/if}
         <div class="menu-sep"></div>

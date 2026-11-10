@@ -2125,6 +2125,15 @@
           <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "poll" })}>
             <Icon name="poll" size={14} /> Poll
           </button>
+          <button type="button" class="menu-item" disabled={!ch} onclick={scheduleSend}>
+            <Icon name="clock" size={14} />
+            {draft.trim() ? "Schedule this message" : "Scheduled messages"}
+          </button>
+          {#if canStartThread}
+            <button type="button" class="menu-item" onclick={() => (S.modal = { kind: "newPost", forum: ch })}>
+              <Icon name="forum" size={14} /> Start a thread
+            </button>
+          {/if}
           <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "doodle" })}>
             <Icon name="edit" size={14} /> Doodle
           </button>
@@ -2133,15 +2142,6 @@
           </button>
           <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "game" })}>
             <Icon name="die" size={14} /> Game
-          </button>
-          {#if canStartThread}
-            <button type="button" class="menu-item" onclick={() => (S.modal = { kind: "newPost", forum: ch })}>
-              <Icon name="forum" size={14} /> Start a thread
-            </button>
-          {/if}
-          <button type="button" class="menu-item" disabled={!ch} onclick={scheduleSend}>
-            <Icon name="clock" size={14} />
-            {draft.trim() ? "Schedule this message" : "Scheduled messages"}
           </button>
           <button
             type="button"

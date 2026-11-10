@@ -68,9 +68,12 @@
 <aside class="insp" class:docked class:overlay={!docked} aria-label="Inspector" onkeydown={onKey}>
   <div class="insp-head">
     <Tabs label="Inspector" value={insp.tab} onChange={(id) => (insp.tab = id)} {tabs} idPrefix="insp" />
+    <!-- On a phone the inspector is a pushed page and its Back bar closes it. -->
+    {#if !S.isMobile}
     <button type="button" class="insp-x" use:tooltip={"Close · Ctrl+U"} aria-label="Close the inspector" onclick={onClose}>
       <Icon name="close" size={16} />
     </button>
+    {/if}
   </div>
   <div class="insp-body" role="tabpanel" id="insp-{insp.tab}" aria-labelledby="insp-tab-{insp.tab}">
     {#if insp.tab === "members"}
