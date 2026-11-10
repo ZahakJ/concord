@@ -8,6 +8,8 @@
   import RailShell from "./RailShell.svelte";
   import SettingRow from "./SettingRow.svelte";
   import Segmented from "../Segmented.svelte";
+  import Select from "../Select.svelte";
+  import SettingGroup from "./SettingGroup.svelte";
   import FxOverlay from "../FxOverlay.svelte";
   import { THEME_FX } from "../lib/themefx.js";
   import { S, setAppearance } from "../lib/state.svelte.js";
@@ -15,15 +17,6 @@
 
   let { onClose } = $props();
 
-  // Nine sections, every one of them a collapsible with the same head. It used
-  // to be a flat list with a single "Customise" disclosure holding five
-  // unrelated settings, which made "is this behind a fold?" an arbitrary fact
-  // you had to remember per setting. Theme and the gallery open on arrival
-  // because they are what the dialog is for; the rest are adjustments you make
-  // once, and they say what they hold on their own head.
-  let open = $state({ theme: true, packs: true });
-  const isOpen = (id) => !!open[id];
-  const toggle = (id) => (open = { ...open, [id]: !open[id] });
 
   // Gallery filter. Fifty-one packs in five galleries is more than a list you
   // read; it is a list you look something up in.
@@ -33,10 +26,17 @@
     nq ? list.filter((p) => `${p.label} ${p.note}`.toLowerCase().includes(nq)) : list;
 
   const THEMES = [
-    { id: "dark", label: "Dark" },
     { id: "light", label: "Light" },
-    { id: "system", label: "System" },
+    { id: "dark", label: "Dark" },
+    { id: "system", label: "Match system" },
   ];
+  // Which ground is actually on screen: System resolves to one of the two.
+  const shownLight = $derived(
+    (S.prefs.theme || "dark") === "light" ||
+      ((S.prefs.theme || "dark") === "system" &&
+        typeof window !== "undefined" &&
+        !window.matchMedia?.("(prefers-color-scheme: dark)")?.matches),
+  );
 
   // Six presets + "Profile" (accent pref "" = follow the custom color from
   // Edit profile, which is the pre-Appearance behavior and the default).
@@ -226,24 +226,15 @@
       .querySelector(".dialog .pack-card.sel")
       ?.scrollIntoView({ block: "center", behavior: "smooth" });
   }
+
+  // Device-local display prefs read by the feed and the shell. Their defaults
+  // are off / "sidebar", so a missing key reads as the default.
+  const roleNames = $derived(S.prefs.roleNameColors === true);
+  const underline = $derived(S.prefs.underlineLinks === true);
+  const navModel = $derived(S.prefs.navModel === "rail" ? "rail" : "sidebar");
 </script>
 
 <RailShell title="Appearance" here="appearance" {onClose}>
-  <!-- One head for every section, so "is this folded away?" is never a fact
-       you have to remember per setting. -->
-  {#snippet group(id, title, sub, body)}
-    <section class="grp" class:open={isOpen(id)}>
-      <button class="grp-head" aria-expanded={isOpen(id)} onclick={() => toggle(id)}>
-        <span class="grp-chev" class:open={isOpen(id)} aria-hidden="true">›</span>
-        <span class="grp-title">{title}</span>
-        <span class="grp-sub">{sub}</span>
-      </button>
-      {#if isOpen(id)}
-        <div class="grp-body" out:slide={{ duration: 200 }}>{@render body()}</div>
-      {/if}
-    </section>
-  {/snippet}
-
   <!-- One card shape for all five galleries. The mini window is drawn from the
        pack's OWN tokens — its face in the "Ag", its radius on the panel and its
        avatar shape on the chip — so what you see in the card is what the app
@@ -276,14 +267,16 @@
         </span>
       </span>
       <span class="pk-name">{p.label}</span>
-      <span class="pk-note">{p.note}</span>
+      <!-- A dark pack while Light is on screen: picking it brings its own
+           dark ground, and the card says so before you find out. -->
+      <span class="pk-note">{shownLight && p.id && !p.day ? "Dark only — brings its own dark ground" : p.note}</span>
     </button>
   {/snippet}
 
-  {#snippet gallery(tag, tagClass, blurb, list, still = false)}
+  {#snippet gallery(tag, blurb, list, still = false)}
     {#if list.length}
       <div class="live-head">
-        <span class="live-tag {tagClass}">{tag}</span>
+        <span class="live-tag">{tag}</span>
         <span class="muted tiny">{blurb}</span>
       </div>
       <div class="pack-row" role="radiogroup" aria-label="{tag} theme pack">
@@ -292,17 +285,8 @@
     {/if}
   {/snippet}
 
-  {@render group("theme", "Theme", theme === "system" ? "Follows your system" : theme === "light" ? "Light" : "Dark", themeBody)}
-  {@render group("packs", "Theme pack", currentPack.label, packsBody)}
-  {@render group("effects", "Effects", themeFx ? THEME_FX.find((f) => f.id === themeFx)?.label || "On" : "Off", effectsBody)}
-  {@render group("colour", "Colour", accent ? ACCENTS.find((a) => a.color === accent)?.name || "Custom" : "Your profile colour", colourBody)}
-  {@render group("shape", "Shape", SHAPES.find((x) => x.id === shape)?.label || "Theme", shapeBody)}
-  {@render group("type", "Font", FONTS.find((x) => x.id === font)?.label || "Theme", typeBody)}
-  {@render group("comfort", "Density & scale", `${DENSITIES.find((d) => d.id === density)?.label || "Cosy"} · ${Math.round(uiScale * 100)}%`, comfortBody)}
-  {@render group("flair", "Flair", "Guild colours, seasonal touches", flairBody)}
-  {@render group("clock", "Clock", clock === "12" ? "12-hour" : clock === "24" ? "24-hour" : "Automatic", clockBody)}
-
-  {#snippet themeBody()}
+  <section class="blk">
+    <h4 class="lbl">Theme</h4>
     <div class="theme-row" role="radiogroup" aria-label="Theme">
       {#each THEMES as t (t.id)}
         <button
@@ -312,78 +296,180 @@
           aria-checked={theme === t.id}
           onclick={() => pickTheme(t.id)}
         >
-          <!-- Mini preview painted with fixed colors, so the Light card shows
-               light even while the app is dark (and vice versa). -->
+          <!-- A miniature of each ground, painted from the two themes' own
+               surface values (the .pv palette below), so the Light card shows
+               paper even while the app is graphite. -->
           <span class="pv {t.id}" aria-hidden="true">
-            <span class="pv-dot"></span>
-            <span class="pv-lines"><span class="l1"></span><span class="l2"></span></span>
+            <span class="pv-side"><i></i><i></i></span>
+            <span class="pv-main"><i class="l1"></i><i class="l2"></i></span>
+            {#if t.id === "system"}
+              <span class="pv-half"><span class="pv-side"><i></i><i></i></span><span class="pv-main"><i class="l1"></i><i class="l2"></i></span></span>
+            {/if}
           </span>
-          {t.label}
+          <span class="cap">{t.label}</span>
         </button>
       {/each}
     </div>
     {#if themePack}
-      <!-- A pack brings its own ground, so Light/Dark/System changed nothing
-           while one was chosen: the card said "Light" over a dark app. Say so,
-           and make picking one mean it (see pickTheme). -->
+      <!-- A pack brings its own colours, so Light/Dark/System changed nothing
+           while one was chosen. Say so, and make picking one mean it. -->
       <p class="muted tiny">
-        {currentPack.label} brings its own colours, so it is used instead. Picking Light, Dark or
-        System here switches the pack back to Default — or choose a ☀ Daylight pack below.
+        {currentPack.label} brings its own colours, so it is used instead. Picking a theme here
+        switches the pack back to Default.
       </p>
-    {:else}
-      <p class="muted tiny">System follows your OS setting, live.</p>
     {/if}
-  {/snippet}
+  </section>
 
-  {#snippet packsBody()}
-    <div class="gal-bar">
-      <span class="gal-cur">
-        Current: <strong>{currentPack.label}</strong>
-        <span class="gal-tick" aria-hidden="true">✓</span>
-      </span>
-      <button class="gal-jump" onclick={jumpToCurrent}>Jump to it</button>
-      <input
-        class="gal-q"
-        bind:value={q}
-        placeholder="Filter {ALL_PACKS.length} packs"
-        aria-label="Filter theme packs"
-      />
+  <section class="blk">
+    <div class="lbl-row">
+      <h4 class="lbl">Theme pack</h4>
+      <span class="gal-cur">{currentPack.label}</span>
+      <button class="link gal-jump" onclick={jumpToCurrent}>Show current</button>
     </div>
+    <input
+      class="gal-q"
+      type="search"
+      bind:value={q}
+      placeholder="Filter {ALL_PACKS.length} packs"
+      aria-label="Filter theme packs"
+    />
 
-    {@render gallery("Flat", "", "Opaque palettes, no backdrop.", packsF)}
-    {@render gallery("☀ Daylight", "day-tag", "Bright grounds, dark ink — for light-mode eyes.", dayF)}
-    {@render gallery("✨ Animated", "", "A living backdrop moves behind the app.", liveF)}
+    {@render gallery("Flat", "Opaque palettes, no backdrop.", packsF)}
+    {@render gallery("Daylight", "Bright grounds, dark ink.", dayF)}
+    {@render gallery("Animated", "A living backdrop moves behind the app.", liveF)}
     {#if liveF.length}
-      <!-- Nested, because it changes the Animated packs and nothing else. It
-           used to sit between this grid and the Textured header with equal
-           space to both, so it read as belonging to a row it does not touch. -->
-      <div class="nest">
-        <SettingRow
-          icon="spark"
-          title="Sweeping highlights"
-          sub="The band of light that crosses the window on a live pack"
-          info="Most animated packs carry one bright layer that travels over the whole window — a curtain, an iridescent bar, a rolling scanline, a wave of heat, ice catching the light. Turning this off leaves every pack its colour, its scenery and the rest of its motion, and takes away only the highlight that passes over what you are reading. Packs without one are unaffected."
-          checked={shine}
-          onclick={() => setAppearance("themeShine", !shine)}
-        />
-      </div>
+      <!-- Nested, because it changes the Animated packs and nothing else. -->
+      <SettingRow
+        title="Sweeping highlights"
+        sub="The band of light that crosses the window on a live pack"
+        info="Most animated packs carry one bright layer that travels over the whole window — a curtain, an iridescent bar, a rolling scanline, a wave of heat, ice catching the light. Turning this off leaves every pack its colour, its scenery and the rest of its motion, and takes away only the highlight that passes over what you are reading. Packs without one are unaffected."
+        checked={shine}
+        onclick={() => setAppearance("themeShine", !shine)}
+      />
     {/if}
-    {@render gallery("▦ Textured", "texture-tag", "A soft colour mesh, no animation.", textureF, true)}
-    {@render gallery("❄ Effect-paired", "", "Flat palettes drawn as the ground for one effect.", pairF)}
+    {@render gallery("Textured", "A soft colour mesh, no animation.", textureF, true)}
+    {@render gallery("Effect-paired", "Flat palettes drawn as the ground for one effect.", pairF)}
 
     {#if !hits}
       <p class="muted tiny">No pack matches “{q.trim()}”.</p>
     {/if}
     <p class="muted tiny">
-      A pack is a whole look, not a hue: its own typeface, corner radius, avatar
-      shape, shadow depth and feed rhythm come with it. An accent, Shape or Font
-      choice below still overrides the pack. The effect-paired palettes were each
-      drawn as the ground for one of the Effects — picking the pack does not turn
-      the effect on; the two are separate choices.
+      A pack is a whole look, not a hue: its own typeface, corner radius, avatar shape, shadow
+      depth and feed rhythm come with it. Accent, corners and typeface below still override it.
     </p>
-  {/snippet}
+  </section>
 
-  {#snippet effectsBody()}
+  <SettingGroup label="Colour and type">
+    <SettingRow title="Accent" sub="Your colour for focus, selection, mentions of you and your reactions.">
+      <div class="swatches" role="radiogroup" aria-label="Accent colour">
+        {#each ACCENTS as a (a.color)}
+          <button
+            class="swatch"
+            class:sel={accent === a.color}
+            role="radio"
+            aria-checked={accent === a.color}
+            title={a.name}
+            aria-label={a.name}
+            style="--sw:{a.color}"
+            onclick={() => setAppearance("accent", a.color)}
+          ></button>
+        {/each}
+        <button
+          class="swatch profile"
+          class:sel={accent === ""}
+          role="radio"
+          aria-checked={accent === ""}
+          title="Your profile colour"
+          aria-label="Your profile colour"
+          style="--sw:{profileColor}"
+          onclick={() => setAppearance("accent", "")}
+        ></button>
+      </div>
+    </SettingRow>
+    <SettingRow title="Density" sub={DENSITIES.find((d) => d.id === density)?.note}>
+      <Segmented
+        label="Message density"
+        value={density}
+        options={DENSITIES.map((d) => ({ value: d.id, label: d.label }))}
+        onChange={(v) => setAppearance("density", v)}
+      />
+    </SettingRow>
+    <SettingRow
+      title="Colour names by role"
+      sub="Tint names with their top role's colour, kept readable."
+      checked={roleNames}
+      onclick={() => setAppearance("roleNameColors", !roleNames)}
+    />
+    <SettingRow
+      title="Underline links"
+      sub="Always underline links in messages."
+      checked={underline}
+      onclick={() => setAppearance("underlineLinks", !underline)}
+    />
+    <SettingRow title="Interface scale" sub="Everything in the window. Ctrl+= and Ctrl+− work anywhere; Ctrl+0 resets.">
+      <div class="scale-row">
+        <input
+          type="range"
+          min="0.8"
+          max="1.5"
+          step="0.05"
+          value={uiScale}
+          aria-label="Interface scale"
+          oninput={(e) => setAppearance("uiScale", Number(e.currentTarget.value))}
+          use:rangefill={uiScale}
+        />
+        <span class="scale-val">{Math.round(uiScale * 100)}%</span>
+        <button class="ghost sm" disabled={uiScale === 1} onclick={() => setAppearance("uiScale", 1)}>Reset</button>
+      </div>
+    </SettingRow>
+    <SettingRow title="Typeface" sub="Theme follows the pack. Every face ships inside the app — none is downloaded.">
+      <Select
+        label="Typeface"
+        value={font}
+        onPick={(v) => setAppearance("font", v)}
+        options={FONTS.map((f) => ({ value: f.id, label: f.label }))}
+      />
+    </SettingRow>
+    <SettingRow title="Corners" sub="How rounded panels, buttons and fields are. Theme follows the pack.">
+      <Segmented
+        label="Corner style"
+        value={shape}
+        onChange={(v) => setAppearance("shape", v)}
+        options={SHAPES.map((x) => ({ value: x.id, label: x.label }))}
+      />
+    </SettingRow>
+    <SettingRow title="Clock" sub="How message timestamps show the time of day.">
+      <Segmented
+        label="Timestamp format"
+        value={clock}
+        onChange={(v) => setAppearance("clock", v)}
+        options={[
+          { value: "system", label: "Automatic" },
+          { value: "12", label: "12-hour" },
+          { value: "24", label: "24-hour" },
+        ]}
+      />
+    </SettingRow>
+  </SettingGroup>
+
+  <SettingGroup label="Layout">
+    <SettingRow
+      title="Guilds"
+      sub="Where your guilds sit: a strip of shortcuts above the list, or a column beside it."
+    >
+      <Segmented
+        label="Where your guilds sit"
+        value={navModel}
+        onChange={(v) => setAppearance("navModel", v)}
+        options={[
+          { value: "sidebar", label: "Strip" },
+          { value: "rail", label: "Rail" },
+        ]}
+      />
+    </SettingRow>
+  </SettingGroup>
+
+  <SettingGroup label="Effects">
     <div class="pack-row fx-row" role="radiogroup" aria-label="Visual effect">
       {#each THEME_FX as f (f.id)}
         <button
@@ -396,9 +482,7 @@
         >
           <!-- The card runs the real effect, scaled down — same component and
                same CSS the app mounts, so nothing here can drift out of sync
-               with what picking it actually does. The window is painted from
-               the LIVE palette, so you are previewing the effect over the pack
-               you are on. -->
+               with what picking it actually does. -->
           <span class="fxpv" aria-hidden="true">
             <FxOverlay fx={f.id} mini s={0.18} scale={0.3} />
             <span class="fxpv-ink"></span>
@@ -410,473 +494,228 @@
       {/each}
     </div>
     <p class="muted tiny">
-      An effect layers over whatever theme pack you picked — all of them work
-      with all of them. Drawn with gradients and shapes, never downloaded, and
-      turned off entirely if your system asks for reduced motion. Leaving one
-      running costs battery, so it starts off on each device.
+      An effect layers over whatever pack you picked. Drawn on this device, never downloaded, and
+      off entirely if your system asks for reduced motion. It starts off on each device.
     </p>
-  {/snippet}
-
-  {#snippet colourBody()}
-    <div class="swatches" role="radiogroup" aria-label="Accent colour">
-      {#each ACCENTS as a (a.color)}
-        <button
-          class="swatch"
-          class:sel={accent === a.color}
-          role="radio"
-          aria-checked={accent === a.color}
-          title={a.name}
-          aria-label={a.name}
-          style="--sw:{a.color}"
-          onclick={() => setAppearance("accent", a.color)}
-        ></button>
-      {/each}
-      <button
-        class="swatch profile"
-        class:sel={accent === ""}
-        role="radio"
-        aria-checked={accent === ""}
-        title="Your profile colour"
-        aria-label="Your profile colour"
-        style="--sw:{profileColor}"
-        onclick={() => setAppearance("accent", "")}
-      ></button>
-    </div>
-    <p class="muted tiny">
-      The hollow swatch follows your profile's custom color (Edit profile) —
-      pick a preset to override it on this device only.
-    </p>
-  {/snippet}
-
-  {#snippet shapeBody()}
-    <div class="seg four" role="radiogroup" aria-label="Corner style">
-      {#each SHAPES as sh (sh.id)}
-        <button
-          class:sel={shape === sh.id}
-          role="radio"
-          aria-checked={shape === sh.id}
-          onclick={() => setAppearance("shape", sh.id)}
-        >
-          <span class="shape-pv" style="--r:{sh.r}" aria-hidden="true"></span>
-          {sh.label}
-        </button>
-      {/each}
-    </div>
-    <p class="muted tiny">
-      How rounded every panel, button and field is. <em>Theme</em> follows the
-      pack you picked above — Gruvbox squares off, Sakura rounds over.
-    </p>
-  {/snippet}
-
-  {#snippet typeBody()}
-    <div class="seg faces" role="radiogroup" aria-label="Font">
-      {#each FONTS as f (f.id)}
-        <button
-          class:sel={font === f.id}
-          role="radio"
-          aria-checked={font === f.id}
-          onclick={() => setAppearance("font", f.id)}
-        >
-          <span class="font-pv" style="font-family:{f.stack}" aria-hidden="true">Ag</span>
-          {f.label}
-        </button>
-      {/each}
-    </div>
-    <p class="muted tiny">
-      <em>Theme</em> follows the pack you picked above. The rest ship inside the
-      app — Concord never downloads a font at runtime, which would tell a font
-      host every time you open it.
-    </p>
-  {/snippet}
-
-  {#snippet comfortBody()}
-    <Segmented
-      label="Message density"
-      value={density}
-      options={DENSITIES.map((d) => ({ value: d.id, label: d.label }))}
-      onChange={(v) => setAppearance("density", v)}
-    />
-    <p class="muted tiny">{DENSITIES.find((d) => d.id === density)?.note}</p>
-
-    <div class="scale-row">
-      <input
-        type="range"
-        min="0.8"
-        max="1.5"
-        step="0.05"
-        value={uiScale}
-        aria-label="UI scale"
-        oninput={(e) => setAppearance("uiScale", Number(e.currentTarget.value))}
-        use:rangefill={uiScale}
-      />
-      <span class="scale-val">{Math.round(uiScale * 100)}%</span>
-      <button class="quiet scale-reset" disabled={uiScale === 1} onclick={() => setAppearance("uiScale", 1)}>
-        Reset
-      </button>
-    </div>
-    <p class="muted tiny">
-      Density sets the feed's rhythm and reading size; UI scale takes the whole
-      window with it. Ctrl+= and Ctrl+− work anywhere; Ctrl+0 resets.
-    </p>
-  {/snippet}
-
-  {#snippet flairBody()}
     <SettingRow
-      icon="diamond"
-      title="Use guild colours"
-      sub="Each guild tints the app with its banner's hue"
-      info="Derived from the banner a guild already chose, so every guild has a colour identity for free. Your own accent preset above always wins when set."
-      checked={S.prefs.guildAccents !== false}
-      onclick={() => setAppearance("guildAccents", S.prefs.guildAccents === false)}
-    />
-    <SettingRow
-      icon="spark"
       title="Seasonal touches"
-      sub="Snow in December, petals in spring, leaves in autumn"
-      info="A sparse drift over the guild rail, driven by this device's clock only — nothing is fetched. Quiet months show nothing."
-      checked={S.prefs.seasonal !== false}
-      onclick={() => setAppearance("seasonal", S.prefs.seasonal === false)}
+      sub="Snow in December, petals in spring, leaves in autumn — on the guild rail."
+      info="A sparse drift over the classic guild rail, driven by this device's clock only — nothing is fetched. Quiet months show nothing."
+      checked={S.prefs.seasonal === true}
+      onclick={() => setAppearance("seasonal", S.prefs.seasonal !== true)}
     />
-  {/snippet}
-
-  {#snippet clockBody()}
-    <div class="seg three" role="radiogroup" aria-label="Timestamp format">
-      {#each [["system", "Automatic"], ["12", "12-hour"], ["24", "24-hour"]] as [id, label] (id)}
-        <button
-          class:sel={clock === id}
-          role="radio"
-          aria-checked={clock === id}
-          onclick={() => setAppearance("clock", id)}
-        >
-          {label}
-        </button>
-      {/each}
-    </div>
-    <p class="muted tiny">How message timestamps show the time of day.</p>
-  {/snippet}
-
-  <div class="actions">
-    <button class="primary" onclick={onClose}>Done</button>
-  </div>
+  </SettingGroup>
 </RailShell>
 
 <style>
-  .scale-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .scale-row input[type="range"] {
-    flex: 1;
-  }
-  .scale-val {
-    font-variant-numeric: tabular-nums;
-    min-width: 4ch;
-    text-align: right;
-    font-size: var(--fs-ui);
-    color: var(--text-muted);
-  }
-  .scale-reset {
-    font-size: var(--fs-tiny);
-    padding: 4px 10px;
-  }
-  .scale-reset:disabled {
-    opacity: 0.45;
-  }
-
-  /* One collapsible, nine times. The head carries the section's own answer on
-     the right, so a folded section still says what it is set to — the reason
-     folding everything is an improvement rather than nine things to open. */
-  .grp {
+  /* Appearance: the theme cards and the pack gallery on top, then rows. */
+  .blk {
     display: flex;
     flex-direction: column;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--bg-0) 55%, var(--bg-elevated));
-    text-align: left;
-  }
-  .grp-head {
-    display: flex;
-    align-items: center;
     gap: var(--sp-2);
-    width: 100%;
-    padding: 11px 12px;
-    background: transparent;
-    border: none;
-    border-radius: 0;
-    color: var(--text);
-    font-size: var(--fs-ui);
-    font-weight: 600;
-    text-align: left;
-    /* The section can't clip its own corners with overflow:hidden — that would
-       make it a scroll container and strand the gallery bar's `sticky` inside
-       a box that never scrolls. The head rounds itself instead. */
-    border-radius: calc(var(--radius-md) - 1px) calc(var(--radius-md) - 1px) 0 0;
-    transition: background var(--dur-quick) ease;
-  }
-  .grp:not(.open) .grp-head {
-    border-radius: calc(var(--radius-md) - 1px);
-  }
-  @media (pointer: fine) {
-    .grp-head:hover {
-      background: var(--bg-3);
-    }
-  }
-  .grp.open .grp-head {
+    padding-bottom: var(--sp-4);
     border-bottom: 1px solid var(--hairline);
+    margin-bottom: 6px;
   }
-  .grp-chev {
-    color: var(--text-faint);
-    font-size: var(--fs-title);
-    line-height: 1;
-    transition: transform var(--dur-calm) var(--ease-spring);
-  }
-  .grp-chev.open {
-    transform: rotate(90deg);
-  }
-  .grp-title {
-    flex: none;
-  }
-  .grp-sub {
-    margin-left: auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .lbl {
+    margin: 0;
     font-size: var(--fs-compact);
-    font-weight: 400;
-    color: var(--text-muted);
+    font-weight: 600;
+    color: var(--text);
   }
-  .grp-body {
+  .lbl-row {
     display: flex;
-    flex-direction: column;
-    gap: var(--sp-3);
-    padding: var(--sp-3);
+    align-items: baseline;
+    gap: var(--sp-2);
   }
-  /* The gallery wants every pixel of the xl dialog; a four-button segmented
-     control does not — stretched to 1040px its labels drift a hand apart and
-     the row stops reading as one control. Only the pack and effect grids run
-     the full width. */
-  .grp-body > :not(.pack-row):not(.gal-bar):not(.live-head) {
-    max-width: 640px;
+  .gal-cur {
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+    margin-right: auto;
   }
-  /* A setting that belongs to the gallery above it, said with an indent and a
-     rule rather than with luck about spacing. */
-  .nest {
-    margin-left: var(--sp-3);
-    padding-left: var(--sp-3);
-    border-left: 2px solid var(--hairline);
+  .gal-jump {
+    font-size: var(--fs-compact);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .grp-chev {
-      transition: none;
-    }
+  .gal-q {
+    width: 100%;
+    height: 32px;
+    padding: 0 var(--sp-3);
   }
   p {
     margin: 0;
-    font-size: var(--fs-ui);
+    font-size: var(--fs-compact);
     line-height: 1.5;
   }
   .tiny {
     font-size: var(--fs-small);
   }
-
-  /* The gallery's own bar: what you are wearing, a way back to it, and a
-     filter. Sticky under the dialog's header — the header is opaque and sits a
-     layer above, so this slides under it rather than colliding with it. */
-  .gal-bar {
-    position: sticky;
-    /* The dialog's own header sticks at -20px and stands 58px tall, so its
-       bottom edge rests 38px down the scrollport. Measured, not guessed. */
-    top: 38px;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    margin: calc(-1 * var(--sp-3)) calc(-1 * var(--sp-3)) 0;
-    padding: var(--sp-2) var(--sp-3);
-    background: var(--bg-1);
-    border-bottom: 1px solid var(--hairline);
-  }
-  .gal-cur {
-    font-size: var(--fs-compact);
+  .muted {
     color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .gal-cur strong {
-    color: var(--text);
-  }
-  .gal-tick {
-    color: var(--accent-hover);
-    font-weight: 700;
-  }
-  .gal-jump {
-    flex: none;
-    padding: 4px 10px;
-    background: transparent;
-    color: var(--text-muted);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    font-size: var(--fs-small);
-  }
-  @media (pointer: fine) {
-    .gal-jump:hover {
-      color: var(--text);
-      border-color: var(--accent);
-    }
-  }
-  .gal-q {
-    margin-left: auto;
-    width: clamp(120px, 30%, 220px);
-    padding: 6px 10px;
-    font-size: var(--fs-compact);
   }
 
-  /* Theme cards: a mini window per mode, selected one ringed in accent. */
+  /* Three equal theme cards: a miniature of each ground, one indicator — an
+     inset ring in the accent ink — and the label under it. */
   .theme-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: var(--sp-2);
+    gap: var(--sp-3);
   }
   .theme-card {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: 6px;
+    padding: 0;
     background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
     color: var(--text-muted);
     font-size: var(--fs-compact);
-    align-items: center;
+    font-weight: 500;
+    text-align: start;
   }
-  .theme-card:hover {
-    background: var(--bg-3);
+  .theme-card.sel .cap {
     color: var(--text);
+    font-weight: 600;
   }
-  .theme-card.sel {
-    border-color: var(--accent);
-    color: var(--text);
-    background: var(--accent-soft);
+  .theme-card:focus-visible {
+    outline: none;
   }
+  .theme-card:focus-visible .pv {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+  }
+  /* The two grounds, as the theme blocks in app.css define them. These are the
+     one place the previews spell colours out: a preview of the light theme has
+     to show paper while the dark theme is the one on screen, and no token can
+     answer "what is --bg-1 in the OTHER theme". */
   .pv {
-    width: 100%;
-    height: 44px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
+    --pv-dark-1: #121516;
+    --pv-dark-2: #171a1c;
+    --pv-dark-3: #212528;
+    --pv-light-1: #eaece6;
+    --pv-light-2: #fcfcfb;
+    --pv-light-3: #dcdfd9;
+    --pv-1: var(--pv-dark-1);
+    --pv-2: var(--pv-dark-2);
+    --pv-3: var(--pv-dark-3);
+    position: relative;
     display: flex;
-    gap: 6px;
-    padding: var(--sp-2);
+    height: 76px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
     overflow: hidden;
-    /* Dark preview colors (defaults); the light card overrides them and the
-       system card splits itself between the two. */
-    --pv-bg: #16181c;
-    --pv-line: #3a3f47;
-    background: var(--pv-bg);
+    background: var(--pv-2);
   }
   .pv.light {
-    --pv-bg: #f2f3f6;
-    --pv-line: #c9cdd4;
+    --pv-1: var(--pv-light-1);
+    --pv-2: var(--pv-light-2);
+    --pv-3: var(--pv-light-3);
   }
-  .pv.system {
-    background: linear-gradient(115deg, #16181c 50%, #f2f3f6 50%);
+  .theme-card.sel .pv {
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
   }
-  .pv-dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--accent);
-    flex-shrink: 0;
-  }
-  .pv-lines {
+  .pv-side {
+    width: 34%;
+    padding: 8px 6px;
     display: flex;
     flex-direction: column;
     gap: 5px;
+    background: var(--pv-1);
+  }
+  .pv-main {
     flex: 1;
-    padding-top: 1px;
+    padding: 10px 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 6px;
   }
-  .pv-lines span {
-    height: 4px;
-    border-radius: 2px;
-    background: var(--pv-line);
+  .pv i {
+    display: block;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--pv-3);
   }
-  /* On the split (system) card, keep the bars legible over both halves. */
-  .pv.system .pv-lines span {
-    background: color-mix(in srgb, #868c98 70%, transparent);
+  .pv-side i:first-child {
+    width: 70%;
   }
-  .pv-lines .l1 {
-    width: 85%;
+  .pv-main .l1 {
+    width: 80%;
   }
-  .pv-lines .l2 {
-    width: 55%;
+  .pv-main .l2 {
+    width: 34%;
+    background: var(--accent);
+  }
+  /* Match system: the right half is the light ground. */
+  .pv-half {
+    position: absolute;
+    inset: 0 0 0 50%;
+    display: flex;
+    --pv-1: var(--pv-light-1);
+    --pv-2: var(--pv-light-2);
+    --pv-3: var(--pv-light-3);
+    background: var(--pv-2);
   }
 
-  /* Theme-pack cards: a mini app-window built out of the pack's own tokens.
-     Three colour swatches were the reason the gallery undersold itself — you
-     could not tell a monospaced, square, packed-tight pack from a rounded,
-     serif, airy one. Now the card shows the face, the radius, the avatar
-     shape, the row treatment and the motion. */
-  /* Six across in the xl dialog instead of three in a 458px column. Fifty-one
-     packs at three per row is nineteen rows of scrolling through the best
-     thing in the app. */
+  /* The pack gallery: four across in the XL pane, two on a phone. A card is a
+     mini window, a name and one line of character; chosen = inset ring. */
+  .live-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+    margin-top: var(--sp-2);
+  }
+  .live-tag {
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    color: var(--text);
+  }
   .pack-row {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(146px, 1fr));
-    gap: var(--sp-2);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--sp-3) 10px;
   }
   .pack-card {
     display: flex;
     flex-direction: column;
-    gap: var(--sp-1);
-    padding: 6px;
+    gap: 2px;
+    padding: 0;
     background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    color: var(--text-muted);
+    color: var(--text);
     font-size: var(--fs-compact);
     align-items: stretch;
-    text-align: center;
-    /* Every live pack card runs an infinite CSS animation (one of them repeats
-       at 0.7s) and nine of them exist. Without this they all keep compositing
-       while scrolled far off-screen, for the whole time this panel is open —
-       a measurable battery cost on a phone. Off-screen cards now render, and
-       therefore animate, not at all. */
+    text-align: start;
+    /* Every live pack card runs an infinite CSS animation. Off-screen cards
+       render, and therefore animate, not at all. */
     content-visibility: auto;
     contain-intrinsic-size: 112px 92px;
   }
-  .pack-card:hover,
-  .pack-card:active {
-    background: var(--bg-3);
-    color: var(--text);
+  .pack-card:focus-visible {
+    outline: none;
   }
-  .pack-card.sel {
-    border-color: var(--accent);
-    color: var(--text);
-    background: var(--accent-soft);
+  .pack-card:focus-visible .pk,
+  .pack-card:focus-visible .fxpv {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+  }
+  .pack-card.sel .pk,
+  .pack-card.sel .fxpv {
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
   }
   .pk-name {
+    margin-top: var(--sp-1);
     font-weight: 600;
   }
   .pk-note {
     font-size: var(--fs-tiny);
-    line-height: 1.25;
-    color: var(--text-faint);
-    /* Two lines' worth, always. A one-line note next to a two-line one made
-       its whole grid row taller than its neighbours and stair-stepped the
-       gallery; reserving the second line keeps every card the same height. */
-    min-height: 2.5em;
-  }
-  .pack-card.sel .pk-note {
+    line-height: 1.3;
     color: var(--text-muted);
+    min-height: 2.6em;
   }
   .pk {
     position: relative;
     width: 100%;
-    height: 58px;
-    border-radius: var(--radius-sm);
-    border: 1px solid rgba(255, 255, 255, 0.07);
+    height: 52px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
     background: var(--pk-base, var(--pk-bg));
     display: flex;
     overflow: hidden;
@@ -973,16 +812,13 @@
      "None" — the default, and the only card with nothing to show — takes a
      full-width row and the six real effects fall into 3x2 beneath it. Same
      move the typeface list makes for the same reason. */
-  .fx-row > button:first-child {
-    grid-column: 1 / -1;
-  }
   .fxpv {
     position: relative;
     width: 100%;
-    height: 58px;
-    border-radius: var(--radius-sm);
+    height: 52px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border);
-    background: linear-gradient(160deg, var(--bg-1), var(--bg-0));
+    background: var(--bg-1);
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -1003,25 +839,6 @@
     width: 58%;
   }
 
-  /* Animated-pack subsection heading. */
-  .live-head {
-    display: flex;
-    align-items: baseline;
-    gap: var(--sp-2);
-    margin-top: var(--sp-3);
-    flex-wrap: wrap;
-  }
-  .live-tag {
-    font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--accent-hover);
-  }
-
-  /* The live backdrop, in miniature. Each [data-motion] runs the same kind of
-     motion the real pack runs (app.css), so the card is a sample rather than a
-     description — and, like the real thing, it is transform/opacity only. */
   .pk-glow {
     position: absolute;
     inset: -40%;
@@ -1371,139 +1188,68 @@
     flex-wrap: wrap;
   }
   .swatch {
-    width: 28px;
-    height: 28px;
+    width: 22px;
+    height: 22px;
     padding: 0;
     border-radius: 50%;
     background: var(--sw);
-    border: 2px solid transparent;
-    transition: transform var(--dur-quick) ease;
-  }
-  .swatch:hover {
-    background: var(--sw);
-    transform: scale(1.12);
+    border: none;
   }
   .swatch.sel {
-    /* Ring: gap between the dot and an outline in the swatch's own color. */
-    border-color: var(--bg-elevated);
-    box-shadow: 0 0 0 2px var(--sw);
+    box-shadow:
+      0 0 0 2px var(--bg-elevated),
+      0 0 0 4px var(--text);
   }
   .swatch.profile {
     background: transparent;
-    border-color: var(--sw);
-    border-width: 3px;
-  }
-  .swatch.profile:hover {
-    background: color-mix(in srgb, var(--sw) 25%, transparent);
+    box-shadow: inset 0 0 0 3px var(--sw);
   }
   .swatch.profile.sel {
     background: var(--sw);
-    border-color: var(--bg-elevated);
+    box-shadow:
+      0 0 0 2px var(--bg-elevated),
+      0 0 0 4px var(--text);
   }
-
-  /* Density: segmented pair with a tiny line-rhythm glyph in each option. */
-  .seg {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--sp-2);
-  }
-  .seg > button {
+  .scale-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: var(--sp-2) var(--sp-3);
-    background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    gap: var(--sp-3);
+    min-width: 200px;
+  }
+  .scale-row input[type="range"] {
+    width: 200px;
+  }
+  .scale-val {
+    min-width: 40px;
+    text-align: end;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
-    font-size: var(--fs-ui);
+    font-variant-numeric: tabular-nums;
   }
-  .seg > button:hover {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  .seg > button.sel {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-    color: var(--text);
-  }
-  /* Exact column counts rather than auto-fit: a row of options that wraps to
-     leave one orphan on its own line reads as a mistake. Each group states how
-     many it has, so every row fills. */
-  .seg.three {
-    grid-template-columns: repeat(3, 1fr);
-  }
-  .seg.four {
-    grid-template-columns: repeat(4, 1fr);
-  }
-  /* Seven options divide into no tidy grid, so "Theme" — the default, and the
-     only one that isn't a named face — takes a full-width row of its own and
-     the six real faces fall into 3x2 beneath it. */
-  .seg.faces {
-    grid-template-columns: repeat(3, 1fr);
-  }
-  .seg.faces > button:first-child {
-    grid-column: 1 / -1;
-  }
-  /* The option rows are tight at three or four across; center them and let the
-     label shrink before the preview does. */
-  .seg.four > button,
-  .seg.faces > button {
-    justify-content: center;
-    gap: 7px;
-    padding: 8px 6px;
-  }
-  /* Corner preview: a swatch drawn at the radius it's offering. */
-  .shape-pv {
-    width: 22px;
-    height: 22px;
-    flex: none;
-    border: 1.5px solid currentColor;
-    border-radius: var(--r);
-    opacity: 0.7;
-  }
-  /* Font preview, set in the face itself — the only honest sample. */
-  .font-pv {
-    width: 22px;
-    flex: none;
-    font-size: var(--fs-body);
-    line-height: 1;
-    text-align: center;
-    opacity: 0.85;
-  }
-  /* Finger-sized pickers on touch. */
   @media (max-width: 768px) {
-    /* A colour swatch has neighbours on both axes, so 36px left their centres
-       under the fingertip minimum in a row you're expected to scan and tap
-       precisely. */
     .swatch {
-      width: var(--tap-min);
-      height: var(--tap-min);
+      width: 32px;
+      height: 32px;
+      min-height: 32px;
     }
-    .theme-card {
-      padding: 10px 8px;
-      font-size: var(--fs-ui);
+    .pack-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .seg > button {
-      min-height: 48px;
-    }
-    /* The note is what says what a pack actually IS; on a phone the type scale
-       already grows it, so all it needs is room to be two lines. */
     .pk-note {
       min-height: 0;
     }
-  }
-  /* The narrow floor. Four cells across 320px of content box leaves ~33px for
-     "Round" beside a fixed 22px preview, so the labels wrapped mid-word; three
-     packs across the same width does the same to their names. */
-  @media (max-width: 400px) {
-    .seg.four,
-    .seg.faces,
-    .pack-row {
-      grid-template-columns: 1fr 1fr;
+    .theme-row {
+      gap: var(--sp-2);
     }
-    .seg.faces > button:first-child {
-      grid-column: 1 / -1;
+    .pv {
+      height: 64px;
+    }
+    .scale-row {
+      width: 100%;
+    }
+    .scale-row input[type="range"] {
+      flex: 1;
+      width: auto;
     }
   }
   /* A forced-colours mode (Windows high contrast, and the GTK/Chromium
@@ -1529,8 +1275,8 @@
     .swatch {
       forced-color-adjust: none;
     }
-    .pack-card.sel,
-    .theme-card.sel,
+    .pack-card.sel .pk,
+    .theme-card.sel .pv,
     .swatch.sel {
       outline: 3px solid Highlight;
       outline-offset: 2px;
