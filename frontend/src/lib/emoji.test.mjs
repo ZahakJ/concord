@@ -52,6 +52,29 @@ ok(hits("taco").includes("🌮"), "search: taco");
 ok(hits("birthday").includes("🎂"), "search: birthday cake");
 ok(hits("family").length > 0, "search: family");
 
+
+// The obvious emoji for the obvious word comes first, with the full table in.
+const first = (q) => searchEmoji(q, 8)[0]?.[1];
+ok(first("wave") === "👋", `:wave -> 👋, got ${first("wave")}`);
+ok(first("smile") === "😄", `:smile -> 😄, got ${first("smile")}`);
+ok(first("heart") === "❤️", `:heart -> ❤️, got ${first("heart")}`);
+ok(first("+1") === "👍", `:+1 -> 👍, got ${first("+1")}`);
+ok(first("thumbs")?.startsWith("👍"), `:thumbs -> 👍, got ${first("thumbs")}`);
+ok(first("joy") === "😂", `:joy -> 😂, got ${first("joy")}`);
+ok(hits("wave").includes("🌊"), "water_wave is still found, just not first");
+// One entry per character.
+const chars = searchEmoji("smile", 20).map(([, c]) => c);
+ok(new Set(chars).size === chars.length, `duplicate characters in results: ${chars.join(" ")}`);
+// A prefix outranks a match in the middle of a word.
+const lan = searchEmoji("lan", 8).map(([n]) => n);
+ok(lan.every((n, i) => i === 0 || !n.startsWith("lan") || lan[i - 1].startsWith("lan")), `prefix hits first: ${lan}`);
+// The guild's own emoji, by prefix, ahead of Unicode names that merely contain it.
+const custom = { lantern: "data:image/png;base64,AAAA", spark: "data:image/png;base64,BBBB" };
+const withCustom = searchEmoji("lan", 8, custom);
+ok(withCustom[0][0] === "lantern" && withCustom[0][1] === ":lantern:" && withCustom[0][2] === custom.lantern, `custom first: ${JSON.stringify(withCustom[0])}`);
+ok(searchEmoji("spark", 8, custom)[0][1] === ":spark:", "an exact custom name wins");
+ok(!searchEmoji("zzz", 8, custom).some(([n]) => n === "lantern"), "custom emoji only when they match");
+
 // Names round-trip, curated first.
 ok(emojiName(EMOJI.fire) === "fire", "emojiName prefers the curated name");
 ok(emojiName("🇸🇦") !== "", "emojiName knows a generated char");

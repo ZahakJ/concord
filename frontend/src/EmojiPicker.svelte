@@ -71,7 +71,7 @@
   // Hovered-emoji preview: { char, name } or { img, name } for guild emoji.
   let preview = $state(null);
   const hint = $derived(
-    q ? `${searchHits.length + searchCustom.length} results`
+    q ? `${searchHits.length + searchCustom.length} ${searchHits.length + searchCustom.length === 1 ? "result" : "results"}`
       : tabs.find((t) => t.key === activeCat)?.label || "",
   );
 

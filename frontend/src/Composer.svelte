@@ -20,7 +20,7 @@
   import { haptic } from "./lib/touch.js";
   import { emoteText } from "./lib/emote.js";
   import { plainSnippet } from "./lib/snippet.js";
-  import { S, activeChannel, activeGuild, react, flash, flashSlot, nameColorFor, mentionRefs } from "./lib/state.svelte.js";
+  import { S, activeChannel, activeGuild, react, flash, flashSlot, nameColorFor, mentionRefs, customEmojiMap } from "./lib/state.svelte.js";
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
@@ -619,7 +619,7 @@
     }
     const emoji = activeShortcode(draft, caret);
     if (emoji) {
-      const items = searchEmoji(emoji.query, 8);
+      const items = searchEmoji(emoji.query, 8, customEmojiMap());
       suggest = items.length
         ? { kind: "emoji", start: emoji.start, items, sel: 0 }
         : null;
@@ -1684,7 +1684,12 @@
       {#each suggest.items as item, i (suggest.kind === "emoji" ? item[0] : suggest.kind === "slash" ? item.name : item.key)}
         <button class="suggest-item" class:sel={i === suggest.sel} onclick={() => accept(i)}>
           {#if suggest.kind === "emoji"}
-            <span class="s-emoji">{item[1]}</span> :{item[0]}:
+            {#if item[2]}
+              <img class="s-emoji s-cemoji" src={item[2]} alt="" />
+            {:else}
+              <span class="s-emoji">{item[1]}</span>
+            {/if}
+            :{item[0]}:
           {:else if suggest.kind === "slash"}
             <span class="s-slash" aria-hidden="true"><Icon name="code" size={13} /></span>
             <span class="s-cmd">{item.usage}</span>
@@ -2620,6 +2625,11 @@
   }
   .s-emoji {
     font-size: 16px;
+  }
+  .s-cemoji {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
   }
   .s-face {
     display: inline-flex;
