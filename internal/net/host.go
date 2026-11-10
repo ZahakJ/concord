@@ -548,14 +548,14 @@ func (n *Host) registerConnEvents() {
 			// connects with nobody upstream ever hearing about it — the app
 			// layer records its contact here, so that peer becomes invisible.
 			// Our own seen-set has no such window.
-			first := n.markConnected(p)
+			first, cbs := n.markConnectedFor(p)
 			// The same answer does double duty as the hole-punch exclusion for
 			// reachability evidence: a punched connection is by construction
 			// never the first one to its peer, because DCUtR runs over a relayed
 			// connection we already hold. See countsAsInbound.
 			n.noteInbound(c.Stat().Direction, c.LocalMultiaddr(), c.RemoteMultiaddr(), first)
 			if first {
-				n.fire(n.connectedCallbacks(), p)
+				n.fire(cbs, p)
 			}
 		},
 		DisconnectedF: func(net network.Network, c network.Conn) {
@@ -570,13 +570,23 @@ func (n *Host) registerConnEvents() {
 // markConnected records p as connected, reporting whether this is the first
 // notification for it — i.e. whether upper layers should be told.
 func (n *Host) markConnected(p peer.ID) bool {
+	first, _ := n.markConnectedFor(p)
+	return first
+}
+
+// markConnectedFor is markConnected that also hands back the connect callbacks
+// registered at that same instant, read under the same lock. OnPeerConnected
+// takes that lock too, so every callback hears about every peer exactly once:
+// either the peer was marked first and the callback's registration replays it,
+// or the callback was registered first and is in this list.
+func (n *Host) markConnectedFor(p peer.ID) (bool, []func(peer.ID)) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if n.connected[p] {
-		return false
+		return false, nil
 	}
 	n.connected[p] = true
-	return true
+	return true, append([]func(peer.ID){}, n.onConnected...)
 }
 
 // markDisconnected forgets p, reporting whether it had been announced — a
@@ -723,11 +733,27 @@ func (n *Host) PingRTT(ctx context.Context, p peer.ID) (time.Duration, error) {
 	}
 }
 
-// OnPeerConnected registers a callback fired when a peer first connects.
+// OnPeerConnected registers a callback fired when a peer first connects, and
+// fires it at once for every peer that is already connected.
+//
+// The host starts dialling the rendezvous and remembered peers inside New, and
+// the app registers its callbacks only after opening its store and its groups.
+// A connection that landed in between was announced to nobody: on a slow
+// start the rendezvous got there first, so the device never registered its
+// mailbox (deposits for it were refused all session) and never drained what
+// was waiting, and a friend reached that early was never greeted. Replaying
+// the connected set closes that window instead of hoping startup is quick.
 func (n *Host) OnPeerConnected(fn func(peer.ID)) {
 	n.mu.Lock()
 	n.onConnected = append(n.onConnected, fn)
+	already := make([]peer.ID, 0, len(n.connected))
+	for p := range n.connected {
+		already = append(already, p)
+	}
 	n.mu.Unlock()
+	for _, p := range already {
+		go fn(p)
+	}
 }
 
 // OnPeerDisconnected registers a callback fired when a peer fully disconnects.

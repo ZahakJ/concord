@@ -1240,7 +1240,9 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// one-shot announce at join time can be missed — this makes names converge
 	// reliably (each side re-announces, and learning a new profile triggers a
 	// reply, so both peers end up with each other's names).
-	host.OnPeerConnected(func(p peer.ID) {
+	//
+	// Registered at the end of Start, not here: see the registration below.
+	onConnected := func(p peer.ID) {
 		pp := s.presence(p)
 		// The presence feed, gated on the peer being somebody we have (see
 		// OnPeerConnected). A peer we cannot place yet is silent here and is
@@ -1307,7 +1309,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 			// newly-reachable committer is exactly who can re-add us.
 			s.healStrandedGuilds()
 		}()
-	})
+	}
 
 	host.OnPeerDisconnected(func(p peer.ID) {
 		// A fresh connection deserves a fresh introduction, in both directions.
@@ -1442,6 +1444,13 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// Manage Guild gets its legacy emoji and GIFs signed here, so they keep
 	// reaching new members instead of quietly stopping (recordsig.go).
 	s.adoptUnsignedPackRecords()
+
+	// Only now hear about connections. The host has been dialling since
+	// cnet.New, and the handler drains the mailbox and syncs history: run
+	// against a half-loaded service it would drain envelopes for guilds not
+	// yet tracked, ack them, and drop them. The host replays every peer that
+	// connected in the meantime, so nothing that landed early goes unannounced.
+	host.OnPeerConnected(onConnected)
 
 	// Background recovery: periodically re-attempt re-add for any stranded guild.
 	go s.runHealLoop()
