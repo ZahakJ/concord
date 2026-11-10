@@ -7,9 +7,10 @@
 // below is what the sheet renders, it lives against the handler it describes,
 // and shortcutlist.test.mjs fails the build when the handler grows a key the
 // list has not heard of.
-import { S, activeGuild, selectChannel, closePost, postParentOf, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash, flashSlot, toggleMicMute, toggleDeafen } from "./state.svelte.js";
-import { popLayer } from "./navstack.svelte.js";
+import { S, activeGuild, selectChannel, closePost, postParentOf, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash, flashSlot, toggleMicMute, toggleDeafen, focusFeed } from "./state.svelte.js";
+import { popLayer, topKind } from "./navstack.svelte.js";
 import { pressesBind, releasesBind, typesCharacter } from "./keybind.js";
+import { appCovered } from "./layers.js";
 
 // ---- the registry ----
 //
@@ -138,6 +139,14 @@ function pttBind() {
   return S.prefs.pttBind?.code ? S.prefs.pttBind : null;
 }
 
+// Is this keydown the push-to-talk key, with a call up to talk into? Other
+// key handlers ask before they act on a printable key, so a letter bound as
+// push-to-talk is not ALSO treated as the start of a message.
+export function isPttKey(e) {
+  const bind = pttBind();
+  return !!bind && pressesBind(e, bind);
+}
+
 function release() {
   if (!heldBind) return;
   heldBind = null;
@@ -235,7 +244,11 @@ export function installShortcuts() {
     }
     // Ctrl/Cmd+F — jump into message search (overrides the browser find bar,
     // but only when our search box is actually present, so we don't swallow it).
+    const covered = appCovered(S.modal, topKind());
     if (mod && !e.shiftKey && e.key.toLowerCase() === "f") {
+      // The search panel is itself a layer; Ctrl+F from its results goes back
+      // to its box rather than being refused.
+      if (covered && topKind() !== "panel") return;
       if (focusSearch()) e.preventDefault();
       return;
     }
@@ -277,17 +290,20 @@ export function installShortcuts() {
     }
     // Ctrl/Cmd+U — toggle the member panel.
     if (mod && !e.shiftKey && e.key.toLowerCase() === "u") {
+      if (covered) return;
       e.preventDefault();
       toggleMemberPanel();
       return;
     }
     // Ctrl+Alt+↑/↓ — previous / next guild (distinct from plain Alt = channel).
     if (mod && e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      if (covered) return;
       e.preventDefault();
       stepGuild(e.key === "ArrowDown" ? 1 : -1);
       return;
     }
     if (e.altKey && !mod && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      if (covered) return;
       e.preventDefault();
       const dir = e.key === "ArrowDown" ? 1 : -1;
       if (e.shiftKey) stepUnread(dir);
@@ -346,13 +362,17 @@ export function installShortcuts() {
       // the caret out of a half-written paragraph with no undo — would be
       // throwing away something else instead. With a draft this still does
       // nothing, exactly as before; Tab is the way out from there.
+      //
+      // It used to stop there, so the documented "Esc — mark channel read" and
+      // "Shift+Esc — mark everything read" took two presses from the place
+      // focus always is. Leaving the box now falls through to them, and it
+      // leaves to the message feed's own tab stop rather than to <body>, which
+      // put the next Tab back at the top of the document.
       const el = document.activeElement;
       if (el?.classList?.contains("draft") && !el.value) {
         e.preventDefault();
-        el.blur();
-        return;
-      }
-      if (inputFocused()) return;
+        if (!focusFeed()) el.blur();
+      } else if (inputFocused()) return;
       // A forum post is a PLACE, not a layer — navstack is explicit that a
       // conversation or a board is somewhere you are rather than something
       // covering what you were looking at, and registering one would also

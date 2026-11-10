@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Z, zAboveChain } from "./layers.js";
+import { Z, zAboveChain, appCovered } from "./layers.js";
 import { menuKeyTarget, nextStop } from "./menukeys.js";
 
 let failures = 0;
@@ -65,6 +65,14 @@ assert(nextStop(L, "b", -1, false) === "a", "Shift+Tab: previous");
 assert(nextStop(L, "c", 1, false) === null, "Tab off the end of the page: nothing (the browser chrome)");
 assert(nextStop(L, "c", 1, true) === "a", "Tab off the end of a dialog wraps, like its trap");
 assert(nextStop(L, "a", -1, true) === "c", "Shift+Tab wraps in a dialog");
+
+// ---- appCovered: navigation keys stand down under a covering layer ----
+assert(appCovered({ kind: "settings" }, ""), "a dialog covers the app");
+assert(appCovered(null, "popover"), "a profile card covers the app");
+assert(appCovered(null, "menu"), "an open menu covers the app");
+assert(!appCovered(null, ""), "nothing open: the app answers");
+assert(!appCovered(null, "reply"), "writing a reply is not a cover");
+assert(!appCovered(null, "call-stage"), "the call stage is not a cover");
 
 if (failures) {
   console.error(`${failures} layers/menukeys test(s) failed`);

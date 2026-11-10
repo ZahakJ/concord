@@ -65,3 +65,15 @@ export function zAbove(el, floor = Z.layer) {
   }
   return zAboveChain(chain, floor);
 }
+
+// Layers that cover the app: while one is up, the keys that move the app
+// UNDER it (channel and guild steppers, the member panel, search) do nothing.
+// Alt+↓ inside Settings — the chord that opens a select on most desktops —
+// used to switch channel twice behind the dialog, and Ctrl+U hid the member
+// panel nobody could see. Layers that sit beside the conversation (a reply
+// being written, a call banner, the call stage) do not count.
+const COVERING = new Set(["modal", "panel", "popover", "picker", "menu", "sheet", "studio", "story", "lightbox", "scanner", "veil"]);
+export function appCovered(modalOpen, top) {
+  return !!modalOpen || COVERING.has(top);
+}
+
