@@ -66,6 +66,7 @@
   import Welcome from "./Welcome.svelte";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
+  import Badge from "./Badge.svelte";
   import { pointOf, viewport } from "./lib/place.js";
   import { voiceStage, forumBoard, searchTakeover, islandFailed } from "./lib/islands.svelte.js";
 
@@ -314,7 +315,6 @@
     }
     return count;
   });
-  const badgeText = (n) => (n > 99 ? "99+" : String(n));
 
   // ---- "⋯" top-bar menu ----
   // Everything ChatHeader offers on desktop (search, pins, call, invite, guild
@@ -641,15 +641,15 @@
         <button class="tab" class:on={tab === "home"} aria-current={tab === "home" ? "page" : undefined} onclick={goHome}>
           <span class="tab-ic">
             <Icon name="hash" size={22} />
-            {#if homeUnread.mentions > 0}<span class="tab-badge">{badgeText(homeUnread.mentions)}</span>
-            {:else if homeUnread.count > 0}<span class="tab-dot"></span>{/if}
+            {#if homeUnread.mentions > 0}<span class="tab-badge"><Badge count={homeUnread.mentions} ring="var(--bg-1)" /></span>
+            {:else if homeUnread.count > 0}<span class="tab-dot"><Badge dot ring="var(--bg-1)" /></span>{/if}
           </span>
           <span class="tab-lbl">Home</span>
         </button>
         <button class="tab" class:on={tab === "messages"} aria-current={tab === "messages" ? "page" : undefined} onclick={goMessages}>
           <span class="tab-ic">
             <Icon name="bubble" size={22} />
-            {#if dmUnread > 0}<span class="tab-badge">{badgeText(dmUnread)}</span>{/if}
+            {#if dmUnread > 0}<span class="tab-badge"><Badge count={dmUnread} ring="var(--bg-1)" /></span>{/if}
           </span>
           <span class="tab-lbl">Messages</span>
         </button>
@@ -660,7 +660,7 @@
         >
           <span class="tab-ic">
             <Icon name="bell" size={22} />
-            {#if S.inbox.unread > 0}<span class="tab-badge">{badgeText(S.inbox.unread)}</span>{/if}
+            {#if S.inbox.unread > 0}<span class="tab-badge"><Badge count={S.inbox.unread} ring="var(--bg-1)" /></span>{/if}
           </span>
           <span class="tab-lbl" aria-hidden="true">Inbox</span>
         </button>
@@ -1127,35 +1127,20 @@
     white-space: nowrap;
     line-height: 1;
   }
-  /* Same accent, same shape as the rail's mention badge (a count is never
-     red), ringed with the bar's own ground so it reads as a sticker on the
-     icon rather than a shape in the layout. */
+  /* Where the unread mark sits on a tab's icon; the mark itself is <Badge>,
+     an accent count (never red) or the quiet dot, cut out of the bar's own
+     ground so it reads as a sticker on the icon. */
   .tab-badge {
     position: absolute;
     top: -4px;
     left: 16px;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 999px;
-    background: var(--accent);
-    color: var(--accent-fg);
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    line-height: 18px;
-    text-align: center;
-    border: 2px solid var(--bg-1);
-    box-sizing: content-box;
+    display: flex;
   }
   .tab-dot {
     position: absolute;
     top: 0;
     right: 0;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--text);
-    border: 2px solid var(--bg-1);
+    display: flex;
   }
 
   /* ---- the page's chrome ---------------------------------------------- */

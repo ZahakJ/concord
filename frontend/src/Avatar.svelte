@@ -63,18 +63,20 @@
   // `frame`, or — now that the libraries are one — as a decoration in `dec`.
   const ringed = $derived(!!frame || wornRing(decoration));
 
-  // Dot color: hidden when online is null; grey when disconnected or invisible;
-  // otherwise the chosen availability (default online = green).
-  const dotColor = $derived(
+  // Presence, by SHAPE as well as colour, so it reads without colour vision:
+  // online is a filled disc, idle a crescent, do-not-disturb a disc with a bar,
+  // offline (and invisible, which looks the same to everyone else) a hollow
+  // ring. Hidden when `online` is null.
+  const state = $derived(
     online === null
       ? null
       : !online || presence === "invisible"
-        ? "var(--text-faint)"
+        ? "off"
         : presence === "idle"
-          ? "#f0b232"
+          ? "idle"
           : presence === "dnd"
-            ? "#f04747"
-            : "var(--ok)",
+            ? "dnd"
+            : "on",
   );
 </script>
 
@@ -115,12 +117,8 @@
     <span class="mood" style="--mood:{moodSize}px" title={moodTitle || undefined} aria-hidden="true"
       >{mood}</span
     >
-  {:else if dotColor}
-    <span
-      class="dot"
-      class:live={online && (!presence || presence === "online")}
-      style="background:{dotColor}"
-    ></span>
+  {:else if state}
+    <span class="dot {state}" class:small={size <= 24}></span>
   {/if}
 </span>
 
@@ -170,14 +168,43 @@
       animation: none;
     }
   }
+  /* 10px (8 on a small avatar) with a 2px cut-out in the colour of the
+     surface the avatar sits on. --avatar-cut lets a caller on another ground
+     (the feed, a dialog) name it; the sidebar's is the default. */
   .dot {
     position: absolute;
-    bottom: -1px;
-    right: -1px;
-    width: 9px;
-    height: 9px;
+    bottom: -2px;
+    right: -2px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
-    border: 2px solid var(--bg-1);
+    border: 2px solid var(--avatar-cut, var(--bg-1));
+    background: var(--ok);
+  }
+  .dot.small {
+    width: 12px;
+    height: 12px;
+  }
+  .dot.idle {
+    background: radial-gradient(circle at 28% 28%, var(--avatar-cut, var(--bg-1)) 0 36%, var(--warn) 38%);
+  }
+  .dot.dnd {
+    background: var(--danger);
+  }
+  .dot.dnd::after {
+    content: "";
+    position: absolute;
+    left: 20%;
+    right: 20%;
+    top: 50%;
+    height: 2px;
+    margin-top: -1px;
+    border-radius: 1px;
+    background: var(--avatar-cut, var(--bg-1));
+  }
+  .dot.off {
+    background: var(--avatar-cut, var(--bg-1));
+    box-shadow: inset 0 0 0 2px var(--text-faint);
   }
   .mood {
     position: absolute;
@@ -195,33 +222,5 @@
     background: var(--bg-1);
     box-shadow: 0 0 0 2px var(--bg-1);
     z-index: 2;
-  }
-  /* Online friends breathe: a slow soft glow on the green dot. The glow lives
-     on a pseudo-element whose OPACITY animates — animating box-shadow itself
-     re-paints the layer sixty times a second for every visible dot (a real
-     cost on phones, where a member list can hold dozens), while an opacity
-     fade composites on the GPU for free. */
-  .dot.live::after {
-    content: "";
-    position: absolute;
-    inset: -2px;
-    border-radius: 50%;
-    box-shadow: 0 0 6px 1.5px color-mix(in srgb, var(--ok) 45%, transparent);
-    animation: dot-breathe 3.2s ease-in-out infinite;
-  }
-  @keyframes dot-breathe {
-    0%,
-    100% {
-      opacity: 0;
-    }
-    50% {
-      opacity: 1;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .dot.live::after {
-      animation: none;
-      opacity: 0;
-    }
   }
 </style>

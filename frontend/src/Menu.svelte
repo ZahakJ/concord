@@ -347,7 +347,7 @@
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    padding: 5px;
+    padding: var(--sp-1);
     box-shadow: var(--shadow-pop);
     /* The floor of the layer band. place() writes the real value inline, read
        off the opener's own stacking chain (lib/layers.js zAbove), which is what
@@ -355,17 +355,18 @@
     z-index: var(--z-layer);
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 0;
     transform-origin: top;
     animation: menu-in var(--dur-quick) var(--ease-out);
   }
   .menu.placed {
     visibility: visible;
   }
+  /* Opacity and 4px toward the anchor; no scale, nothing overshoots. */
   @keyframes menu-in {
     from {
       opacity: 0;
-      transform: translateY(-6px) scale(0.97);
+      transform: translateY(-4px);
     }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -394,7 +395,7 @@
   @keyframes menu-in-up {
     from {
       opacity: 0;
-      transform: translateY(6px) scale(0.97);
+      transform: translateY(4px);
     }
   }
   /* After the .menu.up rule above, not with the other reduced-motion block: a
@@ -421,33 +422,46 @@
   .menu :global(.menu-item) {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 10px;
+    min-height: 32px;
     background: transparent;
     color: var(--text);
     text-align: left;
-    padding: 8px 10px;
+    padding: 0 8px 0 10px;
     border-radius: var(--radius-sm);
     font-size: var(--fs-ui);
+    font-weight: 400;
     width: 100%;
   }
+  .menu :global(.menu-item > .icon),
+  .menu :global(.menu-item > svg) {
+    color: var(--text-muted);
+    flex: none;
+  }
+  /* Exactly one active row. The pointer's row and the keyboard's row are the
+     same highlight (--bg-3), and while the pointer is over a row the keyboard's
+     row stops painting, so a menu never shows two current items. A menu the
+     keyboard is driving also rings its row, inset, in the accent. Not inside
+     (pointer: fine) for the focus half: a desktop window under 768px gets the
+     sheet, and a real keyboard with it. */
   @media (pointer: fine) {
     .menu :global(.menu-item:hover) {
       background: var(--bg-3);
     }
-    .menu :global(.menu-item.danger:hover) {
-      background: var(--danger-soft);
+    .menu:has(:global(.menu-item:hover)) :global(.menu-item:focus-visible:not(:hover)) {
+      background: transparent;
+      box-shadow: none;
     }
   }
-  /* The keyboard's highlight is the mouse's highlight. Without this the arrow
-     keys moved a focus ring around rows that gave no other sign of being the
-     current one, which is a different-looking menu depending on which hand you
-     opened it with. Not inside the (pointer: fine) block above: a desktop
-     window under 768px gets the sheet, and a real keyboard with it. */
   .menu :global(.menu-item:focus-visible) {
     background: var(--bg-3);
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
   }
-  .menu :global(.menu-item.danger:focus-visible) {
-    background: var(--danger-soft);
+  .menu :global(.menu-item.danger),
+  .menu :global(.menu-item.danger > .icon),
+  .menu :global(.menu-item.danger > svg) {
+    color: var(--danger-text);
   }
   .menu :global(.menu-item:active) {
     background: var(--bg-3);
@@ -455,9 +469,6 @@
   .menu :global(.menu-item:disabled) {
     opacity: 0.45;
     pointer-events: none;
-  }
-  .menu :global(.menu-item.danger) {
-    color: var(--danger-text);
   }
   /* Sheet rows are finger-sized and spaced like the action sheet's, so the two
      menu surfaces on a phone don't feel like different apps. */
@@ -470,8 +481,8 @@
   }
   .menu :global(.menu-sep) {
     height: 1px;
-    background: var(--border);
-    margin: 4px 2px;
+    background: var(--hairline);
+    margin: 4px 6px;
   }
   .menu.sheet :global(.menu-sep) {
     margin: 5px 10px;

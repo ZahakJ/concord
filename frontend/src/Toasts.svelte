@@ -1,15 +1,17 @@
 <script>
   // Toast stack (bottom-right). Renders S.toasts — pushed via flash()/toastOk()/
-  // toastError() in state.svelte.js — newest at the bottom, capped at 4 visible
-  // (older ones stay queued and appear as newer ones expire). Each toast is its
-  // Enter/exit animations collapse to instant when the user prefers reduced
-  // motion.
+  // toastError() in state.svelte.js — newest at the bottom, capped at 3 visible
+  // (older ones stay queued and appear as newer ones expire). One surface for
+  // every kind: the lifted ground, a hairline and the float shadow, with the
+  // kind carried by the icon's ink alone — no coloured edge, no wash, no
+  // draining rail. Enter/exit animations collapse to instant when the user
+  // prefers reduced motion.
   import { fly } from "svelte/transition";
-  import { backOut } from "svelte/easing";
+  import { cubicOut } from "svelte/easing";
   import { S, dismissToast } from "./lib/state.svelte.js";
   import Icon from "./Icon.svelte";
 
-  const MAX_VISIBLE = 4;
+  const MAX_VISIBLE = 3;
   const visible = $derived(S.toasts.slice(-MAX_VISIBLE));
 
   const reducedMotion =
@@ -17,9 +19,6 @@
   const dur = reducedMotion ? 0 : 150;
 
   const ICONS = { info: "info", success: "check", error: "alert" };
-  // Mirrors the auto-dismiss timers in flash() so the progress rail drains in
-  // sync with the real timeout (they start within the same frame).
-  const TTL = { error: 5000, success: 3000, info: 3000 };
 
   // Announcing. Each toast used to be its own role=status/alert element,
   // created with its text already inside it — and a live region that arrives
@@ -53,21 +52,14 @@
   {#each visible as t (t.id)}
     <div
       class="toast {t.kind}"
-      in:fly={{ y: 14, duration: dur * 2, easing: backOut }}
-      out:fly={{ x: 24, duration: dur }}
+      in:fly={{ y: 8, duration: dur, easing: cubicOut }}
+      out:fly={{ y: 4, duration: dur * 0.8 }}
     >
-      <span class="t-icon"><Icon name={ICONS[t.kind] || "info"} size={15} /></span>
+      <span class="t-icon"><Icon name={ICONS[t.kind] || "info"} size={16} /></span>
       <span class="t-text">{t.text}</span>
       <button class="t-close" onclick={() => dismissToast(t.id)} aria-label="Dismiss notification">
         <Icon name="close" size={12} />
       </button>
-      {#if !reducedMotion}
-        <span
-          class="t-rail"
-          aria-hidden="true"
-          style="animation-duration: {TTL[t.kind] || 3000}ms"
-        ></span>
-      {/if}
     </div>
   {/each}
 </div>
@@ -79,8 +71,8 @@
        a 16px offset put every toast on the composer's icon row. --composer-h is
        published by Composer.svelte and unset wherever there is no composer (a
        forum board, the empty state), which is what the fallback covers. */
-    bottom: calc(var(--composer-h, 0px) + 16px);
-    right: 16px;
+    bottom: calc(var(--composer-h, 0px) + var(--sp-5));
+    right: var(--sp-5);
     /* Above the bottom sheets/scrims (400/401) so a toast fired from a sheet
        action is visible; still under the app lock (500). */
     z-index: var(--z-toast);
@@ -93,72 +85,27 @@
   }
   .toast {
     position: relative;
-    overflow: hidden; /* clips the progress rail to the rounded corners */
     pointer-events: auto;
     display: flex;
     align-items: flex-start;
     gap: 10px;
     padding: 10px 8px 10px 12px;
     color: var(--text);
+    background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-left-width: 3px;
     border-radius: var(--radius-md);
-    font-size: var(--fs-ui);
+    font-size: var(--fs-compact);
     line-height: 1.4;
     box-shadow: var(--shadow-pop);
-  }
-  /* Each variant gets a whisper of its color washed into the surface, plus
-     the colored edge — reads at a glance without shouting. The ground is
-     --bg-elevated: a toast floats over the feed, and --bg-1 carries an alpha
-     in most packs, which put a message behind the word "Copied". */
-  .toast.error {
-    border-left-color: var(--danger);
-    background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 9%, var(--bg-elevated)), var(--bg-elevated) 55%);
   }
   .toast.error .t-icon {
     color: var(--danger-text);
   }
-  .toast.success {
-    border-left-color: var(--ok);
-    background: linear-gradient(90deg, color-mix(in srgb, var(--ok) 9%, var(--bg-elevated)), var(--bg-elevated) 55%);
-  }
   .toast.success .t-icon {
     color: var(--ok-text);
   }
-  .toast.info {
-    border-left-color: var(--accent);
-    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, var(--bg-elevated)), var(--bg-elevated) 55%);
-  }
   .toast.info .t-icon {
     color: var(--text-muted);
-  }
-  /* Time-left rail along the bottom, draining toward dismissal. Duration is
-     set inline to match the flash() timer for this kind. */
-  .t-rail {
-    position: absolute;
-    left: 0;
-    bottom: 0;
-    height: 2px;
-    width: 100%;
-    transform-origin: left;
-    background: color-mix(in srgb, currentColor 28%, transparent);
-    animation-name: t-drain;
-    animation-timing-function: linear;
-    animation-fill-mode: forwards;
-  }
-  .toast.error .t-rail {
-    color: var(--danger-text);
-  }
-  .toast.success .t-rail {
-    color: var(--ok-text);
-  }
-  .toast.info .t-rail {
-    color: var(--accent-hover);
-  }
-  @keyframes t-drain {
-    to {
-      transform: scaleX(0);
-    }
   }
   .t-icon {
     flex-shrink: 0;

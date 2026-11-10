@@ -585,7 +585,7 @@
     font-size: var(--fs-ui);
     color: var(--text);
   }
-  .guard .danger {
+  .guard .ghost.danger {
     color: var(--danger-text);
   }
   .go {

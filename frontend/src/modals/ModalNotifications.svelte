@@ -289,7 +289,7 @@
           aria-label="Add an alert word"
           maxlength={MAX_LEN}
         />
-        <button type="submit" disabled={!draft.trim() || !!reason}>Add</button>
+        <button class="primary" type="submit" disabled={!draft.trim() || !!reason}>Add</button>
       </form>
       <!-- Always here, empty until there is something to say: a validation line
            that appears pushes the chip list and the counter down the page while

@@ -266,7 +266,7 @@
 
     <div class="actions">
       <button class="ghost" onclick={onClose}>Cancel</button>
-      <button disabled={!dir.trim() || scanning} onclick={scan}>
+      <button class="primary" disabled={!dir.trim() || scanning} onclick={scan}>
         {#if scanning}<span class="spin"></span> Reading…{:else}Read the folder{/if}
       </button>
     </div>
@@ -412,7 +412,7 @@
 
       <div class="actions">
         <button class="ghost" onclick={() => (step = "pick")}>Back</button>
-        <button disabled={!includedCount} onclick={() => (step = "policy")}>
+        <button class="primary" disabled={!includedCount} onclick={() => (step = "policy")}>
           Choose what to keep
         </button>
       </div>
@@ -519,7 +519,7 @@
 
     <div class="actions">
       <button class="ghost" onclick={() => (step = "bill")}>Back</button>
-      <button disabled={starting || !est?.messages} onclick={start}>
+      <button class="primary" disabled={starting || !est?.messages} onclick={start}>
         {#if starting}<span class="spin"></span> Starting…{:else}Import{/if}
       </button>
     </div>
@@ -533,7 +533,7 @@
       />
       <div class="actions">
         <button class="ghost" onclick={() => (step = "pick")}>Try again</button>
-        <button onclick={onClose}>Close</button>
+        <button class="primary" onclick={onClose}>Close</button>
       </div>
     {:else if prog?.phase === "done" && done?.result}
       <div class="sec-head"><h4>Imported</h4></div>
@@ -548,7 +548,7 @@
         whoever has them, only when somebody reads that far.
       </p>
       <div class="actions">
-        <button onclick={finish}>Done</button>
+        <button class="primary" onclick={finish}>Done</button>
       </div>
     {:else}
       <p class="lead">

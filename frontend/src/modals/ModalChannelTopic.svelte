@@ -141,7 +141,7 @@
   {/if}
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button onclick={save}>Save</button>
+    <button class="primary" onclick={save}>Save</button>
   </div>
 </Modal>
 

@@ -75,7 +75,7 @@
     padding: 8px 10px 8px 12px;
     background: var(--bg-input);
     color: var(--text);
-    border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+    border: 1px solid var(--border-strong);
     border-radius: var(--radius-md);
     font-size: var(--fs-ui);
     text-align: left;
@@ -91,12 +91,13 @@
   }
   @media (pointer: fine) {
     :global(.trigger.own:hover) .pick {
-      border-color: color-mix(in srgb, var(--border) 100%, transparent);
-      background: var(--bg-3);
+      border-color: var(--text-faint);
     }
   }
+  /* Open reads as focused: the field's accent edge and halo. */
   :global(.trigger.own[aria-expanded="true"]) .pick {
-    border-color: var(--accent);
+    border-color: var(--accent-hover);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-hover) 22%, transparent);
   }
   .pick-name {
     flex: 1;
@@ -105,8 +106,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* A placeholder in a picker is a placeholder: the muted tier, as on a
+     field (faint is reserved for meta). */
   .faint {
-    color: var(--text-faint);
+    color: var(--text-muted);
   }
   /* The shared chevron points right; a dropdown's points down. Rotating at the
      call site is the app's existing idiom for direction (MobileShell's back and
@@ -131,7 +134,8 @@
   }
   .opt-tick {
     color: var(--accent-hover);
-    font-weight: 700;
+    font-weight: 600;
+    margin-left: auto;
   }
   @media (pointer: coarse), (max-width: 768px) {
     .pick {

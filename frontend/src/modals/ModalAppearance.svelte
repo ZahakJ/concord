@@ -7,6 +7,7 @@
   import { motionInView } from "../lib/inview.js";
   import RailShell from "./RailShell.svelte";
   import SettingRow from "./SettingRow.svelte";
+  import Segmented from "../Segmented.svelte";
   import FxOverlay from "../FxOverlay.svelte";
   import { THEME_FX } from "../lib/themefx.js";
   import { S, setAppearance } from "../lib/state.svelte.js";
@@ -75,9 +76,9 @@
   // side of the default, and the default itself sits where a mainstream chat
   // app sits rather than where a dense one does.
   const DENSITIES = [
-    { id: "compact", label: "Compact", bars: 4, note: "Tight rows, smaller reading size — more of the conversation per screen." },
-    { id: "cozy", label: "Cosy", bars: 3, note: "The default: room between messages, comfortable reading size." },
-    { id: "comfortable", label: "Comfortable", bars: 2, note: "Wide rows and larger type — easiest to read across the room." },
+    { id: "compact", label: "Compact", note: "Tight rows, smaller reading size — more of the conversation per screen." },
+    { id: "cozy", label: "Cosy", note: "The default: room between messages, comfortable reading size." },
+    { id: "comfortable", label: "Comfortable", note: "Wide rows and larger type — easiest to read across the room." },
   ];
 
   // Shape + typeface are theme axes of their own; "" defers to the pack, which
@@ -489,21 +490,12 @@
   {/snippet}
 
   {#snippet comfortBody()}
-    <div class="seg three" role="radiogroup" aria-label="Message density">
-      {#each DENSITIES as d (d.id)}
-        <button
-          class:sel={density === d.id}
-          role="radio"
-          aria-checked={density === d.id}
-          onclick={() => setAppearance("density", d.id)}
-        >
-          <span class="rows {d.id}" aria-hidden="true">
-            {#each { length: d.bars } as _, i (i)}<span></span>{/each}
-          </span>
-          {d.label}
-        </button>
-      {/each}
-    </div>
+    <Segmented
+      label="Message density"
+      value={density}
+      options={DENSITIES.map((d) => ({ value: d.id, label: d.label }))}
+      onChange={(v) => setAppearance("density", v)}
+    />
     <p class="muted tiny">{DENSITIES.find((d) => d.id === density)?.note}</p>
 
     <div class="scale-row">
@@ -564,7 +556,7 @@
   {/snippet}
 
   <div class="actions">
-    <button onclick={onClose}>Done</button>
+    <button class="primary" onclick={onClose}>Done</button>
   </div>
 </RailShell>
 
@@ -1478,31 +1470,6 @@
     line-height: 1;
     text-align: center;
     opacity: 0.85;
-  }
-  .rows {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    width: 26px;
-    height: 24px;
-  }
-  .rows.comfortable {
-    gap: var(--sp-2);
-  }
-  .rows.cozy {
-    gap: 5px;
-  }
-  .rows.compact {
-    gap: 2px;
-  }
-  .rows span {
-    height: 3px;
-    border-radius: 2px;
-    background: currentColor;
-    opacity: 0.65;
-  }
-  .rows span:nth-child(2n) {
-    width: 70%;
   }
   /* Finger-sized pickers on touch. */
   @media (max-width: 768px) {

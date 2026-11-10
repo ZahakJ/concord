@@ -1680,24 +1680,36 @@ button.danger {
   color: var(--danger-fg);
   font-weight: 600;
 }
+/* A ghost that destroys: Discard beside Keep editing. Outlined in the
+   danger ink rather than filled, so the filled danger stays the one
+   confirmed, final action. */
+button.ghost.danger {
+  background: transparent;
+  color: var(--danger-text);
+  font-weight: 500;
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
 button.link {
   background: transparent;
   color: var(--accent-hover);
   font-weight: 500;
   padding: 0;
 }
+/* Minimums rather than a fixed box: the header and the composer already
+   wear `.iconbtn` on glyph-plus-label buttons, which have to grow. */
 button.iconbtn {
   display: inline-grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
   padding: 0;
   background: transparent;
   color: var(--text-muted);
 }
-/* Sizes, on the variants only (a bare `.sm` already means other things). md
-   is the default: --fs-compact/500 lands it at 32px with the base padding. */
-:is(button.primary, button.quiet, button.ghost, button.danger) {
+/* Sizes, on the variants only (a bare `.sm` already means other things, and
+   `.danger` is also a modifier on menu rows, so nothing here may change a
+   variant's layout unless a size was asked for). md is the default. */
+:is(button.primary, button.quiet, button.ghost, button.danger):is(.sm, .lg) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1721,8 +1733,8 @@ button.iconbtn {
 }
 @media (max-width: 768px) {
   button.iconbtn {
-    width: 44px;
-    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 /* Hover is a MOUSE state. A touch tap synthesises :hover in Android WebView and
@@ -1747,6 +1759,10 @@ button.iconbtn {
   }
   button.danger:hover:not(:disabled) {
     background: color-mix(in srgb, var(--danger) 88%, var(--text));
+  }
+  button.ghost.danger:hover:not(:disabled) {
+    background: var(--danger-soft);
+    color: var(--danger-text);
   }
   button.link:hover:not(:disabled) {
     text-decoration: underline;

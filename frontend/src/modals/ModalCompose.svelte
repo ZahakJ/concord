@@ -414,7 +414,7 @@
           <button type="button" class="danger" onclick={onClose}>Discard changes</button>
         {:else}
           <button type="button" class="ghost danger" onclick={discardAndClose}>Discard</button>
-          <button type="button" onclick={keepAndClose}>Save for later</button>
+          <button class="primary" type="button" onclick={keepAndClose}>Save for later</button>
         {/if}
       </div>
     {:else}

@@ -23,6 +23,7 @@
   // to be finger-sized). Every openContextMenu() caller — messages, channels,
   // guilds, members — upgrades automatically.
   import Icon from "./Icon.svelte";
+  import Kbd from "./Kbd.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import Avatar from "./Avatar.svelte";
   import { S, closeContextMenu } from "./lib/state.svelte.js";
@@ -286,11 +287,12 @@
                  a member list. -->
             {#if item.avatar}<Avatar {...item.avatar} size={18} />
             {:else if item.swatch}<span class="cm-swatch" style="background:{item.swatch}"></span>
-            {:else if item.icon}<Icon name={item.icon} size={14} />{/if}
+            {:else if item.icon}<Icon name={item.icon} size={16} />{/if}
             <span class="cm-text"
               >{item.label}{#if item.sub}<span class="cm-sub">{item.sub}</span>{/if}</span
             >
-            {#if item.active}<span class="cm-tick" aria-hidden="true">✓</span>{/if}
+            {#if item.active}<span class="cm-tick" aria-hidden="true">✓</span>
+            {:else if item.kbd}<span class="cm-kbd" aria-hidden="true"><Kbd>{item.kbd}</Kbd></span>{/if}
           </button>
         {/if}
       {/each}
@@ -328,7 +330,7 @@
     padding: 0; /* beat the global button padding — it un-centers the glyph */
     font-size: 24px;
     line-height: 1;
-    background: var(--bg-2);
+    background: var(--bg-3);
     color: var(--text);
     border-radius: 50%;
   }
@@ -368,8 +370,8 @@
     width: 54px;
     height: 54px;
     border-radius: var(--radius-lg);
-    background: var(--bg-2);
-    color: var(--accent-hover);
+    background: var(--bg-3);
+    color: var(--text);
     transition: transform var(--dur-quick) ease;
   }
   .as-tile.danger .as-tile-ic {
@@ -394,6 +396,8 @@
   .as-item {
     display: flex;
     align-items: center;
+    justify-content: flex-start;
+    font-weight: 400;
     gap: 14px;
     width: 100%;
     min-height: 48px;
@@ -420,7 +424,7 @@
   }
   .as-sep {
     height: 1px;
-    background: var(--border);
+    background: var(--hairline);
     margin: 5px 10px;
   }
 
@@ -433,16 +437,16 @@
   .cm {
     position: fixed;
     z-index: 401;
-    min-width: 200px;
+    min-width: 220px;
     max-width: 280px;
     padding: var(--sp-1);
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
     box-shadow: var(--shadow-pop);
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 0;
     overscroll-behavior: contain;
     /* Never taller than the viewport — a long menu scrolls instead of pushing
        items off-screen where they can't be reached. */
@@ -451,12 +455,12 @@
     /* Gentle rise-in so the menu arrives instead of blinking into place. Only
        opacity/translate animate — never scale — so the on-open flip measurement
        (which reads width/height) stays exact. */
-    animation: cm-in 0.18s var(--ease-out);
+    animation: cm-in var(--dur-quick) var(--ease-out);
   }
   @keyframes cm-in {
     from {
       opacity: 0;
-      transform: translateY(-6px);
+      transform: translateY(-4px);
     }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -464,17 +468,26 @@
       animation: none;
     }
   }
+  /* 32px rows, a 16px muted icon, the label in ink. The same look as Menu's
+     rows: a context menu and a dropdown are one surface. */
   .cm-item {
     display: flex;
     align-items: center;
-    gap: var(--sp-2);
+    justify-content: flex-start;
+    gap: 10px;
     width: 100%;
-    padding: var(--sp-2) var(--sp-3);
+    min-height: 32px;
+    padding: 0 8px 0 10px;
     background: transparent;
     color: var(--text);
     text-align: left;
     font-size: var(--fs-ui);
+    font-weight: 400;
     border-radius: var(--radius-sm);
+  }
+  .cm-item > :global(svg) {
+    flex: none;
+    color: var(--text-muted);
   }
   /* A quiet plate, not a filled accent brick — a menu that paints every
      hovered row in the brand colour reads as a selected command, not as
@@ -482,39 +495,32 @@
   .cm-item:hover,
   .cm-item:focus-visible {
     background: var(--bg-3);
-    color: var(--text);
     outline: none;
   }
-  /* …but the plate alone is not a focus indicator. --bg-3 and the menu's own
-     --bg-elevated are the same colour or nearly in the default dark theme and
-     in several packs (measured 1.00–1.01:1), so a keyboard user arrowing down
-     to Delete could not see which row Enter would run. The app's focus ring,
-     drawn inside the row so neighbouring rows do not clip it. */
+  /* …but the plate alone is not a focus indicator: a keyboard user arrowing
+     down to Delete has to see which row Enter will run. The menu the keyboard
+     is driving rings its active row, inset, in the accent. Hover moves focus
+     (above), so the pointer's row and the keyboard's row are one row. */
   .cm-item:focus-visible {
-    outline: 2px solid var(--accent-hover);
-    outline-offset: -2px;
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
   }
-  .cm-item.danger {
-    color: var(--danger-text);
-  }
-  .cm-item.danger:hover,
-  .cm-item.danger:focus-visible {
-    background: var(--danger-soft);
+  .cm-item.danger,
+  .cm-item.danger > :global(svg) {
     color: var(--danger-text);
   }
   .cm-sep {
     height: 1px;
-    background: var(--border);
-    margin: 4px 2px;
+    background: var(--hairline);
+    margin: 4px 6px;
   }
   /* Group label. Shared by both presentations — the sheet's rows are bigger,
      but a heading that reads as a heading is the same job either way. */
+  /* Sentence case, like every label: type and weight make it a heading, not
+     capitals and tracking. */
   .cm-header {
-    padding: var(--sp-2) var(--sp-3) var(--sp-1);
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    padding: var(--sp-2) 10px var(--sp-1);
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
   }
   /* The sheet's rows are twice the size of the popover's, so its group labels
@@ -522,7 +528,6 @@
   .as-list .cm-header {
     padding: var(--sp-2) var(--sp-3) var(--sp-1);
     font-size: var(--fs-compact);
-    letter-spacing: 0.02em;
   }
   /* The slider row. Two lines — a label with its read-out, then the track —
      because a slider squeezed in beside its own name has nowhere to travel. */
@@ -562,14 +567,15 @@
     flex-shrink: 0;
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
   }
+  /* A shortcut hint, when the item has one: the key, at the row's end. */
+  .cm-kbd {
+    margin-left: auto;
+    padding-left: var(--sp-3);
+  }
   .cm-tick {
     margin-left: auto;
     font-size: var(--fs-compact);
-    font-weight: 800;
+    font-weight: 600;
     color: var(--accent-hover);
-  }
-  .cm-item:hover .cm-tick,
-  .cm-item:focus-visible .cm-tick {
-    color: currentColor;
   }
 </style>

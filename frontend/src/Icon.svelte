@@ -119,6 +119,19 @@
     // Take back the last stroke on the drawing pad: an arrow curving back on
     // itself. Distinct from `reply`, which points into a conversation.
     undo: "M3 7.5h6.5a3.5 3.5 0 0 1 0 7H6 M5.5 4 3 7.5 5.5 11",
+    // Invite people: one person with a plus beside them (the place header).
+    personPlus: "M6.5 7.8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M1.8 13.5v-.8a4.7 4.7 0 0 1 9.4 0v.8 M12.6 5.2v4 M10.6 7.2h4",
+    // The end-to-end seal on a conversation header: a rosette with a tick.
+    // Distinct from `lock` (Privacy) and `shield` (account security).
+    seal: "M8 1.8 9.7 3l2-.1.7 1.9 1.6 1.3-.6 1.9.6 1.9-1.6 1.3-.7 1.9-2-.1L8 14.2 6.3 13l-2 .1-.7-1.9L2 9.9l.6-1.9L2 6.1l1.6-1.3.7-1.9 2 .1z M5.8 8.1l1.5 1.5 2.9-3",
+    // The recovery phrase: a key, the thing that gets you back in.
+    key: "M5.5 10.6a3 3 0 1 1 0-6 3 3 0 0 1 0 6z M8.4 7.6h6 M12.4 7.6v2.2 M14.4 7.6v1.6",
+    // More places than fit: a 2x2 of dots (the shortcut strip's overflow tile).
+    grid4: "M5.5 5.5h.01 M10.5 5.5h.01 M5.5 10.5h.01 M10.5 10.5h.01",
+    // Save for later. Not `pin`: pinning shows a message to everyone in the
+    // channel, saving keeps it for you, and the two sat side by side in the
+    // message menu wearing the same glyph.
+    bookmark: "M4.5 2.5h7v11L8 10.8l-3.5 2.7z",
     // Call events (missed-call lines in DMs).
     phone:
       "M4.4 2.5c.4 0 .8.2.9.6l.9 2.1a1 1 0 0 1-.2 1.1L4.8 7.5a9.8 9.8 0 0 0 3.7 3.7l1.2-1.2a1 1 0 0 1 1.1-.2l2.1.9c.4.1.6.5.6.9v1.4c0 .6-.5 1.1-1.1 1A11.9 11.9 0 0 1 2.5 3.6c-.1-.6.4-1.1 1-1.1z",
@@ -128,6 +141,13 @@
   // viewBox, filled not stroked like the icon set — separate branch below).
   // The two cockpit panes are evenodd HOLES, so it themes to any --accent and
   // sits on any background with no baked-in fill showing through the windows.
+  // Filled glyphs: a state that is ON (a pinned shortcut, a pinned message),
+  // where the outline of the same shape means off. Drawn with fill as well as
+  // stroke so the two read as one shape in two states.
+  const FILLED = {
+    pinFilled: "M5.6 2h4.8l-.5 4.4 1.9 2.6H4.2l1.9-2.6z M8 9v5",
+  };
+
   const CONCORDE =
     "M32 6C31.1 6 30.6 6.7 30.6 8.2L30.2 17C27.3 17.8 25.2 20.5 25.2 23.8L25.2 27.6L4.6 41.6C3.4 42.4 4.1 44.3 5.5 44L24 40.7C24.7 41.9 25.8 42.8 27.1 43.3L26.2 50.6C26.1 51.6 26.9 52.2 27.7 51.7L30.3 45.9L31 55.2C31 56 31.4 56.4 32 56.4C32.6 56.4 33 56 33 55.2L33.7 45.9L36.3 51.7C37.1 52.2 37.9 51.6 37.8 50.6L36.9 43.3C38.2 42.8 39.3 41.9 40 40.7L58.5 44C59.9 44.3 60.6 42.4 59.4 41.6L38.8 27.6L38.8 23.8C38.8 20.5 36.7 17.8 33.8 17L33.4 8.2C33.4 6.7 32.9 6 32 6ZM28.4 22.3L31 22.3L31 27.2L27.4 27.2L27.4 24.3C27.4 23.3 27.7 22.3 28.4 22.3ZM33 22.3L35.6 22.3C36.3 22.3 36.6 23.3 36.6 24.3L36.6 27.2L33 27.2Z";
 </script>
@@ -150,7 +170,11 @@
   >
     <!-- pathLength=1 normalises every glyph's length so one dasharray value
          covers the whole set when draw is on. -->
-    <path d={P[name] || P.diamond} pathLength={draw ? 1 : undefined} class:draw />
+    {#if FILLED[name]}
+      <path d={FILLED[name]} fill="currentColor" />
+    {:else}
+      <path d={P[name] || P.diamond} pathLength={draw ? 1 : undefined} class:draw />
+    {/if}
   </svg>
 {/if}
 

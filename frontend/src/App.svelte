@@ -71,6 +71,7 @@
   import { popLayer, navDepth, syncLayer } from "./lib/navstack.svelte.js";
   import { haptic, hapticNotify } from "./lib/touch.js";
   import Icon from "./Icon.svelte";
+  import Nudge from "./Nudge.svelte";
   import Login from "./Login.svelte";
   import MobileShell from "./MobileShell.svelte";
   import GuildRail from "./GuildRail.svelte";
@@ -1797,13 +1798,19 @@
      been verified, or simply looked at again in Settings; "Later" quiets it for
      this session only, which is the whole point of it. -->
 {#if S.ready && S.prefs.backupPending && !backupNudgeHidden && !S.update && !S.notifyAsk && !ringingChannel && !S.offline && !S.modal}
-  <div class="update-banner backup-nudge">
-    <span class="ub-text">
+  <div class="backup-nudge">
+    <Nudge
+      icon="key"
+      tone="warn"
+      floating
+      action="Show me"
+      onAction={() => (S.modal = { kind: "settings", focus: "phrase" })}
+      dismissLabel="Later"
+      onDismiss={() => (backupNudgeHidden = true)}
+    >
       <strong>Write down your recovery phrase.</strong> It is the only way back into this account, and
       right now it exists on this device and nowhere else.
-    </span>
-    <button class="ub-dl" onclick={() => (S.modal = { kind: "settings", focus: "phrase" })}>Show me</button>
-    <button class="ub-close" onclick={() => (backupNudgeHidden = true)} aria-label="Later">×</button>
+    </Nudge>
   </div>
 {/if}
 
@@ -3056,11 +3063,17 @@
     z-index: 205;
     font-size: var(--fs-ui);
   }
-  /* Amber rather than accent: this is the one banner that is a warning about
-     something the reader has to go and do, not an offer. Same colour the feed
-     uses for a mention, for the same reason — attention without alarm. */
+  /* The recovery-phrase nudge floats where the update pill does until the
+     sidebar has a nudge row to hold it. Its look is Nudge's own; the warn
+     tone tints the icon, because the consequence of ignoring this one is
+     losing the account. */
   .backup-nudge {
-    border-color: var(--warn);
+    position: fixed;
+    top: calc(12px + max(var(--safe-top), var(--sa-top, 0px)));
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(640px, calc(100 * var(--vw) - 24px));
+    z-index: 205;
   }
   .ub-text {
     overflow: hidden;

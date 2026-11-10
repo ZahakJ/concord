@@ -34,6 +34,7 @@
   import { shelfSounds, keepSound, dropSound, shelfFull, MAX_SHELF } from "../lib/soundshelf.svelte.js";
   import { rangefill } from "../lib/rangefill.js";
   import Switch from "../Switch.svelte";
+  import Tabs from "../Tabs.svelte";
 
   // onPick is set when the studio is opened from a voice room: there the
   // outcome is a sound to press, not a message to send.
@@ -135,23 +136,16 @@
 </script>
 
 <Modal title="Sounds" {onClose} wide>
-  <div class="tabs" role="tablist" aria-label="Sounds">
-    <button
-      type="button"
-      role="tab"
-      class="tab"
-      class:on={tab === "shelf"}
-      aria-selected={tab === "shelf"}
-      onclick={() => (tab = "shelf")}
-    >Shelf</button>
-    <button
-      type="button"
-      role="tab"
-      class="tab"
-      class:on={tab === "make"}
-      aria-selected={tab === "make"}
-      onclick={() => (tab = "make")}
-    >Make one</button>
+  <div class="tabs">
+    <Tabs
+      label="Sounds"
+      value={tab}
+      onChange={(id) => (tab = id)}
+      tabs={[
+        { id: "shelf", label: "Shelf" },
+        { id: "make", label: "Make one" },
+      ]}
+    />
   </div>
 
   {#if tab === "shelf"}
@@ -313,24 +307,7 @@
 
 <style>
   .tabs {
-    display: flex;
-    gap: var(--sp-1);
     margin-bottom: var(--sp-3);
-    border-bottom: 1px solid var(--border);
-  }
-  .tab {
-    padding: var(--sp-2) var(--sp-3);
-    border: none;
-    border-bottom: 2px solid transparent;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: var(--fs-ui);
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .tab.on {
-    color: var(--text);
-    border-bottom-color: var(--accent);
   }
 
   .cap {

@@ -650,7 +650,7 @@
         >
           {#snippet actions()}
             {#if canManage}
-              <button onclick={() => (adding = true)}><Icon name="plus" size={14} /> Add a GIF</button>
+              <button class="primary" onclick={() => (adding = true)}><Icon name="plus" size={14} /> Add a GIF</button>
             {/if}
             <button class="ghost" onclick={() => (tab = "search")}>Search instead →</button>
           {/snippet}

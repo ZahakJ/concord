@@ -95,7 +95,7 @@
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button onclick={apply} disabled={tooLong}>Mute</button>
+    <button class="primary" onclick={apply} disabled={tooLong}>Mute</button>
   </div>
 </Modal>
 
