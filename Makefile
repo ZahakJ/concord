@@ -13,7 +13,7 @@ VERSION ?= dev
 
 .PHONY: docs gui gui-dev web cli rendezvous frontend test race fmt clean release-keygen \
         peers rendezvous-run dev-clean help release icons banner native \
-        android-core ios-core android-app ios-app
+        android-core ios-core android-app ios-app e2e
 
 # gomobile bind flags shared by both mobile cores.
 #   -checklinkname=0: github.com/wlynxg/anet (libp2p's Android net shim) uses
@@ -257,6 +257,13 @@ rendezvous-run:
 	CONCORD_RELAY_SEED=$${CONCORD_RELAY_SEED:-00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff} \
 		go run ./cmd/rendezvous
 
+# Browser end-to-end suite (scripts/e2e/README.md): real peers on a private
+# local rendezvous, driven by headless Chromium. Depends on `frontend` because
+# the binary it builds embeds frontend/dist. Pass a subset or flags through
+# E2E_ARGS, e.g. `make e2e E2E_ARGS="guild-join --keep"`.
+e2e: frontend
+	node scripts/e2e/run.mjs $(E2E_ARGS)
+
 # Remove all local test data / binaries created by `make peers`.
 dev-clean:
 	rm -rf .dev
@@ -288,6 +295,7 @@ help:
 	@echo "  make rendezvous-run run a local rendezvous/relay node"
 	@echo "  make release       build web binaries locally (smoke test only)"
 	@echo "  make test | race   run tests (optionally with the race detector)"
+	@echo "  make e2e           run the browser end-to-end suite (scripts/e2e)"
 	@echo "  make docs          rebuild the documentation site (docs/manual/)"
 	@echo "  make dev-clean      delete local test data (.dev/)"
 	@echo "  make icons|banner  regenerate the app icons / README artwork"

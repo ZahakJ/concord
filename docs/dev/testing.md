@@ -1,6 +1,6 @@
 # Testing
 
-The checks a change has to pass, exactly as CI runs them, and the slower suites and harnesses for what the gate does not cover: the network integration tests, local multi-peer runs, and the browser end-to-end scripts.
+The checks a change has to pass, exactly as CI runs them, and the slower suites and harnesses for what the gate does not cover: the network integration tests, local multi-peer runs, and the browser end-to-end suite and scripts.
 
 CI is defined in `.github/workflows/ci.yml`. It runs on every push to `main`, on every pull request, nightly, and on manual dispatch. It has four jobs: `frontend`, `backend` and `android` run every time, and `integration` runs only on the nightly schedule or a manual dispatch.
 
@@ -106,9 +106,22 @@ It pins one API token for the whole run and prints each peer's URL with it as `?
 
 To test internet-style discovery, `make rendezvous-run` starts a local rendezvous and prints a multiaddr; point peers at it with `CONCORD_BOOTSTRAP`.
 
+## End-to-end suite
+
+`scripts/e2e/` is a browser end-to-end suite: each test gets fresh peer processes with their own data directories, a private rendezvous on `127.0.0.1` to find each other through (mDNS off, no public bootstrap), and headless Chromium driving their real UI. It covers behaviour that only exists in the running app, such as joining through the Join dialog, an edit or delete reaching another member's window, and a member who was offline catching up.
+
+```sh
+make e2e                                  # rebuild frontend/dist, build the binaries, run every spec
+make e2e E2E_ARGS="messages"              # only specs whose file name contains "messages"
+node scripts/e2e/run.mjs --grep "edit"    # no frontend rebuild; tests matching a pattern
+node scripts/e2e/run.mjs guild-join --keep   # leave the failing test's peers running
+```
+
+It prints a PASS or FAIL line per test and exits non-zero if any failed. A failing test leaves a screenshot and console log of every open page, plus every peer's log, under `.dev/e2e/<run-id>/artifacts/`. `E2E_BASE_PORT` moves the whole run to another port block, so several runs can share a machine. Like the scripts below, it needs Chromium and a borrowed `playwright-core`. The suite is not part of CI. `scripts/e2e/README.md` describes the options, the helper API specs are written against, and the pitfalls; a fix for a bug that only shows in the running UI should come with a spec there.
+
 ## End-to-end scripts
 
-`scripts/` holds harnesses that drive real browsers against real peers. They are not part of CI or `npm test`. Each opens with a comment describing what it proves. They need Chromium and a `playwright-core` install, which is deliberately not a project dependency: `scripts/playwright.mjs` finds one through `PLAYWRIGHT_CORE`, or in a `node_modules/` in the working directory or the repository root.
+`scripts/` also holds older single-purpose harnesses that drive real browsers against real peers. They are not part of CI or `npm test`. Each opens with a comment describing what it proves. They need Chromium and a `playwright-core` install, which is deliberately not a project dependency: `scripts/playwright.mjs` finds one through `PLAYWRIGHT_CORE`, or in a `node_modules/` in the working directory or the repository root.
 
 | Script | Covers |
 |---|---|
