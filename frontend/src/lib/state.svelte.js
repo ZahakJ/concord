@@ -42,7 +42,7 @@ import { typistsAfter } from "./typing.js";
 import { landsOnWelcome } from "./firstrun.js";
 import { insertBySent } from "./feedorder.js";
 import { isBlankText } from "./compose.js";
-import { isReading, readThrough, attention } from "./readstate.js";
+import { isReading, readThrough, attention, addressedToYou } from "./readstate.js";
 import {
   LEVELS as NOTIF_LEVELS,
   normalize as normalizeNotifs,
@@ -1899,13 +1899,14 @@ export function guildUnread(g) {
   let count = 0;
   let mentions = 0;
   let attn = 0;
-  const direct = g.kind === "dm" && !g.dmNotes;
+  const dm = g.kind === "dm" && !g.dmNotes;
   for (const c of g.channels) {
     const u = S.unread[c.id];
     if (!u || isMuted(c.id, g.id)) continue;
     count += u.count;
     mentions += u.mentions;
-    attn += attention(u, direct);
+    // A DM set to "Only @mentions" counts like a guild channel.
+    attn += attention(u, addressedToYou(dm, notifLevel(c.id, g.id)));
   }
   return { count, mentions, attention: attn };
 }
@@ -3712,7 +3713,8 @@ function initEvents() {
     const alert =
       genuinelyNew &&
       wantsAlert(notifLevel(m.channelId), {
-        mention: isMention || isDMChannel(m.channelId),
+        // ...unless that DM was set to "Only @mentions", which then means it.
+        mention: isMention || addressedToYou(isDMChannel(m.channelId), notifLevel(m.channelId)),
         dnd: S.identity.presence === "dnd",
       });
     if (alert) {
@@ -3723,7 +3725,7 @@ function initEvents() {
       } else if (isMention) {
         playMention();
       }
-      const direct = isMention || isDMChannel(m.channelId);
+      const direct = isMention || addressedToYou(isDMChannel(m.channelId), notifLevel(m.channelId));
       const where =
         owner?.kind === "dm"
           ? { kind: owner.dmPeer ? "dm" : "group", place: owner.name || "" }

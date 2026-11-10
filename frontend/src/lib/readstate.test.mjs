@@ -1,5 +1,5 @@
 // Zero-dependency test for the read-state rule (`npm test` runs it).
-import { isReading, readThrough, attention, hasUnread, badgeText, windowTitle } from "./readstate.js";
+import { isReading, readThrough, attention, hasUnread, badgeText, windowTitle, addressedToYou } from "./readstate.js";
 
 let failures = 0;
 const assert = (cond, msg) => {
@@ -47,6 +47,9 @@ eq(attention({ count: 3, mentions: 0 }, false), 0, "chatter alone has no number 
 eq(attention({ count: 3, mentions: 0 }, true), 3, "every DM message is aimed at you");
 eq(attention(null, true), 0, "nothing unread, nothing to count");
 assert(hasUnread({ count: 1, mentions: 0 }) && !hasUnread({ count: 0 }) && !hasUnread(null), "hasUnread");
+assert(addressedToYou(true, "all"), "a DM is aimed at you");
+assert(!addressedToYou(true, "mentions"), "a DM set to Only @mentions counts only its mentions");
+assert(!addressedToYou(false, "all"), "a guild channel is not");
 eq(badgeText(100), "99+", "badge cap");
 
 // ---- window title ----

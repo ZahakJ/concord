@@ -18,6 +18,7 @@
     selectChannel,
     toggleMute,
     isMuted,
+    notifLevel,
     setChannelNotifs,
     setGuildNotifs,
     guildNotifLevel,
@@ -677,6 +678,22 @@
         icon: "check",
         onClick: () => markRead(dm.channels?.[0]?.id),
       },
+      // A noisy group used to ping (sound and notification) for every
+      // message with no way to quiet it short of leaving. The levels are the
+      // channel's, as everywhere else: in a DM "Only @mentions" means just
+      // that — the conversation still shows unread, and only an @you pings.
+      ...(dm.channels?.[0]
+        ? [
+            { label: "Notifications", header: true },
+            ...LEVELS.map((l) => ({
+              label: l.label,
+              icon: l.id === "none" ? "bellOff" : "bell",
+              active: notifLevel(dm.channels[0].id, dm.id) === l.id,
+              onClick: () => setChannelNotifs(dm.channels[0].id, l.id === "all" ? null : l.id),
+            })),
+            { sep: true },
+          ]
+        : []),
       dm.channels?.[0] && {
         label: "Disappearing messages…",
         icon: "clock",

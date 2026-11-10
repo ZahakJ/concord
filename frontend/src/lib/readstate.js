@@ -60,6 +60,14 @@ export function attention(u, isDM) {
   return isDM ? u.count || 0 : u.mentions || 0;
 }
 
+// addressedToYou: does every message in this place count as aimed at you?
+// True for a DM or group DM — unless it was set to "Only @mentions", which
+// then means exactly that, as it does in a guild. Muting ("none") is handled
+// before this question is ever asked.
+export function addressedToYou(isDM, level) {
+  return !!isDM && level !== "mentions";
+}
+
 export const hasUnread = (u) => !!u && (u.count || 0) > 0;
 
 // badgeText caps a count for a small round badge.
