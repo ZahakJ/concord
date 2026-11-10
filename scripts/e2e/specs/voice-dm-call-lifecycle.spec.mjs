@@ -130,6 +130,7 @@ test("calling someone who is offline says so", async ({ world, assert, step, wai
   await startCall(a, "Bashir");
   await waitFor(async () => /They're offline/.test(await bar(a).innerText()), { timeout: 30000, message: "They're offline on the bar" });
   await a.page.getByRole("button", { name: "Open the call" }).first().click();
-  await a.page.getByText("Bashir is offline — they'll see a missed call").waitFor({ timeout: 15000 });
+  // The toast itself, not the copy the live region holds for screen readers.
+  await a.page.getByText("Bashir is offline — they'll see a missed call").and(a.page.locator(":not(.sr-only)")).waitFor({ timeout: 15000 });
   await shot(a, "calling offline");
 });

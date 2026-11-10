@@ -2,9 +2,8 @@
   // Toast stack (bottom-right). Renders S.toasts — pushed via flash()/toastOk()/
   // toastError() in state.svelte.js — newest at the bottom, capped at 4 visible
   // (older ones stay queued and appear as newer ones expire). Each toast is its
-  // own live region so screen readers announce it: errors are assertive alerts,
-  // the rest polite status. Enter/exit animations collapse to instant when the
-  // user prefers reduced motion.
+  // Enter/exit animations collapse to instant when the user prefers reduced
+  // motion.
   import { fly } from "svelte/transition";
   import { backOut } from "svelte/easing";
   import { S, dismissToast } from "./lib/state.svelte.js";
@@ -21,14 +20,39 @@
   // Mirrors the auto-dismiss timers in flash() so the progress rail drains in
   // sync with the real timeout (they start within the same frame).
   const TTL = { error: 5000, success: 3000, info: 3000 };
+
+  // Announcing. Each toast used to be its own role=status/alert element,
+  // created with its text already inside it — and a live region that arrives
+  // already holding its message is one screen readers routinely never read.
+  // Two regions now stay mounted for the life of the app, empty, and a new
+  // toast's text is written INTO them: a change to a region that was already
+  // there is the case every screen reader announces. Cleared first and filled
+  // a frame later so the same message twice is still two announcements.
+  let polite = $state("");
+  let urgent = $state("");
+  let said = 0;
+  $effect(() => {
+    const fresh = S.toasts.filter((t) => t.id > said);
+    if (!fresh.length) return;
+    said = Math.max(...fresh.map((t) => t.id));
+    const last = fresh[fresh.length - 1];
+    const err = last.kind === "error";
+    if (err) urgent = "";
+    else polite = "";
+    requestAnimationFrame(() => {
+      if (err) urgent = last.text;
+      else polite = last.text;
+    });
+  });
 </script>
+
+<div class="sr-only" role="status" aria-live="polite" aria-atomic="true">{polite}</div>
+<div class="sr-only" role="alert" aria-live="assertive" aria-atomic="true">{urgent}</div>
 
 <div class="toasts">
   {#each visible as t (t.id)}
     <div
       class="toast {t.kind}"
-      role={t.kind === "error" ? "alert" : "status"}
-      aria-live={t.kind === "error" ? "assertive" : "polite"}
       in:fly={{ y: 14, duration: dur * 2, easing: backOut }}
       out:fly={{ x: 24, duration: dur }}
     >

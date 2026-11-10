@@ -27,7 +27,8 @@ test("#channel completes after an @, and an empty file is refused up front", asy
   fs.writeFileSync(empty, "");
   const before = (await alice.messages(g.channels.general)).length;
   await a.attach(empty);
-  await a.page.getByText("empty.txt is empty").waitFor();
+  // The toast itself, not the copy the live region holds for screen readers.
+  await a.page.getByText("empty.txt is empty").and(a.page.locator(":not(.sr-only)")).waitFor();
   assert.equal(await a.page.locator(".attach-tray .att-chip").count(), 0);
   await a.composer().press("Enter");
   await sleep(1500);
