@@ -24,7 +24,11 @@ test("a second window of the same node does not join the call twice", async ({ w
   const a2 = await alice.open({ viewport: "laptop", watchMedia: true });
   await a2.openGuild("Studio");
   await room(a2, "Lounge").click();
-  await a2.page.getByText("You're already in this call in another window").waitFor({ timeout: 20000 });
+  // The toast itself, not the copy the live region holds for screen readers.
+  await a2.page
+    .getByText("You're already in this call in another window")
+    .and(a2.page.locator(":not(.sr-only)"))
+    .waitFor({ timeout: 20000 });
   await shot(a2, "second window told");
   assert.equal(await bar(a2).count(), 0, "the second window did not join");
 
