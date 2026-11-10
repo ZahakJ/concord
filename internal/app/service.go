@@ -1316,6 +1316,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		s.greeted.release(p)
 		s.answered.release(p)
 		s.solicited.release(p)
+		s.markDeviceLeft(p)
 		s.emitPeerDown(p, s.presence(p))
 	})
 
