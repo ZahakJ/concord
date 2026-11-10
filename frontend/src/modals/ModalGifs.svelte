@@ -562,7 +562,7 @@
         aria-label="Search this guild's GIFs"
       />
       {#if canManage}
-        <button class="addbtn" onclick={() => (adding = !adding)} title="Add a GIF to this guild">
+        <button class="primary addbtn" onclick={() => (adding = !adding)} title="Add a GIF to this guild">
           <Icon name="plus" size={14} /> Add
         </button>
       {/if}
@@ -591,7 +591,7 @@
           <input dir="auto" bind:value={newName} maxlength="64" placeholder="Name (e.g. cat vibing)" />
           <input bind:value={newTags} placeholder="Tags, space or comma separated" />
         </div>
-        <button class="go" onclick={add} disabled={busy || !pending || !newName.trim()}>Add</button>
+        <button class="primary go" onclick={add} disabled={busy || !pending || !newName.trim()}>Add</button>
       </div>
     {/if}
 
@@ -690,7 +690,7 @@
           }
         }}
       />
-      <button class="go" onclick={() => runSearch(false)} disabled={!usable || searching || !sq.trim()}>
+      <button class="primary go" onclick={() => runSearch(false)} disabled={!usable || searching || !sq.trim()}>
         {searching ? "Searching…" : "Search"}
       </button>
     </div>
@@ -750,7 +750,7 @@
             {/each}
           </div>
           {#if next}
-            <button class="more" use:autopage onclick={() => runSearch(true)} disabled={searching}>
+            <button class="quiet more" use:autopage onclick={() => runSearch(true)} disabled={searching}>
               {searching ? "Loading…" : "More results"}
             </button>
           {/if}

@@ -1988,7 +1988,7 @@
           >
             {#snippet actions()}
               {#if !cg.evicted && (cg.isOwner || has(cg.myPerms || 0, PERM.MANAGE_CHANNELS))}
-                <button onclick={() => (S.modal = { kind: "channel" })}>Create a channel</button>
+                <button class="primary" onclick={() => (S.modal = { kind: "channel" })}>Create a channel</button>
               {/if}
             {/snippet}
           </EmptyState>

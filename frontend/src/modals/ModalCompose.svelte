@@ -420,7 +420,7 @@
     {:else}
       <div class="actions">
         <button type="button" class="ghost" onclick={requestClose}>Cancel</button>
-        <button type="button" class="send" onclick={post} disabled={!canPost}>
+        <button type="button" class="primary send" onclick={post} disabled={!canPost}>
           {#if busy}
             <span class="spin" aria-hidden="true"></span> {editId ? "Saving…" : "Sending…"}
           {:else}

@@ -510,7 +510,7 @@
         use:rangefill={uiScale}
       />
       <span class="scale-val">{Math.round(uiScale * 100)}%</span>
-      <button class="scale-reset" disabled={uiScale === 1} onclick={() => setAppearance("uiScale", 1)}>
+      <button class="quiet scale-reset" disabled={uiScale === 1} onclick={() => setAppearance("uiScale", 1)}>
         Reset
       </button>
     </div>
