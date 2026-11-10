@@ -6,7 +6,7 @@
 // because a plain "is this body present?" test retires a row the instant it is
 // created if you have ever said those words. The second attempt used a
 // timestamp window and failed the same way for two sends a second apart.
-import { unsettled, alreadySaid } from "./outbox.js";
+import { unsettled, alreadySaid, toFlush, unheard } from "./outbox.js";
 
 let failures = 0;
 const fail = (msg) => {
@@ -68,6 +68,32 @@ eq(unsettled([{ id: "a", match: "", state: "sending" }], [msg("x")], ME).length,
 eq(alreadySaid([msg("ok"), msg("ok"), msg("no")], ME, "ok"), 2, "alreadySaid counts our copies");
 eq(alreadySaid([msg("ok", "someone-else")], ME, "ok"), 0, "…and only ours");
 eq(alreadySaid([msg("ok", ME, { deleted: true })], ME, "ok"), 0, "…and not deleted ones");
+
+// What goes out again by itself when the core comes back.
+{
+  const now = 1000;
+  const rows = [
+    { id: "a", kind: "text", body: "while down", state: "failed", offline: true },
+    { id: "b", kind: "text", body: "refused", state: "failed", offline: false },
+    { id: "c", kind: "text", body: "slow", state: "failed", offline: true, retryAt: now + 5000 },
+    { id: "d", kind: "att", state: "failed", offline: true },
+    { id: "e", kind: "text", body: "in flight", state: "sending", offline: true },
+    { id: "f", kind: "text", body: "second while down", state: "failed", offline: true },
+  ];
+  eq(
+    toFlush(rows, now).map((e) => e.id).join(","),
+    "a,f",
+    "only text the core never heard, in the order written; refusals, waits and attachments stay the user's",
+  );
+}
+
+{
+  const off = new Error("Concord isn't responding — trying to reconnect");
+  off.offline = true;
+  eq(unheard(off), true, "nothing answered: unheard");
+  eq(unheard(new Error("identity is locked; log in first")), true, "a restarted core still locked: unheard");
+  eq(unheard(new Error("slow mode: wait 20s")), false, "a refusal was heard");
+}
 
 if (failures) {
   console.error(`outbox: ${failures} failure(s)`);

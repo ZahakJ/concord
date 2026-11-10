@@ -2650,8 +2650,16 @@ onTransportHealth((up) => {
   // the stage will go on rendering everybody's faces. The banner says it in
   // words; this says it to someone who is looking at the person, not the app.
   if (!up && !wasOffline && S.voice) playCallDropped();
+  // With the core gone nobody's presence is known — including our own — and
+  // dots frozen at their last colour told the reader everyone was still there.
+  // Shown as offline until the refresh below brings the truth back.
+  if (!up && !wasOffline) {
+    S.members = S.members.map((m) => ({ ...m, online: false }));
+    S.guilds = S.guilds.map((g) => (g.dmPeerOnline ? { ...g, dmPeerOnline: false } : g));
+  }
   if (up && wasOffline) {
     refreshGuilds().catch(() => {});
+    refreshRightPanel().catch(() => {});
     refreshNetStatus();
   }
 });

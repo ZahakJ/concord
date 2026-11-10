@@ -8,6 +8,7 @@
   import { api, leaveVoiceOnUnload } from "./lib/api.js";
   import { createVisibilityReporter } from "./lib/visibility.js";
   import { windowTitle } from "./lib/readstate.js";
+  import { flushOutbox } from "./lib/outbox.svelte.js";
   import { VoiceMesh } from "./lib/voice.js";
   import { requestPermission, asksLazily } from "./lib/notify.js";
   import { installShortcuts } from "./lib/shortcuts.js";
@@ -467,6 +468,12 @@
       window.removeEventListener("pointerdown", check, true);
       window.removeEventListener("keydown", check, true);
     };
+  });
+
+  // A session that just unlocked sends what was written while the core was
+  // gone ("Messages will send when you're back" — lib/outbox.svelte.js).
+  $effect(() => {
+    if (S.ready) untrack(flushOutbox);
   });
 
   // Window title carries the unread signal to the taskbar/dock: "(3) #general

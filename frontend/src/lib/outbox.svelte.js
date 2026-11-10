@@ -38,8 +38,8 @@
 // landed — the core stores before it answers — so writing it down as something
 // to retry is how you send the same message twice.
 import { S, flash, scrollSoon, humanError, slowModeWait } from "./state.svelte.js";
-import { api } from "./api.js";
-import { unsettled, alreadySaid } from "./outbox.js";
+import { api, onTransportHealth } from "./api.js";
+import { unsettled, alreadySaid, toFlush, unheard } from "./outbox.js";
 
 let seq = 0;
 
@@ -64,6 +64,7 @@ function persist() {
         // next second: a slow-mode wait that expired while the app was closed
         // comes back already expired, which is the truth.
         retryAt: e.retryAt || 0,
+        offline: !!e.offline,
         at: e.at,
       }));
     if (keep.length) localStorage.setItem(STORE_KEY, JSON.stringify(keep));
@@ -231,8 +232,31 @@ async function run(entry) {
       state: "failed",
       error: humanError(err) || "Couldn't send",
       retryAt: wait ? Date.now() + wait * 1000 : 0,
+      // The core never heard it — see toFlush.
+      offline: unheard(err),
     });
     return false;
+  }
+}
+
+// flushOutbox sends again, in the order they were written, every row that failed
+// only because the core was gone. Called when the transport comes back and when
+// a session unlocks (a restarted core comes back locked, and a send into a
+// locked core fails the same way). Sequential, so a conversation's messages
+// keep their order; the first one that fails again stops the run — the core is
+// still not taking them, and the rest would only fail behind it.
+let flushing = false;
+export async function flushOutbox() {
+  if (flushing) return;
+  flushing = true;
+  try {
+    for (const e of toFlush(S.outbox)) {
+      if (!S.outbox.some((x) => x.id === e.id && x.state === "failed")) continue;
+      patch(e.id, { state: "sending", error: "" });
+      if (!(await run({ ...e, state: "sending" }))) break;
+    }
+  } finally {
+    flushing = false;
   }
 }
 
@@ -254,3 +278,20 @@ export function discard(id) {
   }
   drop(id);
 }
+
+// The core answering again is the moment the banner's promise comes due. A
+// core that restarted comes back locked, so this finds nothing to say yet and
+// the unlock (App.svelte, on S.ready) flushes instead.
+//
+// Asked first, not assumed: a send into a locked core would fail, and the
+// page reloads to the lock screen on that answer — possibly while the row is
+// marked "sending", which is the one state never written down (see persist),
+// so the message would be lost in the reload. The identity call gets the same
+// answer without risking a row.
+onTransportHealth((up) => {
+  if (!up || !S.ready) return;
+  api
+    .identity()
+    .then(() => flushOutbox())
+    .catch(() => {});
+});
