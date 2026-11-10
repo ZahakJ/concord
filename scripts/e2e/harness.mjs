@@ -21,7 +21,8 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Polls fn until it returns something truthy and returns that value. Errors
 // thrown by fn count as "not yet": the last one is quoted in the timeout error,
 // which is usually the most useful line in a failure report.
-export async function waitFor(fn, { timeout = 30000, interval = 250, message } = {}) {
+// fatal(err) → true stops polling and rethrows at once.
+export async function waitFor(fn, { timeout = 30000, interval = 250, message, fatal } = {}) {
   const deadline = Date.now() + scaled(timeout);
   let last, lastErr;
   for (;;) {
@@ -30,6 +31,7 @@ export async function waitFor(fn, { timeout = 30000, interval = 250, message } =
       if (last) return last;
       lastErr = undefined;
     } catch (e) {
+      if (fatal?.(e)) throw e;
       lastErr = e;
     }
     if (Date.now() > deadline) break;
@@ -261,8 +263,28 @@ export class Peer {
     return (await this.rpc("Messages", channelId)) || [];
   }
 
+  // SendMessage, retried while the core refuses with "proposals pending":
+  // right after a join or a new DM the group's key change is still being
+  // committed, and the core rejects application messages until it is. That
+  // is setup noise for a test about something else; a spec about the window
+  // itself should call rpc("SendMessage", …) directly.
+  async sendRaw(channelId, text, replyTo = "") {
+    return waitFor(
+      async () => {
+        try {
+          await this.rpc("SendMessage", channelId, text, replyTo, "");
+          return true;
+        } catch (e) {
+          if (/proposals pending/.test(e.message)) throw e;
+          throw Object.assign(e, { fatal: true });
+        }
+      },
+      { timeout: 30000, interval: 500, message: `${this.name} to send ${JSON.stringify(text)}`, fatal: (e) => e.fatal },
+    );
+  }
+
   async send(channelId, text, replyTo = "") {
-    await this.rpc("SendMessage", channelId, text, replyTo, "");
+    await this.sendRaw(channelId, text, replyTo);
     return this.waitForMessage(channelId, text, { timeout: 15000 });
   }
 
@@ -436,11 +458,14 @@ export class App {
 
   // ---- actions
 
+  // Enter sends on desktop; on a phone Enter is a newline, as on any phone
+  // keyboard, and the Send button is how a message goes.
   async send(text) {
     const c = this.composer();
     await c.click();
     await c.fill(text);
-    await c.press("Enter");
+    if (this.isPhone) await this.page.getByRole("button", { name: "Send", exact: true }).click();
+    else await c.press("Enter");
     await waitFor(async () => (await c.inputValue()) === "", { timeout: 10000, message: "the composer to clear after send" });
     return this.waitForMessage(text);
   }
@@ -498,13 +523,91 @@ export class App {
     return this;
   }
 
-  async openSettings() {
-    const btn = this.isPhone
-      ? this.page.getByRole("button", { name: "You — profile and settings" })
-      : this.page.locator('button[aria-label="Settings"]').last();
-    await btn.click();
-    await this.dialog().waitFor({ state: "visible" });
+  // Opens settings (the gear on desktop, the "You" tab on a phone) and, when
+  // given, switches to a section by its title in the settings rail
+  // ("Account", "Your profile", "Appearance", "Notifications & sounds", …).
+  async openSettings(section) {
+    if (!(await this.page.locator('[role="dialog"]').count())) {
+      const btn = this.isPhone
+        ? this.page.getByRole("button", { name: "You — profile and settings" })
+        : this.page.locator('button[aria-label="Settings"]').last();
+      await btn.click();
+      await this.dialog().waitFor({ state: "visible" });
+    }
+    if (section) await this.settingsSection(section);
     return this.dialog();
+  }
+
+  // Desktop: a section in the settings rail. Phone: there is no rail; the
+  // settings sheet lists the sections as rows, each opening a panel with a
+  // Back button, so this goes back to that list first.
+  async settingsSection(title) {
+    if (this.isPhone) {
+      const dlg = this.dialog();
+      const back = dlg.getByRole("button", { name: "Back", exact: true });
+      for (let i = 0; i < 4 && (await back.isVisible().catch(() => false)); i++) {
+        await back.click();
+        await sleep(200);
+      }
+      const row = this.#phoneSectionRows().filter({ hasText: title }).first();
+      await row.click();
+      await back.waitFor({ state: "visible" });
+      return this.dialog();
+    }
+    const rail = this.page.locator('nav[aria-label="Settings sections"]');
+    await rail.waitFor({ state: "visible" });
+    const item = rail.locator("button.r-item").filter({ hasText: title }).first();
+    await item.click();
+    await waitFor(async () => (await item.getAttribute("aria-current")) === "page", {
+      timeout: 15000,
+      message: `settings section "${title}" to open`,
+    });
+    return this.dialog();
+  }
+
+  // The section rows of the phone settings sheet are its navigable rows (the
+  // ones with a chevron) outside the account page's own body (.desk-cols).
+  #phoneSectionRows() {
+    return this.dialog().locator(".row:has(.chev):not(.desk-cols .row)");
+  }
+
+  // The titles of every settings section, in order (the rail on desktop, the
+  // section rows on a phone).
+  async settingsSections() {
+    if (this.isPhone) {
+      const rows = this.#phoneSectionRows();
+      await rows.first().waitFor({ state: "visible" });
+      return rows.evaluateAll((els) => els.map((e) => e.querySelector(".title")?.textContent.trim()));
+    }
+    const items = this.page.locator('nav[aria-label="Settings sections"] button.r-item');
+    await items.first().waitFor({ state: "visible" });
+    return items.evaluateAll((els) => els.map((e) => (e.querySelector(".r-title")?.textContent || e.textContent).trim()));
+  }
+
+  // Home → the direct-message list → the conversation with this name (the
+  // other person's display name, or "Notes" for your own).
+  async openDM(name) {
+    await this.page.locator('nav[aria-label="Guilds"]').getByRole("button", { name: /^Home \/ Direct messages/ }).click();
+    await this.page.locator(".dm-item").filter({ has: this.page.locator(".dm-name", { hasText: name }) }).first().click();
+    await waitFor(async () => !(await this.composer().isDisabled()), { timeout: 15000, message: `the DM with ${name} to open` });
+    return this;
+  }
+
+  // Attaches files through the composer's file input (paths on disk).
+  async attach(...files) {
+    await this.page.locator('input[type="file"]').first().setInputFiles(files);
+    return this;
+  }
+
+  // Phone only: from a conversation back to the channel list / DM list.
+  async back() {
+    await this.page.getByRole("button", { name: /^Back to (channels|messages)$/ }).click();
+    return this;
+  }
+
+  // Toggles a reaction from the message toolbar's quick row ("👍", …).
+  async react(text, emoji) {
+    return this.messageAction(text, `React ${emoji}`);
   }
 
   // Escape until no dialog is open (bounded: some dialogs ask before closing).
@@ -602,6 +705,52 @@ export class World {
     return (await this.peers(1, { ...opts, names: opts.name ? [opts.name] : undefined }))[0];
   }
 
+  // A direct message between two peers who already share a guild (a DM
+  // needs the other side's keys). a starts it over RPC and sends one greeting,
+  // `"<a.name> says hi"`, since a DM nobody has written in may not surface on
+  // the other side; resolves once b has the conversation and the greeting.
+  // Returns { id, channelId, greeting }.
+  async dm(a, b) {
+    const g = await a.rpc("StartDM", b.fingerprint);
+    const channelId = g.channels?.[0]?.id;
+    if (!channelId) throw new Error(`StartDM returned no channel: ${short(g)}`);
+    const greeting = `${a.name} says hi`;
+    await a.sendRaw(channelId, greeting);
+    await waitFor(async () => (await b.guilds()).some((x) => x.id === g.id), {
+      timeout: 60000,
+      interval: 500,
+      message: `${b.name} to receive the DM from ${a.name}`,
+    });
+    await b.waitForMessage(channelId, greeting);
+    return { id: g.id, channelId, greeting };
+  }
+
+  // A second device on `account`'s identity, linked the way a person links a
+  // phone: a link offer on the existing device, redeemed on a fresh one. The
+  // new device unlocks with the same passphrase. Counts against the five
+  // peers a test may start.
+  async linkDevice(account, { name = `${account.name}2` } = {}) {
+    const [dev] = await this.peers(1, { names: [name], start: false });
+    dev.passphrase = account.passphrase;
+    dev.linkedTo = account;
+    await dev.start();
+    // Each retry asks for a fresh offer rather than reusing one a failed
+    // attempt may have spent. Retries cover the new device not having found
+    // the old one through the rendezvous yet.
+    await waitFor(
+      async () => {
+        const code = await account.rpc("LinkOffer");
+        await dev.rpc("RedeemLinkCode", code, dev.passphrase);
+        return true;
+      },
+      { timeout: 90000, interval: 2000, message: `${name} to link to ${account.name}'s account` },
+    );
+    const id = await dev.rpc("Identity");
+    dev.fingerprint = id.fingerprint;
+    dev.peerId = id.peerId;
+    return dev;
+  }
+
   // Creates a guild on members[0] and joins every other member by invite code
   // over RPC, then waits until every member sees every other one in the member
   // list and every named channel exists on every peer. Returns
@@ -681,7 +830,7 @@ export async function seedMessages(peer, channelId, n, { prefix = `seed-${peer.n
   const texts = [];
   for (let i = 1; i <= n; i++) {
     const t = `${prefix} ${i}`;
-    await peer.rpc("SendMessage", channelId, t, "", "");
+    await peer.sendRaw(channelId, t);
     texts.push(t);
   }
   await waitFor(

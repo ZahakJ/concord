@@ -105,7 +105,7 @@ in `harness.mjs`. Assertions use `node:assert/strict`, passed in as `assert`.
 |---|---|
 | `world` | The test's peers and guilds (below) |
 | `assert` | `node:assert/strict` |
-| `waitFor(fn, {timeout, interval, message})` | Polls `fn` until it returns something truthy and returns it. Errors thrown by `fn` count as "not yet"; the last one is quoted in the timeout error |
+| `waitFor(fn, {timeout, interval, message, fatal})` | Polls `fn` until it returns something truthy and returns it. Errors thrown by `fn` count as "not yet" (unless `fatal(err)` says otherwise); the last one is quoted in the timeout error |
 | `seedMessages(peer, channelId, n, {prefix})` | Sends `n` numbered messages over RPC, waits until the sender has stored them, returns their texts |
 | `step(text)` | A progress line in the output |
 | `log(...)` | Any other output |
@@ -130,6 +130,14 @@ A test fails on the first thrown error, and after five minutes
   Use it whenever joining is not what the test is about.
 - `world.settleGuild({id, name}, members, channelNames)` → the same wait, for
   a guild you created or joined some other way (the UI, say).
+- `world.dm(a, b)` → a direct message between two peers who already share a
+  guild: `a` starts it over RPC and sends one greeting (`"<name> says hi"`,
+  returned as `greeting`), then it waits until `b` has both. Returns
+  `{id, channelId, greeting}`.
+- `world.linkDevice(peer, {name})` → a second device on `peer`'s account,
+  linked the way a person links a phone (a link offer on `peer`, redeemed on a
+  fresh device), unlocked with the same passphrase. It joins the account's
+  guilds by itself; `settleGuild` waits for that.
 
 ### A peer
 
@@ -138,7 +146,8 @@ A test fails on the first thrown error, and after five minutes
 - `rpc(method, ...args)` → the result, or throws with the core's error. The
   methods are the `Dispatch` switch in `internal/bridge/bridge.go`.
 - `messages(channelId)`, `send(channelId, text, replyTo?)` (over RPC; resolves
-  with the stored message), `waitForMessage(channelId, textOrPredicate,
+  with the stored message), `sendRaw(channelId, text, replyTo?)` (the same
+  without waiting for storage), `waitForMessage(channelId, textOrPredicate,
   {timeout, deleted})`, `guilds()`
 - `stop()` → the process exits, data kept: the person closed the app.
   `start()` brings it back locked; `unlock()` unlocks it. `restart()` is all
@@ -156,19 +165,29 @@ A test fails on the first thrown error, and after five minutes
 ### An open page (`App`)
 
 - `page`, `ctx`: the Playwright objects, for anything not covered here.
+  `isPhone` is true below 700 px wide.
 - `errors`: console errors and uncaught exceptions so far; `console`: every
   console line.
 - `composer()`, `message(text)` (the newest visible message body containing
   `text`), `messageRow(text)` (its `.msg` row), `dialog()` (the topmost
   `[role=dialog]`) — Playwright locators.
-- `send(text)` types into the composer and presses Enter, then waits until the
+- `send(text)` types into the composer and sends it (Enter on desktop; the
+  Send button on a phone, where Enter is a newline), then waits until the
   message is on screen. `waitForMessage(text)`, `waitForNoMessage(text)`.
 - `messageAction(text, label)` hovers the message and presses its toolbar
   button by accessible name (`Reply`, `Edit`, `Delete`, `Pin`, `Forward`,
   `More`, `React 👍`, …). `editMessage(text, next)`, `deleteMessage(text)`
-  (confirms the dialog).
+  (confirms the dialog), `react(text, emoji)` (the toolbar's quick row).
 - `openGuild(name)`, `openChannel(name, guild?)` (waits until the composer
-  targets it), `openSettings()` → the settings dialog, `closeModals()`.
+  targets it; on a phone this goes from Home into the conversation), `back()`
+  (phone: from a conversation to the channel list), `closeModals()`.
+- `openDM(name)` → Home, then the direct message with that person.
+  `attach(...paths)` puts files on the composer's file input.
+- `openSettings(section?)` → the settings dialog, optionally on a section by
+  its title (`"Appearance"`, `"Privacy & safety"`, …). `settingsSection(title)`
+  switches section; `settingsSections()` lists the titles. Both work on a
+  phone, where the sections are rows in the settings sheet with a Back button
+  instead of a rail.
 - `createGuild(name)` and `joinGuild(code, name?)` go through the
   "Add a guild" menu exactly as a person would.
 - `unlock()` / `reload()` reload the page and get past the passphrase screen
@@ -209,6 +228,11 @@ test-only attributes.
   peers are still finding each other through the rendezvous. `world.guild`
   retries the join for that reason; a UI join (`joinGuild`) does not, because
   what the dialog shows then is the behaviour under test.
+- **A send right after a join or a new DM can be refused** with "proposals
+  pending" while the group's key change is still being committed. The RPC
+  send helpers (`peer.send`, `sendRaw`, `seedMessages`, `world.dm`) retry
+  that error for up to 30 seconds; a spec about that window should call
+  `rpc("SendMessage", …)` directly.
 - **zsh and `${}`.** Inline `node -e "…${x}…"` gets mangled by zsh before node
   sees it. Write the script to a file.
 - **Settings are per browser context**, stored in the page's `localStorage`.
