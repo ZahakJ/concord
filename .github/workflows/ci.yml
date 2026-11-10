@@ -14,7 +14,7 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    - cron: "17 4 * * *" # nightly, for the integration job below
+    - cron: "17 4 * * *" # nightly, for the integration and e2e jobs below
   workflow_dispatch:
 
 # Read-only. Nothing here needs to write, and on a public repo `pull_request`
@@ -135,3 +135,37 @@ jobs:
       - run: cd frontend && npm ci && npm run build
       - name: Full suite (race detector, serialised)
         run: go test -race -p 1 -timeout 30m ./...
+
+  # The browser end-to-end suite: real peers, a local rendezvous and headless
+  # Chromium. Nightly and on demand like the integration job, and for the same
+  # reason: it waits on real message propagation, which a shared runner makes
+  # too slow to hold a pull request to. The timeout scale is that allowance.
+  e2e:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: go.mod }
+      - uses: actions/setup-node@v7
+        with: { node-version: "22" }
+      - run: cd frontend && npm ci
+      # playwright-core is not a project dependency (scripts/playwright.mjs
+      # says why), so the job borrows an install the same way a contributor
+      # does, and lets it fetch the one browser it drives.
+      - name: Borrow playwright-core and its Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pw" playwright-core
+          npx --prefix "$RUNNER_TEMP/pw" playwright-core install --with-deps chromium
+          echo "PLAYWRIGHT_CORE=$RUNNER_TEMP/pw/node_modules/playwright-core" >> "$GITHUB_ENV"
+      - name: End-to-end suite
+        run: make e2e
+        env:
+          E2E_TIMEOUT_SCALE: "2"
+      - name: Keep what a failure left behind
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-artifacts
+          path: .dev/e2e/**/artifacts
+          if-no-files-found: ignore
