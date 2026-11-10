@@ -44,6 +44,11 @@ type Bridge struct {
 	shellBackground bool
 	heardClient     bool
 	clientVisible   map[string]bool
+	// clientStreams counts the open /events streams per client id. A
+	// reconnect reuses the id, so the old stream's teardown can land after
+	// the new one attached; only the last stream to close means the client
+	// has gone. See DropClient.
+	clientStreams map[string]int
 	// wantMetered remembers the shell's last SetMetered call for the same
 	// reason: the network callback fires as soon as the process starts, long
 	// before anybody types a passphrase, and a service born after that must not
