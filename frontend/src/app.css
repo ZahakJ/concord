@@ -10,11 +10,14 @@
   --border: #32363e;
   --text: #e8eaed;
   --text-muted: #969aa3;
-  /* The dimmest ink the app is allowed to use. It is for decoration —
-     separators, keycap plus signs, disclosure chevrons — never for a sentence:
-     even at this value it only reaches 3.3:1 on --bg-3, which clears the
-     non-text bar and nothing more. Real prose stops at --text-muted. */
-  --text-faint: #767b85;
+  /* The dimmest ink the app is allowed to use. It was meant for decoration
+     only, but it carries real words all over the app — timestamps, "(edited)",
+     group labels, DM previews, captions — at 9–12.5px, where 4.5:1 is the bar.
+     At #767b85 it measured 3.8–4.4. It now clears 4.5 on every surface text
+     sits on (--bg-0 to --bg-2; tokens.test.mjs holds it there) and stays a
+     clear step below --text-muted. On --bg-3, an input or hover fill, it is
+     4.3: placeholders use --text-muted instead. */
+  --text-faint: #8a8f99;
 
   /* Concord teal — the brand accent. A member's profile color (or an accent
      preset from Appearance) overrides --accent at runtime (applyAccent), so
@@ -351,10 +354,10 @@
   --border: #c6cad2;
   --text: #1c1e22;
   --text-muted: #59606c;
-  /* Dark's --text-faint, near enough: a mid grey is the only value that clears
-     3:1 against both ends of the depth scale, and light's scale reaches all the
-     way down to --bg-0 behind the settings rows. */
-  --text-faint: #767d8b;
+  /* Readable on the surfaces text sits on (--bg-1, --bg-2 and the dialog
+     surface, 4.8–5.7:1; it was 3.0–4.1), and still a step lighter than
+     --text-muted. On --bg-0, the rail, it is 4.2. */
+  --text-faint: #5f6673;
 
   --accent-hover: color-mix(in srgb, var(--accent) 78%, black);
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
@@ -1948,9 +1951,11 @@ input[type="range"]:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
+/* A placeholder is the field's instructions ("Message #general…"), read on
+   the field's own fill, where --text-faint fell to 3.4–3.5:1. */
 input::placeholder,
 textarea::placeholder {
-  color: var(--text-faint);
+  color: var(--text-muted);
 }
 /* A placeholder must never be hard-cut mid-word. Theme packs swap the UI face
    for a mono or a wide one and every fixed-width field in the app is then

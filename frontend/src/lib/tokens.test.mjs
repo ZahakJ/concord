@@ -604,5 +604,42 @@ const value = (name, block) => {
   }
 }
 
+// ---- the faintest ink still reads -----------------------------------------
+// --text-faint carries timestamps, captions and labels at 9–12.5px, where WCAG
+// asks 4.5:1. The two base themes hold it there against every surface text
+// sits on, and placeholders (read on a field's own fill) use --text-muted.
+// The fifty packs carry their own values and are the redesign's to retune.
+{
+  const block = (sel) => {
+    const at = APP.indexOf(sel + " {");
+    return at < 0 ? "" : APP.slice(at, APP.indexOf("}", at));
+  };
+  const tok = (body, name) => {
+    const m = body.match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`));
+    return m ? colorsIn(m[1])[0] : null;
+  };
+  const dark = block(":root");
+  const light = block(':root[data-theme="light"]');
+  const themes = [
+    ["dark", dark, ["bg-0", "bg-1", "bg-2"]],
+    ["light", light, ["bg-1", "bg-2", "bg-elevated"]],
+  ];
+  for (const [name, body, grounds] of themes) {
+    const faint = tok(body, "text-faint");
+    if (!faint) {
+      fail(`${name}: no --text-faint hex to check`);
+      continue;
+    }
+    for (const g of grounds) {
+      const bg = tok(body, g) || tok(dark, g);
+      if (!bg) continue;
+      const c = contrast(faint, bg);
+      if (c < 4.5) fail(`${name}: --text-faint on --${g} is ${c.toFixed(2)}:1, under 4.5`);
+    }
+  }
+  const ph = APP.match(/input::placeholder,\s*textarea::placeholder\s*\{([^}]*)\}/);
+  if (!ph || !/var\(--text-muted\)/.test(ph[1])) fail("placeholders must use --text-muted (--text-faint is 3.4:1 on a field's fill)");
+}
+
 console.log(failures === 0 ? "tokens.test.mjs: OK" : `tokens.test.mjs: ${failures} failure(s)`);
 process.exit(failures ? 1 : 0);
