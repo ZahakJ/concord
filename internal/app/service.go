@@ -1819,7 +1819,11 @@ func (s *Service) DisplayName() string {
 // SetDisplayName persists a display name (self-asserted; the fingerprint remains
 // the authenticated identity) and re-announces it to every guild.
 func (s *Service) SetDisplayName(name string) error {
-	if err := s.store.SetSetting("display_name", strings.TrimSpace(name)); err != nil {
+	name, err := cleanDisplayName(name)
+	if err != nil {
+		return err
+	}
+	if err := s.store.SetSetting("display_name", name); err != nil {
 		return err
 	}
 	s.bumpProfileStamp()
@@ -2031,7 +2035,18 @@ func (s *Service) SetProfile(p Profile) error {
 	if !validBanner(p.Banner) {
 		return fmt.Errorf("app: banner must be an image or a preset")
 	}
-	p.Bio = clampBytes(p.Bio, maxBioBytes)
+	// The bio is refused, not cut, when it is too long: the editor counts the
+	// same bytes this does (frontend lib/profilefields.js), so the only way
+	// here is a caller that skipped it — and a silent cut is the one outcome
+	// nobody can see happen. 600 Arabic characters used to save as 323.
+	if len(strings.TrimSpace(p.Bio)) > maxBioBytes {
+		return fmt.Errorf("app: about me is too long (max %d bytes)", maxBioBytes)
+	}
+	name, err := cleanDisplayName(p.Name)
+	if err != nil {
+		return err
+	}
+	p.Name = name
 	sanitizeProfileExtras(&p)
 	for k, v := range map[string]string{
 		"display_name": strings.TrimSpace(p.Name),

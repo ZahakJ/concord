@@ -98,7 +98,9 @@ func (b *Bridge) BeginWipe() (WipeView, error) {
 		return WipeView{}, err
 	}
 	phrase := strings.TrimSpace(svc.SelfProfile().Name)
-	if phrase == "" {
+	// A name nobody can type — empty, invisible, or carrying format
+	// characters — made the dialog unconfirmable: "Type  to confirm".
+	if !appsvc.Typeable(phrase) {
 		phrase = wipeConfirmFallback
 	}
 	ticket := hex.EncodeToString(raw)
@@ -156,6 +158,7 @@ func (b *Bridge) ConfirmWipe(ticket, typed string) error {
 		_ = b.svc.Close()
 		b.svc = nil
 	}
+	b.lockReason = LockWiped
 	b.mu.Unlock()
 
 	b.lockReason = LockWiped
