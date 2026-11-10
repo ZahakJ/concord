@@ -29,6 +29,14 @@ updates:
       # a manual re-vendor — see THIRD-PARTY-NOTICES.md for the local changes
       # that have to be carried forward.
       - dependency-name: github.com/thomas-vilte/mls-go
+      # pion/turn 4.1 moved to pion/transport/v4, but the pion/ice that
+      # go-libp2p's WebRTC transport pulls in (4.0.x) still hands it a
+      # transport/v3 Net, so the whole group fails to compile in
+      # pion/ice/v4/gather.go and none of the other updates can land. Patch
+      # releases of 4.0 still come through. Lift this once go-libp2p requires a
+      # pion/ice built on transport/v4: `go mod graph | grep pion/ice` shows it.
+      - dependency-name: github.com/pion/turn/v4
+        versions: [">= 4.1.0"]
 
   - package-ecosystem: npm
     directory: /frontend
