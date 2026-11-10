@@ -21,19 +21,25 @@
       bootstrap = ((await api.getBootstrap()) || []).join("\n");
       publicDht = !!(await api.getPublicDht());
       port = (await api.getListenPort()) || null;
+      storedPort = port;
     } catch {
       /* ignore */
     }
   });
 
+  // Saved only by Save (or Enter). It used to save on blur as well, so
+  // clicking anywhere in the pane — to read the (i) beside it, say — committed
+  // a setting that publishes this computer's public IP address.
+  let storedPort = $state(null);
   let savedPort = $state("");
   const portOk = $derived(port === null || (Number.isInteger(port) && port >= 1024 && port <= 65535));
+  const portDirty = $derived((port ?? null) !== (storedPort ?? null));
   async function savePort() {
-    if (!portOk) return;
+    if (!portOk || !portDirty) return;
     try {
       await api.setListenPort(port ?? 0);
+      storedPort = port ?? null;
       savedPort = port ? String(port) : "off";
-      setTimeout(() => (savedPort = ""), 2400);
     } catch (err) {
       flash(err);
     }
@@ -149,9 +155,10 @@
           max="65535"
           placeholder="e.g. 4001"
           bind:value={port}
-          onblur={savePort}
+          oninput={() => (savedPort = "")}
+          onkeydown={(e) => e.key === "Enter" && savePort()}
         />
-        <button class="save" disabled={!portOk} onclick={savePort}>Save</button>
+        <button class="save" disabled={!portOk || !portDirty} onclick={savePort}>Save</button>
       </div>
     </SettingRow>
     <!-- The fallback keeps the app running, so nothing else would ever hint
@@ -165,6 +172,11 @@
     {/if}
     {#if !portOk}
       <p class="note-line">Pick a number between 1024 and 65535, or leave it blank.</p>
+    {:else if portDirty && port}
+      <p class="note-line warn">
+        Not saved yet. Saving publishes this computer's public IP address to peers and in the
+        invite codes you hand out.
+      </p>
     {:else if savedPort}
       <p class="note-line">
         {#if savedPort === "off"}
