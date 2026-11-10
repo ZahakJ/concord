@@ -235,7 +235,9 @@
       ? `${dmName} is offline — they'll see a missed call`
       : `Ringing ${dmGroup ? "everyone" : dmName}…`,
   );
-  const waiting = $derived(solo && !ringing && !joining && health.live);
+  // Not while someone is at the door: "Waiting for others to join…" under a
+  // person knocking contradicts the card right above it.
+  const waiting = $derived(solo && !ringing && !joining && health.live && !knockers.length);
   const waitText = $derived(
     !isDM ? "Waiting for others to join…" : dmGroup ? "Everyone else left" : `Waiting for ${dmName}…`,
   );
@@ -470,6 +472,7 @@
   // Tracked from the event, not from a flag we set ourselves: Escape and the
   // system's own fullscreen affordances leave it without asking us.
   let isFullscreen = $state(false);
+  let panelEl = $state(null);
   $effect(() => {
     const sync = () => (isFullscreen = !!document.fullscreenElement);
     document.addEventListener("fullscreenchange", sync);
@@ -485,7 +488,9 @@
         screen.orientation?.unlock?.();
         return;
       }
-      await stageEl?.requestFullscreen?.();
+      // The whole panel, not just the picture: the controls (mute, camera,
+      // leave) have to stay in reach while the call fills the screen.
+      await (panelEl || stageEl)?.requestFullscreen?.();
       if (S.isMobile) await screen.orientation?.lock?.("landscape");
     } catch {
       /* denied, unsupported, or the lock refused — the fullscreen still stands */
@@ -947,7 +952,7 @@
 
 <svelte:window onkeydown={sfxKey} />
 
-<div class="voice-panel" class:theater={inTheater} class:watching={!!focusedScreen} class:on-stage={onStage} style="--cols:{cols}">
+<div bind:this={panelEl} class="voice-panel" class:theater={inTheater} class:watching={!!focusedScreen} class:on-stage={onStage} style="--cols:{cols}">
   <!-- The stage's own header: which room, how many people, how long, and
        whether the door is locked. None of it existed — a call had no elapsed
        time anywhere in the app, and a locked call (which makes everyone else
@@ -1013,7 +1018,7 @@
         {@const cam = camTile(focusedPid)}
         <div class="focus-face" style={t.color ? `--tint:${t.color}` : ""}>
           <Avatar
-            name={t.name}
+            name={t.pending ? "" : t.name}
             emoji={t.emoji}
             color={t.color}
             image={t.image}
@@ -1091,7 +1096,7 @@
         >
           <span class="rail-face" style={t.color ? `--tint:${t.color}` : ""}>
             <Avatar
-              name={t.name}
+              name={t.pending ? "" : t.name}
               emoji={t.emoji}
               color={t.color}
               image={t.image}
@@ -1152,7 +1157,7 @@
         >
           <div class="face" style={t.color ? `--tint:${t.color}` : ""}>
             <Avatar
-              name={t.name}
+              name={t.pending ? "" : t.name}
               emoji={t.emoji}
               color={t.color}
               image={t.image}
@@ -1550,12 +1555,15 @@
 </div>
 
 <style>
+  .voice-panel:fullscreen {
+    padding: var(--sp-4);
+  }
   .voice-panel {
     display: flex;
     flex-direction: column;
     gap: var(--sp-3);
     padding: 14px 16px;
-    background: radial-gradient(120% 140% at 50% 0%, var(--bg-2), var(--bg-0));
+    background: var(--bg-0);
     overflow-y: auto;
     /* Flicking past the end of the tile grid used to hand the leftover momentum
        to the message feed underneath — the chat jumped while you were reaching
@@ -1832,23 +1840,16 @@
   .tile video.mirror {
     transform: scaleX(-1);
   }
-  /* Idle tile face: soft member-color gradient — a top glow melting into a
-     faint tinted wash, so every tile carries its owner's color. */
+  /* Idle tile face: the sidebar ground with the avatar centred. */
   .face {
     width: 100%;
     height: 100%;
     display: grid;
     place-items: center;
-    background:
-      radial-gradient(
-        120% 95% at 50% 0%,
-        color-mix(in srgb, var(--tint, var(--accent)) 30%, transparent),
-        transparent 62%
-      ),
-      linear-gradient(180deg, color-mix(in srgb, var(--tint, var(--accent)) 10%, var(--bg-1)), var(--bg-1) 80%);
+    background: var(--bg-1);
   }
-  /* Animated speaking ring — layered: a crisp inner ring, an inner wash of
-     color, and a breathing outer halo. */
+  /* Speaking: a 2px inset ring in the ok colour. No glow, no pulse — the
+     ring appearing is the signal. */
   .ring {
     position: absolute;
     inset: 0;
@@ -1858,24 +1859,7 @@
     transition: box-shadow var(--dur-quick) ease;
   }
   .tile.speaking .ring {
-    animation: pulse 1.6s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    0%,
-    100% {
-      box-shadow:
-        inset 0 0 0 2px var(--ok),
-        inset 0 0 22px -6px color-mix(in srgb, var(--ok) 40%, transparent),
-        0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent),
-        0 0 6px 0 color-mix(in srgb, var(--ok) 25%, transparent);
-    }
-    50% {
-      box-shadow:
-        inset 0 0 0 2px var(--ok),
-        inset 0 0 30px -4px color-mix(in srgb, var(--ok) 52%, transparent),
-        0 0 0 3px color-mix(in srgb, var(--ok) 45%, transparent),
-        0 0 18px 4px color-mix(in srgb, var(--ok) 40%, transparent);
-    }
+    box-shadow: inset 0 0 0 2px var(--ok);
   }
   /* The speaking badge: three bars bouncing while someone talks, labelled
      "Speaking" for the pointer and the screen reader. It was read as an
@@ -2186,9 +2170,9 @@
     overflow: hidden;
     background: #000;
   }
-  /* Speaking glow on the big focused view (participant focus only). */
+  /* Speaking on the big focused view: the same 2px ring as a tile. */
   .focus-main.speaking {
-    animation: pulse 1.6s ease-in-out infinite;
+    box-shadow: inset 0 0 0 2px var(--ok);
   }
   /* The eq badge would collide with the fullscreen/close buttons top-right, so
      it sits top-left in the big view. */
@@ -2221,13 +2205,7 @@
     height: 100%;
     display: grid;
     place-items: center;
-    background:
-      radial-gradient(
-        90% 80% at 50% 20%,
-        color-mix(in srgb, var(--tint, var(--accent)) 28%, transparent),
-        transparent 65%
-      ),
-      linear-gradient(180deg, color-mix(in srgb, var(--tint, var(--accent)) 10%, var(--bg-1)), var(--bg-1) 80%);
+    background: var(--bg-1);
   }
   .focus-actions {
     position: absolute;
@@ -2313,13 +2291,7 @@
     inset: 0;
     display: grid;
     place-items: center;
-    background:
-      radial-gradient(
-        80% 70% at 50% 20%,
-        color-mix(in srgb, var(--tint, var(--accent)) 28%, transparent),
-        transparent 65%
-      ),
-      var(--bg-1);
+    background: var(--bg-1);
   }
   .rail-item video {
     position: absolute;
@@ -2601,7 +2573,7 @@
     justify-content: center;
     gap: 10px;
     padding: 8px 0 2px;
-    background: linear-gradient(to top, var(--bg-0) 55%, transparent);
+    background: var(--bg-0);
     z-index: 1;
   }
   /* Held open rather than removed, so the panel doesn't jump when the call
@@ -2646,14 +2618,10 @@
     padding: 10px 12px;
     /* Accent-lit from the corner the avatar sits in, fading to the panel's own
        surface — a doorway with light spilling through, not a solid alert bar. */
-    background: linear-gradient(
-      115deg,
-      color-mix(in srgb, var(--accent) 17%, var(--bg-1)),
-      var(--bg-1) 70%
-    );
-    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    box-shadow: 0 8px 22px -12px color-mix(in srgb, var(--accent) 55%, transparent);
+    box-shadow: var(--shadow-pop);
     font-size: var(--fs-ui);
   }
   .knock-ava {

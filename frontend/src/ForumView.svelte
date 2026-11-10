@@ -57,7 +57,6 @@
     relTime,
     absTime,
     isPending,
-    washFor,
     tileFor,
     hueOfCss,
     BOARD_PREFS_EVENT,
@@ -496,9 +495,7 @@
   }
 
   // ---- header art ---------------------------------------------------------
-  // "Auto" derives a two-tone wash from the forum's ID: every forum is
-  // recognisably its own place with nothing stored and nothing synced. A chosen
-  // banner overrides it — read from the CHANNEL record, not from the board
+  // A chosen banner is the only art — read from the CHANNEL record, not from the board
   // prefs: the art moved onto the channel when it became shared (SetForumBanner),
   // and the settings dialog stopped writing prefs.banner, so a hero that kept
   // reading the prefs showed every pick as doing nothing.
@@ -516,7 +513,6 @@
     const el = root || document.querySelector(".app") || document.documentElement;
     return hueOfCss(getComputedStyle(el).getPropertyValue("--accent"));
   });
-  const wash = $derived(washFor(forum.id, accentHue));
   const art = $derived(forum.banner || "");
 
   // The FAB opens a modal ~200ms later; without the tap confirmation the press
@@ -533,22 +529,19 @@
   <!-- HEADER. The brief's "title needs to be cleaner": one identity block —
        art, glyph, name, description, and the three numbers that describe the
        place — instead of an icon, an h2 and a grey rule. -->
-  <header class="hero">
-    <Banner
-      banner={art}
-      color={art ? "" : wash.color}
-      color2={art ? "" : wash.color2}
-      style={{ angle: wash.angle }}
-      scale={0.7}
-    />
+  <!-- A banner, if the board has one, behind a scrim; otherwise a plain
+       header on the canvas — no generated gradient standing in for art. -->
+  <header class="hero" class:plain={!art}>
+    {#if art}
+      <Banner banner={art} scale={0.7} />
+    {/if}
     <!-- Two layers over the art, in this order. The sheen lights one corner so a
          plain gradient reads as a designed surface; the scrim on top of it is the
          CONTRAST GUARANTEE, not decoration — white ink over SCRIM_FLOOR clears
          4.5:1 even if the art underneath is pure white, which forum.test.mjs
          composites and asserts. All hero text sits below the 38% stop, where the
          gradient has reached that floor. -->
-    <span class="hero-sheen" aria-hidden="true"></span>
-    <span class="hero-scrim" aria-hidden="true"></span>
+    {#if art}<span class="hero-scrim" aria-hidden="true"></span>{/if}
     <div class="hero-in">
       <div class="hero-title">
         <span class="hero-glyph"><Icon name="forum" size={18} /></span>
@@ -1010,6 +1003,26 @@
     padding-bottom: 28px;
   }
 
+  /* No banner: the hero is a quiet header in ink, like a channel's. */
+  .hero.plain {
+    min-height: 0;
+    background: var(--bg-1);
+  }
+  .hero.plain .hero-glyph,
+  .hero.plain .stat,
+  .hero.plain .glass {
+    color: var(--text-muted);
+    background: var(--bg-3);
+  }
+  .hero.plain h1,
+  .hero.plain .stat b {
+    color: var(--text);
+    text-shadow: none;
+  }
+  .hero.plain .hero-topic {
+    color: var(--text-muted);
+    text-shadow: none;
+  }
   /* ---- hero ------------------------------------------------------------- */
   .hero {
     position: relative;
@@ -1027,18 +1040,6 @@
     position: absolute;
     inset: 0;
     z-index: 0;
-  }
-  /* Below the scrim on purpose: it brightens the ART, and the scrim on top of it
-     is what carries the measured contrast floor. Above the scrim it would eat
-     into that guarantee. */
-  .hero-sheen {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    pointer-events: none;
-    background:
-      radial-gradient(90% 120% at 8% -10%, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0) 62%),
-      radial-gradient(70% 90% at 100% 110%, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0) 70%);
   }
   .hero-scrim {
     position: absolute;
@@ -1541,7 +1542,7 @@
   .media {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(var(--tile-ang), var(--tile-a), var(--tile-b));
+    background: var(--bg-3);
     display: grid;
     place-items: center;
   }
