@@ -566,6 +566,30 @@
     openCal = cur;
   });
 
+  // After a reload mid-call: the call we were in, offered back once.
+  let rejoin = $state("");
+  let rejoinChecked = false;
+  $effect(() => {
+    if (!S.ready || rejoinChecked) return;
+    rejoinChecked = true;
+    let left = null;
+    try {
+      left = JSON.parse(sessionStorage.getItem("concord.leftCall") || "null");
+      sessionStorage.removeItem("concord.leftCall");
+    } catch {
+      left = null;
+    }
+    // Two minutes: past that it is not "a second ago", and the call has moved on.
+    if (left?.channelId && Date.now() - left.at < 120000) rejoin = left.channelId;
+  });
+  const rejoinWhere = $derived.by(() => {
+    for (const gg of S.guilds) {
+      const c = gg.channels?.find((x) => x.id === rejoin);
+      if (c) return gg.kind === "dm" ? gg.name : `${gg.name} · ${c.name}`;
+    }
+    return "";
+  });
+
   async function acceptCall(channelId) {
     acceptingCall(channelId);
     await jumpToChannel(channelId); // open the DM so the call box is in view
@@ -642,7 +666,20 @@
     // Closing or reloading the tab while in a call: tell the node to leave, so
     // it stops announcing us to a room we're no longer in. "pagehide" is the
     // one that also fires when a mobile browser backgrounds the page.
-    addEventListener("pagehide", () => leaveVoiceOnUnload(S.voice?.channelId || ""));
+    //
+    // A reload is a leave too, and it used to be a silent one: the page came
+    // back on #general with nothing to say you were in a call a second ago.
+    // sessionStorage survives a reload and dies with the tab, which is exactly
+    // the line between "offer to put you back" and "you closed it".
+    addEventListener("pagehide", () => {
+      const ch = S.voice?.channelId || "";
+      if (!leaveVoiceOnUnload(ch)) return;
+      try {
+        sessionStorage.setItem("concord.leftCall", JSON.stringify({ channelId: ch, at: Date.now() }));
+      } catch {
+        /* private mode: the leave still happened, it just goes unannounced */
+      }
+    });
     // Settle exactly once, whatever happens: session restored, no session, or
     // a core that never answers. The deadline is the safety net — a wedged
     // probe must not trap someone behind a splash forever, and the login
@@ -1984,6 +2021,30 @@
       <div class="ring-actions">
         <button class="ring-btn decline" onclick={() => declineCall(call.channelId)}>Decline</button>
         <button class="ring-btn accept" onclick={() => acceptCall(call.channelId)}>Join</button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- We reloaded out of a call: say so, once, and offer the way back. -->
+  {#if rejoin && rejoinWhere && !S.voice && !call && !S.callInvite}
+    <div class="ring-card invite" role="status">
+      <span class="ring-pulse"></span>
+      <div class="ring-info">
+        <strong>You left {rejoinWhere}</strong>
+        <span class="muted">when the page reloaded</span>
+      </div>
+      <div class="ring-actions">
+        <button class="ring-btn decline" onclick={() => (rejoin = "")}>Dismiss</button>
+        <button
+          class="ring-btn accept"
+          onclick={() => {
+            const ch = rejoin;
+            rejoin = "";
+            acceptCall(ch);
+          }}
+        >
+          {isDMChannel(rejoin) ? "Call again" : "Rejoin"}
+        </button>
       </div>
     </div>
   {/if}
