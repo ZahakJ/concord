@@ -247,6 +247,11 @@ func (s *Service) ingestGovOps(guildID string, ops []govOp, live bool) int {
 		if s.id != nil && (a.o.Type == "remove_member" || a.o.Type == "ban") && a.o.Target == s.id.Fingerprint() && a.o.Name != "" {
 			s.rememberEvictedReason(guildID, a.o.Name)
 		}
+		// And the ban itself, when its commit outran it: "removed" promises a
+		// way back that a ban does not have.
+		if s.id != nil && a.o.Type == "ban" && a.o.Target == s.id.Fingerprint() && s.EvictedFrom(guildID) == evictedKicked && s.isBanned(guildID, a.o.Target) {
+			s.noteEvicted(guildID, evictedBanned)
+		}
 	}
 	s.emitGuildUpdate()
 	return len(added)
@@ -326,7 +331,36 @@ func (s *Service) hasPerm(guildID string, need Permission) bool {
 	if _, ok := s.guilds[guildID]; !ok {
 		return false
 	}
+	if s.outOfGuildLocked(guildID, self) {
+		return false
+	}
 	return s.govState[guildID].Can(s.effectiveOwnerLocked(guildID), self, need)
+}
+
+// outOfGuildLocked reports whether a fingerprint has been put out of the guild:
+// kicked or banned in the log, or — for this device — told so by the guild
+// itself (evicted.go). Caller holds s.mu.
+//
+// A role outlives the membership it was granted in: the log strips roles on a
+// ban but not on a kick, and a member who is thrown out keeps the old epoch's
+// keys and a full copy of the guild. Asked only "do they hold the bit", a
+// kicked admin's own client kept offering Invite, minted working codes, and
+// welcomed whoever redeemed one onto the dead epoch it was still sitting on —
+// a convincing copy of the guild only the two of them could read. Nothing a
+// removed member's client does can admit anyone to the real guild, so it must
+// not pretend to: everything this device would ISSUE is refused here.
+func (s *Service) outOfGuildLocked(guildID, fpr string) bool {
+	if fpr == "" {
+		return false
+	}
+	if s.id != nil && fpr == s.id.Fingerprint() && s.evicted[guildID] != "" {
+		return true
+	}
+	st, ok := s.govState[guildID]
+	if !ok {
+		return false
+	}
+	return st.Removed[fpr] || st.Banned[fpr]
 }
 
 func (s *Service) canManageMembers(guildID string) bool {
@@ -361,6 +395,12 @@ func (s *Service) MemberPermission(guildID, fingerprint string) Permission {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if _, ok := s.guilds[guildID]; !ok {
+		return 0
+	}
+	// Somebody the guild put out holds nothing in it, whatever roles the log
+	// still lists against them: the viewer's own menus read this, and so does
+	// every badge on the member list.
+	if s.outOfGuildLocked(guildID, fingerprint) {
 		return 0
 	}
 	return s.govState[guildID].permsOf(s.effectiveOwnerLocked(guildID), fingerprint)

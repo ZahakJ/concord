@@ -37,6 +37,11 @@ const evictedReasonPrefix = "evicted-reason:"
 const (
 	evictedKicked = "removed"
 	evictedBanned = "banned"
+	// evictedUnseated: the welcome this device joined with came from someone
+	// who could not admit it, and no real committer has ever seated it. Nobody
+	// threw it out; it was never in. The cure is an invite from a member who
+	// can admit, which is why the UI says that rather than "you were removed".
+	evictedUnseated = "unseated"
 )
 
 // EvictedFrom reports why this device is no longer a member of a guild
@@ -105,6 +110,13 @@ func (s *Service) noteEvicted(guildID, reason string) {
 	}
 	note := ""
 	s.mu.Lock()
+	// The commit that blanked our leaf cannot say whether a ban came with it,
+	// but the log can: a ban is issued before its removal, while we can still
+	// read the guild. Without this a banned member was first told an admin
+	// could let them back in.
+	if reason == evictedKicked && s.id != nil && s.govState[guildID].Banned[s.id.Fingerprint()] {
+		reason = evictedBanned
+	}
 	prev := s.evicted[guildID]
 	if prev == reason || (prev == evictedBanned && reason == evictedKicked) {
 		s.mu.Unlock()
@@ -170,7 +182,7 @@ func (s *Service) loadEvicted() {
 	s.mu.RUnlock()
 	for _, id := range ids {
 		reason, err := s.store.GetSetting(evictedSettingPrefix + id)
-		if err != nil || (reason != evictedKicked && reason != evictedBanned) {
+		if err != nil || (reason != evictedKicked && reason != evictedBanned && reason != evictedUnseated) {
 			continue
 		}
 		note, _ := s.store.GetSetting(evictedReasonPrefix + id)

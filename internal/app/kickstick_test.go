@@ -170,12 +170,15 @@ func TestBannedMemberIsToldAndStaysOut(t *testing.T) {
 		return n == 1
 	}, "the ban's removal never took effect")
 
-	// From the commit alone, all the banned device can honestly know is that it
-	// was removed: whether the guild also barred it is governance state it can no
-	// longer decrypt. So that is what it says at first, and it is true.
+	// The ban op goes out before the removal commit, while the member can still
+	// read the guild, so the first thing they are told is the true word. Being
+	// told an admin could let them back in was the bug.
 	waitUntil(t, 30*time.Second, func() bool {
 		return member.EvictedFrom(g.ID) != ""
 	}, "the banned member's client never learned it was out of the guild")
+	waitUntil(t, 10*time.Second, func() bool {
+		return member.EvictedFrom(g.ID) == evictedBanned
+	}, "the banned member was told they were merely removed")
 
 	// The stronger word arrives the moment they try to come back — which is the
 	// only moment it changes what they should do.

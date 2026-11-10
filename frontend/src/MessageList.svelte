@@ -24,6 +24,7 @@
     feedNearBottom,
     jumpToMessage,
     memberByFpr,
+    leaveGuildNow,
     nameFor,
     voiceMembersFor,
     nameColorFor,
@@ -42,6 +43,7 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
+  import { evictedCopy } from "./lib/evicted.js";
   import { plainSnippet } from "./lib/snippet.js";
   import { recordText } from "./lib/callflow.js";
   import { gameAt, isGameToken } from "./lib/games.js";
@@ -1306,18 +1308,18 @@
        the app is still working on it. The guild is not gone — the history is on
        this device and the rail still holds it — but it has stopped being a place
        you can speak in, and the composer below has been replaced to match. -->
+  {@const gone = evictedCopy(activeGuild()?.evicted)}
   <div class="gone-banner" role="status">
     <span class="gone-text">
-      You're no longer a member of <strong>{activeGuild()?.name}</strong>.
+      {gone.lead} <strong>{activeGuild()?.name}</strong>.
       {#if activeGuild()?.evictedReason}
         <span class="gone-why">“{activeGuild().evictedReason}”</span>
       {/if}
-      {#if activeGuild()?.evicted === "banned"}
-        You were banned, so an invite won't let you back in.
-      {:else}
-        An admin can let you back in from this guild's moderation log.
-      {/if}
+      {gone.next}
     </span>
+    <!-- The history stays on this device until the person says otherwise; this
+         is how they say it, from the place that told them. -->
+    <button class="oos-act" onclick={() => leaveGuildNow(activeGuild())}>Remove from my list</button>
   </div>
 {:else if activeGuild()?.outOfSync}
   <!-- A slim strip, not a wall of red. This appears while the app is WORKING —
@@ -1551,7 +1553,7 @@
                 <Icon name="screen" size={15} />
                 Open the call
               </button>
-            {:else if !S.callStage}
+            {:else if !S.callStage && !activeGuild()?.evicted}
               <button class="join-call" onclick={() => onJoinVoice?.(S.activeChannelId)}>
                 <Icon name="speaker" size={15} />
                 Join {emptyInfo.name}

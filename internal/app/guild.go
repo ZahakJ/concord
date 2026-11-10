@@ -50,6 +50,14 @@ type inviteRequest struct {
 	KeyPackage []byte  `json:"keyPackage"`
 	Credential []byte  `json:"credential"` // joiner's account key, for retry recovery
 	Profile    Profile `json:"profile"`
+	// Heal marks the automatic re-add a stranded member asks for, as opposed to
+	// a join a person started by pasting a code. The sender writes it, so it
+	// buys no authority; what it buys is honesty from honest clients. A
+	// committer may serve a join to anyone holding the code, but it serves a
+	// heal only to someone its own tree already seats: a heal asks to be
+	// RE-added, and an account the guild never added has nothing to be re-added
+	// to. Older committers ignore the field and answer as they always did.
+	Heal bool `json:"heal,omitempty"`
 }
 
 // inviteResponse is returned by the owner over the invite stream. Profiles is
@@ -70,6 +78,9 @@ type inviteResponse struct {
 const (
 	bannedRefusal  = "you are banned from this guild"
 	removedRefusal = "you were removed from this guild"
+	// unseatedRefusal answers a heal from an account the committer's tree does
+	// not hold: whoever "admitted" it was not seating it in this guild.
+	unseatedRefusal = "you were never admitted to this guild"
 )
 
 // CreateGuild creates a new guild (a fresh MLS group) owned by this peer,
@@ -1089,6 +1100,18 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	// said "Member kicked".
 	if len(req.Credential) > 0 && s.isRemoved(req.GuildID, accountFingerprintOf(req.Credential)) {
 		return json.Marshal(inviteResponse{Error: removedRefusal})
+	}
+	// A heal from someone our tree has never seated. The way that happens is a
+	// member who had already been thrown out — still holding the old epoch's
+	// keys and a client that let them — welcoming a newcomer onto that dead
+	// epoch: a copy of the guild only the two of them can read. The newcomer's
+	// client then finds the real guild unreadable, takes itself for stranded and
+	// asks a real committer to "re-add" it, and serving that request is what
+	// used to fold the phantom into the guild, newcomer and all, with nobody who
+	// could admit them ever having done so. A real stranded member still holds
+	// a leaf here; a first-time joiner arrives as a join, not a heal.
+	if req.Heal && len(req.Credential) > 0 && !s.guildHasMember(req.GuildID, accountFingerprintOf(req.Credential)) {
+		return json.Marshal(inviteResponse{Error: unseatedRefusal})
 	}
 
 	// Queue behind whatever admission is in flight and ride its successor's

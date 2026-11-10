@@ -933,7 +933,10 @@
       {/if}
       <div class="section-head">
         <span>Channels</span>
-        {#if !canManageChannels}
+        {#if g?.evicted}
+          <!-- Out of the guild: there is nothing to add to, and a locked "+"
+               would suggest a role could unlock it. -->
+        {:else if !canManageChannels}
           <!-- No silent nothing: members without Manage Channels see WHY. -->
           <button
             class="add-locked tap-hit"

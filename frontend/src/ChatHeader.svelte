@@ -348,7 +348,7 @@
           {callState.live ? `Return to call${clock ? ` · ${clock}` : ""}` : callState.label}
         </span>
       </button>
-    {:else if ch && !g?.dmNotes}
+    {:else if ch && !g?.dmNotes && !g?.evicted}
       <!-- No colour. Green means one thing in this app — the call is live — and
            this is the button that has not started one yet, in either place. It
            used to be success-green in a DM and neutral grey in a channel: the
@@ -448,7 +448,7 @@
           <button class="menu-item" onclick={() => openCallStage()}>
             <Icon name="speaker" size={14} /> Open {callLabel || "the call"}
           </button>
-        {:else if packed && ch && !g?.dmNotes}
+        {:else if packed && ch && !g?.dmNotes && !g?.evicted}
           <button class="menu-item" onclick={() => onJoinVoice()}>
             <Icon name="speaker" size={14} /> Start a call
           </button>
