@@ -157,7 +157,7 @@
       style="display:none"
       onchange={restore}
     />
-    <button disabled={!restorePass || busy} onclick={() => fileInput?.click()}>
+    <button class="primary" disabled={!restorePass || busy} onclick={() => fileInput?.click()}>
       {busy === "restore" ? "Restoring…" : "Choose a backup file…"}
     </button>
     <p class="muted small">

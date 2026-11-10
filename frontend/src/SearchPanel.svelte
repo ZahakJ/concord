@@ -665,7 +665,7 @@
   }
   /* Touch: roomier hit rows and more of the (full-screen) column for results;
      drop the scope pill to keep the top bar to one clean line. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .sp-hit {
       padding: 10px 8px;
       min-height: var(--tap-min);

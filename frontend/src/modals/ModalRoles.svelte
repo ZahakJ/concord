@@ -138,7 +138,7 @@
       </div>
       <div class="actions">
         <button class="ghost" onclick={backToList}>Back</button>
-        <button onclick={save} disabled={!editing.name.trim() || busy}>Save role</button>
+        <button class="primary" onclick={save} disabled={!editing.name.trim() || busy}>Save role</button>
       </div>
     </div>
   {:else}
@@ -160,7 +160,7 @@
           <p class="muted empty">No roles yet. Create one to grant specific permissions.</p>
         {/each}
       </div>
-      <button class="new" onclick={newRole}><Icon name="plus" size={13} /> New role</button>
+      <button class="primary new" onclick={newRole}><Icon name="plus" size={13} /> New role</button>
     {/if}
   {/if}
 </RailShell>

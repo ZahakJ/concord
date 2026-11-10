@@ -259,7 +259,7 @@
   .sv-off:hover {
     background: var(--danger);
   }
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .selfview {
       width: 118px;
     }

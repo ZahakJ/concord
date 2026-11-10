@@ -764,7 +764,7 @@
       animation: none;
     }
   }
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .dayhead {
       top: 44px;
     }

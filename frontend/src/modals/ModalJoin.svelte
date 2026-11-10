@@ -172,7 +172,7 @@
     <button class="ghost" onclick={onClose}>Cancel</button>
     <!-- The decoder is a preview, not a gate: an undecodable code can still be
          submitted and judged by the server, so a peek bug can't lock anyone out. -->
-    <button class:go={ready && !busy} onclick={join} disabled={!code.trim() || busy}>
+    <button class="primary" class:go={ready && !busy} onclick={join} disabled={!code.trim() || busy}>
       {busy ? "Joining…" : already ? "Open it" : "Join"}
     </button>
   </div>
@@ -207,7 +207,6 @@
      and it gets the same glow a named bubble earns in ModalCreate. */
   .bubble.ready {
     border: 1px solid transparent;
-    box-shadow: var(--accent-glow);
     animation: arrive 0.35s var(--ease-spring);
   }
   /* Joining can take a few seconds of dialing — the bubble breathes so the
@@ -336,11 +335,6 @@
     display: flex;
     align-items: center;
     gap: 6px;
-  }
-  /* Once the destination is known the commit button carries the glow too —
-     the whole dialog points at Join. */
-  .actions button.go {
-    box-shadow: var(--accent-glow);
   }
   @media (prefers-reduced-motion: reduce) {
     .bubble,

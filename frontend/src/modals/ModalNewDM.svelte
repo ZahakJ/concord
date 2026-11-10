@@ -121,7 +121,7 @@
 
   <div class="foot">
     <button class="link" onclick={inviteByLink}>Invite by link…</button>
-    <button disabled={!canCreate} onclick={create}>
+    <button class="primary" disabled={!canCreate} onclick={create}>
       {picked.size >= 2 ? "Create group" : "Message"}
     </button>
   </div>

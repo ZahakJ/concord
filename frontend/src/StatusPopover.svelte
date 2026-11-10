@@ -197,7 +197,7 @@
       maxlength="80"
       disabled={busy}
     />
-    <button type="submit" class="st-save" disabled={busy || !dirty} aria-label="Save status">
+    <button type="submit" class="primary st-save" disabled={busy || !dirty} aria-label="Save status">
       <Icon name="check" size={14} />
     </button>
   </form>

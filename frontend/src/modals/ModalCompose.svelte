@@ -517,7 +517,7 @@
     gap: 5px;
     height: 30px;
     padding: 0 9px;
-    font-size: 12px;
+    font-size: var(--fs-small);
     font-weight: 600;
     color: var(--text-muted);
     background: transparent;
@@ -596,7 +596,7 @@
   }
   .eb h4 {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--fs-small);
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -720,7 +720,7 @@
   }
   /* On a phone the four controls plus two inputs cannot share 320px, so the
      row becomes name / value / a control strip beneath them. */
-  @media (pointer: coarse) {
+  @media (max-width: 768px) {
     .frow {
       flex-wrap: wrap;
       row-gap: 6px;
@@ -772,7 +772,7 @@
     align-items: center;
     gap: 6px;
     padding: 5px 10px;
-    font-size: 12px;
+    font-size: var(--fs-small);
     font-weight: 600;
     color: var(--accent-hover);
     background: transparent;
@@ -840,7 +840,7 @@
      under that query, which a component rule cannot outrank — and the button's
      own "Sending…"/"Posting…" label is what carries the meaning anyway. */
 
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .eb {
       max-height: none;
     }

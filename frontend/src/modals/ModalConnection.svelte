@@ -114,7 +114,7 @@
         <div class="foot">
           <span class="hint">Applies live to new connections.</span>
           <button class="ghost cancel" onclick={() => (editing = false)}>Cancel</button>
-          <button class="save" disabled={bad} onclick={save}>Save</button>
+          <button class="primary save" disabled={bad} onclick={save}>Save</button>
         </div>
       {:else if bootstrap.trim()}
         <div class="addr-row">
@@ -129,7 +129,7 @@
       {:else}
         <div class="addr-row empty">
           <span class="hint">Not set — you can only reach friends on the same Wi-Fi.</span>
-          <button class="save" onclick={startEdit}>Set address</button>
+          <button class="primary save" onclick={startEdit}>Set address</button>
         </div>
       {/if}
     </div>
@@ -158,7 +158,7 @@
           oninput={() => (savedPort = "")}
           onkeydown={(e) => e.key === "Enter" && savePort()}
         />
-        <button class="save" disabled={!portOk || !portDirty} onclick={savePort}>Save</button>
+        <button class="primary save" disabled={!portOk || !portDirty} onclick={savePort}>Save</button>
       </div>
     </SettingRow>
     <!-- The fallback keeps the app running, so nothing else would ever hint
@@ -362,7 +362,7 @@
   }
   /* SettingRow drops the control onto its own line at this width — spend that
      line, rather than clipping "e.g. 4001" to "e.g. 400" in a 92px box. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .port {
       width: 100%;
     }

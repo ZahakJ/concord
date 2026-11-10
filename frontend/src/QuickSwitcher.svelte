@@ -388,7 +388,7 @@
   /* ↵ affordance surfaces only on the selected row. */
   .hit-enter {
     color: var(--accent-hover);
-    font-size: 12px;
+    font-size: var(--fs-small);
     opacity: 0;
     transform: translateX(-3px);
     transition:
@@ -459,7 +459,7 @@
   }
   /* Mobile: the palette drops in full-width from the top edge; keyboard
      shortcut hints are meaningless on touch. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .overlay {
       padding-top: 0;
       align-items: flex-start;

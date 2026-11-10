@@ -2,22 +2,29 @@
    Depth scale: bg-0 (deepest, guild rail) → bg-3 (inputs/hover). The legacy
    aliases (--bg, --bg-elevated, …) keep older component styles working. */
 :root {
-  --bg-0: #101114;
-  --bg-1: #16181c;
-  --bg-2: #1d2025;
-  --bg-3: #282c33;
+  /* Graphite with a hint of the teal's temperature. Three steps and a lifted
+     one (--bg-elevated, below) — the step between them is small on purpose:
+     depth comes from the hairline and the type, not from contrasting boxes. */
+  --bg-0: #0d0f10;
+  --bg-1: #121516;
+  --bg-2: #171a1c;
+  --bg-3: #212528;
 
-  --border: #32363e;
-  --text: #e8eaed;
-  --text-muted: #969aa3;
+  --border: #30363a;
+  /* The edge of a CONTROL — a field, a switch's off track, a checkbox, the
+     segmented thumb — where the edge is the only thing that says "this is a
+     control". --border is a divider and sits near 1.3:1; this clears 3:1
+     against every surface a control sits on (WCAG 1.4.11). */
+  --border-strong: #6a7277;
+  --text: #eceeef;
+  --text-muted: #a4abb0;
   /* The dimmest ink the app is allowed to use. It was meant for decoration
      only, but it carries real words all over the app — timestamps, "(edited)",
      group labels, DM previews, captions — at 9–12.5px, where 4.5:1 is the bar.
-     At #767b85 it measured 3.8–4.4. It now clears 4.5 on every surface text
-     sits on (--bg-0 to --bg-2; tokens.test.mjs holds it there) and stays a
-     clear step below --text-muted. On --bg-3, an input or hover fill, it is
-     4.3: placeholders use --text-muted instead. */
-  --text-faint: #8a8f99;
+     At #767b85 it measured 3.8–4.4. It is a text tier now: 4.5:1 or better on
+     every surface including --bg-3, the hover and field fill (tokens.test.mjs
+     holds all four), and still a clear step below --text-muted. */
+  --text-faint: #8f979d;
 
   /* Concord teal — the brand accent. A member's profile color (or an accent
      preset from Appearance) overrides --accent at runtime (applyAccent), so
@@ -32,11 +39,11 @@
      luminance; this default has to be right for the --accent directly above it,
      because an identity with no profile colour and no preset never reaches the
      JS path at all — white here was 3.14:1 on the brand teal. */
-  --accent-fg: #141419;
+  --accent-fg: #0b1413;
 
-  --danger: #e0555b;
+  --danger: #e5636a;
   --danger-soft: color-mix(in srgb, var(--danger) 14%, transparent);
-  --ok: #3ba55d;
+  --ok: #3daa66;
   --ok-soft: color-mix(in srgb, var(--ok) 14%, transparent);
   --warn: #d9a13c;
   --warn-soft: color-mix(in srgb, var(--warn) 14%, transparent);
@@ -79,20 +86,23 @@
      the app (public/fonts, built by scripts/prep-fonts.mjs): Concord never
      fetches a webfont at runtime, which would tell a font host your IP and the
      moment you opened the app. Local bytes, no request, no third party. */
-  --ui-font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Arabic", sans-serif;
-  --mono-font: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  /* Two-layer depth: a tight contact shadow plus a wide ambient one, so
-     popovers/sheets sit visibly ABOVE the page instead of smudging it. */
-  --shadow-pop:
-    0 2px 6px rgba(0, 0, 0, 0.3),
-    0 12px 32px rgba(0, 0, 0, 0.5);
-  /* Soft colored halo for accent-charged elements (active pills, CTAs). */
-  --accent-glow: 0 0 24px color-mix(in srgb, var(--accent) 30%, transparent);
-  /* Floating accent buttons (jump-to-latest, "new messages"): colored glow +
-     contact shadow, per-theme so light mode doesn't get dark smudges. */
-  --float-shadow:
-    0 4px 16px color-mix(in srgb, var(--accent) 45%, transparent),
-    0 2px 5px rgba(0, 0, 0, 0.35);
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono-font: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* The bundled serif, for titles that name a place: the conversation and
+     place-header names, day dividers, empty-state and dialog headlines. The
+     tail generic is sans on purpose (see [data-font="serif"]: a serif generic
+     tofus keycap emoji on Android). A pack or an explicit Typeface choice
+     replaces it with the UI face. */
+  --display-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, sans-serif;
+  /* The one shadow, and only things that float over the page (menus, dialogs,
+     sheets, toasts, popovers) cast it. A contact line and one soft ambient
+     layer: enough to lift a surface off the page without smudging it. */
+  --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.32), 0 10px 28px rgba(0, 0, 0, 0.42);
+  /* Glows are retired: an accent halo said "look here" on things that were not
+     about you, and the accent means you. Both names stay because packs set
+     them and older call sites read them; neither paints a colour any more. */
+  --accent-glow: none;
+  --float-shadow: var(--shadow-pop);
   /* Calm-editorial motion: ONE duration and ONE ease for the events/calendar
      surface, so every fade and slide there feels like the same hand. */
   --dur-calm: 200ms;
@@ -111,8 +121,13 @@
      ease-IN for something leaving, the shake, --ease-calm's editorial curve —
      stays its own literal on purpose; this is not a rule that everything must
      decelerate. */
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
+  /* The overshoot that --ease-spring used to be. Chrome does not bounce — a
+     menu that overshoots its anchor reads as unsteady — so the curve survives
+     only for celebrations (bursts, reaction effects, the join veil), and
+     tokens.test.mjs holds it to those files. */
+  --ease-overshoot: cubic-bezier(0.34, 1.56, 0.64, 1);
   /* Two durations for chrome. Quick is a state change you should not notice
      happening (hover, focus, a tint); standard is a thing you should see move
      (a panel, a reveal, a slide). Longer runs — the ambient backdrops, the
@@ -134,10 +149,16 @@
      than "switched off". Overlays that sit on ARTWORK (a lightbox, a banner
      gradient, chrome over a photograph) keep their own black — those are not
      dimming the theme, they are darkening an image. */
-  --scrim: rgba(0, 0, 0, 0.7);
+  --scrim: rgba(4, 6, 7, 0.62);
+  /* Phone sheets dim a little more lightly than dialogs in the light theme;
+     in dark they are the same veil. */
+  --scrim-sheet: var(--scrim);
   /* Hairline: the events surface separates with ink, not grey boxes. Derived
      from --border so every theme pack keeps its own temperature. */
-  --hairline: color-mix(in srgb, var(--border) 55%, transparent);
+  --hairline: color-mix(in srgb, var(--border) 62%, transparent);
+  /* The row tint for a message that mentions you. Never shipped without its
+     2px --accent-hover bar: the wash alone is ~1.1:1 against the canvas. */
+  --mention-wash: color-mix(in srgb, var(--accent) 7%, transparent);
 
   /* Message density (Appearance setting), the COSY rung. Compact and
      Comfortable override these; components read the vars so the whole rhythm
@@ -149,10 +170,13 @@
      padding, which is a density tuned for a dense client rather than for the
      mainstream ones this is measured against. Cosy is the default and now
      reads like a default. */
-  --msg-pad-y: 3px;
-  --msg-gap: 15px;
-  --msg-group-pull: -11px;
-  --feed-pad: 18px;
+  --msg-pad-y: 2px;
+  --msg-gap: 16px;
+  /* A continuation row cancels the feed's whole gap, so a group reads as one
+     block with only its rows' own padding between lines. This is the bridge
+     until the feed groups by markup, at which point it becomes 0px. */
+  --msg-group-pull: calc(-1 * var(--msg-gap));
+  --feed-pad: 16px;
 
   /* The reading measure. A message body had no cap at all, so it took whatever
      the pane gave it: 131 characters per line in a 1920 channel and 200 in a
@@ -164,7 +188,7 @@
      text, not on the pane, so the avatar, the header, attachments, cards and
      reactions keep the width they had. A fenced block inside a message shares
      the cap and scrolls inside it, which it already did. */
-  --measure: 92ch;
+  --measure: 76ch;
 
   /* Chrome silhouette and message frame. These are the tokens that let a pack
      restyle the app's SHAPE instead of its hue: the avatar mask, the fill and
@@ -174,7 +198,7 @@
   --avatar-radius: 50%;
   --msg-pad-x: 0px;
   --msg-surface: transparent;
-  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 40%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 55%, transparent);
   /* The whole border shorthand, not just a colour: a zero-width default means
      a pack that draws no rule costs the feed no layout at all. */
   --msg-rule: 0 none transparent;
@@ -195,9 +219,11 @@
      grow, content lands at 16px, and the big steps barely move — inflating
      headings would just cost lines of content on the screen with the fewest to
      spare. Components should reach for a token instead of a literal. */
-  --fs-micro: 9px; /* counters and badges — never prose */
-  --fs-tiny: 10.5px; /* timestamps, metadata */
-  --fs-small: 11.5px; /* secondary labels */
+  /* The bottom three were 9 / 10.5 / 11.5px, under the 11px floor this file
+     sets for literals; timestamps and labels are read, so they are text. */
+  --fs-micro: 11px; /* counters and badges — never prose */
+  --fs-tiny: 11.5px; /* timestamps, metadata */
+  --fs-small: 12px; /* secondary labels */
   --fs-compact: 12.5px; /* dense UI text */
   --fs-ui: 13px; /* default UI text — the app's most common size */
   /* Message and post CONTENT. Raised from 15px: this is the one size a chat
@@ -234,6 +260,12 @@
   --sp-5: 24px;
   --sp-6: 32px;
   --sp-edge: 16px;
+
+  /* Layout defaults: the header row every pane lines up on, and the two side
+     columns' starting widths (each is user-resizable). */
+  --header-h: 52px;
+  --sidebar-w: 280px;
+  --inspector-w: 320px;
 
   /* ---- Safe areas -------------------------------------------------------
      ALWAYS use these, never env(safe-area-inset-*) directly.
@@ -297,17 +329,15 @@
 
   /* Legacy aliases (pre-token components reference these). */
   --bg: var(--bg-2);
-  --bg-elevated: var(--bg-3);
+  /* Lifted surfaces — dialogs, menus, popovers, toasts — a step of their own,
+     distinct from the field fill so a field inside a dialog still reads. */
+  --bg-elevated: #1d2124;
   --bg-sidebar: var(--bg-1);
-  /* An input field sits JUST ABOVE the surface it lives on, not at the fully
-     elevated level of a popover. This used to be a flat var(--bg-3), which on
-     several packs — the translucent/animated ones especially — jumps a long way
-     from the feed's --bg-2: the composer and search boxes then read as bright,
-     over-saturated bars stuck to the surface rather than gentle wells cut into
-     it. That is the "textbox colour that doesn't match the background". Blending
-     partway to bg-3 keeps a clear-but-subtle lift, derived from each pack's own
-     tokens so it stays right on every theme. */
-  --bg-input: color-mix(in srgb, var(--bg-3) 42%, var(--bg-2));
+  /* One field fill: --bg-3, the same step as hover and selection. The 42%
+     mix it used to be was a third grey that nothing else used; the field's
+     edge is carried by --border-strong instead, which is what actually tells
+     the eye where to type. */
+  --bg-input: var(--bg-3);
   --verified: var(--ok);
   --radius: var(--radius-md);
   /* Slider parts. The groove is derived so a pack's own depth scale carries
@@ -341,31 +371,38 @@
   color-scheme: dark;
 }
 
-/* Light theme (Appearance → Theme). Same depth scale, inverted: bg-2 is the
-   page, bg-0 the deepest chrome (guild rail), and bg-3 — hover/input fill —
-   stays DARKER than the page so existing hover styles read in both themes.
-   Popovers/dialogs get their own near-white elevation instead of bg-3. */
+/* Light theme (Appearance → Theme): paper, not blue-grey. Same depth scale,
+   inverted: bg-2 is the page, bg-1 the sidebar a visible step darker, and
+   bg-3 — hover/selected/field — darker still so the same hover rules read in
+   both themes. Lifted surfaces are white; so are fields, which are wells with
+   a strong edge rather than a grey fill. */
 :root[data-theme="light"] {
-  --bg-0: #d9dce1;
-  --bg-1: #e9ebee;
-  --bg-2: #f6f7f9;
-  --bg-3: #e2e4e9;
+  --bg-0: #e4e6e1;
+  --bg-1: #eaece6;
+  --bg-2: #fcfcfb;
+  --bg-3: #dcdfd9;
+  --bg-input: #ffffff;
 
-  --border: #c6cad2;
-  --text: #1c1e22;
-  --text-muted: #59606c;
-  /* Readable on the surfaces text sits on (--bg-1, --bg-2 and the dialog
-     surface, 4.8–5.7:1; it was 3.0–4.1), and still a step lighter than
-     --text-muted. On --bg-0, the rail, it is 4.2. */
-  --text-faint: #5f6673;
+  --border: #d3d7d1;
+  --border-strong: #7a817d;
+  --text: #16191a;
+  --text-muted: #474f54;
+  /* 4.78:1 on the darkest surface it can land on (--bg-3) and better
+     everywhere else, still a step lighter than --text-muted. */
+  --text-faint: #576064;
 
+  /* The brand teal is too light to carry white (3.1:1) or to be ink on paper;
+     this is the same hue a step darker, 5.08:1 under white. A profile colour
+     or preset still replaces it at runtime (applyAccent). */
+  --accent: #0e7c70;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, black);
-  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
-  --danger: #c93a41;
-  /* A touch darker than it looks like it needs to be: white on the fill (the
-     Join button, the voice toggles) only made 4.27:1 at #2e8b4d. */
-  --ok: #2b8446;
-  --warn: #a3701a;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-fg: #ffffff;
+  --mention-wash: color-mix(in srgb, var(--accent) 9%, transparent);
+  /* Status inks: each one clears 7:1 once --*-text mixes it toward --text. */
+  --danger: #c4383f;
+  --ok: #25804a;
+  --warn: #946410;
   /* Light's status fills are dark enough that white is the surviving ink — the
      inverse of dark mode. (--danger-text/--warn-text need no override: they
      blend toward --text, which flipped with the theme.) */
@@ -373,14 +410,14 @@
   --ok-fg: #ffffff;
   --fx-halo: #fbfcfe;
 
-  --shadow-pop:
-    0 2px 6px rgba(20, 24, 32, 0.08),
-    0 12px 32px rgba(20, 24, 32, 0.18);
-  --float-shadow:
-    0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent),
-    0 2px 5px rgba(20, 24, 32, 0.14);
-  --bg-elevated: #fdfdfe;
-  --scrim: rgba(20, 24, 32, 0.55);
+  --shadow-pop: 0 1px 2px rgba(22, 25, 26, 0.06), 0 10px 30px rgba(22, 25, 26, 0.13);
+  --float-shadow: var(--shadow-pop);
+  --bg-elevated: #ffffff;
+  /* A lighter veil over paper: dimming a near-white page hard reads as
+     "switched off", not "behind glass". Sheets dim a little more, because a
+     sheet covers less and has to separate from what is left showing. */
+  --scrim: rgba(22, 25, 26, 0.32);
+  --scrim-sheet: rgba(22, 25, 26, 0.4);
 
   color-scheme: light;
 }
@@ -492,7 +529,7 @@
    a desktop sidebar ends up behind the messages — the exact problem that got it
    moved off centre. Shrink it and push it further out; measured, this is what
    takes synthwave's dimmest ink from 2.75:1 to over 3:1 at 390px. */
-@media (pointer: coarse), (max-width: 768px) {
+@media (max-width: 768px) {
   :root[data-theme-pack="synthwave"] .tb-a {
     top: 9%;
     left: -16%;
@@ -961,12 +998,22 @@
   --ui-font: "Comic Neue", "Noto Sans Arabic", "Comic Sans MS", system-ui, sans-serif;
 }
 
+/* The display serif belongs to the default look. A pack that chose its own
+   face, or anyone who picked a Typeface, gets that face for titles too: a
+   serif headline over a monospaced terminal pack is two skins at once. A pack
+   that wants a separate display face may still declare --display-font (its
+   rule comes later in the cascade). */
+:root[data-theme-pack],
+:root:root[data-font] {
+  --display-font: var(--ui-font);
+}
+
 /* Compact density: tighter feed rhythm for information density. */
 :root:root[data-density="compact"] {
   --msg-pad-y: 1px;
-  --msg-gap: 5px;
-  --msg-group-pull: -4px;
-  --feed-pad: 12px;
+  --msg-gap: 6px;
+  --msg-group-pull: calc(-1 * var(--msg-gap));
+  --feed-pad: 10px;
   --fs-body: 14.5px;
 }
 
@@ -975,9 +1022,9 @@
    and its content size moves — the chrome around it stays where every width
    check put it, and UI scale is the control for taking the whole window. */
 :root:root[data-density="comfortable"] {
-  --msg-pad-y: 5px;
-  --msg-gap: 20px;
-  --msg-group-pull: -13px;
+  --msg-pad-y: 3px;
+  --msg-gap: 22px;
+  --msg-group-pull: calc(-1 * var(--msg-gap));
   --feed-pad: 22px;
   --fs-body: 16.5px;
 }
@@ -1502,7 +1549,7 @@
 /* Phones: keep the front sheet and the near field, drop the two behind. Depth
    is the first thing to go when the device is running on a battery, and one
    sheet plus per-speck particles still reads as weather. */
-@media (pointer: coarse), (max-width: 768px) {
+@media (max-width: 768px) {
   .fx-overlay .fo-1,
   .fx-overlay .fo-2 {
     display: none;
@@ -1587,15 +1634,34 @@ strong {
   border: 0;
 }
 
+/* A bare <button> is unstyled: no ground, the ink of whatever it sits in.
+   It used to be filled with the accent, and that default was a trap twice
+   over: every control that repainted its ground to a surface and forgot
+   `color` wrote --accent-fg (near-black) on charcoal at 1.1:1, and every
+   button nobody thought about came out as a teal slab shouting for attention
+   it had not earned. The accent is a signal now, so it is opt-in: wear one of
+   the variants below. */
 button {
   font: inherit;
   cursor: pointer;
   border: none;
   border-radius: var(--radius-sm);
   padding: 8px 14px;
+  background: transparent;
+  color: inherit;
+  transition:
+    background var(--dur-quick) ease,
+    color var(--dur-quick) ease,
+    filter var(--dur-quick) ease;
+}
+/* The variants. One primary per surface; quiet for secondary actions and
+   chips; ghost for Cancel and tertiary; danger for a confirmed destructive
+   action; link for an action inside a sentence ("Retry"); iconbtn for a lone
+   glyph. Each declares BOTH halves, ground and ink. */
+button.primary {
   background: var(--accent);
   color: var(--accent-fg);
-  transition: background var(--dur-standard) ease;
+  font-weight: 600;
 }
 button.ghost {
   background: transparent;
@@ -1603,18 +1669,61 @@ button.ghost {
   border: 1px solid var(--border);
 }
 /* A button that keeps a SURFACE fill rather than the accent — a filter chip, a
-   "load more", a quiet action beside a heading.
-   It exists because the rule above is a trap. --accent-fg is the ink that
-   survives on the accent, and since it stopped being white (it is near-black by
-   default now, because white only made 3.14:1 on the brand teal) every button
-   that repainted its background and left `color` alone has been writing
-   near-black on a charcoal surface. It is not subtle when you look for it and
-   it is invisible when you don't: three shipped surfaces had it. Declare the
-   pair here once and wear it, instead of restating the ink at every call site
-   and hoping the next component remembers. */
+   "load more", a quiet action beside a heading. tokens.test.mjs rule 8
+   measures its pair in both themes and every pack. */
 button.quiet {
   background: var(--bg-3);
   color: var(--text);
+}
+button.danger {
+  background: var(--danger);
+  color: var(--danger-fg);
+  font-weight: 600;
+}
+button.link {
+  background: transparent;
+  color: var(--accent-hover);
+  font-weight: 500;
+  padding: 0;
+}
+button.iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+/* Sizes, on the variants only (a bare `.sm` already means other things). md
+   is the default: --fs-compact/500 lands it at 32px with the base padding. */
+:is(button.primary, button.quiet, button.ghost, button.danger) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+:is(button.primary, button.quiet, button.ghost, button.danger).sm {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: var(--fs-small);
+}
+:is(button.primary, button.quiet, button.ghost, button.danger).lg {
+  min-height: 40px;
+  padding: 0 18px;
+  font-size: var(--fs-ui);
+}
+@media (pointer: coarse) {
+  button.iconbtn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+}
+@media (max-width: 768px) {
+  button.iconbtn {
+    width: 44px;
+    height: 44px;
+  }
 }
 /* Hover is a MOUSE state. A touch tap synthesises :hover in Android WebView and
    leaves it stuck on the element until you tap elsewhere — so the send button
@@ -1622,28 +1731,42 @@ button.quiet {
    that reads as a selection. Gate the decoration on the capability, and give
    every pointer a real press state instead (below). */
 @media (pointer: fine) {
-  button:hover {
+  button.primary:hover:not(:disabled) {
     background: var(--accent-hover);
   }
-  button.ghost:hover {
+  button.ghost:hover:not(:disabled),
+  button.iconbtn:hover:not(:disabled) {
     background: var(--bg-3);
     color: var(--text);
   }
-  /* Specific enough to outrank `button:hover` above, which would otherwise
-     wash a quiet button with the accent it deliberately isn't. --border is the
-     one lift that goes the right way in both themes: paler than --bg-3 in the
-     dark one, darker than it in the light one. */
+  /* --border is the one lift that goes the right way in both themes: paler
+     than --bg-3 in the dark one, darker than it in the light one. */
   button.quiet:hover:not(:disabled) {
     background: var(--border);
     color: var(--text);
   }
+  button.danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger) 88%, var(--text));
+  }
+  button.link:hover:not(:disabled) {
+    text-decoration: underline;
+  }
   input:hover:not(:focus):not(:disabled),
   textarea:hover:not(:focus):not(:disabled) {
-    border-color: var(--border);
+    border-color: var(--text-faint);
   }
 }
+/* Pressed: a brightness step, so it works on any ground the variant has. */
+:is(button.primary, button.quiet, button.ghost, button.danger, button.iconbtn):active:not(:disabled) {
+  filter: brightness(1.12);
+}
+:root[data-theme="light"] :is(button.primary, button.quiet, button.ghost, button.danger, button.iconbtn):active:not(:disabled) {
+  filter: brightness(0.94);
+}
+/* Disabled says so and does nothing on hover; the reason belongs next to it
+   or in its tooltip. */
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -1776,11 +1899,12 @@ button:disabled {
 input,
 textarea {
   font: inherit;
-  /* Filled field: a recessed well one step darker than the surface it sits
-     on, with a hairline border that only asserts itself on hover/focus. */
-  background: color-mix(in srgb, var(--bg-0) 42%, var(--bg-3));
+  /* One field fill (--bg-input: the hover step in dark, a white well in
+     light) and an edge that clears 3:1 against it, because the edge is what
+     says "type here" — a hairline at 1.3:1 left fields as grey patches. */
+  background: var(--bg-input);
   color: var(--text);
-  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border: 1px solid var(--border-strong);
   /* The token, not a literal: a theme pack that squares its corners (Gruvbox)
      or rounds them right over (Sakura) has to reach the fields too, or the
      phone layout — which is mostly stacked full-width inputs — repeats the
@@ -1789,7 +1913,7 @@ textarea {
   padding: 11px 14px;
   outline: none;
   width: 100%;
-  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.14);
+  box-shadow: none;
   transition:
     border-color var(--dur-standard) ease,
     background var(--dur-standard) ease,
@@ -1966,14 +2090,16 @@ textarea::placeholder {
 input {
   text-overflow: ellipsis;
 }
+/* The field's own focus ring: the edge turns accent and a 3px halo of the
+   same ink sits outside it. */
 input:focus,
 textarea:focus {
-  border-color: var(--accent);
-  background: var(--bg-3);
-  /* A soft accent halo instead of a bare border swap — matches the composer. */
-  box-shadow:
-    inset 0 1px 2px rgb(0 0 0 / 0.08),
-    0 0 0 3px var(--accent-soft);
+  border-color: var(--accent-hover);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-hover) 22%, transparent);
+}
+input[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--danger);
 }
 
 .muted {
@@ -2017,7 +2143,7 @@ textarea:focus {
 }
 /* Phones: modal footers become stacked full-width buttons, primary on top —
    the side-by-side desktop row is cramped and back-to-front under a thumb. */
-@media (pointer: coarse), (max-width: 768px) {
+@media (max-width: 768px) {
   .actions {
     flex-direction: column-reverse;
     gap: 10px;
@@ -2138,22 +2264,28 @@ textarea:focus {
 
 
 /* ---- THE PHONE BREAKPOINT ----------------------------------------------
-   ONE query, used everywhere. It is deliberately identical to detectMobile()
-   in lib/state.svelte.js — `(pointer: coarse) || (max-width: 768px)` — so CSS
-   and JS can never disagree about whether this is a phone. A layout that
-   styles itself as a phone while S.isMobile is false (or the reverse) is the
-   bug this contract exists to prevent.
+   ONE query, used everywhere, and it is about WIDTH only. It is deliberately
+   identical to detectMobile() in lib/state.svelte.js — `(max-width: 768px)` —
+   so CSS and JS can never disagree about whether this is a phone. A layout
+   that styles itself as a phone while S.isMobile is false (or the reverse) is
+   the bug this contract exists to prevent.
 
-   Write it exactly as:  @media (pointer: coarse), (max-width: 768px)
-   The codebase previously used 480/560/600/620/700/760/768/900 and bare
-   (pointer: coarse) interchangeably. The last stragglers are gone: two rules in
-   the compose dialog and one in the meme editor sat at 760px and one picker at
-   700px, which meant a window between 701 and 768 got the phone value of
-   S.isMobile from JS and the desktop layout from CSS — precisely the
-   disagreement this paragraph exists to forbid. When you move one of these,
-   move its complement in the same commit: the emoji picker's mobile rule has an
-   inverse in RichEditor written as (pointer: fine) and (min-width: 769px), and
-   an off-by-one there opens a band where both branches apply.
+   Write it exactly as:  @media (max-width: 768px)
+
+   A coarse pointer used to select the phone layout too, which put a 1180px
+   tablet in landscape — or a touchscreen laptop — on a one-column phone shell
+   with a wide desktop's worth of room around it. Layout is now chosen by the
+   room alone, and `(pointer: coarse)` only ever enlarges targets and turns
+   hover-only reveals on (tokens.test.mjs rule 5 holds a coarse query to that:
+   it may not change display, grid-template*, flex-direction or width). A
+   target-size rule may still be written `(pointer: coarse), (max-width:
+   768px)`, so a phone and a touch tablet both get it.
+
+   The codebase previously used 480/560/600/620/700/760/768/900 interchangeably.
+   When you move one of these, move its complement in the same commit: the
+   emoji picker's mobile rule has an inverse in RichEditor written as
+   (min-width: 769px), and an off-by-one there opens a band
+   where both branches apply.
 
    Only three other tiers are legitimate:
      @media (max-width: 1150px)  — S.narrow: the squeezed desktop column, where
@@ -2181,7 +2313,14 @@ textarea:focus {
    picks up a dragged channel list and a toggled member panel, neither of which
    changes the viewport at all. Prefer that for anything whose fitting depends
    on a pane rather than on the screen. */
-@media (pointer: coarse), (max-width: 768px) {
+/* A coarse pointer at any width: fingertip targets, and nothing else. The
+   phone block below comes later and takes them up to its own 48px. */
+@media (pointer: coarse) {
+  :root {
+    --tap-min: 44px;
+  }
+}
+@media (max-width: 768px) {
   :root {
     /* Grow the small end of the type scale; leave the top alone. */
     --fs-micro: 11px;
@@ -2199,7 +2338,8 @@ textarea:focus {
        is under the floor on the device most likely to be holding it. */
     --tap-min: 48px;
   }
-
+}
+@media (pointer: coarse), (max-width: 768px) {
   /* iOS/WKWebView zooms the whole page when a focused field's text is under
      16px, and never zooms back out — the single most jarring thing a web app
      does on a phone. 16px is the threshold, not a preference. */
@@ -3108,7 +3248,7 @@ textarea {
    pan inside the chat pane), so there is no edge to fade — and a hover button is
    not an affordance a finger can reach. "Copy Code" in the long-press sheet is
    the touch path, and always was. */
-@media (pointer: coarse), (max-width: 768px) {
+@media (max-width: 768px) {
   .body .codeblock::after,
   .md .codeblock::after,
   .body .code-copy,

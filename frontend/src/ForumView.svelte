@@ -599,7 +599,7 @@
             <Icon name="gear" size={15} />
           </button>
           {#if !S.isMobile}
-            <button class="cta" onclick={newPost}>
+            <button class="primary cta" onclick={newPost}>
               <Icon name="plus" size={14} /> <span>New post</span>
             </button>
           {/if}
@@ -738,7 +738,7 @@
       <div class="state-badge bad"><Icon name="alert" size={26} /></div>
       <h3>This board didn't load</h3>
       <p class="muted">{errMsg}</p>
-      <button onclick={() => refresh()}>Try again</button>
+      <button class="primary" onclick={() => refresh()}>Try again</button>
     </div>
   {:else if !posts.length}
     <div class="state">
@@ -747,7 +747,7 @@
         headline="Nothing here yet"
         sub="Start the first post — it becomes its own thread, with its own unread badge."
       />
-      <button class="cta solid" onclick={newPost}><Icon name="plus" size={14} /> New post</button>
+      <button class="primary cta solid" onclick={newPost}><Icon name="plus" size={14} /> New post</button>
     </div>
   {:else if !visible.length}
     <div class="state">
@@ -757,7 +757,7 @@
         {#if query}Nothing matches “{query}”{:else}No post carries those filters{/if}
         — {posts.length} {posts.length === 1 ? "post is" : "posts are"} hidden.
       </p>
-      <button onclick={clearFilters}>Clear filters</button>
+      <button class="primary" onclick={clearFilters}>Clear filters</button>
     </div>
   {:else}
     <ul class="posts {prefs.layout}">
@@ -935,7 +935,7 @@
      post panel, which is what keeps its scroll position — so its own floating
      controls have to know they are behind something. -->
 {#if S.isMobile && S.activeChannelId === forum.id}
-  <button class="fab" aria-label="New post" onclick={newPost}><Icon name="plus" size={20} /></button>
+  <button class="primary fab" aria-label="New post" onclick={newPost}><Icon name="plus" size={20} /></button>
 {/if}
 
 {#snippet pickBody()}
@@ -958,7 +958,7 @@
   </div>
   <div class="pick-acts">
     <button class="ghost" onclick={() => (tagPick = null)}>Cancel</button>
-    <button disabled={tagPick.busy} onclick={saveTags}>Save</button>
+    <button class="primary" disabled={tagPick.busy} onclick={saveTags}>Save</button>
   </div>
 {/snippet}
 
@@ -1201,7 +1201,6 @@
     padding: 8px 15px;
     border-radius: 999px;
     font-weight: 600;
-    box-shadow: var(--accent-glow);
     transition: transform var(--dur-standard) var(--ease-spring);
   }
   @media (pointer: fine) {
@@ -1948,7 +1947,6 @@
     gap: 6px;
     padding: 9px 18px;
     border-radius: 999px;
-    box-shadow: var(--accent-glow);
   }
   .state-badge {
     display: grid;
@@ -2073,7 +2071,7 @@
     height: 54px;
     padding: 0;
     border-radius: 50%;
-    box-shadow: var(--float-shadow);
+    box-shadow: var(--shadow-pop);
     transition: transform var(--dur-standard) var(--ease-spring);
   }
   .fab:active {
@@ -2085,7 +2083,7 @@
      from 768px down while its clearance lived at 620px, which left every
      viewport in between (a phone in landscape, a 768px tablet) with an opaque
      54px circle parked on the last card's ⋯ button. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .board {
       /* The FAB's own offset is 18px + the home indicator, and it is 54px tall,
          so a flat 88px left it sitting ~18px over the last card on any

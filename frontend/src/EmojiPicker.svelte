@@ -560,7 +560,7 @@
   }
   /* Mobile: a full-width bottom panel with finger-sized cells and tabs,
      instead of the small anchored popover. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .ep-scrim {
       display: block;
       position: fixed;

@@ -104,7 +104,7 @@
 
     <div class="actions">
       <button class="ghost" onclick={onClose}>Cancel</button>
-      <button onclick={start} disabled={busy || !pick}>Start</button>
+      <button class="primary" onclick={start} disabled={busy || !pick}>Start</button>
     </div>
   {/if}
 </Modal>

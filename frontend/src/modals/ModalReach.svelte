@@ -185,13 +185,13 @@
           </p>
         {/if}
         {#if verdict === "relayDown"}
-          <button class="act" disabled={busy} onclick={reconnect}>
+          <button class="primary act" disabled={busy} onclick={reconnect}>
             {busy ? "Trying…" : "Try reconnecting"}
           </button>
         {:else if verdict === "lanOnly" || verdict === "stuck" || ((verdict === "directV6" || verdict === "provenV6") && !r.hasRendezvous)}
-          <button class="act" onclick={openConnection}>Set a rendezvous address</button>
+          <button class="primary act" onclick={openConnection}>Set a rendezvous address</button>
         {:else if portDrifts}
-          <button class="act" onclick={openConnection}>Pin a port</button>
+          <button class="primary act" onclick={openConnection}>Pin a port</button>
         {:else}
           <span class="quiet">Nothing to do.</span>
         {/if}

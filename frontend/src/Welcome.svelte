@@ -283,7 +283,7 @@
   }
 
   /* ---- touch adjustments: cards stack full-width, comfy targets ---- */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* The first thing a new user sees after the door, held at arm's length —
        the lede has to read as body copy, not as a caption. */
     p {

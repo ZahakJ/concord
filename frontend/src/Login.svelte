@@ -587,7 +587,7 @@
       </p>
       <PassphraseField placeholder="Passphrase" bind:value={passphrase} invalid={errField === "pass"} autofocus={!S.isMobile} />
       <div class="error slot" role="alert">{error}</div>
-      <button type="submit" disabled={!passphrase || busy}>Show my recovery phrase</button>
+      <button class="primary" type="submit" disabled={!passphrase || busy}>Show my recovery phrase</button>
     {:else if naming}
       <p class="muted">
         Your account is back. What should people call you? A recovery phrase
@@ -603,7 +603,7 @@
         use:focusOnMount={{ skip: S.isMobile }}
       />
       <div class="error slot" role="alert">{error}</div>
-      <button type="submit" disabled={!hasVisible(displayName) || busy}>Continue</button>
+      <button class="primary" type="submit" disabled={!hasVisible(displayName) || busy}>Continue</button>
     {:else if replaceAsk}
       <!-- The core refused to put an account on this device because it would
            erase the one here. This is the only place that can say yes, and it
@@ -698,7 +698,7 @@
         your passphrase. It's stored in this device's secure hardware — your
         passphrase never leaves the device.
       </p>
-      <button type="button" onclick={confirmEnableBio}>Enable biometric unlock</button>
+      <button class="primary" type="button" onclick={confirmEnableBio}>Enable biometric unlock</button>
       <button type="button" class="link" onclick={skipEnableBio}>Not now</button>
     {:else if backupPhrase && verifying}
       <p class="muted">
@@ -736,7 +736,7 @@
         </label>
       </div>
       <div class="error slot" role="alert">{verifyErr}</div>
-      <button type="button" disabled={!answerA.trim() || !answerB.trim()} onclick={submitVerify}>
+      <button class="primary" type="button" disabled={!answerA.trim() || !answerB.trim()} onclick={submitVerify}>
         Confirm
       </button>
       <!-- Never a lock-out: someone who cannot answer needs the words MORE, not
@@ -770,9 +770,9 @@
            small chip above was the real first step and the smallest thing on
            the card), then confirm they are saved. -->
       {#if revealedOnce}
-        <button type="button" onclick={startVerify}>I've saved my recovery phrase</button>
+        <button class="primary" type="button" onclick={startVerify}>I've saved my recovery phrase</button>
       {:else}
-        <button type="button" onclick={toggleReveal}>Show my recovery phrase</button>
+        <button class="primary" type="button" onclick={toggleReveal}>Show my recovery phrase</button>
       {/if}
     {:else if confirmingReset}
       <p class="muted">
@@ -804,7 +804,7 @@
         </div>
       {:else}
         {#if canScan}
-          <button type="button" class="scan-btn" onclick={() => (scanning = true)}>
+          <button type="button" class="primary scan-btn" onclick={() => (scanning = true)}>
             <Icon name="camera" size={17} /> Scan QR code
           </button>
           <div class="or"><span>or paste it</span></div>
@@ -844,7 +844,7 @@
           <span>Connecting to your other device… this can take up to a minute over the internet — keep both devices on the link screen.</span>
         </div>
       {/if}
-      <button type="button" disabled={busy} onclick={doLink}>
+      <button class="primary" type="button" disabled={busy} onclick={doLink}>
         {busy ? "Linking…" : "Link this device"}
       </button>
       <button type="button" class="link" onclick={() => ((linking = false), (scanned = false), (error = ""))}>
@@ -894,7 +894,7 @@
       <PassphraseField placeholder="New passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
-      <button type="button" disabled={busy} onclick={doRestore}>
+      <button class="primary" type="button" disabled={busy} onclick={doRestore}>
         {busy ? "Restoring…" : "Restore account"}
       </button>
       <button type="button" class="link" onclick={() => ((restoring = false), (error = ""))}>
@@ -909,7 +909,7 @@
         guilds and history only return by re-linking or re-invites.
       </p>
       <div class="error slot" role="alert">{error}</div>
-      <button type="button" onclick={() => ((linking = true), (forgot = false), (error = ""))}>
+      <button class="primary" type="button" onclick={() => ((linking = true), (forgot = false), (error = ""))}>
         Re-link from my other device
       </button>
       <button type="button" class="ghost" onclick={() => ((restoring = true), (forgot = false), (error = ""))}>
@@ -929,7 +929,7 @@
            it's actually wanted. -->
       <PassphraseField placeholder="Passphrase" bind:value={passphrase} invalid={errField === "pass"} autofocus={!S.isMobile} />
       <div class="error slot" role="alert">{error}</div>
-      <button type="submit" disabled={!passphrase || busy}>
+      <button class="primary" type="submit" disabled={!passphrase || busy}>
         {busy ? "Unlocking…" : "Unlock"}
       </button>
       {#if bioOn}
@@ -969,7 +969,7 @@
       <PassphraseField placeholder="Choose a passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
-      <button type="submit" disabled={!hasVisible(displayName) || !passphrase || !confirmPass || busy}>
+      <button class="primary" type="submit" disabled={!hasVisible(displayName) || !passphrase || !confirmPass || busy}>
         {busy ? "Creating…" : "Create identity"}
       </button>
       <button type="button" class="link" onclick={() => ((restoring = true), (error = ""))}>
@@ -1376,7 +1376,7 @@
   }
 
   /* ---- touch adjustments ---- */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* flex + margin:auto centers like place-items but still scrolls when the
        card outgrows the screen (recovery-phrase step with the keyboard up). */
     .login {

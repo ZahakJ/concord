@@ -288,7 +288,7 @@
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button onclick={send} disabled={empty || busy}>Send doodle</button>
+    <button class="primary" onclick={send} disabled={empty || busy}>Send doodle</button>
   </div>
 </Modal>
 

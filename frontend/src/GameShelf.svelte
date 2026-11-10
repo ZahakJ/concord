@@ -578,7 +578,7 @@
      and offers the switch, rather than leaving an empty box that looks broken. */
   .g-off {
     margin: 6px 2px 0;
-    font-size: 12px;
+    font-size: var(--fs-small);
     line-height: 1.5;
   }
   .g-off-on {
@@ -645,7 +645,7 @@
     position: relative;
     z-index: 1;
     padding: 10px 8px;
-    font-size: 11px;
+    font-size: var(--fs-micro);
     font-weight: 800;
     line-height: 1.25;
     letter-spacing: 0.04em;
@@ -786,7 +786,7 @@
   }
   /* Touch: "Add a game" is an 18px pill in a tight card header, so the tap area
      is padded out to 44px rather than the chip itself. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .g-add {
       position: relative;
     }

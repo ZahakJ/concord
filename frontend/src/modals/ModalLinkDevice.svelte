@@ -135,7 +135,7 @@
     <div class="qr-wrap">
       <img class="qr" src={qr} alt="Device linking QR code" />
     </div>
-    <button class="ghost-sm copy" onclick={copyCode}>
+    <button class="ghost ghost-sm copy" onclick={copyCode}>
       {copied ? "Copied ✓" : "Copy code instead"}
     </button>
   {:else}

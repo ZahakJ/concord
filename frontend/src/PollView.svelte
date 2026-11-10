@@ -510,7 +510,7 @@
     font-weight: 600;
   }
   /* ---- phone ---- */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* 43px rows 6px apart, on a control where a mis-tap MOVES your vote to the
        neighbouring option with no confirmation and nothing that says it moved. */
     .opt-body {

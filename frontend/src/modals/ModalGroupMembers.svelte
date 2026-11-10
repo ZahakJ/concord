@@ -85,7 +85,7 @@
           <li>
             <Avatar name={c.name} image={c.avatar} color={c.color} size={28} />
             <span class="who">{c.name || c.fingerprint.slice(0, 9)}</span>
-            <button disabled={!!busy} onclick={() => add(c)}>Add</button>
+            <button class="primary" disabled={!!busy} onclick={() => add(c)}>Add</button>
           </li>
         {/each}
       </ul>

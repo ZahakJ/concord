@@ -700,7 +700,7 @@
   .lb-close:hover {
     background: rgba(255, 255, 255, 0.18);
   }
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* Far top-right is the worst place on a phone for a thumb, so the button
        gets the full tap minimum — and throw-to-dismiss plus hardware back are
        the gestures actually meant to be used. */

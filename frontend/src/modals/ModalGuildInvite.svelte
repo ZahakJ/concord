@@ -51,7 +51,7 @@
   </div>
   <div class="actions">
     <button class="ghost" disabled={busy} onclick={onClose}>Ignore</button>
-    <button disabled={busy} onclick={accept}>
+    <button class="primary" disabled={busy} onclick={accept}>
       <Icon name="check" size={14} />
       {busy ? "Joining…" : "Join guild"}
     </button>

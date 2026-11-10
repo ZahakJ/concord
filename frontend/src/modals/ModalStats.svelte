@@ -1183,7 +1183,7 @@
   }
   /* One stat per row on a phone. Two columns left each cell ~148px of usable
      width, and "↓ 12.4 KB/s ↑ 3.1 KB/s" simply does not fit in that. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .grid {
       grid-template-columns: 1fr;
     }

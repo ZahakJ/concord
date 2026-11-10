@@ -304,7 +304,7 @@
         <Icon name="play" size={13} /> Hear it
       </button>
       <button class="ghost" onclick={keep} disabled={!ok}>Keep on my shelf</button>
-      <button onclick={() => pick(draftPayload, draft)} disabled={!ok || busy}>
+      <button class="primary" onclick={() => pick(draftPayload, draft)} disabled={!ok || busy}>
         {onPick ? "Play for the room" : "Send to this channel"}
       </button>
     </div>

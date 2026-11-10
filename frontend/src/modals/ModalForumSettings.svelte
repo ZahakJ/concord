@@ -892,7 +892,7 @@
     flex: 1;
   }
 
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .layouts {
       grid-template-columns: 1fr;
     }

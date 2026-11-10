@@ -2181,7 +2181,7 @@
         <span class="lock-badge"><Icon name="lock" size={26} /></span>
         <h2>Concord is locked</h2>
         <p class="muted">Unlock with your fingerprint or face.</p>
-        <button class="lock-btn" onclick={tryBioGate}>Unlock</button>
+        <button class="primary lock-btn" onclick={tryBioGate}>Unlock</button>
         <!-- Honest label: this path signs the device out and reloads. It used to
              read "Use passphrase instead", which sounds like a second door into
              the same room. -->
@@ -3133,7 +3133,7 @@
     flex-shrink: 0;
     color: var(--text-muted);
     text-decoration: none;
-    font-size: 12px;
+    font-size: var(--fs-small);
   }
   .ub-alt:hover {
     color: var(--text);
@@ -3349,7 +3349,7 @@
   }
   /* Touch: a full-width banner rather than a centred card that has to squeeze
      name, status line and both buttons into whatever the text doesn't claim. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* The update banner's × sat ~6px from "Update now", both about 22px tall —
        so dismissing it regularly started a 200MB download instead. Give them
        real targets and put a gap between them, and let the sentence wrap rather

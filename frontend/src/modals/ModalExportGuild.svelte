@@ -145,7 +145,7 @@
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button disabled={building || !!err || saving} onclick={run}>
+    <button class="primary" disabled={building || !!err || saving} onclick={run}>
       <Icon name="download" size={14} />
       {saving ? "Saving…" : building ? "Preparing…" : `Export ${fmtBytes(bytes)}`}
     </button>

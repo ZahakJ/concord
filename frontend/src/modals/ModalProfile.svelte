@@ -932,7 +932,7 @@
      thirteen targets sat with their centres 36px apart on the one axis that
      has neighbours — picking 🦊 and getting 🐸. The row already wraps, so the
      width costs a line, not a layout. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .emoji-row {
       gap: var(--sp-2);
     }
@@ -971,7 +971,7 @@
   }
   /* Four chips of unequal width wrap 3+1, orphaning "Invisible" on a line of
      its own. A 2×2 grid holds all four and reads as one control. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .presence-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -982,7 +982,7 @@
     align-items: center;
     gap: 6px;
     padding: 6px 10px;
-    font-size: 12px;
+    font-size: var(--fs-small);
     background: var(--bg-input);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -1065,7 +1065,7 @@
     align-self: flex-end;
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-micro);
     margin: 0;
   }
   .paste-hint {

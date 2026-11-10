@@ -63,6 +63,9 @@ const NEEDED = [
   "--sp-1", "--sp-2", "--sp-3", "--sp-4", "--sp-5", "--sp-6",
   "--ease-spring", "--ease-out", "--dur-quick", "--dur-standard",
   "--focus-ring", "--focus-ring-offset", "--scrim", "--bg-elevated",
+  // The interface system's own few: control edges, the mention row tint, the
+  // titles' face, the one curve allowed to overshoot, the shared header row.
+  "--border-strong", "--mention-wash", "--display-font", "--ease-overshoot", "--header-h",
 ];
 for (const t of NEEDED) if (!tokenValue(t)) fail(`app.css :root does not define ${t}`);
 
@@ -138,18 +141,20 @@ for (const [rel, raw] of FILES) {
 }
 
 // ---- 4. motion -------------------------------------------------------------
-// The app means two things by a curve: an overshoot (a thing ARRIVES) and a
-// deceleration (a thing MOVES). Anything genuinely else — an ease-in for
-// something leaving, the shake, the editorial --ease-calm — stays a literal.
+// The app means two things by a curve: an arrival (--ease-spring, which no
+// longer overshoots) and a deceleration (--ease-out). The overshoot spelling
+// is a celebration's (--ease-overshoot, rule 12). Anything genuinely else — an
+// ease-in for something leaving, the shake, the editorial --ease-calm — stays
+// a literal.
 const norm = (s) => s.replace(/\s+/g, "");
 const SPRING = new Set(["cubic-bezier(0.34,1.56,0.64,1)", "cubic-bezier(0.34,1.4,0.5,1)", "cubic-bezier(0.34,1.3,0.5,1)", "cubic-bezier(0.34,1.4,0.64,1)", "cubic-bezier(0.34,1.5,0.5,1)", "cubic-bezier(0.22,1.1,0.36,1)"]);
 const DECEL = new Set(["cubic-bezier(0.2,0.9,0.3,1)", "cubic-bezier(0.2,0.8,0.2,1)", "cubic-bezier(0.22,1,0.36,1)", "cubic-bezier(0.2,0.8,0.25,1)", "cubic-bezier(0.16,0.84,0.44,1)", "cubic-bezier(0.2,0.7,0.45,1)", "cubic-bezier(0.2,0.7,0.3,1)"]);
 for (const [rel, raw] of FILES) {
   for (const line of strip(raw).split("\n")) {
-    if (/--ease-(spring|out|calm):/.test(line)) continue; // the definitions
+    if (/--ease-(spring|out|calm|overshoot):/.test(line)) continue; // the definitions
     for (const m of line.matchAll(/cubic-bezier\([^)]*\)/g)) {
       const n = norm(m[0]);
-      if (SPRING.has(n)) fail(`${rel}: ${m[0]} is the overshoot family — use var(--ease-spring)`);
+      if (SPRING.has(n)) fail(`${rel}: ${m[0]} is the overshoot family — chrome uses var(--ease-spring); a celebration uses var(--ease-overshoot)`);
       if (DECEL.has(n)) fail(`${rel}: ${m[0]} is the decelerate family — use var(--ease-out)`);
     }
   }
@@ -187,6 +192,40 @@ for (const [rel, raw] of FILES) {
     }
     if (w >= 1100 && w <= 1200 && w !== 1150 && w !== 1151) {
       fail(`${rel}: @media …${w}px sits beside the 1150px narrow contract without being on it`);
+    }
+  }
+}
+
+// 5b. A coarse pointer is not a layout. Layout is chosen by width alone
+// (detectMobile is `(max-width: 768px)`), and a tablet or touchscreen laptop at
+// a desktop width keeps the desktop layout with bigger targets. So a query
+// that names `pointer: coarse` may enlarge targets and reveal hover-only
+// controls, but may not change display, grid-template*, flex-direction or
+// width. `display: none` (withdrawing a hover-only control a finger cannot
+// reach) and a width of exactly var(--tap-min) (a target) are what a touch
+// rule is for, and pass.
+{
+  const LAYOUT = /(?:^|[;{\s])(display|grid-template[\w-]*|flex-direction|width)\s*:\s*([^;}]*)/g;
+  // A target-size rule whose number is not the token: StoryTray's 58px tiles
+  // and the GIF picker's remove button, sized for a fingertip on a thumbnail.
+  const COARSE_EXEMPT = new Set(["StoryTray.svelte", "modals/ModalGifs.svelte"]);
+  for (const [rel, raw] of FILES) {
+    if (COARSE_EXEMPT.has(rel)) continue;
+    const css = strip(raw);
+    for (const m of css.matchAll(/@media([^{]*pointer:\s*coarse[^{]*)\{/g)) {
+      let depth = 1;
+      let j = m.index + m[0].length;
+      for (; j < css.length && depth; j++) {
+        if (css[j] === "{") depth++;
+        else if (css[j] === "}") depth--;
+      }
+      const body = css.slice(m.index + m[0].length, j - 1);
+      for (const d of body.matchAll(LAYOUT)) {
+        const [prop, val] = [d[1], d[2].trim()];
+        if (prop === "display" && val === "none") continue;
+        if (prop === "width" && val === "var(--tap-min)") continue;
+        fail(`${rel}: @media${m[1].trimEnd()} sets ${prop}: ${val} — a coarse pointer may size targets, not change layout; the phone layout query is (max-width: 768px)`);
+      }
     }
   }
 }
@@ -265,6 +304,9 @@ const value = (name, block) => {
         [fg[1], bg[1], "button.quiet"],
         ["--text-muted", bg[1], "a quiet chip's unselected label"],
         ["--accent-fg", "--accent", "an accent-filled chip's label"],
+        // The faintest ink on the hover/selected/field fill: timestamps in a
+        // hovered row, meta in a selected one.
+        ["--text-faint", "--bg-3", "faint ink on a hover or selected fill"],
       ];
       for (const [theme, b] of THEMES) {
         for (const [fgTok, bgTok, why] of PAIRS) {
@@ -328,8 +370,9 @@ const value = (name, block) => {
     const elevated = resolve("--bg-elevated", block);
     const bg3 = resolve("--bg-3", block);
     const muted = resolve("--text-muted", block);
+    const faint = resolve("--text-faint", block);
     const accent = resolve("--accent", block);
-    if (!elevated || !bg3 || !muted || !accent) {
+    if (!elevated || !bg3 || !muted || !accent || !faint) {
       fail(`tokens gate: cannot read the chip tokens of the "${pack}" pack`);
       continue;
     }
@@ -338,6 +381,11 @@ const value = (name, block) => {
     const r = contrast(ink, ground);
     if (r < 4.5) {
       fail(`a quiet chip's unselected label: --text-muted on --bg-3 is ${r.toFixed(2)}:1 in the "${pack}" pack, below 4.5`);
+    }
+    // The faint tier is text too (timestamps, meta), on the same fill.
+    const fr = contrast(over(faint, ground), ground);
+    if (fr < 4.5) {
+      fail(`faint ink on a hover or selected fill: --text-faint on --bg-3 is ${fr.toFixed(2)}:1 in the "${pack}" pack, below 4.5`);
     }
     const acc = over(accent, ground);
     const best = Math.max(...FG.map((f) => contrast(f.slice(0, 3), acc)));
@@ -473,7 +521,11 @@ const value = (name, block) => {
 // of `transparent`/`none` is not a repaint, so it is not asked either.
 {
   // The ink a silent button gets, from the global rule in app.css.
-  const INHERITED = /button\s*\{[^}]*?(?:^|[^-])color:\s*var\((--[\w-]+)\)/m.exec(APP)?.[1] || "--accent-fg";
+  // `color: inherit` (the bare button is unstyled) inherits the page's ink.
+  const g = /\nbutton\s*\{([^}]*)\}/.exec(APP)?.[1] || "";
+  const INHERITED = /(?:^|[^-])color:\s*inherit/.test(g)
+    ? "--text"
+    : /(?:^|[^-])color:\s*var\((--[\w-]+)\)/.exec(g)?.[1] || "--accent-fg";
   // The last compound of a selector — the thing the rule is actually about.
   const subject = (sel) => sel.trim().split(/\s*[>+~]\s*|\s+/).pop() || "";
   for (const [rel, raw] of FILES) {
@@ -605,10 +657,10 @@ const value = (name, block) => {
 }
 
 // ---- the faintest ink still reads -----------------------------------------
-// --text-faint carries timestamps, captions and labels at 9–12.5px, where WCAG
-// asks 4.5:1. The two base themes hold it there against every surface text
-// sits on, and placeholders (read on a field's own fill) use --text-muted.
-// The fifty packs carry their own values and are the redesign's to retune.
+// --text-faint carries timestamps, captions and labels at 11–12.5px, where
+// WCAG asks 4.5:1. The two base themes hold it there against every surface,
+// the hover/field fill (--bg-3) included; rule 8b holds every pack to the same
+// on its own --bg-3. Placeholders still use --text-muted.
 {
   const block = (sel) => {
     const at = APP.indexOf(sel + " {");
@@ -621,8 +673,8 @@ const value = (name, block) => {
   const dark = block(":root");
   const light = block(':root[data-theme="light"]');
   const themes = [
-    ["dark", dark, ["bg-0", "bg-1", "bg-2"]],
-    ["light", light, ["bg-1", "bg-2", "bg-elevated"]],
+    ["dark", dark, ["bg-0", "bg-1", "bg-2", "bg-3"]],
+    ["light", light, ["bg-0", "bg-1", "bg-2", "bg-3", "bg-elevated"]],
   ];
   for (const [name, body, grounds] of themes) {
     const faint = tok(body, "text-faint");
@@ -639,6 +691,52 @@ const value = (name, block) => {
   }
   const ph = APP.match(/input::placeholder,\s*textarea::placeholder\s*\{([^}]*)\}/);
   if (!ph || !/var\(--text-muted\)/.test(ph[1])) fail("placeholders must use --text-muted (--text-faint is 3.4:1 on a field's fill)");
+}
+
+// ---- 12. no glows, and no overshoot in chrome ------------------------------
+// The accent means "this is about you", and a halo of it around a button, a
+// badge or a tile spent that meaning on decoration. --accent-glow and
+// --float-shadow survive as names (packs set them, and the cascade must still
+// resolve), but nothing outside the token sheets may paint with them.
+// Likewise the overshoot curve: chrome does not bounce, a celebration may.
+{
+  const OVERSHOOT_OK = /^(lib\/burst\.js|lib\/fx[\w-]*\.js|FxLayer\.svelte|FxOverlay\.svelte|JoinVeil\.svelte|app\.css)$/;
+  const walkAll = (dir, out = []) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walkAll(p, out);
+      else if (/\.(svelte|css|js)$/.test(e.name) && !/\.test\.mjs$/.test(e.name)) out.push(p);
+    }
+    return out;
+  };
+  for (const p of walkAll(SRC)) {
+    const rel = path.relative(SRC, p);
+    const src = strip(fs.readFileSync(p, "utf8"));
+    if (!isAppCss(rel)) {
+      for (const m of src.matchAll(/var\(--(accent-glow|float-shadow)\b/g)) {
+        fail(`${rel}: var(--${m[1]}) — glows are retired; a float uses var(--shadow-pop), and nothing else glows`);
+      }
+    }
+    if (!OVERSHOOT_OK.test(rel) && /var\(--ease-overshoot\)/.test(src)) {
+      fail(`${rel}: var(--ease-overshoot) is for celebrations (burst.js, fx*.js, FxLayer, FxOverlay, JoinVeil); chrome uses var(--ease-spring)`);
+    }
+  }
+}
+
+// ---- 13. a count is never red ----------------------------------------------
+// A number means "this needs you": mentions, DMs, replies. It wears the user's
+// accent. Red says "something is wrong", and a guild with three new messages
+// is not wrong. Any rule whose selector names a badge or a count may not fill
+// itself with --danger.
+for (const [rel, raw] of FILES) {
+  for (const m of strip(raw).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const sel = m[1].trim().split("\n").pop();
+    if (!/badge|count/i.test(sel)) continue;
+    const bg = /background(?:-color)?:\s*([^;]*)/.exec(m[2]);
+    if (bg && /var\(--danger\)/.test(bg[1]) && !/color-mix/.test(bg[1])) {
+      fail(`${rel}: \`${sel.trim()}\` fills a count with var(--danger) — counts use var(--accent); red is for errors`);
+    }
+  }
 }
 
 console.log(failures === 0 ? "tokens.test.mjs: OK" : `tokens.test.mjs: ${failures} failure(s)`);

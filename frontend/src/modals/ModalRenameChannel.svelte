@@ -46,7 +46,7 @@
   {/if}
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button onclick={save} disabled={busy || !final || final === current}>Rename</button>
+    <button class="primary" onclick={save} disabled={busy || !final || final === current}>Rename</button>
   </div>
 </Modal>
 

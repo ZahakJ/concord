@@ -273,7 +273,7 @@
       background: var(--bg-2);
     }
   }
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .sc {
       grid-template-columns: 1fr;
     }

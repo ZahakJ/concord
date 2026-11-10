@@ -1975,7 +1975,7 @@
      person, is a landmine under a thumb. It moves to the long-press sheet
      (tileMenu), which is where every other destructive action on this app's
      phone UI already lives. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .evict {
       display: none;
     }
@@ -2756,7 +2756,6 @@
   .knock-admit:hover {
     background: var(--accent-hover);
     transform: translateY(-1px);
-    box-shadow: var(--accent-glow);
   }
   .knock-admit:active {
     transform: scale(0.95);
@@ -2887,7 +2886,7 @@
   }
 
   /* ---- touch adjustments: call controls you can't fat-finger. ---- */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* On a phone the call IS the screen — 46vh is a desktop-derived slice that
        left two rows of tiles scrolling under an empty chat placeholder. */
     .voice-panel {
@@ -3014,7 +3013,7 @@
      138px ones at 320. The 560px cap keeps the wide edge of this tier (a 768px
      window, or a tablet) from drawing two enormous tiles instead of a grid;
      landscape overrides the whole thing below. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .stage {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       max-width: 560px;
@@ -3037,7 +3036,7 @@
      only fit by scrolling — and the sticky controls then sit across their name
      badges. Compact, wide tiles instead: everyone at once beats a stage you
      have to drag. */
-  @media (pointer: coarse) and (max-height: 480px) {
+  @media (max-height: 480px) {
     .stage,
     .stage.solo {
       grid-template-columns: repeat(auto-fit, minmax(96px, 132px));

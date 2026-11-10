@@ -206,7 +206,7 @@
       {/each}
       <span class="spring"></span>
       <button class="ghost mini" onclick={() => (picking = null)}>Cancel</button>
-      <button class="mini" disabled={busy} onclick={saveTags}>Save tags</button>
+      <button class="primary mini" disabled={busy} onclick={saveTags}>Save tags</button>
     </div>
   {/if}
 </header>

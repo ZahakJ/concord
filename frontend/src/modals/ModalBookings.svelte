@@ -422,7 +422,7 @@
     white-space: nowrap;
   }
   /* Phone: time controls get room; rows may wrap rather than shrink taps. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .winrow {
       flex-wrap: wrap;
     }

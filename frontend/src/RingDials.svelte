@@ -236,7 +236,7 @@
   }
 
   /* ---- phone: targets a thumb can hit ---- */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .sat-btn,
     .pal-btn {
       width: var(--tap-min);

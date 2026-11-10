@@ -432,11 +432,11 @@
     color: var(--text);
   }
   .small {
-    font-size: 12px;
+    font-size: var(--fs-small);
     padding: 5px 12px;
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-micro);
     margin: 0;
   }
   .bs-foot {

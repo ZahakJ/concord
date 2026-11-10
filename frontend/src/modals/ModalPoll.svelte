@@ -208,7 +208,7 @@
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button onclick={post} disabled={!canPost}>Post poll</button>
+    <button class="primary" onclick={post} disabled={!canPost}>Post poll</button>
   </div>
 </Modal>
 

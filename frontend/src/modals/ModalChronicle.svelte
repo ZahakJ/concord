@@ -85,7 +85,7 @@
     {#if g?.isOwner}
       <div class="actions">
         <button class="ghost" onclick={onClose}>Close</button>
-        <button onclick={() => openPanel("chronicleImport", "chronicle")}>Import a chat archive</button>
+        <button class="primary" onclick={() => openPanel("chronicleImport", "chronicle")}>Import a chat archive</button>
       </div>
     {:else}
       <div class="actions"><button class="ghost" onclick={onClose}>Close</button></div>

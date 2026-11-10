@@ -1505,7 +1505,7 @@
     width: 70%;
   }
   /* Finger-sized pickers on touch. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* A colour swatch has neighbours on both axes, so 36px left their centres
        under the fingertip minimum in a row you're expected to scan and tap
        precisely. */

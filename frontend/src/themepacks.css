@@ -20,9 +20,11 @@
    applyAppearance() skips the inline accent override while a pack is active
    (unless the user ALSO picked an explicit accent preset, which wins). Placed
    after the light block so a pack wins regardless of the dark/light setting.
-   Each --text-faint below is tuned to clear 3:1 against ITS OWN --bg-3 (the
-   lightest surface a pack ever paints it on, composited for the translucent
-   packs): faint is decoration, but decoration still has to be visible. */
+   --text-muted and --text-faint are TEXT tiers (timestamps and meta are
+   words): each clears 4.5:1 against every surface its own pack paints,
+   composited for the translucent packs, and each pack carries its own
+   --border-strong for control edges at 3:1. scripts/pack-retune.mjs measures
+   and retunes them; tokens.test.mjs rule 8b holds the line. */
 :root[data-theme-pack="midnight"] {
   --bg-0: #0b0e1a;
   --bg-1: #111527;
@@ -31,7 +33,8 @@
   --border: #2e3654;
   --text: #e6e9f5;
   --text-muted: #949cbd;
-  --text-faint: #707897;
+  --text-faint: #8b92ac;
+  --border-strong: #6d7492;
   --accent: #6f7cff;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: var(--bg-3);
@@ -45,7 +48,8 @@
   --border: #3c2c5e;
   --text: #ece5f7;
   --text-muted: #a394c2;
-  --text-faint: #7d71a1;
+  --text-faint: #958ab4;
+  --border-strong: #7a6c96;
   --accent: #a06bff;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: var(--bg-3);
@@ -59,7 +63,8 @@
   --border: #533146;
   --text: #f5e8ef;
   --text-muted: #bd94aa;
-  --text-faint: #957485;
+  --text-faint: #ab8f9d;
+  --border-strong: #926f82;
   --accent: #f06ba8;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: var(--bg-3);
@@ -73,7 +78,8 @@
   --border: #2e4437;
   --text: #e6f0ea;
   --text-muted: #92ac9d;
-  --text-faint: #6b8675;
+  --text-faint: #879e90;
+  --border-strong: #6a8073;
   --accent: #3fb96e;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: var(--bg-3);
@@ -87,7 +93,8 @@
   --border: #24262d;
   --text: #e8eaed;
   --text-muted: #8f939c;
-  --text-faint: #666a73;
+  --text-faint: #7c8088;
+  --border-strong: #62646b;
   --accent: #22d3ee;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: var(--bg-3);
@@ -104,7 +111,8 @@
   --border: #4c566a;
   --text: #eceff4;
   --text-muted: #b6bece;
-  --text-faint: #97a0af;
+  --text-faint: #b7bec9;
+  --border-strong: #939bab;
   --accent: #88c0d0;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
   --bg-elevated: var(--bg-3);
@@ -118,7 +126,8 @@
   --border: #4d5066;
   --text: #f8f8f2;
   --text-muted: #bcc0d8;
-  --text-faint: #9296b0;
+  --text-faint: #b0b3c4;
+  --border-strong: #8e92a7;
   --accent: #bd93f9;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: var(--bg-3);
@@ -132,7 +141,8 @@
   --border: #504945;
   --text: #ebdbb2;
   --text-muted: #bdae93;
-  --text-faint: #958676;
+  --text-faint: #b1a189;
+  --border-strong: #8d8371;
   --accent: #fabd2f;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: var(--bg-3);
@@ -146,7 +156,8 @@
   --border: #403c58;
   --text: #e0def4;
   --text-muted: #a7a3c8;
-  --text-faint: #7e7a95;
+  --text-faint: #9794ad;
+  --border-strong: #797595;
   --accent: #ebbcba;
   --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
   --bg-elevated: var(--bg-3);
@@ -160,7 +171,8 @@
   --border: #34505b;
   --text: #e0eaee;
   --text-muted: #92adb8;
-  --text-faint: #78909a;
+  --text-faint: #98abb4;
+  --border-strong: #748c97;
   --accent: #5ec8cc;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
   --bg-elevated: var(--bg-3);
@@ -189,7 +201,8 @@
   --border: #33434f;
   --text: #e9f2f8;
   --text-muted: #9db2c0;
-  --text-faint: #7e93a1; /* 4.05:1 on bg-3 */
+  --text-faint: #899daa;
+  --border-strong: #6d7e8c; /* 4.05:1 on bg-3 */
   --accent: #8fd3f4;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: var(--bg-3);
@@ -205,7 +218,8 @@
   --border: #1e3324;
   --text: #cdf5d8;
   --text-muted: #7fb491;
-  --text-faint: #6d9c7e; /* 5.33:1 on bg-3 */
+  --text-faint: #6d9c7e;
+  --border-strong: #4f725b; /* 5.33:1 on bg-3 */
   --accent: #3ef08c;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
   --bg-elevated: var(--bg-3);
@@ -221,7 +235,8 @@
   --border: #3a444e;
   --text: #e4eaef;
   --text-muted: #9aa7b3;
-  --text-faint: #7e8b97; /* 3.64:1 on bg-3 */
+  --text-faint: #929da8;
+  --border-strong: #737f89; /* 3.64:1 on bg-3 */
   --accent: #e0a458;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: var(--bg-3);
@@ -237,7 +252,8 @@
   --border: #262b3e;
   --text: #f3f0e7;
   --text-muted: #a9acbd;
-  --text-faint: #878ba0; /* 4.86:1 on bg-3 */
+  --text-faint: #878ba0;
+  --border-strong: #686b7a; /* 4.86:1 on bg-3 */
   --accent: #e8c46a;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: var(--bg-3);
@@ -252,7 +268,8 @@
   --border: #3d342c;
   --text: #f4ece3;
   --text-muted: #b7a89a;
-  --text-faint: #978779; /* 4.24:1 on bg-3 */
+  --text-faint: #9d8d80;
+  --border-strong: #7c7167; /* 4.24:1 on bg-3 */
   --accent: #e59b4d;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: var(--bg-3);
@@ -267,7 +284,8 @@
   --border: #423d2a;
   --text: #f0ead6;
   --text-muted: #b3aa8c;
-  --text-faint: #948b6f; /* 4.00:1 on bg-3 */
+  --text-faint: #9f967b;
+  --border-strong: #7f7961; /* 4.00:1 on bg-3 */
   --accent: #cf7b3f;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
   --bg-elevated: var(--bg-3);
@@ -311,6 +329,7 @@
   --text: #f0fdf8;
   --text-muted: #cae7e0;
   --text-faint: #9cbcb5;
+  --border-strong: #5e7575;
   --accent: #39d9b0;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: rgb(8, 26, 32);
@@ -325,6 +344,7 @@
   --text: #fdf0ff;
   --text-muted: #d9b7ec;
   --text-faint: #a583c4;
+  --border-strong: #755e87;
   --accent: #ff4fd8;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: rgb(26, 10, 44);
@@ -339,6 +359,7 @@
   --text: #f1f3ff;
   --text-muted: #bec5e8;
   --text-faint: #8c93bb;
+  --border-strong: #61657d;
   --accent: #7c8bff;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: rgb(14, 16, 34);
@@ -353,6 +374,7 @@
   --text: #fff2e9;
   --text-muted: #e0bda6;
   --text-faint: #c39d84;
+  --border-strong: #7b6356;
   --accent: #ff7a2f;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: rgb(30, 16, 10);
@@ -370,6 +392,7 @@
   --text: #f4f6fa;
   --text-muted: #c4cbd9;
   --text-faint: #949cad;
+  --border-strong: #676c75;
   --accent: #8de0ff;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgb(18, 20, 26);
@@ -387,6 +410,7 @@
   --text: #eef6fd;
   --text-muted: #b8cee0;
   --text-faint: #99aec0;
+  --border-strong: #60707e;
   --accent: #56b7e8;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
   --bg-elevated: rgb(12, 24, 36);
@@ -405,6 +429,7 @@
   --text: #eafaff;
   --text-muted: #b5d8e2;
   --text-faint: #93b6c2;
+  --border-strong: #5a747d;
   --accent: #35d0e8;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
   --bg-elevated: rgb(5, 26, 35);
@@ -422,6 +447,7 @@
   --text: #f2f0ff;
   --text-muted: #c2bce0;
   --text-faint: #9c96be;
+  --border-strong: #67627d;
   --accent: #35e0ff;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgb(16, 11, 32);
@@ -439,6 +465,7 @@
   --text: #f7f2ff;
   --text-muted: #c7bee0;
   --text-faint: #9d95b7;
+  --border-strong: #6c647f;
   --accent: #f0d68a;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgb(20, 12, 34);
@@ -464,7 +491,8 @@
   --border: rgba(70, 96, 130, 0.3);
   --text: #1e2733;
   --text-muted: #4b596b;
-  --text-faint: #64717f;
+  --text-faint: #54606e;
+  --border-strong: #707b89;
   --accent: #1d6fbf;
   --bg-elevated: rgb(255, 255, 255);
   /* The mobile scrim below is a black sheet tuned for dark glass; on a bright
@@ -480,6 +508,7 @@
   --text: #fdf1e0;
   --text-muted: #d9bd98;
   --text-faint: #b59c7b;
+  --border-strong: #846f57;
   --accent: #e8a33f;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgb(40, 24, 12);
@@ -494,6 +523,7 @@
   --text: #eefaee;
   --text-muted: #b0cfb2;
   --text-faint: #91b094;
+  --border-strong: #617864;
   --accent: #62c46a;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
   --bg-elevated: rgb(12, 30, 18);
@@ -508,6 +538,7 @@
   --text: #dcffe8;
   --text-muted: #8bcda1;
   --text-faint: #74b48a;
+  --border-strong: #486f55;
   --accent: #35f08a;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
   --bg-elevated: rgb(3, 16, 8);
@@ -522,6 +553,7 @@
   --text: #eaf6f4;
   --text-muted: #a6c4c0;
   --text-faint: #8caba7;
+  --border-strong: #5a706e;
   --accent: #ffb347;
   --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
   --bg-elevated: rgb(5, 24, 24);
@@ -536,6 +568,7 @@
   --text: #fff4e8;
   --text-muted: #d3c0ad;
   --text-faint: #ad9f90;
+  --border-strong: #726d6a;
   --accent: #ff9d4d;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgb(10, 24, 40);
@@ -550,6 +583,7 @@
   --text: #f2fbff;
   --text-muted: #bdd8e8;
   --text-faint: #9cb8ca;
+  --border-strong: #6b8290;
   --accent: #9fe0ff;
   --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
   --bg-elevated: rgb(18, 38, 54);
@@ -564,6 +598,7 @@
   --text: #f7ece0;
   --text-muted: #c9b39a;
   --text-faint: #a6927d;
+  --border-strong: #7f6e5d;
   --accent: #d9a05b;
   --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
   --bg-elevated: rgb(36, 25, 16);
@@ -578,6 +613,7 @@
   --text: #eef1f5;
   --text-muted: #b2bac4;
   --text-faint: #959da9;
+  --border-strong: #6d7279;
   --accent: #9fb4c9;
   --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
   --bg-elevated: rgb(24, 27, 32);
@@ -592,6 +628,7 @@
   --text: #fff0f4;
   --text-muted: #dcb4c1;
   --text-faint: #b795a2;
+  --border-strong: #83666f;
   --accent: #ff7aa2;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgb(38, 18, 25);
@@ -606,6 +643,7 @@
   --text: #f4f7f5;
   --text-muted: #b6c9c8;
   --text-faint: #99aead;
+  --border-strong: #647577;
   --accent: #ff9a63;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgb(10, 30, 36);
@@ -620,6 +658,7 @@
   --text: #f4fbe4;
   --text-muted: #c3d29a;
   --text-faint: #a4b47e;
+  --border-strong: #67704f;
   --accent: #b6e830;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgb(20, 25, 10);
@@ -648,6 +687,7 @@
   --text: #eef2fb;
   --text-muted: #b6c1d6;
   --text-faint: #929db3;
+  --border-strong: #60697a;
   /* Instrument white. Everything humans put in vacuum is white, grey or gold;
      the only colour out there is the planet, so the accent is hardware and the
      scenery keeps the hue. Nothing else in the collection has a white accent,
@@ -666,6 +706,7 @@
   --text: #eef4ff;
   --text-muted: #b4c4e2;
   --text-faint: #8f9fbd;
+  --border-strong: #5c667c;
   /* A saturated true blue — the collection had indigo (midnight), periwinkle
      (cosmos) and cyan (skyline, glacier) but nothing actually blue. */
   --accent: #5b9dff;
@@ -682,6 +723,7 @@
   --text: #e9fbfa;
   --text-muted: #a8c8ca;
   --text-faint: #8fb0b3;
+  --border-strong: #5e737a;
   --accent: #7cf3e0;
   --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
   --bg-elevated: rgb(12, 22, 38);
@@ -696,6 +738,7 @@
   --text: #e9f1f4;
   --text-muted: #a8bcc6;
   --text-faint: #8ba0ab;
+  --border-strong: #606e76;
   --accent: #2fd18b;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgb(14, 21, 28);
@@ -710,6 +753,7 @@
   --text: #eefaf6;
   --text-muted: #aeccc6;
   --text-faint: #93b0ab;
+  --border-strong: #5e7674;
   /* The glaze itself. Brass was the obvious pick and the obvious mistake —
      nine packs are already some shade of amber. */
   --accent: #2ec4b6;
@@ -728,7 +772,8 @@
   --border: rgba(96, 88, 72, 0.28);
   --text: #262219;
   --text-muted: #55503f;
-  --text-faint: #6b6553; /* 4.75:1 on bg-3 composited over the stone */
+  --text-faint: #635d4c;
+  --border-strong: #7c786b; /* 4.75:1 on bg-3 composited over the stone */
   /* Lifted a step from #0f8a86: on that teal neither ink reached 4.5:1
      (4.42 near-black, 4.2 white), so a selected chip's label was the one
      thing in this pack below the label floor. Near-black makes 4.77 here. */
@@ -2039,6 +2084,7 @@
   --text: #eef6fd;
   --text-muted: #b3c8d9;
   --text-faint: #8ba0b1;
+  --border-strong: #627280;
   --accent: #7dd3fc;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgb(18, 30, 42);
@@ -2059,7 +2105,8 @@
   --border: rgba(255, 165, 160, 0.2);
   --text: #fdeeed;
   --text-muted: #d9b0af;
-  --text-faint: #a67f80;
+  --text-faint: #aa8484;
+  --border-strong: #86696b;
   --accent: #fb7185;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgb(40, 26, 30);
@@ -2081,6 +2128,7 @@
   --text: #f5edfc;
   --text-muted: #c6b3d8;
   --text-faint: #9482a8;
+  --border-strong: #766884;
   --accent: #c084fc;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
   --bg-elevated: rgb(32, 23, 44);
@@ -2146,7 +2194,8 @@
   --border: #cfc5ae;
   --text: #2a251c;
   --text-muted: #5c5445;
-  --text-faint: #78705c; /* 3.81:1 on bg-3 */
+  --text-faint: #696150;
+  --border-strong: #847c6e; /* 3.81:1 on bg-3 */
   --accent: #9c4a2c;
   --bg-elevated: #fdfaf2;
 }
@@ -2160,8 +2209,9 @@
   --bg-3: #eee8d5;
   --border: #cdc5a8;
   --text: #43565c;
-  --text-muted: #586c73;
-  --text-faint: #778585; /* 3.13:1 on bg-3 */
+  --text-muted: #52666c;
+  --text-faint: #546569;
+  --border-strong: #708084; /* 3.13:1 on bg-3 */
   --accent: #268bd2;
   --bg-elevated: #fefaec;
 }
@@ -2175,7 +2225,8 @@
   --border: #b7cca4;
   --text: #25301d;
   --text-muted: #53644a;
-  --text-faint: #6e8064; /* 3.37:1 on bg-3 */
+  --text-faint: #56664d;
+  --border-strong: #728169; /* 3.37:1 on bg-3 */
   --accent: #2b8347;
   --bg-elevated: #fbfdf8;
 }
@@ -2196,7 +2247,8 @@
   --border: rgba(96, 110, 138, 0.3);
   --text: #262a33;
   --text-muted: #59616f;
-  --text-faint: #6f7787; /* 3.37:1 on bg-3 composited over the mesh highlight */
+  --text-faint: #5c6371;
+  --border-strong: #777e89; /* 3.37:1 on bg-3 composited over the mesh highlight */
   --accent: #5661d8;
   --bg-elevated: rgb(253, 253, 255);
   background:

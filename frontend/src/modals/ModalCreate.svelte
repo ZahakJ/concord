@@ -175,7 +175,7 @@
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button onclick={submit} disabled={!name.trim() || (!!initial && name.trim() === initial)}>{confirmLabel}</button>
+    <button class="primary" onclick={submit} disabled={!name.trim() || (!!initial && name.trim() === initial)}>{confirmLabel}</button>
   </div>
 </Modal>
 
@@ -246,7 +246,6 @@
     color: var(--accent-fg);
     background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, var(--accent-hover)));
     border: 1px solid transparent;
-    box-shadow: var(--accent-glow);
   }
   .bubble.hasicon {
     background: var(--bg-3);

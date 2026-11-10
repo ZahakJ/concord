@@ -83,7 +83,7 @@
       animation: none;
     }
   }
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .callmini .callbtn.sm {
       width: var(--tap-min);
       height: var(--tap-min);

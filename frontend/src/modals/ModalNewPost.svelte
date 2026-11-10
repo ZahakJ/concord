@@ -611,7 +611,7 @@
      under that query, which a component rule cannot outrank — and the button's
      own "Sending…"/"Posting…" label is what carries the meaning anyway. */
 
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .titlefield {
       flex-wrap: wrap;
       padding: 4px 14px;

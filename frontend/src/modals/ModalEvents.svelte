@@ -1451,7 +1451,6 @@
   }
   .wseg[aria-checked="true"] {
     background: var(--accent);
-    box-shadow: var(--accent-glow);
   }
   .wseg[aria-checked="true"] .wseg-t {
     color: var(--accent-fg);

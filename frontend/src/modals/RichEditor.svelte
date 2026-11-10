@@ -982,7 +982,7 @@
             oninput={(e) => setAtt(p.id, "desc", e.currentTarget.value)}
             placeholder="Describe it for people who can't see it" />
         </label>
-        <button type="button" class="done" onclick={() => (editingAtt = "")}>Done</button>
+        <button type="button" class="primary done" onclick={() => (editingAtt = "")}>Done</button>
       </div>
     {/if}
   {/if}
@@ -1255,7 +1255,7 @@
   }
   .segb {
     padding: 4px 10px;
-    font-size: 12px;
+    font-size: var(--fs-small);
     font-weight: 600;
     color: var(--text-muted);
     background: transparent;
@@ -1356,7 +1356,7 @@
   }
   .mi kbd {
     font-family: inherit;
-    font-size: 11px;
+    font-size: var(--fs-micro);
     color: var(--text-faint);
     white-space: nowrap;
   }
@@ -1452,7 +1452,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 12px;
+    font-size: var(--fs-small);
     color: var(--text-muted);
   }
   /* Four classes deep on purpose: Modal's mobile sheet puts a 44px min-height on
@@ -1472,7 +1472,7 @@
   .linkish {
     margin-left: auto;
     padding: var(--sp-1) var(--sp-2);
-    font-size: 12px;
+    font-size: var(--fs-small);
     font-weight: 600;
     color: var(--accent-hover);
     background: transparent;
@@ -1485,11 +1485,11 @@
      `bottom: 54px; right: 12px` — correct above a bottom-docked composer, wrong
      under a toolbar. Re-anchor it downward.
      Scoped to exactly the case where the picker is a floating card: its own
-     mobile rule (`@media (pointer: coarse), (max-width: 768px)`) turns it into a
-     fixed bottom sheet, and this override has the higher specificity, so
-     applying it unconditionally would drag that sheet back into the middle of
-     the toolbar. The condition below is the complement of that rule. */
-  @media (pointer: fine) and (min-width: 769px) {
+     mobile rule (`@media (max-width: 768px)`) turns it into a fixed bottom
+     sheet, and this override has the higher specificity, so applying it
+     unconditionally would drag that sheet back into the middle of the
+     toolbar. The condition below is the complement of that rule. */
+  @media (min-width: 769px) {
     .epwrap :global(.picker) {
       top: calc(100% + 6px);
       bottom: auto;
@@ -1541,7 +1541,7 @@
     align-items: center;
     gap: 7px;
     min-width: 0;
-    font-size: 12px;
+    font-size: var(--fs-small);
     color: var(--text);
   }
   .fmeta :global(svg) {
@@ -1611,7 +1611,7 @@
      2px between them puts their centres 21px apart, half a fingertip, and one
      of the three permanently removes a staged attachment. Under the chip they
      get a full row each, and the chip grows to give them one. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .tray .chip {
       display: flex;
       flex-direction: column;
@@ -1707,7 +1707,7 @@
   }
   .done {
     padding: 6px 12px;
-    font-size: 12px;
+    font-size: var(--fs-small);
     font-weight: 600;
   }
 
@@ -1862,14 +1862,14 @@
   .s-note {
     margin-left: var(--sp-2);
     font-family: var(--ui-font, sans-serif);
-    font-size: 11px;
+    font-size: var(--fs-micro);
     color: var(--text-muted);
   }
   .s-enter {
     margin-left: auto;
     padding-left: var(--sp-3);
     font-family: inherit;
-    font-size: 11px;
+    font-size: var(--fs-micro);
     color: var(--accent-hover);
     opacity: 0;
     transition: opacity var(--dur-quick) ease;
@@ -1925,7 +1925,7 @@
     font-size: 14px;
   }
   .ptime {
-    font-size: 11px;
+    font-size: var(--fs-micro);
     color: var(--text-muted);
   }
   .ptitle {
@@ -1958,7 +1958,7 @@
     gap: 6px;
     margin-top: 6px;
     padding: 5px 9px;
-    font-size: 12px;
+    font-size: var(--fs-small);
     color: var(--text-muted);
     background: var(--bg-3);
     border-radius: var(--radius-sm);
@@ -1979,7 +1979,7 @@
     padding: 1px 5px;
     border-radius: var(--radius-sm);
     font-family: var(--mono-font, monospace);
-    font-size: 12px;
+    font-size: var(--fs-small);
   }
   .md :global(pre) {
     background: var(--bg-0);
@@ -2154,7 +2154,7 @@
   }
 
   /* ---- phone ------------------------------------------------------------ */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* Two columns at 390px is a lie: the switcher drops to Write/Preview and
        the panes stack, sized by their content so the sheet scrolls instead of
        the panes fighting over a fixed height. */

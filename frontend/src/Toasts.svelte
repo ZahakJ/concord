@@ -197,7 +197,7 @@
 
   /* ---- touch adjustments: top-center, below the mobile top bar, so toasts
      never cover the composer or hide behind the keyboard. ---- */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .toasts {
       bottom: auto;
       /* Anchored to the shell's chrome, not to a number. The hardcoded 62px was

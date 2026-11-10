@@ -2186,7 +2186,6 @@
   }
   .join-call:hover {
     background: var(--accent-hover);
-    box-shadow: var(--accent-glow);
   }
   /* Who is already in there, under it. "Nobody's in there yet" is worth saying
      out loud too: it is the difference between a room and a decision. */
@@ -2471,7 +2470,7 @@
     font-size: var(--fs-compact);
     font-weight: 600;
     letter-spacing: 0.01em;
-    box-shadow: var(--float-shadow);
+    box-shadow: var(--shadow-pop);
     z-index: 15;
     animation: float-in 0.2s var(--ease-out);
     transition: transform var(--dur-standard) ease;
@@ -2648,7 +2647,7 @@
     border-radius: 50%;
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
-    box-shadow: var(--float-shadow);
+    box-shadow: var(--shadow-pop);
     pointer-events: none;
     will-change: transform, opacity;
   }
@@ -2669,7 +2668,7 @@
     border: 1px solid var(--border);
     color: var(--text);
     font-size: var(--fs-compact);
-    box-shadow: var(--float-shadow);
+    box-shadow: var(--shadow-pop);
     z-index: 15;
     animation: float-in 0.2s var(--ease-out);
     transition: border-color var(--dur-standard) ease, transform var(--dur-standard) ease;
@@ -2695,7 +2694,7 @@
       transform: translateY(10px) scale(0.85);
     }
   }
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .older-bar .ob-text {
       display: none; /* phones: just the action, no caption */
     }

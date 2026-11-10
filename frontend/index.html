@@ -43,7 +43,8 @@
         inset: 0;
         display: grid;
         place-items: center;
-        background: #16181c;
+        /* The dark theme's canvas (--bg-2), the ground the app mounts on. */
+        background: #171a1c;
         transition: opacity 0.22s ease;
       }
       /* Held until the app knows which screen comes next, then crossfaded out
@@ -103,7 +104,7 @@
             var prefs = JSON.parse(localStorage.getItem("concord.prefs") || "{}");
             var t = prefs.theme || "dark";
             var light = t === "light" || (t === "system" && matchMedia("(prefers-color-scheme: light)").matches);
-            if (light) paint = { bg: "#f6f7f9", fg: "#14a394" };
+            if (light) paint = { bg: "#fcfcfb", fg: "#0e7c70" };
           }
           if (paint && paint.bg) boot.style.background = paint.bg;
           if (paint && paint.fg) boot.querySelector("svg").style.color = paint.fg;

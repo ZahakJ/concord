@@ -676,7 +676,7 @@
     flex-shrink: 0;
   }
   .member-name .bday {
-    font-size: 12px;
+    font-size: var(--fs-small);
   }
   .member-status {
     font-size: var(--fs-small);

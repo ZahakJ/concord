@@ -156,7 +156,7 @@
     color: var(--text-muted);
     box-shadow: none;
   }
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .actions {
       display: grid;
       grid-template-columns: 1fr 1fr;

@@ -252,7 +252,7 @@
 
   <div class="ds-foot">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button
+    <button class="primary"
       onclick={() =>
         onApply({
           decoration: selDec,
@@ -327,7 +327,7 @@
       background: var(--bg-3);
     }
   }
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .icon-btn {
       width: var(--tap-min);
       height: var(--tap-min);
@@ -496,7 +496,7 @@
     border-top: 1px solid var(--border);
   }
 
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .cw-btn {
       width: var(--tap-min);
       height: var(--tap-min);

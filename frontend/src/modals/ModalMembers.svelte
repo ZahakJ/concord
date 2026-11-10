@@ -176,7 +176,7 @@
         onPick={(v) => (bulkRoleID = v)}
         options={[{ value: "", label: "Choose a role…" }, ...roles.map((r) => ({ value: r.id, label: r.name }))]}
       />
-      <button disabled={busy || !bulkRoleID} onclick={() => bulkRole(bulkRoleID, true)}>
+      <button class="primary" disabled={busy || !bulkRoleID} onclick={() => bulkRole(bulkRoleID, true)}>
         Grant
       </button>
       <button class="ghost" disabled={busy || !bulkRoleID} onclick={() => bulkRole(bulkRoleID, false)}>

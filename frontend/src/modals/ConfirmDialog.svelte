@@ -88,7 +88,7 @@
     background: color-mix(in srgb, var(--danger) 75%, black);
   }
   /* Phone: two equal, full-width choices — no tiny side-by-side chips. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .actions {
       display: grid;
       grid-template-columns: 1fr 1fr;

@@ -673,7 +673,7 @@
             maxlength="64"
             disabled={nickBusy}
           />
-          <button type="submit" class="nick-save" disabled={nickBusy}>Save</button>
+          <button type="submit" class="primary nick-save" disabled={nickBusy}>Save</button>
         </form>
       {/if}
 
@@ -743,7 +743,7 @@
           <p class="hint muted">Compare this with them over a call; if it matches, verify.</p>
           <!-- Verify lives behind the reveal on purpose: you cannot honestly
                confirm a number you haven't looked at. -->
-          <button class="verify-btn" onclick={verify}>Verify identity</button>
+          <button class="primary verify-btn" onclick={verify}>Verify identity</button>
         {/if}
       {/if}
 
@@ -751,7 +751,7 @@
         <!-- Your own card is now what the footer opens, so the way to change
              what's on it has to live here. -->
         <button
-          class="verify-btn"
+          class="primary verify-btn"
           onclick={() => {
             closeProfilePopover();
             S.modal = { kind: "profile" };
@@ -767,7 +767,7 @@
             aria-label="Message {mem.name || 'them'}"
             disabled={dmBusy}
           />
-          <button type="submit" class="dm-send" disabled={dmBusy} aria-label="Send message">
+          <button type="submit" class="primary dm-send" disabled={dmBusy} aria-label="Send message">
             <Icon name={dmBusy ? "spark" : "reply"} size={15} />
           </button>
         </form>

@@ -634,14 +634,19 @@ const nameTable = $derived(
 );
 export const mentionNames = () => nameTable;
 
-// detectMobile reports whether to use the touch/drawer layout: a coarse pointer
-// (phone/tablet) or a narrow viewport. Re-evaluated on resize/orientation via
-// the listener below so a desktop window narrowed past the breakpoint adapts too.
+// detectMobile reports whether to use the phone layout, and it asks about
+// width alone. A coarse pointer used to count too, which put a landscape tablet
+// or a touchscreen laptop on the one-column phone shell with a desktop's worth
+// of room around it; a coarse pointer now only enlarges targets (app.css).
+// Re-evaluated on resize/orientation via the listener below.
+//
+// A media query, not innerWidth divided by the app's zoom like detectNarrow:
+// every phone rule in the stylesheets is `@media (max-width: 768px)`, which
+// cannot see that zoom, and the shell must flip at exactly the width the CSS
+// does or the two disagree about which layout this is.
 function detectMobile() {
   if (typeof window === "undefined") return false;
-  const coarse = window.matchMedia?.("(pointer: coarse)")?.matches;
-  const narrow = window.matchMedia?.("(max-width: 768px)")?.matches;
-  return !!(coarse || narrow);
+  return !!window.matchMedia?.("(max-width: 768px)")?.matches;
 }
 
 // detectNarrow reports the squeezed-desktop band. The number is measured, not

@@ -279,7 +279,7 @@
 </Modal>
 
 {#snippet actions()}
-  <button onclick={() => (S.modal = { kind: "notifications" })}>Set up alert words</button>
+  <button class="primary" onclick={() => (S.modal = { kind: "notifications" })}>Set up alert words</button>
 {/snippet}
 
 <style>

@@ -1127,9 +1127,9 @@
     white-space: nowrap;
     line-height: 1;
   }
-  /* Same red, same shape as the rail's mention badge, ringed with the bar's
-     own ground so it reads as a sticker on the icon rather than a shape in
-     the layout. */
+  /* Same accent, same shape as the rail's mention badge (a count is never
+     red), ringed with the bar's own ground so it reads as a sticker on the
+     icon rather than a shape in the layout. */
   .tab-badge {
     position: absolute;
     top: -4px;
@@ -1138,8 +1138,8 @@
     height: 18px;
     padding: 0 5px;
     border-radius: 999px;
-    background: var(--danger);
-    color: #fff;
+    background: var(--accent);
+    color: var(--accent-fg);
     font-size: var(--fs-micro);
     font-weight: 700;
     line-height: 18px;
@@ -1520,7 +1520,7 @@
      composer's two-row tray already claim half. Trim the chrome rather than
      leave two messages visible. (The app doesn't lock orientation — people
      rotate to read a wide code block or watch a shared screen.) */
-  @media (pointer: coarse) and (max-height: 500px) {
+  @media (max-width: 768px) and (max-height: 500px) {
     .mtopbar {
       height: 44px;
     }

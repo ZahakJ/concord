@@ -133,7 +133,7 @@
      typo in, so this toggle carries real weight on the one screen a phone user
      may never get past. It stretches to the field's height already; the width
      was 38px, just under the target. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .peek {
       width: 46px;
     }

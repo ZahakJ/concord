@@ -135,7 +135,7 @@
       <div class="link-row">
         <code class="link">{link}</code>
         {#if canShare}
-          <button onclick={() => share(link)}>Share…</button>
+          <button class="primary" onclick={() => share(link)}>Share…</button>
         {/if}
         <button class="ghost" class:done={copied === "link"} onclick={() => copy("link", link)}>
           {copied === "link" ? "Copied ✓" : "Copy link"}

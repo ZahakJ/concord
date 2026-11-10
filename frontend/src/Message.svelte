@@ -2348,7 +2348,7 @@
      With it gone the two buttons are the ONLY way out of an edit, which is why
      they get the full tap minimum and a real gap: Cancel discards what you
      typed and it used to sit 6px from Save. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .edit-hint {
       display: none;
     }

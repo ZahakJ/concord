@@ -353,7 +353,7 @@
         {#if phraseErr}<span class="form-err" role="alert">{phraseErr}</span>{/if}
         <div class="form-actions">
           <button type="button" class="ghost small-btn" onclick={() => ((phraseAsk = false), (phrasePass = ""))}>Cancel</button>
-          <button type="submit" class="small-btn" disabled={!phrasePass}>Show the words</button>
+          <button type="submit" class="primary small-btn" disabled={!phrasePass}>Show the words</button>
         </div>
       </form>
     {/if}
@@ -403,7 +403,7 @@
         </span>
         <div class="form-actions">
           <button type="button" class="ghost small-btn" onclick={() => (changeOpen = false)}>Cancel</button>
-          <button type="submit" class="small-btn" disabled={changing}>
+          <button type="submit" class="primary small-btn" disabled={changing}>
             {changing ? "Changing…" : "Change passphrase"}
           </button>
         </div>
@@ -701,7 +701,6 @@
     color: var(--accent-fg);
     cursor: pointer;
     text-decoration: none;
-    box-shadow: var(--accent-glow);
   }
   .upd-btn:hover {
     background: var(--accent-hover);
@@ -778,7 +777,7 @@
 
   /* Phone: the word grid drops to two columns so long mnemonic words never
      collide, and sign-out goes full-width. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .phrase {
       grid-template-columns: repeat(2, 1fr);
       gap: 7px;

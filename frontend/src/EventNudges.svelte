@@ -193,7 +193,7 @@
     }
   }
   /* One-handed at 393px: the actionable pills reach the 44px floor. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* And below the phone's top bar, not across it: `10px + safe-top` clears
        the status bar and lands squarely on the shell's own header, which is
        52px tall after that inset. --mchrome is the number MobileShell keeps

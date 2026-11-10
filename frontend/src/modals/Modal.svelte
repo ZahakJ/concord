@@ -559,7 +559,7 @@
   /* Mobile: dialogs present as full-width bottom sheets instead of floating
      cards — thumb-reachable, roomy, and keyboard-friendly. Desktop (fine
      pointer + wide viewport) is untouched. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .overlay {
       place-items: end stretch;
       /* The bottom edge is the KEYBOARD's top edge, not the screen's. See the

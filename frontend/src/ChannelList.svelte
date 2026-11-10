@@ -900,7 +900,7 @@
             It's quiet in here. Start a conversation — every DM is end-to-end encrypted, just
             between you two.
           </p>
-          <button class="empty-cta" onclick={newMessage}>
+          <button class="primary empty-cta" onclick={newMessage}>
             <Icon name="plus" size={13} /> New message
           </button>
         </div>
@@ -2226,15 +2226,18 @@
       opacity: 0;
     }
   }
+  /* A plain unread count is quiet: only a number aimed at you (below) wears
+     the accent. */
   .channel-row.unread .count {
-    background: var(--accent);
+    background: var(--bg-3);
+    color: var(--text-muted);
   }
   /* Scoped like the rule above, or that rule (one class more specific) wins
-     and a channel holding an @you shows the plain accent count. */
+     and a channel holding an @you shows the quiet count. */
   .count.mention,
   .channel-row.unread .count.mention {
-    background: var(--danger);
-    color: var(--danger-fg);
+    background: var(--accent);
+    color: var(--accent-fg);
   }
   .ch-menu {
     display: inline-flex;
@@ -2524,12 +2527,13 @@
     background: var(--bg-3);
     color: var(--text-muted);
   }
-  /* A DM is somebody talking to you, so its count is red like a mention (the
-     rule is written out at GuildRail's .badge). It was the base grey, which
-     put a grey 2 here beside a red 2 for the same conversation in the rail. */
+  /* A DM is somebody talking to you, so its count wears the accent like a
+     mention (the rule is written out at GuildRail's .badge). It was the base
+     grey, which put a grey 2 here beside a coloured 2 for the same
+     conversation in the rail. */
   .dm-item .count {
-    background: var(--danger);
-    color: var(--danger-fg);
+    background: var(--accent);
+    color: var(--accent-fg);
   }
   .dm-item.requests .count {
     background: var(--bg-3);
@@ -2781,7 +2785,7 @@
   /* Touch: taller rows (44px+ targets), slightly larger type, and the
      hover-revealed affordances (category +/trash, channel menu, mute bell)
      always visible at reduced opacity — hover doesn't exist on a phone. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .channel {
       min-height: var(--tap-min);
       font-size: var(--fs-body);

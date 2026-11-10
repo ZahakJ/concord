@@ -1747,7 +1747,7 @@
       <Icon name={evicted ? "door" : closedPost ? "lock" : muted ? "micOff" : "megaphone"} size={14} />
       <span>{lockedNote}</span>
       {#if closedPost && canReopen}
-        <button class="reopen" onclick={reopenPost}>Reopen</button>
+        <button class="primary reopen" onclick={reopenPost}>Reopen</button>
       {/if}
     </div>
   {:else}
@@ -3394,7 +3394,7 @@
      optical weight as a 20px glyph instead of shouting. Not tokenised — this is
      an optical match to a specific glyph size, not a step on the type scale. */
   .gifbtn {
-    font-size: 11px;
+    font-size: var(--fs-micro);
     font-weight: 800;
     font-family: inherit;
     letter-spacing: 0.02em;

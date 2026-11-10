@@ -1210,7 +1210,7 @@
   }
   /* Phones: every primary tappable reaches 44px; Join stretches to a full
      row so the thumb cannot miss the door. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .chip {
       min-height: 44px;
       padding: 4px 14px;

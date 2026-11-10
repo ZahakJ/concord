@@ -820,7 +820,6 @@
     border-radius: var(--radius-lg);
     background: var(--accent);
     color: var(--accent-fg);
-    box-shadow: var(--accent-glow);
   }
   /* A DM bubble IS its avatar, so its container has to take the avatar's shape
      from the theme. Left at a hard 50% it stayed a circle while the picture
@@ -1011,10 +1010,11 @@
     height: 18px;
     padding: 0 5px;
     border-radius: var(--radius-md);
-    /* The badge rule (lib/readstate.js): a red number means somebody is
-       talking TO you — an @mention, or any message in a DM. Plain unread on
-       the rail is .unread-dot, never a number: a guild with a hundred idle
-       messages and one mention used to read "99+" in red. */
+    /* The badge rule (lib/readstate.js): a number means somebody is talking
+       TO you — an @mention, or any message in a DM — and it wears your
+       accent, never red (red is for errors). Plain unread on the rail is
+       .unread-dot, never a number: a guild with a hundred idle messages and
+       one mention used to read "99+" in red. */
     background: var(--accent);
     color: var(--accent-fg);
     font-size: var(--fs-small);
@@ -1041,8 +1041,8 @@
   }
   .badge.mention,
   .badge.dm {
-    background: var(--danger);
-    color: var(--danger-fg);
+    background: var(--accent);
+    color: var(--accent-fg);
   }
   @keyframes badge-pop {
     from {
@@ -1154,7 +1154,7 @@
       transform: none;
     }
   }
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .rail-scroll {
       gap: 10px;
       padding: 12px 0;
@@ -1283,7 +1283,6 @@
     height: 3px;
     border-radius: 3px;
     background: var(--accent);
-    box-shadow: var(--accent-glow);
     flex-shrink: 0;
     animation: badge-pop var(--dur-standard) ease both;
   }

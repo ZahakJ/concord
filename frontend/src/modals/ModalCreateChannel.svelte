@@ -113,7 +113,7 @@
     <p class="muted hint">{TYPES.find((t) => t.id === type)?.hint}</p>
     <div class="actions">
       <button type="button" class="ghost" onclick={onClose}>Cancel</button>
-      <button type="submit" disabled={!slugged}>Create</button>
+      <button class="primary" type="submit" disabled={!slugged}>Create</button>
     </div>
   </form>
 </Modal>
@@ -169,7 +169,7 @@
     border: 1px solid var(--border);
     color: var(--text-muted);
     border-radius: var(--radius-md);
-    font-size: 12px;
+    font-size: var(--fs-small);
   }
   .type:hover {
     background: var(--bg-2);
@@ -187,12 +187,12 @@
   }
   .hint {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--fs-small);
   }
   .cat-label {
     display: flex;
     flex-direction: column;
     gap: var(--sp-1);
-    font-size: 12px;
+    font-size: var(--fs-small);
   }
 </style>

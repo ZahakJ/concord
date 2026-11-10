@@ -113,7 +113,7 @@
     {/if}
     <div class="give">
       {#if canShare}
-        <button class="share" onclick={share}>
+        <button class="primary share" onclick={share}>
           <Icon name="spark" size={14} /> Share code…
         </button>
       {/if}
@@ -391,7 +391,7 @@
   }
   /* Phone: handing the code over is the whole point — make it unmissable, and
      demote Copy to a quiet partner once the OS share sheet is available. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .copy {
       align-self: stretch;
       flex: 1;

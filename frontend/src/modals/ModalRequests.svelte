@@ -82,7 +82,7 @@
               title="Delete and stop them contacting you again"
               onclick={() => decline(r, true)}>Block</button
             >
-            <button disabled={busy === r.from} onclick={() => accept(r)}>
+            <button class="primary" disabled={busy === r.from} onclick={() => accept(r)}>
               <Icon name="check" size={13} /> Accept
             </button>
           </div>
