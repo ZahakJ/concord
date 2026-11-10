@@ -2893,8 +2893,13 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 			// A genuine 2-person DM (one other, nobody pending) shows that member's
 			// name + avatar + status dot. Otherwise it's a group: name it after its
 			// members, unless the user gave it a custom name.
-			if len(others) == 1 && len(pending) == 0 {
-				dmPeer = others[0]
+			//
+			// "One other" counts someone invited who has not joined yet. A DM
+			// opened to a contact who is offline holds only the invite until they
+			// come online, and it was called "Direct message" (bubble "DI")
+			// everywhere until then, though the contact was picked by name.
+			if len(intended) == 1 {
+				dmPeer = intended[0]
 				prof := svc.ProfileOf(dmPeer)
 				if prof.Name != "" {
 					name = prof.Name
