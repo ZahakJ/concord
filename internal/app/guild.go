@@ -3188,7 +3188,16 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		// every member's list drops them; anyone else just refreshes. The
 		// remove is MLS-only, with no governance record: leaving is not being
 		// kicked, and AddMember can bring them back.
-		if actor == "" || actor != m.Fingerprint || actor == s.id.Fingerprint() {
+		if actor == "" || actor != m.Fingerprint {
+			return
+		}
+		if actor == s.id.Fingerprint() {
+			// Another device of this account left: MLS authenticated the leaf,
+			// and it is not ours. Leaving is the account's decision; see
+			// leave.go.
+			if !bytes.Equal(msg.SenderID, s.myCredential) {
+				go s.leaveWithSibling(guildID)
+			}
 			return
 		}
 		s.mu.RLock()

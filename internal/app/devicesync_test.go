@@ -177,7 +177,7 @@ func TestGuildInvitesAreOfferedOnlyToOwnDevices(t *testing.T) {
 		t.Fatal("no invite codes to test with")
 	}
 	before := len(other.Guilds())
-	other.redeemOfferedInvites(desk.host.PeerID(), codes)
+	other.redeemOfferedInvites(desk.host.PeerID(), codes, nil)
 	if len(other.Guilds()) != before {
 		t.Fatal("a peer redeemed invites offered by an account that is not its own")
 	}

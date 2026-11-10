@@ -1258,6 +1258,36 @@ func (s *Store) ClearGuildLeft(guildID string) error {
 	return err
 }
 
+// LeftAt reports when this device's user left guildID, in unix seconds, or 0
+// when there is no tombstone.
+func (s *Store) LeftAt(guildID string) int64 {
+	var at int64
+	if err := s.db.QueryRow(`SELECT at FROM left_guilds WHERE guild_id = ?`, guildID).Scan(&at); err != nil {
+		return 0
+	}
+	return at
+}
+
+// LeftGuildsSince lists every tombstoned guild with the time it was left, for
+// the account's other devices (see the hello's Left field).
+func (s *Store) LeftGuildsSince() (map[string]int64, error) {
+	rows, err := s.db.Query(`SELECT guild_id, at FROM left_guilds`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var id string
+		var at int64
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, err
+		}
+		out[id] = at
+	}
+	return out, rows.Err()
+}
+
 // LeftGuilds lists every tombstoned guild ID (debugging/inspection).
 func (s *Store) LeftGuilds() ([]string, error) {
 	rows, err := s.db.Query(`SELECT guild_id FROM left_guilds ORDER BY at`)

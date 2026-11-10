@@ -84,6 +84,16 @@ type helloFrame struct {
 	// it only from a proven own device, and only when strictly newer than what
 	// it has (see adoptOfferedProfile), so replays and stale copies are inert.
 	Profile *Profile `json:"profile,omitempty"`
+	// Left names the guilds this device's user left, with when (unix seconds),
+	// and Arrived the guilds it offers in GuildInvites with when each arrived
+	// here (unix nanoseconds). Both ONLY to a proven device of our own account.
+	// Leaving is the account's decision, not one device's: a device that still
+	// holds a guild the user left elsewhere, from before that leave, leaves it
+	// too; and a device that left a guild the user has since joined again
+	// elsewhere takes the offer instead of vetoing it. Older builds send and
+	// read neither, and behave as before: leaving stays per device.
+	Left    map[string]int64 `json:"left,omitempty"`
+	Arrived map[string]int64 `json:"arrived,omitempty"`
 }
 
 // helloTimeout bounds one exchange. A hello is an optimization, not a step in
@@ -154,6 +164,8 @@ func (s *Service) greet(p peer.ID) {
 		AppVersion:   version.Version,
 		GuildInvites: s.guildInvitesFor(p),
 		Profile:      s.profileForDevice(p),
+		Left:         s.leftGuildsFor(p),
+		Arrived:      s.arrivalsFor(p),
 	})
 	if err != nil {
 		return
@@ -235,6 +247,8 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	// have been empty; this is what makes the sync symmetric.
 	out.GuildInvites = s.guildInvitesFor(from)
 	out.Profile = s.profileForDevice(from)
+	out.Left = s.leftGuildsFor(from)
+	out.Arrived = s.arrivalsFor(from)
 	if out.Revoked == nil && s.canPlace(from) {
 		out.Credential, out.Name = s.myCredential, s.deviceLabel()
 		out.AppVersion = version.Version
@@ -295,7 +309,7 @@ func (s *Service) adoptOfferedProfile(from peer.ID, p *Profile) {
 // redeemOfferedInvites joins guilds this device is not in yet. Codes are only
 // acted on when they came from a device of our own account; anything else is
 // ignored outright rather than merely deprioritised.
-func (s *Service) redeemOfferedInvites(from peer.ID, codes []string) {
+func (s *Service) redeemOfferedInvites(from peer.ID, codes []string, arrived map[string]int64) {
 	if len(codes) == 0 || !s.ownDevice(from) {
 		return
 	}
@@ -321,6 +335,12 @@ func (s *Service) redeemOfferedInvites(from peer.ID, codes []string) {
 		ic, err := decodeInviteCode(strings.TrimSpace(code))
 		if err != nil || have[ic.GuildID] {
 			continue
+		}
+		// We left this guild, but the device offering it arrived in it after
+		// that: the user came back to it there, on purpose (no automatic path
+		// adopts a guild over a leave). The leave is superseded, here too.
+		if at := s.store.LeftAt(ic.GuildID); at > 0 && arrived[ic.GuildID] > leftEnd(at) {
+			_ = s.store.ClearGuildLeft(ic.GuildID)
 		}
 		have[ic.GuildID] = true
 		// joinOfferedInvite re-checks "already a member" under the per-guild
@@ -356,7 +376,12 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 	// device we already know is exactly that. ownDevice is what gates both the
 	// invites and the profile.
 	defer func() {
-		go s.redeemOfferedInvites(from, f.GuildInvites)
+		go func() {
+			// Leaves first: an offer for a guild the user has left elsewhere
+			// must not race the leave that should take it away.
+			s.followSiblingLeaves(from, f.Left)
+			s.redeemOfferedInvites(from, f.GuildInvites, f.Arrived)
+		}()
 		go s.adoptOfferedProfile(from, f.Profile)
 	}()
 	// A revocation naming THIS device is the one thing we act on before anything

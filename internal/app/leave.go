@@ -1,6 +1,11 @@
 package app
 
-import "sort"
+import (
+	"sort"
+	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
+)
 
 // leave.go tells the rest of a guild that somebody walked out.
 //
@@ -60,4 +65,85 @@ func (s *Service) leaveRemoverIsMe(guildID string) bool {
 	}
 	sort.Strings(fprs)
 	return fprs[0] == me
+}
+
+// Leaving is also the account's decision, not one device's: a person who
+// leaves a guild on their desktop has not chosen to stay in it on their phone,
+// and the phone carrying on (posting as them, receiving everything) is the
+// opposite of what they asked for. The account's other devices follow a leave
+// two ways: live, by hearing the leaving device's own member_left frame on the
+// guild's meta lane, and on the next hello, which lists the guilds a device
+// has left and when, for a device that was offline at the time.
+
+// leftGuildsFor lists the guilds this device left, with when, for a device of
+// our own account; nil for anyone else.
+func (s *Service) leftGuildsFor(p peer.ID) map[string]int64 {
+	if !s.ownDevice(p) {
+		return nil
+	}
+	left, err := s.store.LeftGuildsSince()
+	if err != nil || len(left) == 0 {
+		return nil
+	}
+	return left
+}
+
+// arrivalsFor stamps each guild we offer a device of ours with when it
+// arrived here, so a device that left it can tell a rejoin from a leftover.
+func (s *Service) arrivalsFor(p peer.ID) map[string]int64 {
+	if !s.ownDevice(p) {
+		return nil
+	}
+	out := map[string]int64{}
+	for _, g := range s.Guilds() {
+		if at := s.guildArrivedNano(g.ID); at > 0 {
+			out[g.ID] = at
+		}
+	}
+	return out
+}
+
+// followSiblingLeaves leaves every guild another device of ours left after
+// this device had it. A guild that arrived here after that leave is a rejoin
+// on this device and stays.
+func (s *Service) followSiblingLeaves(from peer.ID, left map[string]int64) {
+	if len(left) == 0 || !s.ownDevice(from) {
+		return
+	}
+	for guildID, at := range left {
+		if at <= 0 {
+			continue
+		}
+		if s.guildArrivedNano(guildID) > leftEnd(at) {
+			continue
+		}
+		s.leaveWithSibling(guildID)
+	}
+}
+
+// leftEnd is the latest moment a leave stamped at (whole unix seconds) can
+// have happened, in unix nanoseconds: an arrival is only "after the leave"
+// when it is after the whole of that second.
+func leftEnd(at int64) int64 { return (at + 1) * int64(time.Second) }
+
+// leaveWithSibling leaves a guild because another device of this account did.
+// No "left the guild" line: the account already said so once, from the device
+// the person actually used. The member_left frame does go out, because it is
+// what has a committer take THIS device's leaf out.
+func (s *Service) leaveWithSibling(guildID string) {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	isGuild := ok && g.Kind == ""
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if !isGuild {
+		return
+	}
+	if s.EvictedFrom(guildID) == "" {
+		s.announceLeave(guildID, groupID, "")
+	}
+	_ = s.deleteGuildLocal(guildID)
 }
