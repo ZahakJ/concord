@@ -1724,15 +1724,20 @@ func (s *Service) emitPeerUp(pp PeerPresence) {
 	}
 }
 
-// emitPeerDown announces a departure, but only for a peer whose arrival we
-// announced — a down with no matching up is a phantom in the UI's feed.
+// emitPeerDown announces a departure for a peer whose arrival we announced,
+// or who is one of ours now. The second half matters: a peer that connected
+// while still a stranger (found through the rendezvous before an invite was
+// redeemed, say) had its arrival swallowed by the gate in onConnected, became
+// a member over that same connection, and then left with nobody told — the
+// interface kept it green until some unrelated refresh happened to re-ask,
+// which could be minutes. A down for a stranger stays silent.
 func (s *Service) emitPeerDown(p peer.ID, pp PeerPresence) {
 	s.mu.Lock()
 	shown := s.presenceShown[p]
 	delete(s.presenceShown, p)
 	cbs := append([]func(PeerPresence){}, s.onPeerDown...)
 	s.mu.Unlock()
-	if !shown {
+	if !shown && !s.knownContact(pp.Fingerprint) {
 		return
 	}
 	for _, cb := range cbs {
