@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"mime"
 	"os"
@@ -247,6 +248,10 @@ func (s *Service) EstimateChatImport(dir string, policy chronimport.Policy) (chr
 	return chronimport.EstimateChatImport(st, chronimport.NormalizePolicy(policy)), nil
 }
 
+// ErrArchiveWouldBeReplaced is ImportChatExport refusing to replace the
+// archive a guild already carries without Policy.ReplaceArchive.
+var ErrArchiveWouldBeReplaced = errors.New("this guild already carries an imported archive, and importing replaces it")
+
 // ImportChatExport starts an import and returns its job id.
 //
 // Owner-only, and refused while another import is running. The work happens on
@@ -266,6 +271,9 @@ func (s *Service) ImportChatExport(guildID, dir string, policy chronimport.Polic
 	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return "", fmt.Errorf("app: %s is not a directory this device can read", dir)
+	}
+	if m, _, ok := s.guildChronicle(guildID); ok && !policy.ReplaceArchive {
+		return "", fmt.Errorf("app: %w: %q, %d messages", ErrArchiveWouldBeReplaced, m.Source, m.Messages)
 	}
 
 	policy = chronimport.NormalizePolicy(policy)

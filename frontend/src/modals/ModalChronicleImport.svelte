@@ -20,6 +20,7 @@
   import { S, activeGuild, flash, refreshGuilds, refreshChronicle } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { plural } from "../lib/plural.js";
+  import { humanError } from "../lib/errors.js";
   import { tooltip } from "../lib/tooltip.js";
   import {
     TIERS,
@@ -37,6 +38,7 @@
     fmtBytes,
     fmtCount,
     billNotes,
+    replaceNotice,
     phaseLabel,
     progressPct,
     resultLines,
@@ -121,7 +123,7 @@
     } catch (err) {
       // Inline, beside the field it is about. A toast for this would vanish
       // while the reader was still looking at the path they typed.
-      scanError = String(err?.message || err).replace(/^app:\s*/, "");
+      scanError = humanError(err);
     } finally {
       scanning = false;
     }
@@ -191,7 +193,7 @@
     try {
       S.chronImportDone = null;
       S.chronImport = null;
-      await api.importChatExport(S.activeGuildId, dir.trim(), policyFor($state.snapshot(ui)));
+      await api.importChatExport(S.activeGuildId, dir.trim(), policyFor({ ...$state.snapshot(ui), replace: !!S.chronicle }));
       step = "run";
     } catch (err) {
       flash(err);
@@ -507,10 +509,11 @@
       <span class="est-sub">{behind.text || " "}</span>
     </div>
 
+    {#if S.chronicle}<p class="note" role="note">{replaceNotice(S.chronicle)}</p>{/if}
     <div class="actions">
       <button class="ghost" onclick={() => (step = "bill")}>Back</button>
       <button class="primary" disabled={starting || !est?.messages} onclick={start}>
-        {#if starting}<span class="spin"></span> Starting…{:else}Import{/if}
+        {#if starting}<span class="spin"></span> Starting…{:else}{S.chronicle ? "Replace and import" : "Import"}{/if}
       </button>
     </div>
   {:else}

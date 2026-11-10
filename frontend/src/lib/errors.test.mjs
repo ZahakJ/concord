@@ -85,6 +85,12 @@ eq(
   "That can't open while Concord is reconnecting — try again in a moment.",
   "a lazy dialog that could not load",
 );
+eq(
+  humanError("app: chronimport: /tmp/x holds no .json export files"),
+  "That folder has no exported channel files in it. Choose the folder that holds the .json files.",
+  "the importer's empty folder, without its package names",
+);
+eq(humanError("chronimport: not a channel export file"), "not a channel export file", "strips chronimport:");
 
 if (failures) {
   console.error(`\n${failures} errors test(s) failed`);

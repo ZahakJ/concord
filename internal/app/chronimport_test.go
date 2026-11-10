@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -791,5 +792,41 @@ func TestOverlappingExportFilesImportEachMessageOnce(t *testing.T) {
 	}
 	if rows != 300 || acc.count != 300 {
 		t.Fatalf("archived %d rows (count %d) for 300 distinct messages", rows, acc.count)
+	}
+}
+
+// A guild carries one archive, and a second import replaces it. That used to
+// happen without a word on any step of the wizard; the core now refuses unless
+// the owner said replacing is what they want.
+func TestImportingOverAnArchiveNeedsTheOwnersSayso(t *testing.T) {
+	s := importTestService(t)
+	dir, _ := importFixture(t)
+	_, acc := runImportOffline(t, s, dir, chronimport.DefaultPolicy())
+	raw, _, err := s.buildChronicle("g1", "Test Guild, imported today", "",
+		acc.manifestChannels(), acc.authors, acc.byChannel, acc.sealed, acc.sealedBytes)
+	if err != nil {
+		t.Fatalf("buildChronicle: %v", err)
+	}
+	if _, err := s.store.SaveChronicleManifest(chronicleIDOf(raw), "g1", raw); err != nil {
+		t.Fatalf("SaveChronicleManifest: %v", err)
+	}
+
+	_, err = s.ImportChatExport("g1", dir, chronimport.DefaultPolicy())
+	if !errors.Is(err, ErrArchiveWouldBeReplaced) {
+		t.Fatalf("importing over an archive without saying so: %v, want ErrArchiveWouldBeReplaced", err)
+	}
+	if !strings.Contains(err.Error(), "Test Guild, imported today") {
+		t.Fatalf("the refusal does not name the archive it would replace: %v", err)
+	}
+
+	// Said so: the import starts. Stopped at once by a job standing in the
+	// way, so the test is about the gate and not about running an import.
+	s.importMu.Lock()
+	s.importJob = &chatImportJob{id: "already", guildID: "g1", running: true, started: time.Now()}
+	s.importMu.Unlock()
+	p := chronimport.DefaultPolicy()
+	p.ReplaceArchive = true
+	if _, err := s.ImportChatExport("g1", dir, p); errors.Is(err, ErrArchiveWouldBeReplaced) {
+		t.Fatalf("refused even with the owner's say-so: %v", err)
 	}
 }

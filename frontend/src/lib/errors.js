@@ -12,7 +12,7 @@
 // Only the leading package token: NOT everything up to the last colon, which
 // would throw away a helpful multi-clause message and leave just the innermost
 // transport error.
-const GO_PREFIX = /^(?:(?:app|net|store|mls|bridge|identity|link|rpc\s+\w+):\s*)+/;
+const GO_PREFIX = /^(?:(?:app|net|store|mls|bridge|identity|link|chronimport|rpc\s+\w+):\s*)+/;
 // The browser's own words for "nothing answered". They are true and useless.
 const RAW_NETWORK = /^(failed to fetch|networkerror when attempting to fetch resource\.?|load failed|the network connection was lost\.?)$/i;
 // The transport's words for the same thing, and there are a lot of them: a dial
@@ -69,6 +69,13 @@ const KNOWN = [
     "That can't open while Concord is reconnecting — try again in a moment."],
   [/recovery phrase isn'?t valid|valid 24-word recovery phrase/i, "phrase",
     "That recovery phrase isn't valid. Check each word and their order — it is 24 words."],
+  // The chat-archive importer, about the folder it was pointed at.
+  [/holds no \.json export files/i, "",
+    "That folder has no exported channel files in it. Choose the folder that holds the .json files."],
+  [/is not a directory this device can read/i, "",
+    "Concord can't open that folder on this machine. Check the path."],
+  [/already carries an imported archive/i, "",
+    "This guild already carries an imported archive, and importing replaces it. Start the import again to confirm."],
 ];
 
 // errorField says which field an error is about, so only that field turns red

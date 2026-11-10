@@ -151,7 +151,18 @@ export function policyFor(ui) {
   if (ui.exclude?.length) p.excludeChannels = [...ui.exclude];
   if (ui.source?.trim()) p.source = ui.source.trim();
   if (ui.description?.trim()) p.description = ui.description.trim();
+  if (ui.replace) p.replaceArchive = true;
   return p;
+}
+
+// replaceNotice is what the last step says when the guild already carries an
+// archive. A guild holds one, an import replaces it, and the core refuses to
+// unless the request says so; the wizard says so only after showing this.
+export function replaceNotice(chronicle) {
+  if (!chronicle) return "";
+  const name = chronicle.source || "an imported archive";
+  const n = chronicle.messages || 0;
+  return `This guild already carries “${name}” (${fmtCount(n)} ${n === 1 ? "message" : "messages"}). Importing replaces it: that history stops being readable here, and the channels it created stay, empty of it.`;
 }
 
 // ---- the estimate line ----------------------------------------------------
