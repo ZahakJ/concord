@@ -4,6 +4,7 @@
 import { tick } from "svelte";
 import { api, on, onTransportHealth, probeCore } from "./api.js";
 import { notify, wantsPermissionPrompt } from "./notify.js";
+import { draftIn, noteDraft } from "./drafts.svelte.js";
 import { containsMention } from "./markdown.js";
 import { matchedWord as matchedAlertWord, normalize as normalizeAlertWords } from "./alertwords.js";
 import { awayLongEnough, guildLastSeen, buildDigest, worthShowing } from "./digest.js";
@@ -2881,7 +2882,20 @@ export function browsingGuild() {
   return browsing;
 }
 
+// carryDraft writes a draft into another conversation's slot (the composer's
+// storage key and the sidebar's index), reporting whether it took.
+function carryDraft(channelId, text) {
+  try {
+    localStorage.setItem(`concord.draft.${channelId}`, text);
+  } catch {
+    return false;
+  }
+  noteDraft(channelId, text);
+  return true;
+}
+
 export async function refreshGuilds() {
+  const before = S.guilds;
   S.guilds = (await api.guilds()) || [];
   if (!S.activeGuildId && S.guilds.length) {
     // Pick up where you left off — the guild you had open when you closed the
@@ -2909,11 +2923,28 @@ export async function refreshGuilds() {
   // strand the user in a phantom channel that still renders + sends messages.
   const g = S.guilds.find((x) => x.id === S.activeGuildId);
   if (S.activeChannelId && !g?.channels?.some((c) => c.id === S.activeChannelId)) {
+    // Say so. The view used to swap to another channel with no word at all,
+    // and whatever was half-typed went with the channel.
+    const goneId = S.activeChannelId;
+    const gone = before.find((x) => x.id === S.activeGuildId)?.channels?.find((c) => c.id === goneId);
+    const unsent = draftIn(goneId);
     // A replacement nobody chose: browse to it, so a phone sitting on Home
     // when a channel is deleted remotely is not pushed into another one.
     if (g?.channels?.length) {
-      await raisedFor(setBrowsing, true, () => selectChannel(g.channels[0].id));
+      const next = g.channels[0];
+      // The unsent text moves with you when the channel you land in has none
+      // of its own; the composer reads it on the switch below.
+      const carried = !!unsent && !draftIn(next.id) && carryDraft(next.id, unsent);
+      await raisedFor(setBrowsing, true, () => selectChannel(next.id));
+      if (gone) {
+        flash(
+          carried
+            ? `#${gone.name} was deleted — your unsent message is in #${next.name}`
+            : `#${gone.name} was deleted`,
+        );
+      }
     } else {
+      if (gone) flash(`#${gone.name} was deleted`);
       S.activeChannelId = "";
       clearFeed();
     }
