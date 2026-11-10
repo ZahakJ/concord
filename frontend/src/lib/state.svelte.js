@@ -2489,6 +2489,23 @@ export function themePacksReady() {
   return packsCSS;
 }
 
+// rememberBootPaint records the colours the app is painted in, for the boot
+// splash in index.html to use on the next load before any of this has run. Not
+// while a theme pack's stylesheet is still on its way: the default palette on
+// screen in that moment is not the one the user chose.
+function rememberBootPaint() {
+  if (S.prefs.themePack && !packsLoaded) return;
+  requestAnimationFrame(() => {
+    try {
+      const bg = getComputedStyle(document.body).backgroundColor;
+      const fg = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+      if (bg) localStorage.setItem("concord.bootPaint", JSON.stringify({ bg, fg }));
+    } catch {
+      /* storage full or blocked: the splash falls back to the theme choice */
+    }
+  });
+}
+
 export function applyAppearance() {
   const el = document.documentElement;
   const t = S.prefs.theme || "dark";
@@ -2558,6 +2575,7 @@ export function applyAppearance() {
     // Let the pack's --accent apply, then derive a legible foreground from it.
     syncAccentFg();
   } else applyAccent(S.identity.color);
+  rememberBootPaint();
 }
 
 // setAppearance persists one appearance pref and applies it under a brief

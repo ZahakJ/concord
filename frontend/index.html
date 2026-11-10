@@ -88,6 +88,30 @@
         </svg>
       </div>
     </div>
+    <!-- Paint the splash in the theme the app will open in. The colours are the
+         ones applyAppearance last painted (state.svelte.js, concord.bootPaint),
+         so a light theme or a theme pack is right too; before that is known,
+         the saved theme choice picks light or dark. Without this every load
+         and sign-out of a light install opened on near-black and then flipped.
+         Classic and inline, so it runs before the first paint. -->
+    <script>
+      (function () {
+        try {
+          var boot = document.getElementById("boot");
+          var paint = JSON.parse(localStorage.getItem("concord.bootPaint") || "null");
+          if (!paint) {
+            var prefs = JSON.parse(localStorage.getItem("concord.prefs") || "{}");
+            var t = prefs.theme || "dark";
+            var light = t === "light" || (t === "system" && matchMedia("(prefers-color-scheme: light)").matches);
+            if (light) paint = { bg: "#f6f7f9", fg: "#14a394" };
+          }
+          if (paint && paint.bg) boot.style.background = paint.bg;
+          if (paint && paint.fg) boot.querySelector("svg").style.color = paint.fg;
+        } catch (e) {
+          /* storage blocked: the dark splash it always was */
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
