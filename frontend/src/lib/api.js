@@ -110,8 +110,19 @@ async function call(name, ...args) {
   if (!res.ok) throw new Error(`rpc ${name}: HTTP ${res.status}`);
   const body = await res.json();
   if (body.error) {
-    if (LOCKED.test(body.error)) sessionEnded();
-    throw new Error(body.error);
+    const err = new Error(body.error);
+    // The core's machine-readable outcome (internal/bridge CodedError). The
+    // UI branches on this, never on the wording of the sentence.
+    if (body.code) err.code = body.code;
+    if (body.detail !== undefined) err.detail = body.detail;
+    if (body.code === "locked") {
+      // The page is about to reload onto the lock screen. Settling this call
+      // would only put a red toast or an unhandled rejection on a screen that
+      // is going away; leaving it pending lets the reload take it.
+      sessionEnded();
+      return new Promise(() => {});
+    }
+    throw err;
   }
   return body.result;
 }
@@ -127,17 +138,35 @@ async function call(name, ...args) {
 // composer, with nothing on screen and two "identity is locked" lines in a
 // console nobody has open.
 //
-// Every call goes through here, so this is the one place that can notice. The
-// reload lands on Login, where hasIdentity is now false and the screen is the
-// first-run one — which is the truth about this device. The flag survives the
-// reload just long enough for Login to say why it happened.
-const LOCKED = /identity is locked/i;
+// Every call goes through here, so this is the one place that can notice. But
+// "locked" is not "unlinked": a core that crashed, updated itself or was
+// restarted by the OS comes back locked too, with every byte intact. This used
+// to treat any locked reply as the unlink and told people their identity,
+// guilds and messages had been erased — after a plain restart — steering them
+// toward the re-link and start-over flows that really would destroy data. So
+// the core is asked why (SessionState), and Login says THAT. The reason
+// survives the reload in sessionStorage just long enough to be shown; where you
+// were survives in lastPlace (lib/state.svelte.js), so unlocking puts you back.
 let bouncing = false;
-function sessionEnded() {
+async function sessionEnded() {
   if (bouncing) return;
   bouncing = true;
+  let reason = "restarted";
   try {
-    sessionStorage.setItem("concord.sessionEnded", "1");
+    const headers = { "Content-Type": "application/json" };
+    if (apiToken) headers["Authorization"] = `Bearer ${apiToken}`;
+    const res = await fetch(`${apiBase}/rpc`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ method: "SessionState", args: [] }),
+    });
+    const body = await res.json();
+    if (body.result?.reason) reason = body.result.reason;
+  } catch {
+    /* can't ask: "restarted" is the claim that destroys nothing if wrong */
+  }
+  try {
+    sessionStorage.setItem("concord.sessionEnded", reason);
   } catch {
     /* private mode: the reload is still right, it just arrives unexplained */
   }
@@ -204,13 +233,21 @@ export const api = {
   registerPush: (platform, token) => call("RegisterPush", platform, token),
   linkOffer: () => call("LinkOffer"),
   cancelLinkOffer: () => call("CancelLinkOffer"),
-  redeemLinkCode: (code, passphrase) => call("RedeemLinkCode", code, passphrase),
+  // confirm: the fingerprint of the account the user agreed may replace the
+  // one on this device (see Login's replace step); "" for none.
+  redeemLinkCode: (code, passphrase, confirm = "") => call("RedeemLinkCode", code, passphrase, confirm),
   logout: () => call("Logout"),
   hasIdentity: () => call("HasIdentity"),
   resetIdentity: () => call("ResetIdentity"),
-  revealMnemonic: () => call("RevealMnemonic"),
+  // The phrase is the account; the core wants the passphrase again first.
+  revealMnemonic: (passphrase) => call("RevealMnemonic", passphrase),
+  changePassphrase: (current, next) => call("ChangePassphrase", current, next),
+  sessionState: () => call("SessionState"),
+  lockedAccount: () => call("LockedAccount"),
+  checkRecoveryPhrase: (phrase) => call("CheckRecoveryPhrase", phrase),
   restoreFromMnemonic: (phrase, passphrase) => call("RestoreFromMnemonic", phrase, passphrase),
-  restoreOverExisting: (phrase, passphrase) => call("RestoreOverExisting", phrase, passphrase),
+  restoreOverExisting: (phrase, passphrase, confirm = "") =>
+    call("RestoreOverExisting", phrase, passphrase, confirm),
   login: (passphrase) => call("Login", passphrase),
   identity: () => call("Identity"),
   guilds: () => call("Guilds"),

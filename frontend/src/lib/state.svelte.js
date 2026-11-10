@@ -235,6 +235,11 @@ export const S = $state({
     // account is already written down somewhere else.
     backupPending: false,
     // Set the one time this install is told that its Web Audio reaches nothing
+    // Set while the signup's "save your recovery phrase" step is on screen and
+    // cleared when it is finished. The core is already unlocked by then, so a
+    // reload used to skip the step for good; while this is set App.svelte
+    // sends an open session back through Login to finish it.
+    backupGate: false,
     // (WebKitGTK with no GStreamer audio plugins: a context that reports
     // "running" and never renders a sample). One notice, ever — the fix is a
     // package to install, and repeating it every launch would be nagging about

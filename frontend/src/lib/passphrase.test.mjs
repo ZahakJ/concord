@@ -1,7 +1,7 @@
 // Tests for the passphrase strength readout. The bar is a promise, so the
 // properties that matter are ORDERING ones: things that are genuinely harder to
 // guess must never score below things that are easier.
-import { strength, bitsOf, alphabetSize } from "./passphrase.js";
+import { strength, bitsOf, alphabetSize, samePassphrase } from "./passphrase.js";
 
 let failures = 0;
 const assert = (cond, msg) => {
@@ -60,11 +60,25 @@ for (const s of ["a", "hunter2", "correct horse battery staple", "x".repeat(400)
 
 // ---- no gate: every band is reachable, and nothing is ever rejected ----
 const seen = new Set(
-  ["a", "hunter2", "hunter2hunter2", "correct horse battery", "correct horse battery staple xylophone"].map(
+  ["a", "hunter2", "hunter2tiger5", "correct horse battery", "correct horse battery staple xylophone"].map(
     (s) => strength(s).level,
   ),
 );
 assert(seen.size >= 3, `the bands should actually spread out, saw ${[...seen].sort().join(",")}`);
+
+// ---- repetition is not length ----
+// One symbol repeated was "Excellent" once it was long enough: the variety
+// discount had a floor and multiplied the length.
+assert(strength("x".repeat(600)).level === 0, `600 x: ${strength("x".repeat(600)).label}`);
+assert(strength("a".repeat(52)).level === 0, `52 a: ${strength("a".repeat(52)).label}`);
+assert(strength("0123456789".repeat(5)).level <= 1, `repeated digits: ${strength("0123456789".repeat(5)).label}`);
+assert(strength("ab".repeat(40)).level === 0, `ab repeated: ${strength("ab".repeat(40)).label}`);
+assert(strength("correct horse battery staple").level >= 3, "real words still strong");
+
+// ---- the same text in two compositions is the same passphrase ----
+assert(samePassphrase("\u00e9t\u00e9", "e\u0301te\u0301"), "NFC vs NFD match");
+assert(samePassphrase("pin \uff11\uff12", "pin 12"), "full-width digits match");
+assert(!samePassphrase("abc", "abd"), "different passphrases differ");
 
 if (failures) {
   console.error(`${failures} failure(s)`);

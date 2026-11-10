@@ -12,7 +12,7 @@
 // Only the leading package token: NOT everything up to the last colon, which
 // would throw away a helpful multi-clause message and leave just the innermost
 // transport error.
-const GO_PREFIX = /^(?:(?:app|net|store|mls|bridge|identity|rpc\s+\w+):\s*)+/;
+const GO_PREFIX = /^(?:(?:app|net|store|mls|bridge|identity|link|rpc\s+\w+):\s*)+/;
 // The browser's own words for "nothing answered". They are true and useless.
 const RAW_NETWORK = /^(failed to fetch|networkerror when attempting to fetch resource\.?|load failed|the network connection was lost\.?)$/i;
 // The transport's words for the same thing, and there are a lot of them: a dial
@@ -44,8 +44,47 @@ export const slowModeWait = (msg) => {
 // sentence nor something anybody can act on.
 const BARE_HTTP = /^HTTP \d{3}$/;
 
+// Outcomes the core names with a code (internal/bridge CodedError), and the
+// sentence each one is read as. A code is a promise about what happened; the
+// sentence that came with it is for a log.
+const BY_CODE = {
+  "wrong-passphrase":
+    "That passphrase didn't work. Check Caps Lock and the keyboard language, then try again.",
+};
+
+// Core sentences that reach the login card, in the words they should have had.
+// Each is about the field it names (see errorField): the old card painted the
+// passphrase boxes red for every one of them, a wrong link code included.
+const KNOWN = [
+  [/^bad code( encoding)?$|^incomplete code$/i, "code",
+    "That isn't a link code. Copy it again from Settings → Your devices on your other device."],
+  [/^code expired$/i, "code",
+    "That code has expired — they last two minutes. Make a new one on your other device."],
+  [/no active link offer|link rejected/i, "code",
+    "That code was already used or closed on your other device. Make a new one there and paste it here."],
+  // A dialog's code is fetched the first time it opens. With the core down
+  // that fetch fails, and the browser's words for it ("Unable to preload CSS
+  // for http://127.0.0.1:…/assets/ModalSettings-….css") reached a toast.
+  [/unable to preload css|failed to fetch dynamically imported module|importing a module script failed|error loading dynamically imported module/i, "",
+    "That can't open while Concord is reconnecting — try again in a moment."],
+  [/recovery phrase isn'?t valid|valid 24-word recovery phrase/i, "phrase",
+    "That recovery phrase isn't valid. Check each word and their order — it is 24 words."],
+];
+
+// errorField says which field an error is about, so only that field turns red
+// and is announced as invalid: "pass", "phrase" or "code", or "" when it is
+// about none of them.
+export function errorField(msg) {
+  if (msg?.code === "wrong-passphrase") return "pass";
+  const text = String(msg?.message ?? msg ?? "").replace(GO_PREFIX, "").trim();
+  for (const [re, field] of KNOWN) if (re.test(text)) return field;
+  return "";
+}
+
 export function humanError(msg) {
+  if (msg?.code && BY_CODE[msg.code]) return BY_CODE[msg.code];
   const text = String(msg?.message ?? msg ?? "").replace(GO_PREFIX, "");
+  for (const [re, , human] of KNOWN) if (re.test(text.trim())) return human;
   if (msg?.offline || RAW_NETWORK.test(text.trim()))
     return "Concord isn't responding — trying to reconnect";
   if (RAW_DIAL.test(text))

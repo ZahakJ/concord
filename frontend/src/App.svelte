@@ -643,6 +643,14 @@
       // straight lie about what went wrong. Say it instead, in the one place a
       // failure this early can be said.
       if (await api.session()) {
+        // An account created in a window that went away before its recovery
+        // phrase was saved: the core is unlocked, so this used to walk straight
+        // into the app and the step was skipped for good. Login holds the door
+        // again until the words are saved.
+        if (S.prefs.backupGate) {
+          resumeBackup = true;
+          return;
+        }
         try {
           await start();
         } catch (err) {
@@ -662,6 +670,7 @@
   // prefers-reduced-motion.
   // True until the session probe answers — see clearBootMark below.
   let booting = $state(true);
+  let resumeBackup = $state(false);
   let flyIn = $state(false);
   function playFlyIn() {
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -1738,7 +1747,7 @@
   <!-- Nothing: index.html's boot splash still owns the screen until the
        session probe says whether this is a login or a restored session. -->
 {:else if !S.ready}
-  <Login onLogin={() => start(true)} />
+  <Login onLogin={() => start(true)} {resumeBackup} />
 {:else if S.isMobile}
   <MobileShell
     bind:composer

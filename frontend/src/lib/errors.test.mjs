@@ -6,7 +6,7 @@
 // survived verbatim — "HTTP 500", on screen, under somebody's message. The
 // worklog's own comment uses that exact string as the example of what must
 // never be shown.
-import { humanError, slowModeWait } from "./errors.js";
+import { errorField, humanError, slowModeWait } from "./errors.js";
 
 let failures = 0;
 const eq = (got, want, what) => {
@@ -44,6 +44,37 @@ eq(slowModeWait(new Error("app: slow mode: wait 7s")), 7, "an Error object");
 // The network cases, unchanged.
 eq(humanError("Failed to fetch"), "Concord isn't responding — trying to reconnect", "offline");
 eq(humanError({ offline: true, message: "anything" }), "Concord isn't responding — trying to reconnect", "offline flag");
+
+// The login card: what the core says, in a person's words, about the right
+// field. The raw chain used to be printed as is ("open identity: identity:
+// wrong passphrase or corrupted keystore") over two red passphrase boxes,
+// whatever the mistake was.
+const wrong = Object.assign(new Error("app: open identity: identity: wrong passphrase or corrupted keystore"), {
+  code: "wrong-passphrase",
+});
+eq(humanError(wrong).startsWith("That passphrase didn't work."), true, "wrong passphrase by code");
+eq(errorField(wrong), "pass", "wrong passphrase is about the passphrase");
+eq(humanError("link: bad code").startsWith("That isn't a link code."), true, "bad link code");
+eq(errorField("link: bad code"), "code", "bad link code is about the code");
+eq(errorField(new Error("link: bad code encoding")), "code", "bad code encoding");
+eq(humanError("link: code expired").startsWith("That code has expired"), true, "expired code");
+eq(errorField("app: link rejected: app: no active link offer"), "code", "spent code");
+eq(
+  errorField("that recovery phrase isn't valid — check each word and their order"),
+  "phrase",
+  "bad phrase is about the phrase",
+);
+eq(
+  humanError("identity: that recovery phrase isn't valid — check the words and order").startsWith("That recovery phrase"),
+  true,
+  "bad phrase copy",
+);
+eq(errorField("they're already in this guild"), "", "unrelated error names no field");
+eq(
+  humanError("Unable to preload CSS for http://127.0.0.1:18200/assets/ModalSettings-abc.css"),
+  "That can't open while Concord is reconnecting — try again in a moment.",
+  "a lazy dialog that could not load",
+);
 
 if (failures) {
   console.error(`\n${failures} errors test(s) failed`);
