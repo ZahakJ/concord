@@ -683,6 +683,11 @@
         onClick: () => (S.modal = { kind: "disappear", channelId: dm.channels[0].id }),
       },
       isGroup && {
+        label: "People…",
+        icon: "members",
+        onClick: () => (S.modal = { kind: "groupMembers", guildId: dm.id }),
+      },
+      isGroup && {
         label: "Rename group",
         icon: "edit",
         onClick: () =>

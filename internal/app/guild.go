@@ -526,6 +526,12 @@ func (s *Service) LeaveGuild(guildID string) error {
 		s.hideDM(guildID)
 		return nil
 	}
+	if isDM {
+		// Say so before going: a group DM left in silence kept the leaver on
+		// everyone's list, and kept encrypting to them. Best effort — an older
+		// member ignores the word, and one offline right now does not hear it.
+		s.publishMeta(g.GroupID, guildMeta{Type: "member_left", Fingerprint: s.id.Fingerprint()})
+	}
 	return s.deleteGuildLocal(guildID)
 }
 
@@ -739,6 +745,23 @@ func (s *Service) AddMember(guildID, fingerprint string) error {
 		if err := s.ReadmitMember(guildID, fingerprint); err != nil {
 			return err
 		}
+	}
+	// A group DM gathers people the way it was created: a DM invite the
+	// invitee's client redeems by itself (handleDMInvite), queued until they
+	// are reachable. The guild invite below is a prompt for joining a guild —
+	// a group DM offered that way never appeared anywhere for the person
+	// added, while this call reported success.
+	s.mu.RLock()
+	g, isGuild := s.guilds[guildID]
+	isDM := isGuild && g.Kind == "dm"
+	s.mu.RUnlock()
+	if isDM {
+		if n, _ := s.MemberCount(guildID); n+len(s.PendingDMInvitees(guildID)) >= groupDMMax+1 {
+			return fmt.Errorf("app: a group DM tops out at %d people", groupDMMax)
+		}
+		s.queueDMInvite(guildID, fingerprint)
+		s.emitGuildUpdate()
+		return nil
 	}
 	// Remember the invite so we can re-push it when they come online. They do
 	// not show in the roster until they accept — membership is the join, not
@@ -2911,6 +2934,32 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	// patched client could rewrite the guild on every honest peer.
 	actor := accountFingerprintOf(msg.SenderID)
 	switch m.Type {
+	case "member_left":
+		// A member left a group DM and said so on the way out. MLS
+		// authenticates the sender, so only the leaver can announce their own
+		// leave. A member who may commit removals takes their leaves out of
+		// the group, so the conversation stops being encrypted to them and
+		// every member's list drops them; anyone else just refreshes. The
+		// remove is MLS-only, with no governance record: leaving is not being
+		// kicked, and AddMember can bring them back.
+		if actor == "" || actor != m.Fingerprint || actor == s.id.Fingerprint() {
+			return
+		}
+		s.mu.RLock()
+		lg, ok := s.guilds[guildID]
+		isDM := ok && lg.Kind == "dm"
+		s.mu.RUnlock()
+		if !isDM {
+			return
+		}
+		if s.canManageMembers(guildID) && s.guildHasMember(guildID, actor) {
+			go func() {
+				_ = s.removeMemberByFingerprint(guildID, actor)
+				s.emitGuildUpdate()
+			}()
+		}
+		s.emitGuildUpdate()
+		return
 	case "read_marker":
 		// Read markers only ever travel the Notes self-group, and only OUR OWN
 		// account's devices may move our read cursor — a marker authored by

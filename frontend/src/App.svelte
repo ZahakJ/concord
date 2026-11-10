@@ -151,6 +151,7 @@
     storyViewer: () => import("./StoryViewer.svelte"),
     newDM: () => import("./modals/ModalNewDM.svelte"),
     renameGroup: () => import("./modals/ModalRenameGroup.svelte"),
+    groupMembers: () => import("./modals/ModalGroupMembers.svelte"),
     renameChannel: () => import("./modals/ModalRenameChannel.svelte"),
     channelTopic: () => import("./modals/ModalChannelTopic.svelte"),
     channelLinks: () => import("./modals/ModalChannelLinks.svelte"),
@@ -2193,6 +2194,8 @@
       />
     {:else if modalLoadedKind === "newDM"}
       <ModalView onClose={() => (S.modal = null)} />
+    {:else if modalLoadedKind === "groupMembers"}
+      <ModalView guildId={S.modal.guildId} onClose={() => (S.modal = null)} />
     {:else if modalLoadedKind === "renameGroup"}
       <ModalView
         guildId={S.modal.guildId}
