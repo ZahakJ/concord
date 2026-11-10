@@ -49,6 +49,7 @@
   import { untrack, tick } from "svelte";
   import { pointOf } from "./lib/place.js";
   import { isGuildSetupArmed } from "./lib/setup.js";
+  import { continuesGroup } from "./lib/grouping.js";
 
   let { onDropFiles, onJoinVoice } = $props();
 
@@ -369,31 +370,13 @@
       if (foldedGame(m)) continue;
       const day = new Date(m.sent).toDateString();
       const newDay = !prev || new Date(prev.sent).toDateString() !== day;
-      // Grouping follows the AUTHOR, not the signing key: a relayed guest is a
-      // different author even though the host signed their message, so their
-      // words never tuck under the host's name (and two lines from the same
-      // guest still group together).
-      const sameAuthor =
-        prev &&
-        prev.sender === m.sender &&
-        prev.kind === m.kind &&
-        (m.kind !== "guest" || prev.senderName === m.senderName);
-      const groupable = m.kind === "" || m.kind === "guest";
-      // An emote never groups. Its whole grammar is "this person is doing
-      // something", and a row with no name header cannot say who — which is
-      // exactly what tucking "*Amina Sadiq waves*" under the message above it
-      // did. Neither does the row AFTER one, or a plain sentence would inherit
-      // the emote's header.
       const selfEmote = isEmote(m.content, m.senderName);
-      const emote = selfEmote || isEmote(prev?.content, prev?.senderName);
-      const compact =
-        !newDay &&
-        sameAuthor &&
-        groupable &&
-        !emote &&
-        !m.replyTo &&
-        !prev.deleted &&
-        new Date(m.sent) - new Date(prev.sent) < GROUP_WINDOW_MS;
+      const compact = continuesGroup(prev, m, {
+        newDay,
+        emote: selfEmote || isEmote(prev?.content, prev?.senderName),
+        firstUnread: m.id === newLineId,
+        windowMs: GROUP_WINDOW_MS,
+      });
       // …and an emote carries the actor in its own text, which is the right
       // wire decision and left the name on screen twice, 40px apart, in two
       // weights. The row draws no header: the italic line is the whole message.
