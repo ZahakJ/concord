@@ -1065,8 +1065,6 @@
   }
   .tag {
     font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
     background: var(--bg-3);
     color: var(--text-muted);
     padding: 1px 6px;
@@ -1108,16 +1106,16 @@
   .activity {
     margin-top: var(--sp-1);
     padding: 9px 10px 8px;
-    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--bg-0)), var(--bg-0) 70%);
-    border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    background: var(--bg-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
   }
   /* PLAYING variant: same card, tinted to the game's generated-cover hue
      (GameShelf's title hash) instead of the accent. Eyebrow text blends
      toward --text so any hue stays readable on its own tint. */
   .activity.playing {
-    background: linear-gradient(135deg, color-mix(in srgb, var(--game-tint) 15%, var(--bg-0)), var(--bg-0) 70%);
-    border-color: color-mix(in srgb, var(--game-tint) 26%, transparent);
+    background: var(--bg-2);
+    border-color: var(--border);
   }
   .activity.playing .act-label {
     color: color-mix(in srgb, var(--game-tint) 55%, var(--text));
@@ -1139,8 +1137,6 @@
     gap: 5px;
     font-size: var(--fs-tiny);
     font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
     color: var(--accent-hover);
     margin-bottom: 7px;
   }
@@ -1217,8 +1213,6 @@
   }
   .sec-label {
     font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
   .sec-head {
     display: flex;
@@ -1236,8 +1230,6 @@
   }
   .role-badge {
     font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
     padding: 1px 6px;
     border-radius: var(--radius-md);
     font-weight: 600;

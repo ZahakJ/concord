@@ -3581,7 +3581,10 @@ export function sourceLabelFor(channelId) {
 // a quoted attribution line. Attachment tokens forward too (the blob is served
 // P2P by anyone who holds it, including the forwarder).
 export async function forwardMessage(m, destChannelId) {
-  const attribution = `↪ Forwarded from ${sourceLabelFor(m.channelId)}`;
+  // Name who wrote it, not only where: forwarded on, the words otherwise
+  // read as the forwarder's own.
+  const author = m.kind === "guest" ? m.senderName : nameFor(m.sender, m.senderName);
+  const attribution = `↪ Forwarded from ${sourceLabelFor(m.channelId)}${author ? ` · ${author}` : ""}`;
   const body = `> ${attribution}\n${m.content}`;
   await api.sendMessage(destChannelId, body, "");
 }

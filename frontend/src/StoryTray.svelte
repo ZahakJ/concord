@@ -146,7 +146,6 @@
      stay droppable into the panel without reaching into its styles). Keep the
      two in step. */
   .section-head {
-    text-transform: uppercase;
     font-size: var(--fs-tiny);
     letter-spacing: 0.07em;
     font-weight: 700;

@@ -171,6 +171,9 @@
     }
     openContextMenu(e, items, { title: poll.q });
   }
+  // "Tap" is an instruction a mouse cannot follow, and "click" one a finger
+  // cannot: the footer says the one this device has.
+  const touch = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
 </script>
 
 <div class="poll" class:preview>
@@ -251,7 +254,7 @@
       <span class="state" class:done={voted} class:right={revealed && voted && mineRight} class:miss={revealed && voted && !mineRight}>
         {#if revealed && voted}{mineRight ? "You got it" : "Not this time"}
         {:else if closed}Poll closed
-        {:else}{voted ? "You voted" : "Tap an option to vote"}{/if}
+        {:else}{voted ? "You voted" : `${touch ? "Tap" : "Click"} an option to vote`}{/if}
       </span>
     {/if}
   </div>

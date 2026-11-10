@@ -252,8 +252,6 @@
   }
   .sec-label {
     font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
     margin: 2px 4px 3px;
   }
   .presence {
@@ -376,10 +374,6 @@
     display: grid;
     place-items: center;
     transition: box-shadow var(--dur-calm) ease, opacity var(--dur-standard) ease;
-  }
-  /* A ready-to-save glow the moment the draft differs from the saved status. */
-  .st-save:not(:disabled) {
-    box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent);
   }
   .st-save:disabled {
     opacity: 0.45;

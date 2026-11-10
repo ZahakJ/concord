@@ -208,6 +208,25 @@
     ty = 0;
     lightbox = true;
   }
+  // Next / previous between a message's pictures (gallery rows only). Each
+  // picture owns its own decrypted source and its own viewer, so stepping
+  // closes this one and opens the neighbour's — found in the row by the
+  // message id the gallery stamps on every tile.
+  let frameEl = $state(null);
+  function siblings() {
+    if (!messageId || !frameEl) return [];
+    const row = frameEl.closest("[data-msg-id]");
+    return row ? [...row.querySelectorAll(`.frame.done[data-att-msg="${CSS.escape(messageId)}"]`)] : [];
+  }
+  const gallery = $derived(lightbox ? siblings() : []);
+  function step(d) {
+    const list = siblings();
+    const at = list.indexOf(frameEl);
+    const next = list[at + d];
+    if (at < 0 || !next) return;
+    closeLightbox();
+    requestAnimationFrame(() => next.click());
+  }
   function closeLightbox() {
     lightbox = false;
     pointers.clear();
@@ -227,6 +246,8 @@
   function onKeydown(e) {
     if (!lightbox) return;
     if (e.key === "Escape") closeLightbox();
+    else if (e.key === "ArrowRight" && gallery.length > 1) step(1);
+    else if (e.key === "ArrowLeft" && gallery.length > 1) step(-1);
 
     else if (e.key === "+" || e.key === "=") zoomAround(center(), zoom * 1.5);
     else if (e.key === "-") zoomAround(center(), zoom / 1.5);
@@ -391,6 +412,8 @@
     class="frame done"
     class:tile
     class:hidden={hidden}
+    bind:this={frameEl}
+    data-att-msg={tile ? messageId : undefined}
     onclick={hidden ? reveal : openLightbox}
     oncontextmenu={hidden ? undefined : imageMenu}
     title={hidden ? "Spoiler — click to reveal" : "Click to enlarge"}
@@ -450,6 +473,15 @@
       <div class="lb-bar">
         <span class="lb-zoom" class:show={zoom > 1}>{Math.round(zoom * 100)}%</span>
         {#if tok.name}<span class="lb-name">{tok.name}</span>{/if}
+        {#if gallery.length > 1}
+          <button class="lb-close" onclick={() => step(-1)} disabled={gallery.indexOf(frameEl) <= 0} aria-label="Previous image">
+            <Icon name="back" size={18} />
+          </button>
+          <span class="lb-zoom show">{gallery.indexOf(frameEl) + 1} of {gallery.length}</span>
+          <button class="lb-close" onclick={() => step(1)} disabled={gallery.indexOf(frameEl) >= gallery.length - 1} aria-label="Next image">
+            <Icon name="chevron" size={18} />
+          </button>
+        {/if}
         <button class="lb-close" onclick={saveThis} aria-label="Save image">
           <Icon name="download" size={18} />
         </button>

@@ -358,7 +358,6 @@
     color: var(--text-muted);
     font-size: var(--fs-tiny);
     letter-spacing: 0.03em;
-    text-transform: uppercase;
     white-space: nowrap;
   }
   .sp-close {
@@ -390,8 +389,6 @@
   }
   .sp-syntax-lead {
     font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
     color: var(--text-faint);
     margin-right: 2px;
   }
@@ -421,7 +418,7 @@
   }
   .sp-add:hover,
   .sp-add:focus-visible {
-    border-color: var(--accent);
+    border-color: var(--text-faint);
     color: var(--text);
   }
   .sp-add:hover code,
@@ -434,9 +431,9 @@
     gap: var(--sp-1);
     padding: 2px 4px 2px 9px;
     border-radius: 999px;
-    background: var(--accent-soft);
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-    color: var(--accent-hover);
+    background: var(--bg-3);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
     font-size: var(--fs-small);
     font-weight: 600;
     line-height: 1.5;
@@ -460,7 +457,7 @@
     inset: -9px -3px;
   }
   .sp-chip-x:hover {
-    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    background: var(--border);
   }
   .sp-list {
     overflow-y: auto;
@@ -607,7 +604,7 @@
   }
   .sp-text mark {
     background: var(--accent-soft);
-    color: var(--accent-hover);
+    color: var(--text);
     font-weight: 600;
     border-radius: 3px;
     padding: 0 1px;
@@ -651,16 +648,13 @@
   .sk-dot,
   .sk-a,
   .sk-b {
-    background: linear-gradient(100deg, var(--bg-2) 35%, var(--bg-3) 50%, var(--bg-2) 65%);
-    background-size: 240% 100%;
-    animation: sp-shimmer 1.1s linear infinite;
+    /* Skeletons pulse, they do not shimmer (no gradient sweep). */
+    background: var(--bg-3);
+    animation: sp-pulse 1.2s ease-in-out infinite alternate;
   }
-  @keyframes sp-shimmer {
+  @keyframes sp-pulse {
     from {
-      background-position: 120% 0;
-    }
-    to {
-      background-position: -120% 0;
+      opacity: 0.6;
     }
   }
   /* Touch: roomier hit rows and more of the (full-screen) column for results;
