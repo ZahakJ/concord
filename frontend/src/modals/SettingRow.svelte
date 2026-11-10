@@ -45,17 +45,7 @@
   }
 </script>
 
-<svelte:element
-  this={interactive ? "button" : "div"}
-  class="row"
-  class:danger
-  class:on={isSwitch && checked}
-  class:inert={!interactive}
-  role={isSwitch ? "switch" : undefined}
-  aria-checked={isSwitch ? checked : undefined}
-  disabled={interactive ? disabled : undefined}
-  onclick={interactive ? activate : undefined}
->
+{#snippet inner()}
   {#if icon}
     <span class="chip"><Icon name={icon} size={16} /></span>
   {/if}
@@ -63,52 +53,107 @@
     <span class="title">{title}{#if info}<InfoDot text={info} label="Why? {title}" />{/if}</span>
     {#if sub}<span class="sub">{sub}</span>{/if}
   </span>
-  {#if isSwitch}
-    <Switch on={checked} />
-  {:else if isLink}
-    <span class="chev">›</span>
-  {:else if children}
-    <span class="slot">{@render children()}</span>
-  {/if}
-</svelte:element>
+{/snippet}
+
+<!-- A switch row is a <label> for a real checkbox (role=switch) inside the
+     track: the whole row toggles it, and the ⓘ inside the title stays a
+     button of its own instead of a button nested in a button. -->
+{#if isSwitch}
+  <label class="row" class:danger class:dis={disabled}>
+    {@render inner()}
+    <Switch on={checked}>
+      <input
+        type="checkbox"
+        role="switch"
+        aria-label={title}
+        {checked}
+        {disabled}
+        onchange={(e) => {
+          // The parent owns the value: put the box back and let the click
+          // handler decide, so a refused change never shows as made.
+          e.currentTarget.checked = !!checked;
+          activate();
+        }}
+      />
+    </Switch>
+  </label>
+{:else}
+  <svelte:element
+    this={interactive ? "button" : "div"}
+    class="row"
+    class:danger
+    class:inert={!interactive}
+    disabled={interactive ? disabled : undefined}
+    onclick={interactive ? activate : undefined}
+  >
+    {@render inner()}
+    {#if isLink}
+      <span class="chev" aria-hidden="true"><Icon name="chevron" size={16} /></span>
+    {:else if children}
+      <span class="slot">{@render children()}</span>
+    {/if}
+  </svelte:element>
+{/if}
 
 <style>
+  /* One line in a settings pane: the label and its one-line description on
+     the leading side, the control on the trailing side, 24px between them.
+     Rows are separated by a hairline; there is no card around a group. */
   .row {
     display: flex;
     align-items: center;
-    gap: var(--sp-3);
+    gap: var(--sp-5);
     width: 100%;
-    padding: 12px 14px;
+    min-height: 58px;
+    padding: 10px 0;
     background: transparent;
     border: none;
+    border-radius: 0;
     color: var(--text);
-    text-align: left;
-    transition: background var(--dur-quick) ease;
+    text-align: start;
+    cursor: default;
   }
   .row + :global(.row) {
     border-top: 1px solid var(--hairline);
   }
-  .row.on {
-    background: color-mix(in srgb, var(--accent) 7%, transparent);
+  label.row,
+  button.row {
+    cursor: pointer;
   }
-  button.row:hover:not(:disabled) {
-    background: var(--bg-3);
+  label.row.dis {
+    cursor: not-allowed;
   }
-  button.row.on:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--accent) 11%, var(--bg-3));
+  label.row.dis > :global(.switch) {
+    opacity: 0.45;
+  }
+  /* A drill-in row lifts on hover. The fill bleeds a little past the text
+     column so the label does not touch its own highlight. */
+  @media (pointer: fine) {
+    button.row:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+      box-shadow: -8px 0 0 color-mix(in srgb, var(--bg-3) 60%, transparent),
+        8px 0 0 color-mix(in srgb, var(--bg-3) 60%, transparent);
+    }
+    button.row:hover:not(:disabled) .chev {
+      color: var(--text-muted);
+    }
   }
   /* app.css kills the WebView's grey tap flash on coarse pointers on the
-     understanding that components draw their own pressed state. This one never
-     did, so every row in Settings, Privacy and Notifications was inert to the
-     touch until the panel it opens actually appeared. */
+     understanding that components draw their own pressed state. */
   button.row:active:not(:disabled) {
     background: var(--bg-3);
   }
-  button.row.on:active:not(:disabled) {
-    background: color-mix(in srgb, var(--accent) 11%, var(--bg-3));
-  }
   button.row:disabled {
-    opacity: 0.5;
+    opacity: 0.45;
+  }
+  button.row:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+  }
+  /* The checkbox is invisible over the track, so the ring goes on the track. */
+  label.row:has(input:focus-visible) > :global(.switch) {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
   }
   .row.danger .title {
     color: var(--danger-text);
@@ -116,22 +161,12 @@
   .chip {
     display: grid;
     place-items: center;
-    width: 32px;
-    height: 32px;
     flex: none;
-    border-radius: var(--radius-md);
-    background: var(--bg-3);
+    width: 16px;
+    margin-right: calc(-1 * var(--sp-2));
     color: var(--text-muted);
-    transition:
-      background var(--dur-quick) ease,
-      color var(--dur-quick) ease;
-  }
-  .row.on .chip {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
   }
   .row.danger .chip {
-    background: color-mix(in srgb, var(--danger) 15%, transparent);
     color: var(--danger-text);
   }
   .text {
@@ -143,35 +178,33 @@
   }
   .title {
     font-size: var(--fs-ui);
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    line-height: 1.3;
+    font-weight: 500;
+    line-height: 1.35;
   }
   .sub {
     font-size: var(--fs-compact);
-    line-height: 1.4;
+    line-height: 1.45;
     color: var(--text-muted);
   }
   .slot {
     flex: none;
-    max-width: 55%;
+    max-width: 60%;
+    display: flex;
+    justify-content: flex-end;
   }
   .chev {
     flex: none;
+    display: grid;
+    place-items: center;
     color: var(--text-faint);
-    font-size: var(--fs-title);
-    transition: transform var(--dur-standard) var(--ease-spring);
   }
-  button.row:hover .chev {
-    transform: translateX(3px);
-    color: var(--text-muted);
-  }
-  /* A row hosting its own control (a select, a port field) can't share one line
-     on a phone: the control took 40% and the description was left breaking
-     three ways in ~110px. Give the control its own line, aligned under the
-     text rather than under the icon chip. Switches and chevrons are narrow and
-     stay put. */
-  @media (pointer: coarse), (max-width: 768px) {
+  /* A row hosting a wide control (a select, a slider, a port field) cannot
+     share one line on a phone: the control took 40% and the description broke
+     three ways in ~110px. The control drops below the label at full width. */
+  @media (max-width: 768px) {
+    .row {
+      min-height: 56px;
+    }
     .row:has(.slot) {
       flex-wrap: wrap;
       row-gap: var(--sp-2);
@@ -179,22 +212,15 @@
     .row:has(.slot) .slot {
       flex: 1 0 100%;
       max-width: none;
+      justify-content: flex-start;
     }
-    /* Indent with PADDING, not margin. A margin on a full-width flex item is
-       added outside the box, so the row overhangs by exactly that much and the
-       Save button on the fixed-port row was pushed past the card edge and
-       rendered as "Sav". Padding is inside the box under the global
-       border-box, so the same visual indent costs no width. */
     .chip ~ .slot {
-      padding-left: 44px; /* 32px chip + the row's 12px gap */
+      padding-left: var(--sp-5);
     }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .chev {
-      transition: none;
-    }
-    button.row:hover .chev {
-      transform: none;
+    @media (pointer: fine) {
+      button.row:hover:not(:disabled) {
+        box-shadow: none;
+      }
     }
   }
 </style>

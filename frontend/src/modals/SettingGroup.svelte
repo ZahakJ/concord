@@ -20,29 +20,32 @@
 </section>
 
 <style>
+  /* A group is a label and its rows — no box around them. Groups are told
+     apart by the label and 18px of air; rows by a hairline. */
   .grp {
     display: flex;
     flex-direction: column;
-    gap: 7px;
-    text-align: left;
+    text-align: start;
+    margin-top: 6px;
+  }
+  .grp:first-child {
+    margin-top: 0;
   }
   .sec-label {
-    font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    padding-left: 2px;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    color: var(--text);
+    padding-top: 2px;
   }
   .card {
-    background: color-mix(in srgb, var(--bg-0) 55%, var(--bg-elevated));
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
   .note {
-    margin: 0;
-    padding: 0 2px;
+    margin: var(--sp-1) 0 0;
     font-size: var(--fs-compact);
     line-height: 1.5;
     color: var(--text-muted);

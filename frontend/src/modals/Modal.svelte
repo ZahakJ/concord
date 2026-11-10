@@ -55,8 +55,20 @@
   // the box under the cursor stops resizing on every navigation. On a phone
   // there is no room for it and the drill-down list is the right shape anyway,
   // so the rail is dropped and this is the dialog it has always been.
-  let { title, onClose, wide = false, size = "", rail = null, children } = $props();
+  //
+  // Sizes are the four of the one dialog frame: S 420 (a question, a rename),
+  // M 560 (most forms), L 720 (lists and tables) and XL 900 (a workspace, and
+  // every railed page). `wide` and `lg` are the older names for M and L, kept
+  // so a caller that says them still gets the size it meant.
+  let { title, subtitle = "", onClose, wide = false, size = "", rail = null, children } = $props();
   const railed = $derived(!!rail && !S.isMobile);
+  const sz = $derived(
+    size === "xl" ? "xl" : size === "lg" || size === "l" ? "l" : size === "m" || wide ? "m" : "s",
+  );
+  // A railed page on a phone is a page, not a sheet: Settings is somewhere you
+  // go and come back from, and a 92% sheet over the shell read as a dialog
+  // you could half-dismiss by brushing its top edge.
+  const page = $derived(!!rail && S.isMobile);
   let dialog = $state(null);
   let titleEl = $state(null);
   // TalkBack/VoiceOver announce a dialog by its label; without an id to point
@@ -213,6 +225,30 @@
     });
   });
 
+  // The footer's hairline is a statement that there is more above it. On a
+  // dialog whose body fits, a rule over the buttons is a line that separates
+  // nothing, so it is drawn only while the scroller actually overflows.
+  let scrolls = $state(false);
+  $effect(() => {
+    const box = railed ? dialog?.querySelector(":scope > .pane") : dialog;
+    if (!box) return;
+    const check = () => (scrolls = box.scrollHeight > box.clientHeight + 1);
+    const ro = new ResizeObserver(check);
+    const watch = () => {
+      ro.disconnect();
+      ro.observe(box);
+      for (const el of box.children) ro.observe(el);
+      check();
+    };
+    const mo = new MutationObserver(watch);
+    mo.observe(box, { childList: true });
+    watch();
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
+  });
+
   // Mobile: the sheet can be flicked/dragged DOWN to dismiss — the native
   // gesture people expect, so they don't have to reach the tiny ✕ in the top
   // corner one-handed. The grab area is the pinned top strip (grip + title);
@@ -320,11 +356,10 @@
 >
   <div
     bind:this={dialog}
-    class="dialog"
-    class:wide
-    class:xl={size === "xl"}
-    class:lg={size === "lg"}
+    class="dialog {sz}"
     class:railed
+    class:page
+    class:scrolls
     class:lateral
     class:continuing
     class:deeper={enterDir === 1}
@@ -342,7 +377,7 @@
       <div
         class="sheet-top"
         use:sheetdrag={{
-          enabled: S.isMobile && !closing,
+          enabled: S.isMobile && !closing && !page,
           sheet: () => dialog,
           scrim: () => overlay,
           scroller: () => dialog,
@@ -353,13 +388,16 @@
         <div class="grip"></div>
         <div class="head">
           {#if canBack}
-            <button class="back" onclick={backPanel} aria-label="Back" title="Back">
+            <button class="iconbtn back" onclick={backPanel} aria-label="Back" title="Back">
               <Icon name="chevron" size={16} />
             </button>
           {/if}
           <h3 id={titleId} tabindex="-1" bind:this={titleEl}>{title}</h3>
-          <button class="x" onclick={dismiss} aria-label="Close">✕</button>
+          <button class="iconbtn x" onclick={dismiss} aria-label="Close" title="Close · Esc">
+            <Icon name="close" size={16} />
+          </button>
         </div>
+        {#if subtitle}<p class="subtitle">{subtitle}</p>{/if}
       </div>
       {@render children()}
     {/snippet}
@@ -380,6 +418,12 @@
 </div>
 
 <style>
+  /* ---- the one dialog frame -------------------------------------------------
+     Every dialog in the app is this box: an opaque raised surface with one
+     hairline edge and the one floating shadow, a 60px header (title left, ×
+     right), a body inset by --dlg-pad, and — on a form — a footer pinned to
+     the bottom with the actions on the trailing side. Four widths and nothing
+     else, so seventy dialogs read as one family rather than seventy answers. */
   .overlay {
     position: fixed;
     inset: 0;
@@ -394,8 +438,9 @@
     animation: fade var(--dur-standard) ease;
   }
   .dialog {
-    width: 380px;
-    max-width: calc(90 * var(--vw));
+    --dlg-pad: var(--sp-5);
+    width: 420px;
+    max-width: calc(100 * var(--vw) - var(--sp-6));
     /* Never taller than the viewport; scroll inside on short screens (laptops)
        so long content like the 24-word recovery phrase stays reachable. dvh
        tracks the viewport the soft keyboard actually leaves behind; the plain
@@ -412,30 +457,31 @@
     overscroll-behavior: contain;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 20px;
+    border-radius: var(--radius-lg);
+    padding: 0 var(--dlg-pad) var(--dlg-pad);
     display: flex;
     flex-direction: column;
     gap: var(--sp-3);
     box-shadow: var(--shadow-pop);
-    /* A touch of spring on entry — overshoots ~1% then settles. */
-    animation: pop 0.26s var(--ease-spring);
+    /* Never a ring round the whole dialog: focus goes to the first field, the
+       primary or the title, never the box. */
+    outline: none;
+    animation: rise var(--dur-standard) var(--ease-spring);
   }
-  .dialog.wide {
-    width: 460px;
+  .dialog.m {
+    width: 560px;
   }
-  /* Create-a-guild: wide enough for the four template tiles in one row, short
-     enough that the dialog is not 86% of the window. */
-  .dialog.lg {
-    width: min(860px, 94 * var(--vw));
+  .dialog.l {
+    width: 720px;
   }
-  /* A large workspace (the advanced composer): most of the viewport, and a
-     fixed tall height so its inner panes get real room instead of collapsing to
-     content height. */
+  /* A workspace (the advanced composer, the meme maker, a new post): the XL
+     box, and a fixed height so its inner panes get real room instead of
+     collapsing to content height. */
   .dialog.xl {
-    width: min(1080px, 94 * var(--vw));
-    height: min(780px, 88 * var(--vh));
-    height: min(780px, 88 * var(--dvh));
+    --dlg-pad: var(--sp-6);
+    width: 900px;
+    height: min(700px, calc(90 * var(--vh)));
+    height: min(700px, calc(90 * var(--dvh)));
   }
   /* ---- railed: one constant box, a rail down the left ----------------------
      Every settings page is exactly this size. Nothing here is negotiable by
@@ -445,14 +491,15 @@
      The dialog stops being the scroller — the pane is — so the rail holds
      still while a long page moves beside it. */
   .dialog.railed {
-    width: min(1000px, 94 * var(--vw));
-    height: min(660px, 86 * var(--vh));
-    height: min(660px, 86 * var(--dvh));
+    --dlg-pad: var(--sp-6);
+    width: 900px;
+    height: min(700px, calc(90 * var(--vh)));
+    height: min(700px, calc(90 * var(--dvh)));
     max-height: none;
     padding: 0;
     gap: 0;
     display: grid;
-    grid-template-columns: 226px minmax(0, 1fr);
+    grid-template-columns: 224px minmax(0, 1fr);
     overflow: hidden;
   }
   /* Below this the rail keeps its icons and drops its words rather than eating
@@ -467,14 +514,13 @@
     overflow-y: auto;
     overflow-x: hidden;
     overscroll-behavior: contain;
-    padding: 20px;
+    padding: 0 var(--dlg-pad) var(--dlg-pad);
     display: flex;
     flex-direction: column;
     gap: var(--sp-3);
   }
-  /* The sticky footer and the scroll fade are written against the dialog's own
-     20px padding and its own scroll box. Railed, both of those belong to the
-     pane, and the dialog itself has neither. */
+  /* The sticky footer and the scroll fade are written against the scroll box.
+     Railed, that box is the pane, and the dialog itself has neither. */
   .dialog.railed::after {
     display: none;
   }
@@ -483,9 +529,9 @@
     flex: none;
     position: sticky;
     z-index: 1;
-    bottom: -20px;
-    height: 24px;
-    margin: 0 -20px -20px;
+    bottom: calc(-1 * var(--dlg-pad));
+    height: var(--sp-5);
+    margin: 0 calc(-1 * var(--dlg-pad)) calc(-1 * var(--dlg-pad));
     pointer-events: none;
     background: linear-gradient(transparent, var(--bg-elevated));
   }
@@ -494,90 +540,147 @@
       opacity: 0;
     }
   }
-  @keyframes pop {
+  /* Arrives: a fade and an 8px rise, decelerating. No scale, no overshoot. */
+  @keyframes rise {
     from {
       opacity: 0;
-      transform: translateY(14px) scale(0.95);
+      transform: translateY(8px);
     }
   }
   .grip {
     display: none; /* desktop: no drag handle */
   }
-  /* A commit button must never be stranded below a screen of content, and that
-     is as true on a laptop as on a phone. The sheet presentation below has
-     pinned this row since it was written; the desktop card did not, and
-     `.dialog` is max-height: 90dvh with overflow-y: auto — so at 1440x900 the
-     poll composer's Cancel/Create pair was sliced by the viewport edge and Your
-     profile kept Save 650px down, with nothing on screen saying either existed.
-     Same selector as the sheet's, and for the same stated reason: every use of
-     this class in the app IS a modal's own footer. The negative margins bleed
-     it to the card's edges; the hairline reads as a footer rule on the short
-     dialogs where nothing scrolls at all, and the soft lift above it is what
-     says there is more on the ones that do. */
+
+  /* ---- header ---------------------------------------------------------------
+     60px, pinned while the body scrolls: the title on the leading side in the
+     display face, the × on the trailing side (and ‹ before the title when there
+     is a pane to go back to). No icons and no art in a dialog's header. */
+  .sheet-top {
+    position: sticky;
+    top: 0;
+    margin: 0 calc(-1 * var(--dlg-pad));
+    padding: 0 var(--sp-3) 0 var(--dlg-pad);
+    background: var(--bg-elevated);
+    /* Comfortably above anything a modal's body might layer internally — at
+       z-index 1 it tied with ordinary content and lost on DOM order, letting
+       scrolled content slide over the title. */
+    z-index: 3;
+    flex: none;
+  }
+  .head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    min-height: 60px;
+  }
+  /* Focus parks on the title only when a dialog has nothing else to focus or
+     the control holding it went away; it is a place, not a control. */
+  h3:focus {
+    outline: none;
+  }
+  h3 {
+    margin: 0 auto 0 0;
+    min-width: 0;
+    font-family: var(--display-font);
+    font-size: calc(var(--fs-title) + 1px);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  /* An empty title (What's new names itself in its body) must not leave the
+     × floating over a blank band of the same height. */
+  h3:empty {
+    flex: 1;
+  }
+  .subtitle {
+    margin: -14px 0 var(--sp-3);
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+  }
+  .back {
+    margin-left: calc(-1 * var(--sp-2));
+  }
+  .back :global(svg) {
+    transform: rotate(180deg);
+  }
+  .x {
+    flex: none;
+  }
+
+  /* ---- footer ---------------------------------------------------------------
+     A form's actions: pinned to the bottom of the scroller so a commit button
+     is never stranded below a screen of content (at 1440x900 the poll
+     composer's Create used to be sliced by the viewport edge), on the trailing
+     side, Cancel before the one primary. The hairline above it appears only
+     while the body actually scrolls; on a dialog that fits it would separate
+     nothing. Every use of this class in the app is a modal's own footer. */
   .dialog :global(.actions) {
     position: sticky;
-    bottom: -20px;
+    bottom: calc(-1 * var(--dlg-pad));
     z-index: 2;
-    margin: var(--sp-2) -20px -20px;
-    padding: var(--sp-3) 20px 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--sp-2);
+    margin: var(--sp-2) calc(-1 * var(--dlg-pad)) calc(-1 * var(--dlg-pad));
+    padding: var(--sp-4) var(--dlg-pad);
     background: var(--bg-elevated);
-    border-top: 1px solid var(--hairline);
-    box-shadow: 0 -10px 16px -14px var(--scrim);
+    border-top: 1px solid transparent;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   }
-  /* A disabled commit button must not be the accent at half strength. app.css
-     fills a bare button with --accent and dims disabled ones to opacity .5,
-     which on a footer's primary reads as a paint fault — a washed-out purple
-     bleeding the dialog through itself — rather than as "not yet". A flat
-     surface with faint text is the same sentence said properly. Scoped to the
-     footer, which is the one place in the app where a filled primary is
-     routinely disabled. */
-  .dialog :global(.actions button:disabled) {
-    opacity: 1;
-    background: var(--bg-3);
-    color: var(--text-faint);
-    box-shadow: none;
+  .dialog.scrolls :global(.actions) {
+    border-top-color: var(--hairline);
   }
-  /* The scroll fade, on the desktop card too. A container that ends on a
-     half-drawn row reads as broken rather than as scrollable — the command
-     palette sliced "Saved messages" through the middle, the forward dialog cut
-     #ci-and-builds in half — and Chromium's overlay scrollbar is invisible
-     until something moves, so there is nothing else to say it. It is a sticky
-     pseudo-element rather than markup, it sits UNDER the footer's z-index 2 so
-     a commit button is never washed out, and on a dialog with nothing to scroll
-     the gradient lands on matching background and cannot be seen at all. */
+  /* Footer buttons are the md control: 32px, the same in every dialog. */
+  .dialog :global(.actions > button) {
+    min-height: 32px;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  /* The scroll fade. A container that ends on a half-drawn row reads as broken
+     rather than as scrollable, and Chromium's overlay scrollbar is invisible
+     until something moves. It is a sticky pseudo-element rather than markup,
+     it sits UNDER the footer's z-index 2 so a commit button is never washed
+     out, and on a dialog with nothing to scroll the gradient lands on matching
+     background and cannot be seen at all. */
   .dialog::after {
     content: "";
     flex: none;
     position: sticky;
     z-index: 1;
-    bottom: -20px;
-    height: 24px;
-    margin: 0 -20px -20px;
+    bottom: calc(-1 * var(--dlg-pad));
+    height: var(--sp-5);
+    margin: 0 calc(-1 * var(--dlg-pad)) calc(-1 * var(--dlg-pad));
     pointer-events: none;
     background: linear-gradient(transparent, var(--bg-elevated));
   }
-  /* Mobile: dialogs present as full-width bottom sheets instead of floating
-     cards — thumb-reachable, roomy, and keyboard-friendly. Desktop (fine
-     pointer + wide viewport) is untouched. */
+
+  /* ---- phone: every size is a sheet ------------------------------------------
+     Full width from the bottom edge, thumb-reachable, with a grip; a railed
+     dialog (Settings, the guild hub) is a full page instead. */
   @media (max-width: 768px) {
     .overlay {
+      background: var(--scrim-sheet);
       place-items: end stretch;
       /* The bottom edge is the KEYBOARD's top edge, not the screen's. See the
          max-height note below for why dvh cannot answer this. */
       padding-bottom: var(--kb, 0px);
     }
-    /* All variants collapse to the bottom-sheet presentation; higher-specificity
-       selectors (`wide`, `xl`) must be listed so they can't pin a desktop size. */
+    /* Every size collapses to the sheet; the size classes are listed so none
+       of them can pin a desktop width. */
     .dialog,
-    .dialog.wide,
-    .dialog.lg,
+    .dialog.m,
+    .dialog.l,
     .dialog.xl,
     .dialog.railed {
+      --dlg-pad: var(--sp-4);
       width: auto;
       max-width: none;
       height: auto;
       display: flex;
-      padding: 20px;
+      padding: 0 var(--dlg-pad) var(--dlg-pad);
       gap: var(--sp-3);
       overflow-y: auto;
       /* dvh DOES NOT SHRINK FOR THE KEYBOARD on the phone this app ships to.
@@ -586,50 +689,45 @@
          native bridge reports --kb: 336px. The activity draws edge-to-edge with
          insetsHandling disabled, so the WebView is never resized and every
          viewport unit keeps describing a screen a third of which the user
-         cannot see. That is the whole reason --kb exists.
-         So: subtract it. Before this, opening the import wizard and tapping its
-         one text field put that field 35 of its 48 pixels underneath the
-         keyboard — the sheet was still claiming 92% of the WHOLE screen and
-         sitting on the bottom edge of it. The vh line stays as the fallback for
-         engines without dvh, where the keyboard does resize the viewport. */
+         cannot see. That is the whole reason --kb exists. The vh line stays
+         as the fallback for engines without dvh. */
       max-height: calc(92 * var(--vh));
       max-height: calc(92 * var(--dvh) - var(--kb, 0px));
       border: none;
       border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
-      padding-bottom: calc(20px + var(--safe-bottom));
-      animation: sheet-up 0.28s var(--ease-spring);
+      padding-bottom: calc(var(--dlg-pad) + var(--safe-bottom));
+      animation: sheet-up 0.24s var(--ease-spring);
       touch-action: pan-y;
     }
+    /* A page: the whole screen, under the status bar, no grip and no rounded
+       top — it is pushed, and ‹ / × / the system back are the ways out. */
+    .dialog.page {
+      height: calc(100 * var(--dvh) - var(--kb, 0px));
+      max-height: none;
+      border-radius: 0;
+      padding-top: var(--safe-top);
+    }
+    .dialog.page .grip {
+      display: none;
+    }
+    .dialog.page .sheet-top {
+      top: calc(-1 * var(--safe-top));
+      margin-top: calc(-1 * var(--safe-top));
+      padding-top: var(--safe-top);
+    }
     /* Long content ran out from under the last line and straight behind the
-       gesture pill, with nothing to say it continued. This is a sticky strip at
-       the foot of the scroller — a pseudo-element, so no markup and no second
-       scroller — fading content into the sheet's own colour just above the
-       safe-area inset. A sticky footer (.actions, below) sits at z-index 2 and
-       draws over it, so a commit button is never washed out; on a sheet with
-       nothing to scroll the gradient lands on matching background and cannot be
-       seen at all. */
+       gesture pill, with nothing to say it continued. */
     .dialog::after {
-      content: "";
-      flex: none;
-      position: sticky;
-      z-index: 1;
-      bottom: calc(-20px - var(--safe-bottom));
-      height: calc(26px + var(--safe-bottom));
-      margin: 0 -20px calc(-20px - var(--safe-bottom));
-      pointer-events: none;
-      background: linear-gradient(transparent, var(--bg-elevated));
+      bottom: calc(-1 * var(--dlg-pad) - var(--safe-bottom));
+      height: calc(var(--sp-5) + var(--safe-bottom));
+      margin: 0 calc(-1 * var(--dlg-pad)) calc(-1 * var(--dlg-pad) - var(--safe-bottom));
     }
     /* The drag, the spring-back and the slide-out are all driven from
-       lib/sheet.js as inline styles, so the transform and its transition live
-       there rather than being split between a rule here and an element there
-       (which is what needed an !important to settle). */
+       lib/sheet.js as inline styles. */
     .sheet-top {
       /* touch-action is written by lib/sheet.js, which keeps it in step with
          the body's scroll position: `none` at the top so the strip owns the
-         drag, `pan-y` once scrolled so the header scrolls like any other area.
-         The static `pan-y` that used to be here meant the browser claimed every
-         downward drag as a scroll and cancelled the gesture on its second move,
-         which is why no dialog could actually be swiped away. */
+         drag, `pan-y` once scrolled so the header scrolls like any other area. */
       touch-action: none;
       /* A slow grab-and-pull — the exact gesture the grip invites — otherwise
          starts WebView text selection on the title and pops the Android
@@ -637,13 +735,17 @@
       user-select: none;
       -webkit-user-select: none;
       -webkit-touch-callout: none;
+      padding-right: var(--sp-1);
+    }
+    .head {
+      min-height: 52px;
     }
     /* The pill grip — the universal "grab me and pull down" affordance. */
     .grip {
       display: block;
-      width: 40px;
-      height: 5px;
-      margin: -8px auto 6px;
+      width: 36px;
+      height: 4px;
+      margin: var(--sp-2) auto 0;
       border-radius: 999px;
       background: var(--border);
       flex: none;
@@ -657,44 +759,31 @@
     .dialog :global(select) {
       font-size: 16px;
     }
-    /* The floor applied to buttons only, so the pickers and text fields a
-       settings row hosts stayed 33-38px tall. A colour well is excluded for the
-       same reason the checkbox is: it is a swatch, not a field, and 48px of it
-       is a lozenge. app.css sizes it wide enough to be a tap target instead. */
+    /* A colour well is excluded for the same reason the checkbox is: it is a
+       swatch, not a field, and 48px of it is a lozenge. */
     .dialog :global(button),
     .dialog
       :global(input:not([type="checkbox"]):not([type="radio"]):not([type="color"])),
     .dialog :global(select) {
       min-height: var(--tap-min);
     }
-    /* …except a range slider, which app.css draws at 20px so the thumb clears
-       the groove. The tap floor is still owed on a phone; everything else the
-       exception used to restore is now the base rule's job. */
     .dialog :global(input[type="range"]) {
       min-height: var(--tap-min);
     }
-    /* A commit button must never be stranded below a screen of content. Every
-       modal's footer row shares this class — the profile sheet alone runs well
-       past 1200px with Save at the very bottom — so pinning it here fixes all
-       of them at once. The negative margins let the bar bleed to the sheet's
-       edges and sit flush on the safe-area inset; they assume the row is the
-       modal's own footer rather than something inside a padded card, which is
-       what every use of this class in the app is. */
+    /* The footer on a sheet: flush on the safe-area inset, the full width. */
     .dialog :global(.actions) {
-      position: sticky;
-      bottom: calc(-20px - var(--safe-bottom));
-      z-index: 2;
-      margin: 8px -20px calc(-20px - var(--safe-bottom));
-      padding: 10px 20px calc(10px + var(--safe-bottom));
-      background: var(--bg-elevated);
-      border-top: 1px solid var(--border);
+      bottom: calc(-1 * var(--dlg-pad) - var(--safe-bottom));
+      margin: var(--sp-2) calc(-1 * var(--dlg-pad)) calc(-1 * var(--dlg-pad) - var(--safe-bottom));
+      padding: 10px var(--dlg-pad) calc(10px + var(--safe-bottom));
+      border-radius: 0;
+    }
+    .dialog :global(.actions > button) {
+      min-height: var(--tap-min);
     }
     /* …with one exception: the ⓘ beside a setting is a 14px glyph sitting IN a
-       line of text, not a control on its own row. The floor stretched it into a
-       14×44 ellipse straddling the lines above and below — every info dot in
-       every settings panel looked broken on a phone. It still needs a thumb-
+       line of text, not a control on its own row. It still needs a thumb-
        sized target, so give it the area without the height: a transparent pad
-       that reaches 44px in both directions and disturbs no layout. */
+       that reaches 44px across and stays inside a 44px row. */
     .dialog :global(button.dot) {
       min-height: 0;
       position: relative; /* the pad below measures from the dot, not its wrapper */
@@ -702,26 +791,7 @@
     .dialog :global(button.dot)::after {
       content: "";
       position: absolute;
-      /* Horizontally it can reach the full 44px (14 + 2×15) — there is nothing
-         beside it but its own label. Vertically it must NOT: a settings card
-         separates rows by a 1px hairline, so a symmetric pad hung 15px into the
-         rows above and below and stole taps meant for those switches. 12px
-         keeps the pad inside a 44px row. */
       inset: -12px -15px;
-    }
-    /* Dismiss and go-back are the two controls every sheet has; they were the
-       only ones that floor didn't reach (the close button opted out of
-       min-height, and .back is sized by its padding). */
-    .head .x {
-      min-height: var(--tap-min);
-      width: var(--tap-min);
-      display: grid;
-      place-items: center;
-    }
-    .head .back {
-      min-width: var(--tap-min);
-      display: grid;
-      place-items: center;
     }
   }
   @keyframes sheet-up {
@@ -732,29 +802,25 @@
   /* Navigating the settings stack: a panel opened from another slides in from
      the right, going back slides in from the left, so depth reads as movement
      between places instead of one dialog blinking into another. Declared after
-     both the desktop and mobile entrances so it wins over either — on a phone a
-     stack should push sideways too, which is what the sheet is already doing
-     underneath. */
+     both the desktop and mobile entrances so it wins over either. */
   .dialog.deeper,
   .dialog.shallower {
-    animation: panel-in 0.28s var(--ease-out);
+    animation: panel-in var(--dur-standard) var(--ease-out);
   }
   .dialog.deeper {
-    --panel-from: 42px;
+    --panel-from: 24px;
   }
   .dialog.shallower {
-    --panel-from: -42px;
+    --panel-from: -24px;
   }
   @keyframes panel-in {
     from {
       opacity: 0;
-      transform: translateX(var(--panel-from)) scale(0.99);
+      transform: translateX(var(--panel-from));
     }
   }
   /* A step sideways along the rail: nothing on the outside of the dialog moves.
-     Only the page changes, and it says so with a short lift — enough to read as
-     "this is a different page", nowhere near enough to be a transition you have
-     to wait out. Declared last so it beats every entrance above it. */
+     Declared last so it beats every entrance above it. */
   .overlay.lateral,
   .overlay.continuing,
   .dialog.lateral,
@@ -769,9 +835,6 @@
   .dialog.continuing > .pane {
     animation: none;
   }
-  /* Groups on a railed page used to stagger in on every rail click — opacity 0
-     plus a 6px lift, which read as the whole pane flashing. First open still
-     has the dialog's own pop; after that the page is just there. */
   .dialog.railed :global(.grp) {
     animation: none;
   }
@@ -782,78 +845,6 @@
     .dialog.shallower,
     .dialog.lateral > .pane {
       animation: none;
-    }
-  }
-  /* Keep the grip, title and close button visible while the body scrolls. */
-  .sheet-top {
-    position: sticky;
-    top: -20px;
-    margin: -20px -20px 0;
-    padding: 20px 20px 8px;
-    background: var(--bg-elevated);
-    /* Comfortably above anything a modal's body might layer internally — at
-       z-index 1 it tied with ordinary content and lost on DOM order, letting
-       scrolled content slide over the title. */
-    z-index: 3;
-    flex: none;
-  }
-  .head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  /* Focus parks on the title only when a dialog has nothing else to focus or
-     the control holding it went away; it is a place, not a control. */
-  h3:focus {
-    outline: none;
-  }
-  h3 {
-    margin: 0;
-    font-size: var(--fs-title);
-    font-weight: 700;
-    letter-spacing: 0.01em;
-  }
-  /* Back arrow sits before the title; title takes the slack so ✕ stays right. */
-  .head h3 {
-    margin-right: auto;
-  }
-  .back {
-    display: grid;
-    place-items: center;
-    background: transparent;
-    color: var(--text-muted);
-    padding: 4px 6px;
-    margin: 0 4px 0 -4px;
-    border-radius: var(--radius-md);
-    transition:
-      color var(--dur-standard) ease,
-      background var(--dur-standard) ease;
-  }
-  .back :global(svg) {
-    transform: rotate(180deg);
-  }
-  .back:hover {
-    color: var(--text);
-    background: var(--bg-input);
-  }
-  .x {
-    background: transparent;
-    color: var(--text-muted);
-    padding: var(--sp-1) var(--sp-2);
-    border-radius: var(--radius-md);
-    transition:
-      color var(--dur-standard) ease,
-      background var(--dur-standard) ease,
-      transform var(--dur-calm) var(--ease-spring);
-  }
-  .x:hover {
-    color: var(--text);
-    background: var(--bg-input);
-    transform: rotate(90deg);
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .x {
-      transition: none;
     }
   }
 </style>

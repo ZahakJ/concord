@@ -140,6 +140,8 @@ A theme pack may set surfaces, lines (including `--border-strong`), ink, accent 
 
 **The header** has four controls: search (a field in place once used), the call button, the inspector toggle (people glyph and member count, Ctrl+U) and ⋯ for everything else. **The inspector** has Members, Pins, Files and Threads tabs; docked it is a flat column on `--bg-1`, as an overlay it is a lifted panel below the header. **The palette** (Ctrl+K) shows Unread, Recent and four actions when empty, and one ranked list with the matched characters in bold once you type.
 
+**Dialogs** are one frame, `modals/Modal.svelte`, in four sizes: S 420px (a question, a rename — the default), M 560px (most forms), L 720px (lists and tables) and XL 900px (a workspace, and every dialog with a side rail, such as Settings and the guild hub, whose rail is 224px). The header is 60px: the title in the display face on the leading side, × on the trailing side, ‹ before the title when there is a pane to go back to. The body scrolls under the header; a form's footer (`.actions`) is pinned to the bottom with its buttons on the trailing side — Cancel, then the one primary, named after what it does — and gains a hairline only while the body scrolls. Settings-type panes save as you change them and have no footer. `ConfirmDialog` is the S dialog for a question: Cancel is focused, the verb is `danger` when it destroys. On a phone every dialog is a bottom sheet with a grip, and a railed dialog is a full page. Settings rows (`SettingRow`) are 58px lines separated by hairlines — label and description on the leading side, the control on the trailing side, dropping below the label on a phone — grouped under a sentence-case label with no card around them.
+
 ## The shell
 
 One sidebar (`ChannelList.svelte`, 280px by default, 264 between 769 and 1150px, dragged within 240–360) holds, top to bottom: the **place header** (the guild's icon and name in the display face — a click opens the guild switcher, a right-click the guild's menu — then "N reachable", how many members this device can reach right now, and Invite); the **shortcut strip** (`GuildRail.svelte`): Messages, as many guild tiles as fit and an overflow tile; the jump field (it opens the palette) and the Inbox; the nudge row; the place's list; the **unread messages** block when a direct message waits; the call dock in a call; and you.
@@ -148,7 +150,7 @@ The strip is a shortcut, not the inventory. Which guilds earn a tile is `stripTi
 
 `navModel` (a device-local pref, `"sidebar"` by default) can put the classic slim guild rail beside the list instead of the strip. The inspector docks beside the conversation only when the conversation keeps 640px with it there, measured on the app's own box so the app's zoom counts; otherwise it overlays the conversation below its header. `.app` carries `data-inspector="docked"` or `"overlay"`. On a phone (≤ 768px) the sidebar is the Guilds page, the conversation and the inspector are pages pushed over it, and the tab bar reads Guilds · Messages · Inbox · You.
 
-**Planned** for the screens: one dialog frame in four sizes (420, 560, 720 and 900px with a side rail) with the title and a close button in the header and one primary action named after what it does; and the copy map in `lib/errors.js` covering every raw error the core can return.
+**Planned** for the screens: the copy map in `lib/errors.js` covering every raw error the core can return.
 
 ## Motion
 

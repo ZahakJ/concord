@@ -52,50 +52,30 @@
   {/if}
   <div class="actions">
     <button bind:this={cancelBtn} class="ghost" onclick={onClose}>Cancel</button>
-    <button class:danger onclick={confirm}>{confirmLabel}</button>
+    <button class={danger ? "danger" : "primary"} onclick={confirm}>{confirmLabel}</button>
   </div>
 </Modal>
 
 <style>
+  /* The one confirm: a question for a title, one or two sentences of
+     consequence, Cancel and the verb. No halo on the destructive choice — the
+     danger fill and its word are the whole signal. */
   p {
     font-size: var(--fs-ui);
     color: var(--text-muted);
     line-height: 1.5;
-    margin: 0 0 6px;
+    margin: 0;
   }
   .reason {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    font-size: var(--fs-small);
-    color: var(--text-muted);
-    margin-bottom: var(--sp-1);
+    font-size: var(--fs-compact);
+    font-weight: 500;
+    color: var(--text);
   }
   .reason .opt {
     color: var(--text-faint);
-  }
-  button.danger {
-    background: var(--danger);
-    color: var(--danger-fg);
-    /* A soft halo keeps the destructive choice unmistakable. */
-    box-shadow: 0 0 12px color-mix(in srgb, var(--danger) 35%, transparent);
-    transition: background var(--dur-standard) ease;
-  }
-  button.danger:hover {
-    background: color-mix(in srgb, var(--danger) 85%, white);
-  }
-  button.danger:active {
-    background: color-mix(in srgb, var(--danger) 75%, black);
-  }
-  /* Phone: two equal, full-width choices — no tiny side-by-side chips. */
-  @media (max-width: 768px) {
-    .actions {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-    .actions button {
-      min-height: 48px;
-    }
+    font-weight: 400;
   }
 </style>
