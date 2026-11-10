@@ -1020,6 +1020,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("app: open store: %w", err)
 	}
+	capStoredReadMarks(st, time.Now())
 
 	// Bootstrap sources, in precedence order: explicit config (env) first, then
 	// the saved connection settings (set in-app on the login screen).

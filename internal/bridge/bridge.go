@@ -713,12 +713,22 @@ func (b *Bridge) Login(passphrase string) error {
 
 // MarkRead records the user read a channel through at (UnixMilli) and fans the
 // new cursor out to every session/device.
-func (b *Bridge) MarkRead(channelID string, at int64) error {
+// It answers with the mark the channel holds afterwards (see app.MarkRead).
+func (b *Bridge) MarkRead(channelID string, at int64) (int64, error) {
 	svc, err := b.service()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	return svc.MarkRead(channelID, at)
+}
+
+// MarkReadLatest marks channels read through the newest message held in each.
+func (b *Bridge) MarkReadLatest(channelIDs []string) (map[string]int64, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.MarkReadLatest(channelIDs)
 }
 
 // ReadState returns every channel's read-through time (UnixMilli).
@@ -3410,7 +3420,13 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "Guilds":
 		return b.Guilds()
 	case "MarkRead":
-		return nil, b.MarkRead(argStr(args, 0), argInt64(args, 1))
+		return b.MarkRead(argStr(args, 0), argInt64(args, 1))
+	case "MarkReadLatest":
+		var ids []string
+		if len(args) > 0 {
+			_ = json.Unmarshal(args[0], &ids)
+		}
+		return b.MarkReadLatest(ids)
 	case "ReadState":
 		return b.ReadState()
 	case "CreateGuild":

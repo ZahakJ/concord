@@ -43,7 +43,7 @@ func TestLinkedDevicesShareOneNotesGroup(t *testing.T) {
 	// And the wire that rides on it works: a read marker set on one device
 	// reaches the other.
 	at := time.Now().UnixMilli()
-	if err := desk.MarkRead(textCh, at); err != nil {
+	if _, err := desk.MarkRead(textCh, at); err != nil {
 		t.Fatalf("MarkRead: %v", err)
 	}
 	waitUntil(t, 30*time.Second, func() bool {

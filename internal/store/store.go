@@ -2560,6 +2560,56 @@ func (s *Store) AdvanceReadState(channelID string, at int64) (bool, error) {
 	return n > 0, nil
 }
 
+// ReadMark returns one channel's read-through time (UnixMilli), 0 for none.
+func (s *Store) ReadMark(channelID string) (int64, error) {
+	var at int64
+	err := s.db.QueryRow(`SELECT at FROM read_state WHERE channel_id = ?`, channelID).Scan(&at)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return at, err
+}
+
+// CapReadState lowers every read cursor above limit to to (both UnixMilli),
+// reporting how many moved. It is the only write that moves a cursor back,
+// and exists to repair cursors stamped from a clock running fast.
+func (s *Store) CapReadState(limit, to int64) (int64, error) {
+	res, err := s.db.Exec(`UPDATE read_state SET at = ? WHERE at > ?`, to, limit)
+	if err != nil {
+		return 0, fmt.Errorf("store: cap read state: %w", err)
+	}
+	return res.RowsAffected()
+}
+
+// NewestSent returns the newest message send time (UnixNano) per channel;
+// channels with no messages map to 0.
+func (s *Store) NewestSent(channelIDs []string) (map[string]int64, error) {
+	out := make(map[string]int64, len(channelIDs))
+	if len(channelIDs) == 0 {
+		return out, nil
+	}
+	ids, err := json.Marshal(channelIDs)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(
+		`SELECT j.value, (SELECT MAX(sent) FROM messages WHERE channel_id = j.value)
+		 FROM json_each(?) j`, string(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var sent sql.NullInt64
+		if err := rows.Scan(&id, &sent); err != nil {
+			return nil, err
+		}
+		out[id] = sent.Int64
+	}
+	return out, rows.Err()
+}
+
 // DeleteReadState drops the read cursors for channels that no longer exist
 // (guild left, channel removed), so the table doesn't accumulate orphans.
 func (s *Store) DeleteReadState(channelIDs []string) error {
