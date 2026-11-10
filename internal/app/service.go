@@ -1475,6 +1475,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// not correctness.
 	go s.runStoryGCLoop()
 	go s.runRetentionLoop()
+	go s.runEphemeralLoop()
 
 	// Resume rich presence if the user had it on.
 	if s.RichPresenceEnabled() {

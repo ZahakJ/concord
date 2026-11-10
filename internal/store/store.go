@@ -419,6 +419,9 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 	if err := s.migrateSyncMarks(); err != nil {
 		return err
 	}
+	if err := s.migrateExpires(); err != nil {
+		return err
+	}
 	// Index on (channel_id, updated) — added after the column exists. Without it,
 	// MAX(updated) per channel is a full-partition scan; LatestTimestamp runs per
 	// channel on every sync and presence refresh.
@@ -1284,11 +1287,11 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 
 	res, err := s.db.Exec(
-		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent, sig, unverified, quiet)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent, sig, unverified, quiet, expires)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO NOTHING`,
 		m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir), sealed, nonce[:], m.Sent.UnixNano(),
-		nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)),
+		nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)), EphemeralExpiry(m.Content),
 	)
 	if err != nil {
 		return false, fmt.Errorf("store: save message: %w", err)
@@ -2270,7 +2273,7 @@ func (s *Store) MessageContent(id string) (string, error) {
 // MarkExpired flags a tombstoned message as having disappeared via a timer
 // (rather than a manual delete), so the UI can label it "disappeared".
 func (s *Store) MarkExpired(id string) error {
-	_, err := s.db.Exec(`UPDATE messages SET expired = 1 WHERE id = ?`, id)
+	_, err := s.db.Exec(`UPDATE messages SET expired = 1, pinned = 0 WHERE id = ?`, id)
 	return err
 }
 
@@ -2852,12 +2855,12 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 		}
 		sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 		if _, err := q.Exec(
-			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified, quiet)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified, quiet, expires)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir),
 			boolToInt(m.Deleted), boolToInt(m.Edited), boolToInt(m.Pinned),
 			sealed, nonce[:], m.Sent.UnixNano(), remoteUpdated,
-			nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)),
+			nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)), EphemeralExpiry(m.Content),
 		); err != nil {
 			return false, fmt.Errorf("store: upsert synced message: %w", err)
 		}
