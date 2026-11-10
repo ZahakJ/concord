@@ -24,3 +24,22 @@ export const has = (perms, bit) => (perms & bit) === bit;
 
 // Every permission — what the one-click "Make admin" role grants.
 export const PERM_ALL = PERM_LIST.reduce((n, p) => n | p.bit, 0);
+
+// adminRoleOf picks the role "Make admin" hands out. A role holding every
+// permission is the admin role by definition; failing that, a role the guild
+// already calls "Admin" is reused rather than minting a second one beside it
+// (two indistinguishable "Admin" groups in the member list, two in the picker).
+// null means there is none yet and one has to be made.
+export function adminRoleOf(roles) {
+  const list = roles || [];
+  return (
+    list.find((r) => r.perms === PERM_ALL) ||
+    list.find((r) => (r.name || "").trim().toLowerCase() === "admin") ||
+    null
+  );
+}
+
+// permLabels lists the names of the permissions in a mask, in editor order.
+export function permLabels(perms) {
+  return PERM_LIST.filter((p) => has(perms, p.bit)).map((p) => p.label);
+}

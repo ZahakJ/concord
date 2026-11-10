@@ -35,10 +35,10 @@
     openContextMenu,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
-  import { PERM, PERM_ALL, has } from "./lib/perms.js";
+  import { PERM, PERM_ALL, has, adminRoleOf } from "./lib/perms.js";
   import { splitStatus } from "./lib/presence.js";
   import Banner from "./Banner.svelte";
-  import { moderationItems, closeCard } from "./lib/moderation.svelte.js";
+  import { moderationItems, closeCard, toggleAdmin as toggleAdminFor } from "./lib/moderation.svelte.js";
   // Escape with the caret in the nickname or the quick-DM box steps out of the
   // field; only the press after that closes the card. See lib/fieldescape.js.
   import { fieldEscape } from "./lib/fieldescape.js";
@@ -197,7 +197,7 @@
   // One-click admin. Making somebody an admin normally means hand-building a
   // role first; here, "Make admin" finds (or creates) an Admin role with every
   // permission and assigns it. Owner or Manage Roles only.
-  const adminRole = $derived(S.roles.find((r) => r.perms === PERM_ALL));
+  const adminRole = $derived(adminRoleOf(S.roles));
   const isAdmin = $derived(!!adminRole && !!mem?.roleIds?.includes(adminRole.id));
 
   const blocked = $derived(isBlocked(mem?.fingerprint));
@@ -217,25 +217,9 @@
       (!!activeGuild()?.isOwner || has(activeGuild()?.myPerms || 0, PERM_ALL)),
   );
 
-  async function toggleAdmin() {
-    // Capture the intent BEFORE refreshRightPanel() — that refresh updates
-    // mem.roleIds, which recomputes the isAdmin $derived to the NEW state, so
-    // reading isAdmin afterwards inverted the toast ("Admin removed" on grant).
-    const grant = !isAdmin;
-    try {
-      let role = adminRole;
-      if (!role) {
-        await api.upsertRole(S.activeGuildId, "", "Admin", "#e0a63c", PERM_ALL, 100);
-        S.roles = (await api.roles(S.activeGuildId)) || [];
-        role = S.roles.find((r) => r.perms === PERM_ALL);
-      }
-      if (!role) throw new Error("couldn't create the Admin role");
-      await api.assignRole(S.activeGuildId, mem.fingerprint, role.id, grant);
-      await refreshRightPanel();
-      flash(grant ? `${mem.name || "Member"} is now an admin 👑` : "Admin removed", "success");
-    } catch (err) {
-      flash(err);
-    }
+  function toggleAdmin() {
+    closeProfilePopover();
+    toggleAdminFor(mem);
   }
 
   async function toggleRole(role) {

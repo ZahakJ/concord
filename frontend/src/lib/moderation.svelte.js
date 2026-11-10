@@ -24,7 +24,7 @@ import {
   unblockUser,
 } from "./state.svelte.js";
 import { api } from "./api.js";
-import { PERM, PERM_ALL, has } from "./perms.js";
+import { PERM, PERM_ALL, has, adminRoleOf, permLabels } from "./perms.js";
 
 // The durations the picker offers. A mute is a cool-off, and the shape of a
 // cool-off is minutes-to-days: sixty seconds for "stop typing", a week for
@@ -125,24 +125,42 @@ export function openMuteDialog(mem) {
   S.modal = { kind: "mute", member: mem };
 }
 
-// One-click admin: find (or mint) a role holding every permission and assign
-// it. Only offered to someone whose op would actually stick — governance
-// refuses a role granting more than the actor holds, so a plain moderator
-// clicking this would watch it vanish.
-export async function toggleAdmin(mem) {
-  const adminRole = S.roles.find((r) => r.perms === PERM_ALL);
+// "Make admin": assign the guild's admin role (adminRoleOf — reusing a role
+// already called Admin rather than minting a twin), or create one when there is
+// none. Granting asks first and names what it hands over: it is kick, ban,
+// roles and the guild in one click, and the other moderation actions already
+// confirm. Removing does not ask. Only offered to someone whose op would
+// actually stick (owner, or a holder of every permission).
+export function toggleAdmin(mem) {
+  const adminRole = adminRoleOf(S.roles);
   const grant = !(adminRole && mem?.roleIds?.includes(adminRole.id));
+  if (!grant) return applyAdmin(mem, adminRole, false);
+  const name = mem?.name || "this member";
+  const perms = permLabels(adminRole ? adminRole.perms : PERM_ALL).join(", ");
+  S.modal = {
+    kind: "confirm",
+    title: `Make ${name} an admin?`,
+    body: `They get the ${adminRole ? `“${adminRole.name}”` : "Admin"} role: ${perms}.`,
+    confirmLabel: "Make admin",
+    onConfirm: async () => {
+      S.modal = null;
+      await applyAdmin(mem, adminRole, true);
+    },
+  };
+}
+
+async function applyAdmin(mem, adminRole, grant) {
   try {
     let role = adminRole;
     if (!role) {
       await api.upsertRole(S.activeGuildId, "", "Admin", "#e0a63c", PERM_ALL, 100);
       S.roles = (await api.roles(S.activeGuildId)) || [];
-      role = S.roles.find((r) => r.perms === PERM_ALL);
+      role = adminRoleOf(S.roles);
     }
-    if (!role) throw new Error("couldn't create the Admin role");
+    if (!role) throw new Error("Couldn't create the Admin role.");
     await api.assignRole(S.activeGuildId, mem.fingerprint, role.id, grant);
     await refreshRightPanel();
-    flash(grant ? `${mem.name || "Member"} is now an admin 👑` : "Admin removed", "success");
+    flash(grant ? `${mem.name || "Member"} is now an admin` : "Admin removed", "success");
   } catch (err) {
     flash(err);
   }
@@ -163,7 +181,7 @@ export function moderationItems(mem, { close } = {}) {
   const canModerate = !mem.isSelf && !mem.isOwner && (g.isOwner || g.canManage) && mem.outranked !== false;
   const canMute = canModerate && has(myPerms, PERM.MUTE_MEMBERS);
   const canMakeAdmin = !mem.isSelf && (g.isOwner || has(myPerms, PERM_ALL));
-  const adminRole = S.roles.find((r) => r.perms === PERM_ALL);
+  const adminRole = adminRoleOf(S.roles);
   const isAdmin = !!adminRole && !!mem.roleIds?.includes(adminRole.id);
   const muted = isMemberMuted(mem);
   const blocked = isBlocked(mem.fingerprint);
