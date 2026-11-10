@@ -77,7 +77,7 @@ The Android app is a Capacitor shell (`apps/mobile`) around the Go core, which `
 make android-core     # Go core -> apps/mobile/android/app/libs/concord.aar
 ```
 
-`android-core` targets API 26 (the app's `minSdkVersion`) and links with 16 KB page alignment, which Android 15 devices and Play require. It also builds the x86 ABIs against a patched `modernc.org/libc`: Android's seccomp filter kills the process with `SIGSYS` on the legacy syscalls the stock version uses on x86_64 emulators. The target copies the module into `build/libc-fork/`, applies the committed overlay from `third_party/_libc-overlay/`, adds a `replace` to `go.mod` for the duration of the bind, and removes it again even if the bind fails. Real arm64 devices never compile the patched file.
+`android-core` targets API 26 (the app's `minSdkVersion`) and links with 16 KB page alignment, which Android 15 devices and Play require. It also builds the x86 ABIs against a patched `modernc.org/libc`: Android's seccomp filter kills the process with `SIGSYS` on the legacy syscalls the stock version uses on x86_64 emulators. The target copies the module into `build/libc-fork/`, applies the committed overlay from `third_party/_libc-overlay/`, adds a `replace` to `go.mod` for the duration of the bind, and removes it again even if the bind fails. Real arm64 devices never compile the patched file. `ANDROID_TARGET=android/amd64` binds a single ABI, which is what CI does to keep the build short.
 
 For a debug build to run on an emulator or a device:
 

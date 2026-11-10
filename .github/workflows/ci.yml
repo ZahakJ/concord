@@ -81,6 +81,44 @@ jobs:
       - name: Tests (race detector)
         run: go test -race -short ./...
 
+  # The Android app, built far enough to know it still compiles. Nothing else
+  # here touches apps/mobile, so a Capacitor or plugin bump, a Java edit or a
+  # change to the gomobile surface in mobile/ could break the app and still
+  # pass. The core is bound for x86_64 alone, which keeps the cgo link to one
+  # ABI and still runs the libc overlay that only x86 needs (make
+  # android-core). A debug build is signed with the SDK's throwaway key, so no
+  # secret is involved and a fork's pull request builds the same way.
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version-file: go.mod }
+      - uses: actions/setup-node@v7
+        with: { node-version: "22" }
+      - uses: actions/setup-java@v6
+        with: { distribution: temurin, java-version: "21", cache: gradle }
+      # Pinned by commit, as in the release workflow. (v4.0.4)
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - name: Install NDK + gomobile
+        # The same NDK and the same go.mod-pinned gomobile as a release.
+        run: |
+          sdkmanager "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          mobile_ver=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install golang.org/x/mobile/cmd/gomobile@"$mobile_ver"
+          go install golang.org/x/mobile/cmd/gobind@"$mobile_ver"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      # Capacitor copies frontend/dist into the app's assets on sync.
+      - run: cd frontend && npm ci && npm run build
+      - name: Go core (x86_64 only)
+        run: make android-core ANDROID_TARGET=android/amd64
+      - name: Capacitor sync
+        run: cd apps/mobile && npm ci && npx cap sync android
+      - name: Gradle debug build
+        run: cd apps/mobile/android && ./gradlew --no-daemon assembleDebug -PconcordAbi=x86_64
+
   # The network integration suite: every test the gate above skips. Scheduled
   # rather than blocking, because it drives multi-node message propagation and
   # is inherently timing-sensitive. -p 1 keeps packages from competing for the

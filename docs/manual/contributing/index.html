@@ -96,8 +96,9 @@ cd frontend &amp;&amp; npm run lint    # the no-undef gate: catches references t
 cd frontend &amp;&amp; npm test        # markdown, render and other unit tests
 cd frontend &amp;&amp; npm run build   # must succeed; a broken build is a broken release</code></pre>
 <p>On every pull request (and every push to <code>main</code>), CI runs <code>go build ./...</code>,
-<code>go vet ./...</code>, <code>go test -race -short ./...</code>, the three frontend steps, and a
-check that the documentation site in <code>docs/manual/</code> was rebuilt (<code>make docs</code>). See
+<code>go vet ./...</code>, <code>go test -race -short ./...</code>, the three frontend steps, a
+check that the documentation site in <code>docs/manual/</code> was rebuilt (<code>make docs</code>),
+and a debug build of the Android app. See
 <a href="https://github.com/ZahakJ/concord/blob/main/.github/workflows/ci.yml" rel="noreferrer"><code>.github/workflows/ci.yml</code></a>. It has to be green
 before anything merges. <code>gofmt</code> is part of that gate, so run <code>make fmt</code> before
 you push rather than discovering it in a red build. <code>make fmt</code> covers the root

@@ -2,7 +2,7 @@
 
 The checks a change has to pass, exactly as CI runs them, and the slower suites and harnesses for what the gate does not cover: the network integration tests, local multi-peer runs, and the browser end-to-end scripts.
 
-CI is defined in `.github/workflows/ci.yml`. It runs on every push to `main`, on every pull request, nightly, and on manual dispatch. It has three jobs: `frontend` and `backend` run every time, and `integration` runs only on the nightly schedule or a manual dispatch.
+CI is defined in `.github/workflows/ci.yml`. It runs on every push to `main`, on every pull request, nightly, and on manual dispatch. It has four jobs: `frontend`, `backend` and `android` run every time, and `integration` runs only on the nightly schedule or a manual dispatch.
 
 ## The frontend job
 
@@ -45,6 +45,17 @@ if testing.Short() {
 ```
 
 Tests of pure logic run in the gate and need no guard. Most of `internal/app` is integration tests; `TestThreeNodeGuildE2EE` in `internal/app/integration_test.go`, three services forming a guild and exchanging encrypted messages, is the one to copy from.
+
+## The android job
+
+```sh
+cd frontend && npm ci && npm run build
+make android-core ANDROID_TARGET=android/amd64
+cd apps/mobile && npm ci && npx cap sync android
+cd apps/mobile/android && ./gradlew --no-daemon assembleDebug -PconcordAbi=x86_64
+```
+
+Nothing else in CI touches `apps/mobile`, so without this job a Capacitor or plugin update, a Java change, or a change to the `gomobile` surface in `mobile/` could break the app and still pass. It needs JDK 21, the Android SDK with NDK 27.2.12479018, and `gomobile` at the version `go.mod` pins. The core is bound for x86_64 alone to keep the link short; that ABI also exercises the libc overlay described in [Building](building.md). A debug build is signed with the SDK's own debug key, so the job needs no secrets.
 
 ## The integration job
 

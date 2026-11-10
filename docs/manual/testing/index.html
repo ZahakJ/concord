@@ -33,11 +33,11 @@
   <div class="scrim" data-scrim hidden></div>
   <main class="main" id="content">
     <div class="crumb">Developers</div>
-    <details class="toc-inline"><summary>On this page</summary><a class="toc__link toc__link--2" href="#the-frontend-job">The frontend job</a><a class="toc__link toc__link--2" href="#the-backend-job">The backend job</a><a class="toc__link toc__link--3" href="#writing-a-network-test">Writing a network test</a><a class="toc__link toc__link--2" href="#the-integration-job">The integration job</a><a class="toc__link toc__link--2" href="#running-the-checks-locally">Running the checks locally</a><a class="toc__link toc__link--2" href="#local-peers">Local peers</a><a class="toc__link toc__link--2" href="#end-to-end-scripts">End-to-end scripts</a><a class="toc__link toc__link--2" href="#checking-ui-changes">Checking UI changes</a></details>
+    <details class="toc-inline"><summary>On this page</summary><a class="toc__link toc__link--2" href="#the-frontend-job">The frontend job</a><a class="toc__link toc__link--2" href="#the-backend-job">The backend job</a><a class="toc__link toc__link--3" href="#writing-a-network-test">Writing a network test</a><a class="toc__link toc__link--2" href="#the-android-job">The android job</a><a class="toc__link toc__link--2" href="#the-integration-job">The integration job</a><a class="toc__link toc__link--2" href="#running-the-checks-locally">Running the checks locally</a><a class="toc__link toc__link--2" href="#local-peers">Local peers</a><a class="toc__link toc__link--2" href="#end-to-end-scripts">End-to-end scripts</a><a class="toc__link toc__link--2" href="#checking-ui-changes">Checking UI changes</a></details>
     <article class="doc">
 <h1 id="testing">Testing</h1>
 <p>The checks a change has to pass, exactly as CI runs them, and the slower suites and harnesses for what the gate does not cover: the network integration tests, local multi-peer runs, and the browser end-to-end scripts.</p>
-<p>CI is defined in <code>.github/workflows/ci.yml</code>. It runs on every push to <code>main</code>, on every pull request, nightly, and on manual dispatch. It has three jobs: <code>frontend</code> and <code>backend</code> run every time, and <code>integration</code> runs only on the nightly schedule or a manual dispatch.</p>
+<p>CI is defined in <code>.github/workflows/ci.yml</code>. It runs on every push to <code>main</code>, on every pull request, nightly, and on manual dispatch. It has four jobs: <code>frontend</code>, <code>backend</code> and <code>android</code> run every time, and <code>integration</code> runs only on the nightly schedule or a manual dispatch.</p>
 <h2 id="the-frontend-job"><a class="anchor" href="#the-frontend-job" aria-hidden="true">#</a>The frontend job</h2>
 <pre data-lang="sh"><code class="language-sh">cd frontend &amp;&amp; npm ci
 cd frontend &amp;&amp; npm run lint     # Lint (no-undef gate)
@@ -67,6 +67,12 @@ go test -race -short ./...</code></pre>
 	t.Skip(&quot;network integration test&quot;)
 }</code></pre>
 <p>Tests of pure logic run in the gate and need no guard. Most of <code>internal/app</code> is integration tests; <code>TestThreeNodeGuildE2EE</code> in <code>internal/app/integration_test.go</code>, three services forming a guild and exchanging encrypted messages, is the one to copy from.</p>
+<h2 id="the-android-job"><a class="anchor" href="#the-android-job" aria-hidden="true">#</a>The android job</h2>
+<pre data-lang="sh"><code class="language-sh">cd frontend &amp;&amp; npm ci &amp;&amp; npm run build
+make android-core ANDROID_TARGET=android/amd64
+cd apps/mobile &amp;&amp; npm ci &amp;&amp; npx cap sync android
+cd apps/mobile/android &amp;&amp; ./gradlew --no-daemon assembleDebug -PconcordAbi=x86_64</code></pre>
+<p>Nothing else in CI touches <code>apps/mobile</code>, so without this job a Capacitor or plugin update, a Java change, or a change to the <code>gomobile</code> surface in <code>mobile/</code> could break the app and still pass. It needs JDK 21, the Android SDK with NDK 27.2.12479018, and <code>gomobile</code> at the version <code>go.mod</code> pins. The core is bound for x86_64 alone to keep the link short; that ABI also exercises the libc overlay described in <a href="../building/">Building</a>. A debug build is signed with the SDK's own debug key, so the job needs no secrets.</p>
 <h2 id="the-integration-job"><a class="anchor" href="#the-integration-job" aria-hidden="true">#</a>The integration job</h2>
 <pre data-lang="sh"><code class="language-sh">cd frontend &amp;&amp; npm ci &amp;&amp; npm run build
 go test -race -p 1 -timeout 30m ./...</code></pre>
@@ -105,7 +111,7 @@ make dev-clean      # delete .dev/</code></pre>
     <nav class="pager" aria-label="Previous and next"><a class="pager__link pager__link--prev" href="../building/"><span class="pager__kicker">Previous</span><span class="pager__title">Building from source</span></a><a class="pager__link pager__link--next" href="../contributing/"><span class="pager__kicker">Next</span><span class="pager__title">Contributing</span></a></nav>
     <footer class="foot">Concord is free software under the GNU Affero General Public License, version 3 or later. These pages are built from the Markdown in the repository.</footer>
   </main>
-  <aside class="toc" aria-label="On this page"><div class="toc__title">On this page</div><a class="toc__link toc__link--2" href="#the-frontend-job">The frontend job</a><a class="toc__link toc__link--2" href="#the-backend-job">The backend job</a><a class="toc__link toc__link--3" href="#writing-a-network-test">Writing a network test</a><a class="toc__link toc__link--2" href="#the-integration-job">The integration job</a><a class="toc__link toc__link--2" href="#running-the-checks-locally">Running the checks locally</a><a class="toc__link toc__link--2" href="#local-peers">Local peers</a><a class="toc__link toc__link--2" href="#end-to-end-scripts">End-to-end scripts</a><a class="toc__link toc__link--2" href="#checking-ui-changes">Checking UI changes</a></aside>
+  <aside class="toc" aria-label="On this page"><div class="toc__title">On this page</div><a class="toc__link toc__link--2" href="#the-frontend-job">The frontend job</a><a class="toc__link toc__link--2" href="#the-backend-job">The backend job</a><a class="toc__link toc__link--3" href="#writing-a-network-test">Writing a network test</a><a class="toc__link toc__link--2" href="#the-android-job">The android job</a><a class="toc__link toc__link--2" href="#the-integration-job">The integration job</a><a class="toc__link toc__link--2" href="#running-the-checks-locally">Running the checks locally</a><a class="toc__link toc__link--2" href="#local-peers">Local peers</a><a class="toc__link toc__link--2" href="#end-to-end-scripts">End-to-end scripts</a><a class="toc__link toc__link--2" href="#checking-ui-changes">Checking UI changes</a></aside>
 </div>
 <script>window.__docs={base:"../"}</script>
 <script src="../docs.js" defer></script>
