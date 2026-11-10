@@ -164,3 +164,39 @@ func deviceKeyOf(t *testing.T, s *Service) string {
 	}
 	return hex.EncodeToString(raw)
 }
+
+// The same, when the device comes back before the desktop has noticed its old
+// connection go: the desktop still holds the "already answered" claim from
+// that connection when the new hello arrives. Its answer must carry the
+// revocation anyway.
+func TestUnlinkedDeviceErasesItselfWhenItReturnsAtOnce(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	boot := testRendezvous(t, ctx)
+	deskDir, phoneDir := t.TempDir(), t.TempDir()
+	desk, phone, _, _ := linkedPair(t, ctx, deskDir, phoneDir, boot)
+
+	key := deviceKeyOf(t, phone)
+	phoneID := phone.host.PeerID()
+	_ = phone.Close()
+	if err := desk.UnlinkDevice(key); err != nil {
+		t.Fatalf("UnlinkDevice: %v", err)
+	}
+	// What the desktop looks like when the phone's old connection has not been
+	// reaped yet: the claim taken when it answered the phone's last hello is
+	// still held. (Taken here once the real one is released, so the test does
+	// not depend on how fast the desktop notices.)
+	waitUntil(t, 30*time.Second, func() bool { return desk.answered.claim(phoneID) },
+		"the desktop never released its claim on the phone")
+
+	phone2 := startServiceOn(t, ctx, phoneDir, boot)
+	_ = phone2.host.Connect(ctx, desk.host.AddrInfo())
+	waitUntil(t, 30*time.Second, func() bool {
+		_, err := os.Stat(keystorePathIn(phoneDir))
+		return os.IsNotExist(err)
+	}, "the unlinked device did not erase itself after coming back online")
+}

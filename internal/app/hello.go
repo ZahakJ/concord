@@ -213,7 +213,12 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	// harden.
 	s.ingestHello(from, req)
 	if !s.answered.claim(from) {
-		return json.Marshal(helloFrame{})
+		// Except the revocation, which costs nothing to look up and must not
+		// wait on the claim. A device that restarts and redials faster than we
+		// notice its old connection die finds the claim still held from that
+		// connection; answering it with nothing left an unlinked device running
+		// with the account's keys until it happened to reconnect again.
+		return json.Marshal(helloFrame{Revoked: s.revocationFor(from)})
 	}
 
 	// Answer only someone we can place — which, thanks to the request we just
