@@ -497,6 +497,10 @@
   }
   .sp-hit {
     display: flex;
+    /* A row of a scrolling flex column shrinks to share the height unless told
+       not to: on a phone every hit was squeezed to 48px while its two-line
+       snippet needed 70, and the second line was drawn over the next result. */
+    flex-shrink: 0;
     align-items: flex-start;
     gap: 9px;
     padding: 7px 8px;
