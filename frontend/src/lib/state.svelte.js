@@ -49,6 +49,7 @@ import {
   declineBlob,
   parseDecline,
   callPreview,
+  sharersOf,
 } from "./callflow.js";
 import { startCallClock } from "./calltimer.svelte.js";
 import {
@@ -525,16 +526,15 @@ export function setVideoStream(key, stream, meta = {}) {
     videoMetaMap.delete(key);
   }
   S.videoTiles = [...videoStreams.keys()].map((k) => ({ key: k, ...videoMetaMap.get(k) }));
-  // Sidebar "sharing" icon: any live video from a remote peer marks them.
-  const sh = {};
-  for (const m of videoMetaMap.values()) if (m.peerId && !m.self) sh[m.peerId] = true;
-  S.voiceSharing = sh;
+  // Sidebar "LIVE — click to watch": a remote SCREEN share, not a camera.
+  S.voiceSharing = sharersOf(videoMetaMap.values());
 }
 
 export function clearVideoStreams() {
   videoStreams.clear();
   videoMetaMap.clear();
   S.videoTiles = [];
+  S.voiceSharing = {};
 }
 
 // faceFor: the same fallback chain nameFor walks, for the rest of the face.

@@ -137,6 +137,10 @@ async function getBrowser() {
     "--use-fake-ui-for-media-stream",
     "--use-fake-device-for-media-stream",
     "--autoplay-policy=no-user-gesture-required",
+    // Screen sharing: pick the whole (virtual) screen without a picker, as a
+    // person clicking "Entire screen" would.
+    "--auto-select-desktop-capture-source=Entire screen",
+    "--enable-usermedia-screen-capturing",
     "--disable-dev-shm-usage",
   ];
   // The system Chromium when there is one; otherwise whatever browser the
