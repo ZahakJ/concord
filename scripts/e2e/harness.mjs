@@ -505,7 +505,16 @@ export class App {
     const id = await this.messageRow(text).getAttribute("data-msg-id");
     const row = this.page.locator(`.msg[data-msg-id="${id}"]`);
     await row.locator(".msg-main").first().hover();
-    await row.getByRole("toolbar", { name: "Message actions" }).getByRole("button", { name: label, exact: true }).first().click();
+    // Edit, Pin and Delete join the toolbar only while Shift is held; their
+    // everyday home is the toolbar's ⋯ menu, which is where a reader goes.
+    const bar = row.getByRole("toolbar", { name: "Message actions" });
+    const button = bar.getByRole("button", { name: label, exact: true }).first();
+    if (await button.isVisible()) {
+      await button.click();
+      return row;
+    }
+    await bar.getByRole("button", { name: "More", exact: true }).click();
+    await this.page.getByRole("menuitem", { name: label, exact: true }).first().click();
     return row;
   }
 

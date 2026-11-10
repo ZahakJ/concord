@@ -21,6 +21,7 @@
   const me = $derived(memberByFpr(S.identity.fingerprint));
   const myName = $derived(S.displayName || me?.name || "You");
   const failed = $derived(entry.state === "failed");
+  const avSize = $derived(S.isMobile ? 34 : S.prefs.density === "comfortable" ? 40 : 36);
 
   // A slow-mode refusal carries the MOMENT it lifts, not the number the core
   // happened to say. The number was captured once and never ticked: read at
@@ -48,7 +49,7 @@
   const html = $derived(bodyText ? renderMarkdown(bodyText, [], null, null) : "");
 </script>
 
-<div class="pmsg" class:compact={!first} class:failed role="article" aria-busy={!failed}>
+<div class="pmsg" class:compact={!first} class:failed role="article" aria-busy={!failed} style:--av="{avSize}px">
   {#if first}
     <span class="pav" aria-hidden="true">
       <Avatar
@@ -57,7 +58,7 @@
         color={me?.color}
         color2={me?.color2}
         image={me?.avatar}
-        size={38}
+        size={avSize}
         frame={me?.frame}
         decoration={me?.style?.dec || ""}
         dc={me?.style?.dc || ""}
@@ -130,15 +131,25 @@
     /* The whole point: it is here, and it is not landed yet. */
     opacity: 0.6;
   }
+  /* Groups are made in the markup (see Message.svelte): the first row of a
+     run carries the group's space, the rest sit flush. */
+  .pmsg:not(.compact) {
+    margin-top: var(--msg-gap, 16px);
+  }
   .pmsg.failed {
     opacity: 1;
+    box-shadow: inset 2px 0 0 var(--danger-soft);
+  }
+  :global(:root[data-density="compact"]) .pav,
+  :global(:root[data-density="compact"]) .pgutter {
+    display: none;
   }
   .pav {
     flex: none;
     align-self: flex-start;
   }
   .pgutter {
-    width: 38px;
+    width: var(--av);
     flex: none;
     display: flex;
     justify-content: flex-end;
@@ -160,7 +171,10 @@
     align-items: center;
     gap: var(--sp-1);
     color: var(--text-faint);
-    font-size: var(--fs-micro);
+    font-size: var(--fs-tiny);
+  }
+  .phdr strong {
+    font-weight: 600;
   }
   .pbody {
     word-break: break-word;
@@ -193,22 +207,22 @@
     gap: var(--sp-2);
     margin-top: var(--sp-1);
     color: var(--danger-text);
-    font-size: var(--fs-compact);
+    font-size: var(--fs-small);
   }
+  /* Text buttons in the sentence, the way an inline action reads. */
   .pbtn {
-    padding: 2px 8px;
-    border: 1px solid var(--border);
+    padding: 0 2px;
+    border: none;
     border-radius: var(--radius-sm);
-    background: var(--bg-2);
-    color: var(--text);
-    font-size: var(--fs-compact);
+    background: transparent;
+    color: var(--accent-hover);
+    font-size: var(--fs-small);
+    font-weight: 500;
   }
   .pbtn:hover {
-    background: var(--bg-3);
+    text-decoration: underline;
   }
   .pbtn.quiet {
-    border-color: transparent;
-    background: transparent;
     color: var(--text-muted);
   }
 </style>

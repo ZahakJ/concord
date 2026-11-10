@@ -118,7 +118,7 @@
         name={m.author || "?"}
         image={m.avatar || ""}
         color={tintFor(m.author || "?")}
-        size={38}
+        size={S.isMobile ? 34 : S.prefs.density === "comfortable" ? 40 : 36}
       />
     </span>
   {:else}
@@ -136,6 +136,10 @@
              the eye lands first, told the reader nothing they had not already
              been told and pushed the time out of its column. -->
         <span class="time" title={stampFull}>{stamp}</span>
+        <!-- After the time, never between name and time: a quiet word that
+             says this "Ada" is a name out of an imported history, not the
+             member called Ada who might be in the list beside the feed. -->
+        <span class="imported" title="From an imported archive. This name is not a member here.">imported</span>
       </div>
     {/if}
 
@@ -195,8 +199,21 @@
     padding: var(--msg-pad-y, 2px) 0;
     border-radius: var(--radius-sm);
   }
-  .msg.compact {
-    margin-top: var(--msg-group-pull, -10px);
+  /* Groups are made in the markup (see Message.svelte). */
+  .msg:not(.compact) {
+    margin-top: var(--msg-gap, 16px);
+  }
+  .imported {
+    font-size: var(--fs-micro);
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0 5px;
+    line-height: 15px;
+  }
+  :global(:root[data-density="compact"]) .av-slot,
+  :global(:root[data-density="compact"]) .gutter {
+    display: none;
   }
   .av-slot {
     flex-shrink: 0;
@@ -206,7 +223,7 @@
      purpose: there is no hover timestamp to reveal, because the row above
      already prints an absolute one. */
   .gutter {
-    width: 38px;
+    width: 36px;
     flex-shrink: 0;
   }
   .msg-main {

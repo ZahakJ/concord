@@ -55,10 +55,14 @@ test("an edit saves on Enter only, and an emptied edit offers to delete", async 
   const id = await a.messageRow("delete me fast").getAttribute("data-msg-id");
   const row = a.page.locator(`.msg[data-msg-id="${id}"]`);
   await row.locator(".msg-main").first().hover();
+  // Holding Shift is what brings Delete into the toolbar, and Shift+click on
+  // it is the delete that skips the question.
+  await a.page.keyboard.down("Shift");
   await row
     .getByRole("toolbar", { name: "Message actions" })
     .getByRole("button", { name: "Delete", exact: true })
     .click({ modifiers: ["Shift"] });
+  await a.page.keyboard.up("Shift");
   await alice.waitForMessage(ch, (m) => m.id === fast.id && m.deleted, { deleted: true });
   assert.equal(await a.page.locator('[role="dialog"]').count(), 0, "Shift+Delete still asked");
 });

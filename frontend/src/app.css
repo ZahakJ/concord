@@ -172,10 +172,10 @@
      reads like a default. */
   --msg-pad-y: 2px;
   --msg-gap: 16px;
-  /* A continuation row cancels the feed's whole gap, so a group reads as one
-     block with only its rows' own padding between lines. This is the bridge
-     until the feed groups by markup, at which point it becomes 0px. */
-  --msg-group-pull: calc(-1 * var(--msg-gap));
+  /* The feed groups by markup: the row that starts a group carries
+     --msg-gap above it and a continuation row carries nothing, so nothing
+     pulls back. Kept as a name (zero) so a pack may still define it. */
+  --msg-group-pull: 0px;
   --feed-pad: 16px;
 
   /* The reading measure. A message body had no cap at all, so it took whatever
@@ -1012,7 +1012,7 @@
 :root:root[data-density="compact"] {
   --msg-pad-y: 1px;
   --msg-gap: 6px;
-  --msg-group-pull: calc(-1 * var(--msg-gap));
+  --msg-group-pull: 0px;
   --feed-pad: 10px;
   --fs-body: 14.5px;
 }
@@ -1024,7 +1024,7 @@
 :root:root[data-density="comfortable"] {
   --msg-pad-y: 3px;
   --msg-gap: 22px;
-  --msg-group-pull: calc(-1 * var(--msg-gap));
+  --msg-group-pull: 0px;
   --feed-pad: 22px;
   --fs-body: 16.5px;
 }

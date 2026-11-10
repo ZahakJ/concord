@@ -2287,7 +2287,6 @@
   /* Packed like a terminal buffer. */
   --msg-pad-y: 0px;
   --msg-gap: 6px;
-  --msg-group-pull: -3px;
   --feed-pad: 10px;
 }
 :root[data-theme-pack="dracula"] {
@@ -2298,7 +2297,6 @@
   --tracking: -0.01em;
   --avatar-radius: 5px;
   --msg-gap: 9px;
-  --msg-group-pull: -6px;
   --feed-pad: 13px;
   --accent-glow: 0 0 18px color-mix(in srgb, var(--accent) 34%, transparent);
 }
@@ -2343,7 +2341,6 @@
   --accent-glow: 0 0 26px color-mix(in srgb, var(--accent) 45%, transparent);
   --msg-pad-y: 1px;
   --msg-gap: 8px;
-  --msg-group-pull: -5px;
   --feed-pad: 12px;
 }
 /* Retro-futurist: hard edges, wide tracking, everything glowing. */
@@ -2377,7 +2374,6 @@
   --msg-pad-x: 12px;
   --msg-pad-y: 6px;
   --msg-gap: 8px;
-  --msg-group-pull: -4px;
   --feed-pad: 22px;
   --shadow-pop:
     0 4px 10px rgba(0, 0, 0, 0.22),
@@ -2396,7 +2392,6 @@
   --msg-pad-x: 12px;
   --msg-pad-y: 5px;
   --msg-gap: 8px;
-  --msg-group-pull: -4px;
   --feed-pad: 20px;
   --accent-glow: 0 0 26px color-mix(in srgb, var(--accent) 32%, transparent);
 }
@@ -2469,7 +2464,6 @@
   --msg-pad-x: 12px;
   --msg-pad-y: 5px;
   --msg-gap: 8px;
-  --msg-group-pull: -4px;
   --feed-pad: 20px;
 }
 :root[data-theme-pack="skyline"] {
@@ -2547,7 +2541,6 @@
   --accent-glow: 0 0 26px color-mix(in srgb, var(--accent) 62%, transparent);
   --msg-pad-y: 0px;
   --msg-gap: 6px;
-  --msg-group-pull: -3px;
   --feed-pad: 10px;
 }
 :root[data-theme-pack="sonar"] {
@@ -2574,7 +2567,6 @@
   --msg-pad-x: 12px;
   --msg-pad-y: 5px;
   --msg-gap: 8px;
-  --msg-group-pull: -4px;
   --feed-pad: 20px;
   --accent-glow: 0 0 28px color-mix(in srgb, var(--accent) 42%, transparent);
 }
@@ -2611,7 +2603,6 @@
   --msg-rule-pad: 5px;
   --accent-glow: none;
   --msg-gap: 11px;
-  --msg-group-pull: -6px;
   --feed-pad: 14px;
 }
 :root[data-theme-pack="blossom"] {
@@ -2625,7 +2616,6 @@
   --msg-pad-x: 12px;
   --msg-pad-y: 6px;
   --msg-gap: 8px;
-  --msg-group-pull: -4px;
   --feed-pad: 21px;
   --accent-glow: 0 0 28px color-mix(in srgb, var(--accent) 40%, transparent);
 }
@@ -2703,7 +2693,6 @@
   --msg-pad-x: 9px;
   --msg-pad-y: 2px;
   --msg-gap: 5px;
-  --msg-group-pull: -2px;
   --feed-pad: 12px;
   --accent-glow: 0 0 24px color-mix(in srgb, var(--accent) 55%, transparent);
 }
@@ -2717,7 +2706,6 @@
   --msg-rule: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   --msg-rule-pad: 5px;
   --msg-gap: 9px;
-  --msg-group-pull: -5px;
   --feed-pad: 13px;
 }
 :root[data-theme-pack="zellige"] {
@@ -2732,7 +2720,6 @@
   --msg-pad-x: 12px;
   --msg-pad-y: 6px;
   --msg-gap: 8px;
-  --msg-group-pull: -4px;
   --feed-pad: 20px;
 }
 :root[data-theme-pack="atrium"] {
@@ -2748,7 +2735,6 @@
   --msg-pad-x: 13px;
   --msg-pad-y: 6px;
   --msg-gap: 8px;
-  --msg-group-pull: -4px;
   --feed-pad: 22px;
   /* Daylight on stone: elevation is a cool haze, because a black drop shadow
      on a near-white ground reads as dirt (same call porcelain makes). */
@@ -2789,7 +2775,6 @@
   --accent-glow: 0 0 24px color-mix(in srgb, var(--accent) 60%, transparent);
   --msg-pad-y: 0px;
   --msg-gap: 6px;
-  --msg-group-pull: -3px;
   --feed-pad: 10px;
 }
 :root[data-theme-pack="harbor"] {
@@ -2803,7 +2788,6 @@
   --accent-glow: none;
   --shadow-pop: 0 2px 8px rgba(0, 0, 0, 0.45);
   --msg-gap: 10px;
-  --msg-group-pull: -6px;
   --feed-pad: 14px;
 }
 :root[data-theme-pack="observatory"] {
@@ -2830,7 +2814,6 @@
   --msg-pad-x: 12px;
   --msg-pad-y: 6px;
   --msg-gap: 8px;
-  --msg-group-pull: -4px;
   --feed-pad: 20px;
   --accent-glow: 0 0 26px color-mix(in srgb, var(--accent) 36%, transparent);
 }
@@ -2902,7 +2885,6 @@
   --msg-pad-x: 12px;
   --msg-pad-y: 5px;
   --msg-gap: 8px;
-  --msg-group-pull: -4px;
   --feed-pad: 20px;
 }
 :root[data-theme-pack="grape"] {
@@ -2962,7 +2944,6 @@
   --msg-rule: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   --msg-rule-pad: 5px;
   --msg-gap: 10px;
-  --msg-group-pull: -6px;
   --feed-pad: 14px;
 }
 
@@ -2995,7 +2976,6 @@
   --avatar-radius: 3px;
   --msg-pad-y: 1px;
   --msg-gap: 8px;
-  --msg-group-pull: -5px;
   --feed-pad: 13px;
 }
 :root[data-theme-pack="meadow"] {
@@ -3009,7 +2989,6 @@
   --msg-pad-x: 12px;
   --msg-pad-y: 5px;
   --msg-gap: 8px;
-  --msg-group-pull: -4px;
   --feed-pad: 22px;
 }
 :root[data-theme-pack="porcelain"] {

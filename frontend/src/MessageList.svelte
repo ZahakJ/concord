@@ -40,6 +40,7 @@
     openCallStage,
     archiveChannel,
     loadArchiveOlder,
+    toggleMemberPanel,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
@@ -53,6 +54,8 @@
   import { pointOf } from "./lib/place.js";
   import { isGuildSetupArmed } from "./lib/setup.js";
   import { continuesGroup } from "./lib/grouping.js";
+  import { dayLabel } from "./lib/daylabel.js";
+  import { showInspectorTab } from "./lib/inspector.svelte.js";
 
   let { onDropFiles, onJoinVoice } = $props();
 
@@ -63,9 +66,9 @@
   $effect(() => registerFeed(feedEl));
 
   // Below this the full hover bar cannot be reserved without leaving the text a
-  // ribbon: 340px of gutter out of an 880px feed still reads at ~60 characters,
-  // out of a 483px forum panel it leaves 143px.
-  const NARROW_BAR = 880;
+  // ribbon: 250px of gutter out of a 640px feed still reads at ~45 characters,
+  // out of a 483px forum panel it would leave 180px.
+  const NARROW_BAR = 640;
   let barNarrow = $state(false);
 
   // Keep the feed pinned to the newest message while the user is at the bottom,
@@ -252,6 +255,18 @@
   }
 
   const pinned = $derived(S.messages.filter((m) => m.pinned && !m.deleted));
+  // Pins live in the inspector's Pins tab wherever the inspector can show (a
+  // guild channel with room beside it). "Show pinned messages" from the
+  // palette or a shortcut opens that tab; the popover below remains for the
+  // places the inspector does not reach (DMs, a cramped window, the stage).
+  $effect(() => {
+    if (!S.showPins || S.isMobile || S.cramped || S.callStage || activeGuild()?.kind === "dm") return;
+    untrack(() => {
+      showInspectorTab("pins");
+      if (!S.prefs.memberPanel) toggleMemberPanel();
+      S.showPins = false;
+    });
+  });
   const byId = $derived(new Map(S.messages.map((m) => [m.id, m])));
   const isDMView = $derived(activeGuild()?.kind === "dm");
 
@@ -1192,14 +1207,7 @@
     }
   }
 
-  function fmtDay(day) {
-    const d = new Date(day);
-    const today = new Date().toDateString();
-    const yesterday = new Date(Date.now() - 86400000).toDateString();
-    if (day === today) return "Today";
-    if (day === yesterday) return "Yesterday";
-    return d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
-  }
+  const fmtDay = (day) => dayLabel(day);
 
   // Missed-call lines carry their own small timestamp (regular messages get
   // theirs from Message.svelte; system join notices don't need one).
@@ -1653,7 +1661,7 @@
       <PendingMessage entry={it.entry} first={it.first} />
     {:else if it.t === "new"}
       <div class="new-divider" class:cleared={newCleared}>
-        <span>{newCleared ? "READ UP TO HERE" : "NEW"}</span>
+        <span>{newCleared ? "Read up to here" : "New"}</span>
         {#if !newCleared}
           <button
             class="mark-read"
@@ -1662,7 +1670,7 @@
               newCleared = true;
             }}
           >
-            Mark as read <Icon name="check" size={11} />
+            Mark as read
           </button>
         {/if}
       </div>
@@ -1810,13 +1818,12 @@
          in a separate visually-hidden region (below) so AT hears "new messages"
          without the button being demoted to a passive status region. -->
     <button class="new-below" aria-label="New messages below — jump to latest" onclick={scrollSoon}>
-      New messages <span class="arrow">↓</span>
+      New messages <span class="arrow" aria-hidden="true">↓</span>
     </button>
     <span class="sr-only" role="status" aria-live="polite">New messages below</span>
   {:else if !atBottom && !lastRowSeen}
     <button class="older-bar" aria-label="Viewing older messages — jump to latest" onclick={scrollSoon}>
-      <span class="ob-text">Viewing older messages</span>
-      <span class="ob-cta">Jump to latest</span>
+      <span class="ob-cta">Jump to latest</span> <span class="arrow" aria-hidden="true">↓</span>
     </button>
   {/if}
 </div>
@@ -1826,12 +1833,14 @@
      the composer. */
   .feed-dock {
     display: flex;
-    justify-content: center;
+    justify-content: flex-end;
     flex: none;
     line-height: 0;
+    padding: 0 var(--sp-edge);
   }
   .feed-dock:has(button) {
-    padding: 6px 0 2px;
+    padding-top: 6px;
+    padding-bottom: 2px;
   }
   .oos-banner {
     display: flex;
@@ -2099,14 +2108,17 @@
     padding: var(--feed-pad, 16px);
     display: flex;
     flex-direction: column;
-    --feed-gap: var(--msg-gap, 12px);
+    /* No gap between rows: a group's space is carried by the row that starts
+       it (Message.svelte), and dividers carry their own, so a continuation row
+       sits flush under the one above without pulling against anything. */
+    --feed-gap: 0px;
     gap: var(--feed-gap);
     position: relative;
     /* Room at the right edge of every row for the hover action bar, so the bar
        is never over text. Sized to the widest bar the row can build (three quick
-       emoji, add-reaction, reply, forward, pin, edit, delete, ⋯ — 317px
-       measured) plus its inset. Message.svelte carries the reasoning. */
-    --act-gutter: 340px;
+       emoji, add reaction, reply, thread, ⋯ — 238px measured) plus its inset.
+       Message.svelte carries the reasoning. */
+    --act-gutter: 250px;
   }
   /* One ⋯ button: 26px of glyph, 3px of padding either side, a hairline either
      side, and the 4px the bar is inset from the row's edge. */
@@ -2209,107 +2221,71 @@
   .who-face :global(.avatar) {
     border: 2px solid var(--bg-2);
   }
+  /* Dividers are left-aligned labels with a hairline to the right — sentence
+     case, never a pill. Each carries its own space above (the feed has no
+     gap; see .feed), and a new group always starts under one. */
   .day-divider {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--sp-3);
     color: var(--text-muted);
-    font-size: var(--fs-small);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin: 6px 0 -4px;
+    font-family: var(--display-font);
+    font-size: var(--fs-ui);
+    font-style: italic;
+    font-weight: 600;
+    margin: 20px 0 4px;
   }
-  .day-divider::before,
   .day-divider::after {
     content: "";
     flex: 1;
     height: 1px;
-    /* rule fades out toward the edges — reads as a soft centered break */
-    background: linear-gradient(to right, transparent, var(--border));
+    background: var(--hairline);
   }
-  .day-divider::after {
-    background: linear-gradient(to left, transparent, var(--border));
-  }
-  .day-divider span {
-    padding: 2px 10px;
-    font-weight: 600;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-  }
+  /* The New line is YOUR accent, as ink, at every size and in both themes:
+     a hairline across and the word at the end. */
   .new-divider {
     display: flex;
     align-items: center;
-    gap: var(--sp-2);
+    gap: 10px;
     color: var(--accent-hover);
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    margin: 2px 0 -4px;
-    /* Its MARK AS READ is a real control and outranks any hover chrome that
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+    margin: 14px 0 0;
+    /* Its Mark as read is a real control and outranks any hover chrome that
        reaches for the same pixels. */
     position: relative;
     z-index: 6;
   }
-  .new-divider::before,
-  .new-divider::after {
+  .new-divider::before {
     content: "";
     flex: 1;
     height: 1px;
-    background: color-mix(in srgb, var(--accent) 55%, transparent);
-  }
-  .new-divider span {
-    padding: 1px 7px;
-    background: var(--accent);
-    color: var(--accent-fg);
-    border-radius: 999px;
-    /* one gentle pulse when the divider appears, then settle */
-    animation: new-pulse 1.5s ease-out 0.35s 1;
-  }
-  /* Flex-order the pseudo lines so "Mark as read" sits at the far right:
-     [line][NEW][line————————][mark as read] */
-  .new-divider::before {
-    order: 0;
-  }
-  .new-divider span {
-    order: 1;
-  }
-  .new-divider::after {
-    order: 2;
+    background: color-mix(in srgb, var(--accent-hover) 70%, transparent);
   }
   /* Acknowledged: same slot, same height, no jump — just quieter. */
   .new-divider.cleared {
     color: var(--text-faint);
   }
-  .new-divider.cleared span {
-    background: transparent;
-    color: var(--text-faint);
-    border: 1px solid var(--border);
-    animation: none;
-  }
-  .new-divider.cleared::before,
-  .new-divider.cleared::after {
-    background: color-mix(in srgb, var(--border) 70%, transparent);
+  .new-divider.cleared::before {
+    background: var(--hairline);
   }
   .new-divider .mark-read {
-    order: 3;
     display: inline-flex;
     align-items: center;
     gap: 3px;
     border: none;
     background: transparent;
-    color: var(--accent-hover);
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    color: var(--text-muted);
+    font-size: var(--fs-tiny);
+    font-weight: 500;
     padding: 1px 5px;
     border-radius: var(--radius-sm);
     cursor: pointer;
   }
   .new-divider .mark-read:hover,
   .new-divider .mark-read:active {
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    background: var(--bg-3);
+    color: var(--text);
   }
   /* Loading shimmer while a channel switch fetches history. */
   .feed-skeleton {
@@ -2370,11 +2346,15 @@
       box-shadow: 0 0 0 9px transparent;
     }
   }
+  /* System rows read as a line of the conversation, not a banner: the icon
+     sits right-aligned in the avatar column and the sentence starts where a
+     message's text starts. */
   .system-msg {
-    text-align: center;
+    text-align: start;
     font-size: var(--fs-compact);
     color: var(--text-muted);
-    padding: 2px 0;
+    padding: 4px 0;
+    margin-top: 10px;
   }
   /* Newest appended system row slides in like a message (zeroed under the
      global reduced-motion override in app.css). */
@@ -2387,13 +2367,25 @@
       transform: translateY(8px);
     }
   }
-  .system-msg span {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
+  .system-msg > span {
+    display: block;
+    position: relative;
+    padding-left: 48px;
+  }
+  .system-msg > span > :first-child {
+    position: absolute;
+    left: 20px;
+    top: 2px;
+    width: 16px;
+    height: 16px;
+    display: grid;
+    place-items: center;
+    color: var(--text-faint);
+    background: none;
   }
   .system-msg strong {
     color: var(--text);
+    font-weight: 600;
   }
   /* Missed-call line: same quiet centered stripe as system notices, with a
      red-tinted phone badge so it reads as a call event at a glance. */
@@ -2403,8 +2395,6 @@
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: color-mix(in srgb, var(--danger, #f04747) 16%, transparent);
-    color: var(--danger, #f04747);
   }
   .call-missed .call-time {
     color: var(--text-faint);
@@ -2414,7 +2404,6 @@
   .invite-note {
     display: flex;
     align-items: center;
-    justify-content: center;
     gap: var(--sp-2);
     flex-wrap: wrap;
   }
@@ -2424,16 +2413,14 @@
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: var(--accent-soft);
-    color: var(--accent);
   }
   .inv-join {
     padding: 2px 10px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: var(--accent);
-    color: var(--accent-fg);
-    font-size: var(--fs-tiny);
+    border-radius: var(--radius-sm);
+    border: none;
+    background: var(--bg-3);
+    color: var(--text);
+    font-size: var(--fs-small);
     font-weight: 600;
   }
   .inv-join:hover {
@@ -2447,37 +2434,32 @@
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: color-mix(in srgb, var(--warn) 16%, transparent);
-    color: var(--warn-text);
   }
-  .device-note span {
-    max-width: 60ch;
-    text-align: center;
-    display: inline-flex;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
+
   /* The return-to-latest cluster: both buttons share the accent-gradient
      "floating" look — a soft colored glow instead of the old flat chip. */
-  .new-below {
+  /* The return-to-now chip: right-aligned, one quiet lifted surface. */
+  .new-below,
+  .older-bar {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    padding: var(--sp-2) var(--sp-4);
+    gap: 6px;
+    height: 30px;
+    padding: 0 12px;
     border-radius: 999px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-    color: var(--accent-fg);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text);
     font-size: var(--fs-compact);
-    font-weight: 600;
-    letter-spacing: 0.01em;
+    font-weight: 500;
     box-shadow: var(--shadow-pop);
     z-index: 15;
-    animation: float-in 0.2s var(--ease-out);
-    transition: transform var(--dur-standard) ease;
+    animation: float-in var(--dur-quick) var(--ease-spring);
   }
   @media (pointer: fine) {
-    .new-below:hover {
-      transform: translateY(-2px);
+    .new-below:hover,
+    .older-bar:hover {
+      background: var(--bg-3);
     }
   }
   .new-below .arrow {
@@ -2514,9 +2496,9 @@
   .feed-start {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: var(--sp-2);
-    padding: 14px 12px 6px;
+    padding: 14px 0 6px;
     font-size: var(--fs-compact);
     color: var(--text-muted);
   }
@@ -2651,56 +2633,18 @@
     pointer-events: none;
     will-change: transform, opacity;
   }
-  /* "You're scrolled up" indicator: a slim glassy bar above the composer —
-     quiet context plus one accent action, not a floating blob. */
-  .older-bar {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-3);
-    padding: 7px 16px;
-    border-radius: 999px;
-    /* 84% let the message underneath show through the words, and the blur only
-       smeared it — two lines of text on top of each other read as neither. The
-       pill is a control, not a pane of glass. */
-    background: color-mix(in srgb, var(--bg-1) 96%, transparent);
-    backdrop-filter: blur(16px) saturate(1.2);
-    -webkit-backdrop-filter: blur(16px) saturate(1.2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    font-size: var(--fs-compact);
-    box-shadow: var(--shadow-pop);
-    z-index: 15;
-    animation: float-in 0.2s var(--ease-out);
-    transition: border-color var(--dur-standard) ease, transform var(--dur-standard) ease;
-  }
   .ob-cta {
-    color: var(--accent-hover);
-    font-weight: 600;
     white-space: nowrap;
-  }
-  @media (pointer: fine) {
-    .older-bar:hover {
-      background: var(--bg-1);
-      border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-      transform: translateY(-1px);
-    }
-  }
-  .older-bar:active {
-    transform: none;
   }
   @keyframes float-in {
     from {
       opacity: 0;
-      transform: translateY(10px) scale(0.85);
+      transform: translateY(4px);
     }
   }
   @media (max-width: 768px) {
-    .older-bar .ob-text {
-      display: none; /* phones: just the action, no caption */
-    }
     .older-bar {
-      padding: 10px 18px;
-      min-height: var(--tap-min);
+      height: 40px;
     }
   }
   .pin-jump {
@@ -2767,18 +2711,13 @@
        app, and both of these landed ~8px under the minimum. They are already
        pill-shaped, so the height costs nothing visually. */
     .new-below {
-      padding: 10px 18px;
-      font-size: var(--fs-ui);
-      bottom: 10px;
-      min-height: var(--tap-min);
-      justify-content: center;
+      height: 40px;
     }
     /* A touch more air between message groups at arm's length — but the SIDE
        gutter caps at --sp-edge, because an airy theme pack's 22px on both sides
        of a 360px screen is 12% of the viewport spent displaying nothing. The
        vertical value still tracks the pack, so its rhythm survives. */
     .feed {
-      --feed-gap: calc(var(--msg-gap, 12px) + 4px);
       padding: var(--feed-pad, 16px) min(var(--feed-pad, 16px), var(--sp-edge));
       /* Keep a flick inside the feed instead of handing it to the page (which
          is where pull-to-refresh and rubber-banding come from). */
@@ -2786,10 +2725,7 @@
       -webkit-overflow-scrolling: touch;
     }
     .day-divider {
-      margin: 10px 0 -2px;
-    }
-    .day-divider span {
-      padding: 3px 12px;
+      margin: 16px 0 4px;
     }
     /* Clearing unread is one of the highest-frequency actions there is, and it
        was a 13px sliver of 10px uppercase wedged between two hairlines. */
