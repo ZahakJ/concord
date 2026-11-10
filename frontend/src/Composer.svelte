@@ -32,6 +32,7 @@
   import { resampleEnvelope, voiceFileName } from "./lib/voicemsg.js";
   import { encodeFx, FX_EFFECTS } from "./lib/fxtoken.js";
   import { noteDraft } from "./lib/drafts.svelte.js";
+  import { stashStaged, takeStaged, addStaged } from "./lib/compose.js";
   import Avatar from "./Avatar.svelte";
   import { stagedImage, dataUrlBytes } from "./lib/attachopts.js";
   import { fmtBytes } from "./lib/chronicle.js";
@@ -63,7 +64,9 @@
   // Staged attachments: pasting/dropping/picking a file adds a PREVIEW to the
   // composer, sent together with the text on submit.
   // Each: { id, dataUrl, w, h, name, isImage }
-  let pending = $state([]);
+  // A tray parked by an earlier mount of the composer (the phone and desktop
+  // shells each have one, and a forum board has none) comes back with it.
+  let pending = $state(takeStaged(S.activeChannelId));
   let composerEl = $state(null);
   let fileInput = $state(null);
   let cameraInput = $state(null);
@@ -314,10 +317,17 @@
       if (cur === prevChannel) return;
       saveDraft(prevChannel, draft);
       draft = loadDraft(cur);
+      // The tray travels with the text: see lib/compose.js for what sending
+      // it into whichever conversation came next cost.
+      stashStaged(prevChannel, pending);
+      pending = takeStaged(cur);
+      editingAtt = "";
       prevChannel = cur;
       queueAutosize();
     });
   });
+
+  $effect(() => () => untrack(() => stashStaged(prevChannel, pending)));
 
   // Size to a restored draft once the textarea mounts.
   $effect(() => {
@@ -993,6 +1003,12 @@
     pending = pending.filter((p) => p.id !== id);
     if (editingAtt === id) editingAtt = "";
   }
+  // Reading a file takes a moment; the conversation may have changed by the
+  // time it is done, and the file belongs to the one it was picked in.
+  function stageInto(channelId, item) {
+    if (channelId === prevChannel) pending = [...pending, item];
+    else addStaged(channelId, item);
+  }
   const uid = () =>
     (crypto?.randomUUID?.() ?? String(Date.now()) + Math.random());
 
@@ -1002,6 +1018,7 @@
   // rather than dropping it.
   async function stageImage(file) {
     if (!file || !S.activeChannelId) return true;
+    const into = S.activeChannelId;
     uploading++;
     try {
       let dataUrl, w, h;
@@ -1019,10 +1036,7 @@
       // Defaults come from stagedImage (lib/attachopts.js), which keeps `name`
       // empty so an unedited image still goes out as the v1 token older peers
       // can render. See that file for why prefilling it here is a trap.
-      pending = [
-        ...pending,
-        stagedImage({ id: uid(), dataUrl, w, h, fileName: file.name || "" }),
-      ];
+      stageInto(into, stagedImage({ id: uid(), dataUrl, w, h, fileName: file.name || "" }));
     } catch (err) {
       const msg = String(err?.message || err);
       flash(
@@ -1050,14 +1064,12 @@
       flash("File too large (max 25 MB)", "error");
       return;
     }
+    const into = S.activeChannelId;
     uploading++;
     try {
       const dataUrl = await readAsDataURL(file);
       const isVideo = file.type.startsWith("video/");
-      pending = [
-        ...pending,
-        { id: uid(), dataUrl, name: file.name || "file", isImage: false, isVideo, bytes: file.size || dataUrlBytes(dataUrl) },
-      ];
+      stageInto(into, { id: uid(), dataUrl, name: file.name || "file", isImage: false, isVideo, bytes: file.size || dataUrlBytes(dataUrl) });
     } catch (err) {
       flash(err);
     } finally {
