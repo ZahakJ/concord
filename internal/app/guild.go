@@ -2771,11 +2771,11 @@ func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, pos
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
 	topic = strings.TrimSpace(topic)
-	wasCategory := ""
+	wasCategory, wasTopic := "", ""
 	s.mu.RLock()
 	for _, c := range g.Channels {
 		if c.ID == channelID {
-			wasCategory = c.Category
+			wasCategory, wasTopic = c.Category, c.Topic
 		}
 	}
 	s.mu.RUnlock()
@@ -2800,8 +2800,19 @@ func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, pos
 	// settles positions and how a topic gets edited, and a log that prints a
 	// line every time somebody nudges a channel up two places is a log nobody
 	// reads. The category is what changes who can find the channel.
+	//
+	// The move and the topic are also what a member who was offline catches up
+	// from: the meta frame reaches only who is online, the log reaches everyone
+	// (channelname.go). So the move says where to, in fields older builds
+	// already relay (Add marks it as one that does), and a topic gets an op
+	// of its own; a build that does not know that type lists it as an
+	// operation it does not recognise and relays it untouched.
 	if category != wasCategory {
-		s.logChannelOp(guildID, "channel_move", channelID, s.channelName(guildID, channelID))
+		_ = s.issueGovOp(guildID, govOp{Type: "channel_move", ChannelID: channelID,
+			Name: s.channelName(guildID, channelID), Target: category, Add: true})
+	}
+	if topic != wasTopic {
+		_ = s.issueGovOp(guildID, govOp{Type: "channel_topic", ChannelID: channelID, Name: topic})
 	}
 	return nil
 }
@@ -2862,7 +2873,7 @@ func (s *Service) applyChannelRename(guildID, actor, channelID, name string) {
 	_ = s.store.UpdateChannelName(channelID, name)
 	// A frame that lost a concurrent rename must not get the last word just by
 	// arriving last; the log decides (channelname.go).
-	s.settleChannelNames(guildID)
+	s.settleChannelLayout(guildID)
 }
 
 // SetChannelLinks records which channels an ANNOUNCEMENT channel publishes to
@@ -3280,6 +3291,8 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if m.Channel.Type == "voice" && gc.ID != "" {
 			s.watchVoice(gc.GroupID, m.Channel.ID)
 		}
+		// A frame that lost a concurrent edit must not win by arriving last.
+		s.settleChannelLayout(guildID)
 		s.emitGuildUpdate()
 	case "category_added":
 		if m.Category.ID == "" {

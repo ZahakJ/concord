@@ -232,6 +232,8 @@ func (s *Service) GovernanceLog(guildID string, offset, limit int) ([]GovLogEntr
 		case "guild_rename", "emoji_add", "emoji_remove":
 			e.Name = o.Name
 			e.PrevName = prevNames[e.Hash]
+		case "channel_topic":
+			e.Name = o.Name // the topic; "" when it was cleared
 		case "ban", "mute", "remove_member":
 			// The three ops that carry a moderator's note. Nothing else does,
 			// and reading Name as a reason on a role op would print a role's

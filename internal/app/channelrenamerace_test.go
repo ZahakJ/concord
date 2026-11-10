@@ -46,7 +46,7 @@ func TestConcurrentChannelRenamesConverge(t *testing.T) {
 	nameOn := func(s *Service) string { return s.channelByID(g.ID, ch).Name }
 	waitUntil(t, 30*time.Second, func() bool {
 		a, b, c := nameOn(owner), nameOn(admin), nameOn(member)
-		return a == b && b == c && a == owner.loggedChannelNames(g.ID)[ch] && a != ""
+		return a == b && b == c && a == owner.loggedChannels(g.ID)[ch].name && a != ""
 	}, "the three peers never agreed on the channel's name")
 	winner := nameOn(owner)
 	loser := "alice-name"

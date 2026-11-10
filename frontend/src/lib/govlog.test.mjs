@@ -76,6 +76,16 @@ eq(
   "channel moved",
 );
 eq(
+  govSentenceText(e({ type: "channel_topic", channelName: "rules", name: "Be kind" })),
+  "Ada set the topic of #rules to “Be kind”",
+  "topic set",
+);
+eq(
+  govSentenceText(e({ type: "channel_topic", channelName: "rules" })),
+  "Ada cleared the topic of #rules",
+  "topic cleared",
+);
+eq(
   govSentenceText(e({ type: "guild_rename", name: "Riverside", prevName: "Riverbank" })),
   "Ada renamed the guild from Riverbank to Riverside",
   "guild renamed with a known former name",
@@ -218,7 +228,7 @@ const KNOWN = [
   "role_upsert", "role_delete", "role_assign", "ban", "unban", "mute", "unmute",
   "remove_member", "readmit",
   "slow_mode", "retention", "transfer_owner", "set_heir", "claim_heir",
-  "channel_create", "channel_rename", "channel_delete", "channel_move",
+  "channel_create", "channel_rename", "channel_delete", "channel_move", "channel_topic",
   "guild_rename", "emoji_add", "emoji_remove",
 ];
 for (const t of KNOWN) {

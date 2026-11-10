@@ -36,6 +36,7 @@ export const GOV_FILTERS = [
       "channel_rename",
       "channel_delete",
       "channel_move",
+      "channel_topic",
       "category_create",
       "category_rename",
       "category_delete",
@@ -174,6 +175,10 @@ function baseSentence(e) {
         : [who, text(" renamed a channel to "), renamedTo(e)];
     case "channel_move":
       return [who, text(" moved "), channel(e), text(" to another category")];
+    case "channel_topic":
+      return e.name
+        ? [who, text(" set the topic of "), channel(e), text(` to “${e.name}”`)]
+        : [who, text(" cleared the topic of "), channel(e)];
     // A category names itself in the same field a channel does, but it is not
     // a channel and must not wear the # sigil — that sigil is the thing you
     // type to link a room.

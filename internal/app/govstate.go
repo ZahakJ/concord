@@ -76,7 +76,7 @@ type govOp struct {
 	//     mute | unmute | remove_member | readmit | transfer_owner | set_heir |
 	//     claim_heir | slow_mode | retention
 	//   AUDIT-ONLY — channel_create | channel_rename | channel_delete |
-	//     channel_move | category_create | category_rename | category_delete |
+	//     channel_move | channel_topic | category_create | category_rename | category_delete |
 	//     guild_rename | emoji_add | emoji_remove
 	// An audit-only op records that an authorized member did something whose
 	// EFFECT travels on the guild-meta lane; replay checks the authority and
@@ -574,7 +574,7 @@ func (st *GuildState) applyGovOp(curp *string, o govOp) bool {
 		if o.ChannelID == "" {
 			return false
 		}
-	case "channel_create", "channel_rename", "channel_delete", "channel_move":
+	case "channel_create", "channel_rename", "channel_delete", "channel_move", "channel_topic":
 		// AUDIT ONLY. The channel itself is created, renamed, moved and deleted
 		// over the guild-meta lane, and that stays true — this op does not
 		// duplicate the effect, it records the decision. What replay contributes

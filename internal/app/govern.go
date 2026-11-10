@@ -254,8 +254,8 @@ func (s *Service) ingestGovOps(guildID string, ops []govOp, live bool) int {
 		}
 	}
 	for _, a := range added {
-		if a.o.Type == "channel_rename" {
-			s.settleChannelNames(guildID)
+		if isChannelLayoutOp(a.o.Type) {
+			s.settleChannelLayout(guildID)
 			break
 		}
 	}

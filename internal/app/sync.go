@@ -1070,7 +1070,7 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 	s.ingestGovOpsRaw(guildID, payload.GovOps)
 	// The name, after the log it is checked against. See adoptSyncedGuildName.
 	s.adoptSyncedGuildName(guildID, payload.Guild.Name)
-	s.settleChannelNames(guildID)
+	s.settleChannelLayout(guildID)
 
 	// Pack records, AFTER the governance ops, for the reason the archives below
 	// give: the op that granted somebody Manage Guild may be arriving in this very
