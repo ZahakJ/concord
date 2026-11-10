@@ -871,7 +871,33 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	// declines the redundant case entirely.
 	release := s.claimJoin(ic.GuildID)
 	defer release()
+	// Already a healthy member: there is nothing for the owner to judge, and
+	// asking anyway removed our live leaf, re-added it, and posted a second
+	// "has joined the guild" to everyone. Kicked, banned or stranded members
+	// still go through, because those are the cases the owner does judge.
+	if g, ok := s.healthyMembership(ic.GuildID); ok {
+		return g, nil
+	}
 	return s.joinViaInviteLocked(ic)
+}
+
+// healthyMembership returns the guild when this device is a seated, readable
+// member of it with nothing for a committer to repair.
+func (s *Service) healthyMembership(guildID string) (domain.Guild, bool) {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var gc domain.Guild
+	if ok {
+		gc = g.Clone()
+	}
+	s.mu.RUnlock()
+	if !ok || s.EvictedFrom(guildID) != "" || s.OutOfSync(guildID) {
+		return domain.Guild{}, false
+	}
+	if !s.guildHasMember(guildID, s.id.Fingerprint()) {
+		return domain.Guild{}, false
+	}
+	return gc, true
 }
 
 // joinOfferedInvite redeems a code offered by one of our own devices, joining

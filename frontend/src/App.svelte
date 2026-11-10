@@ -1659,17 +1659,17 @@
   // door JoinVeil already draws for an event join: it names the destination
   // for the beat the channel takes to open, so the first frame of a guild you
   // have never seen is not indistinguishable from a failed join.
-  async function joinGuild(code) {
+  async function joinGuild(code, name = "") {
     if (!code?.trim()) return;
-    // The veil goes up BEFORE the request, not after: it exists to cover the
-    // wait, and a veil raised once the join has already landed covers nothing.
-    // The dialog stays mounted underneath so a refusal still has somewhere to
-    // print itself.
-    S.joinVeil = { title: "" };
+    // The wait itself belongs to the Join dialog, which knocks and says whose
+    // door it is. A veil raised before the request drew "Joining “”…" over
+    // the dialog, translucent, for as long as the inviter took to answer —
+    // and on a refusal it had to be torn down again before the dialog could
+    // say why. The veil covers only the hop into the guild once it is ours.
     const dwell = new Promise((r) => setTimeout(r, 400));
     try {
       const [g] = await Promise.all([api.joinViaInvite(code.trim()), dwell]);
-      S.joinVeil = { title: g?.name || "your new guild" };
+      S.joinVeil = { title: g?.name || name || "your new guild" };
       S.modal = null;
       await refreshGuilds();
       if (g?.id && S.guilds.some((x) => x.id === g.id)) await selectGuild(g.id);
@@ -1679,11 +1679,10 @@
       }, 260);
       flash(`You're in ${g?.name || "the guild"}`, "success");
     } catch (err) {
-      S.joinVeil = null; // drop the veil before the dialog says why
-      // humanError, not the raw string: a refusal here is usually the transport
-      // failing to reach the owner, and that arrives as six hundred characters
-      // of multiaddrs under "That code didn't open the door" — on the screen a
-      // brand-new user meets first.
+      S.joinVeil = null;
+      // humanError first (it folds a transport failure's six hundred characters
+      // of multiaddrs into one line); the dialog then turns that into a cause
+      // and a next step (lib/joinerror.js), never the raw string.
       S.modal = { ...S.modal, error: humanError(err) };
     }
   }

@@ -42,7 +42,7 @@
     <div class="inner">
       <div class="kicker evk">{S.joinVeil.title}</div>
       <Avatar name={me.name} emoji={me.emoji} color={me.color} image={me.avatar} size={64} />
-      <div class="line">Joining “{S.joinVeil.title}”…</div>
+      <div class="line">{S.joinVeil.title ? `Joining “${S.joinVeil.title}”…` : "Joining…"}</div>
       <div class="foot">
         {#if slow}Still knocking — someone inside has to let you in…{:else}as {me.name || "you"}
           · end-to-end encrypted{/if}

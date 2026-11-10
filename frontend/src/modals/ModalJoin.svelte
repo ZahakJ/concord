@@ -1,7 +1,8 @@
 <script>
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
-  import { S } from "../lib/state.svelte.js";
+  import { S, selectGuild } from "../lib/state.svelte.js";
+  import { joinFailure } from "../lib/joinerror.js";
   let { onSubmit, onClose, error } = $props();
   let code = $state("");
   let busy = $state(false);
@@ -9,9 +10,16 @@
 
   async function join() {
     if (!code.trim() || busy) return;
+    if (already) {
+      // Joining again used to go through, and posted a second "has joined"
+      // to everyone. You are there already; go there.
+      onClose?.();
+      selectGuild(already.id);
+      return;
+    }
     submitted = code.trim();
     busy = true;
-    await onSubmit(code.trim());
+    await onSubmit(code.trim(), preview?.name || "");
     busy = false; // if the modal is still open, the parent set an error
   }
 
@@ -79,7 +87,12 @@
   // Editing the code after a rejection withdraws the error immediately —
   // otherwise "bad invite code" sits accusing a fresh, unsent paste.
   const showError = $derived(!!error && code.trim() === submitted);
-  const ready = $derived(!!preview && !showError);
+  const failure = $derived(showError ? joinFailure(error) : null);
+  // A refusal that is not the code's fault keeps the preview: the person
+  // should still see which guild the code is for.
+  const ready = $derived(!!preview && !failure?.field);
+  // A guild this device is already a member of (and not thrown out of).
+  const already = $derived(preview ? S.guilds.find((g) => g.id === preview.id && !g.evicted) : null);
 
   // Same hash and initials the rail uses, so the bubble previewed here is
   // pixel-for-pixel the one that lands in the rail after joining.
@@ -112,14 +125,20 @@
     </span>
     {#if ready}
       <span class="dest">{preview.name || "A guild awaits"}</span>
-      <span class="sub arrived">{busy ? "Opening the door…" : "You're invited — step in."}</span>
+      <span class="sub arrived" class:warn={!!failure}>
+        {#if failure}
+          {failure.title}
+        {:else if already}
+          You're already in this guild.
+        {:else}
+          {busy ? "Knocking — whoever made this code lets you in…" : "You're invited — step in."}
+        {/if}
+      </span>
     {:else}
       <span class="dest ph">Somewhere new</span>
-      <span class="sub">
-        {#if showError}
-          <!-- The code was whole — the guild refused it (expired, or the owner
-               is unreachable). Don't tell them to re-copy what they copied fine. -->
-          That code didn't open the door. Ask your friend for a fresh one.
+      <span class="sub" class:warn={!!failure || code.trim().length > 8}>
+        {#if failure}
+          {failure.title}
         {:else if code.trim().length > 8}
           That doesn't look like a whole code — check you copied all of it.
         {:else}
@@ -134,6 +153,9 @@
          sheet is still sliding up and make the panel jump (see ModalCreate). -->
     <textarea
       rows="4"
+      aria-label="Invite code"
+      aria-invalid={failure?.field ? "true" : undefined}
+      aria-describedby={failure ? "join-error" : undefined}
       placeholder="Paste invite code here…"
       bind:value={code}
       autofocus={!S.isMobile}
@@ -144,14 +166,14 @@
     </button>
   </div>
 
-  {#if showError}<div class="error shake"><Icon name="close" size={12} /> {error}</div>{/if}
+  {#if failure}<div class="error shake" id="join-error" role="alert"><Icon name="close" size={12} /> {failure.detail}</div>{/if}
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
     <!-- The decoder is a preview, not a gate: an undecodable code can still be
          submitted and judged by the server, so a peek bug can't lock anyone out. -->
     <button class:go={ready && !busy} onclick={join} disabled={!code.trim() || busy}>
-      {busy ? "Joining…" : "Join"}
+      {busy ? "Joining…" : already ? "Open it" : "Join"}
     </button>
   </div>
 </Modal>
@@ -232,6 +254,10 @@
   .sub.arrived {
     color: var(--ok-text);
     animation: rise 0.25s ease both;
+  }
+  .sub.warn,
+  .sub.arrived.warn {
+    color: var(--warn);
   }
   @keyframes rise {
     from {
