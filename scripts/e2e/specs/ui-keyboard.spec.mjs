@@ -1,0 +1,145 @@
+// The app with no mouse at all: unlock, move between channels, send, react,
+// edit, open Settings, walk its panes, and Escape back out to where you were.
+// Also the one-press Escape out of a railed dialog after a pane switch, which
+// used to leave the dialog's layer off the navigation stack every other click.
+import { test } from "../harness.mjs";
+
+const focused = (page) =>
+  page.evaluate(() => {
+    const el = document.activeElement;
+    if (!el || el === document.body) return { tag: "BODY", label: "", rail: false, row: "" };
+    return {
+      tag: el.tagName,
+      label: (el.getAttribute("aria-label") || el.textContent || el.placeholder || "").trim().replace(/\s+/g, " "),
+      rail: !!el.closest("[data-nav-rail]"),
+      row: el.closest("[data-msg-id]")?.dataset.msgId || "",
+      draft: el.classList.contains("draft"),
+    };
+  });
+
+// Shift+Tab (or Tab) until `want(focus)` holds; the walk is bounded.
+async function tabTo(page, want, { back = false, max = 40 } = {}) {
+  for (let i = 0; i < max; i++) {
+    const f = await focused(page);
+    if (want(f)) return f;
+    await page.keyboard.press(back ? "Shift+Tab" : "Tab");
+  }
+  throw new Error(`no focus stop matched after ${max} presses; last: ${JSON.stringify(await focused(page))}`);
+}
+
+test("Escape closes Settings after any number of pane switches", async ({ world, assert, step, waitFor }) => {
+  const [alice] = await world.peers(1);
+  const a = await alice.open();
+  const gear = a.page.locator('button[aria-label="Settings"]').last();
+  for (const panes of [["Appearance"], ["Appearance", "Connection"], ["Appearance", "Connection", "Notifications"]]) {
+    step(`Settings → ${panes.join(" → ")} → Escape`);
+    await gear.focus();
+    await a.page.keyboard.press("Enter");
+    await a.dialog().waitFor({ state: "visible" });
+    for (const p of panes) {
+      await a.page.locator("[data-nav-rail] button").filter({ hasText: p }).first().click();
+      await a.page.locator('[role="dialog"] h3').filter({ hasText: p }).first().waitFor();
+    }
+    await a.page.keyboard.press("Escape");
+    await waitFor(async () => (await a.page.locator('[role="dialog"]').count()) === 0, {
+      message: `one Escape to close Settings after ${panes.join(" → ")}`,
+    });
+    const f = await waitFor(async () => {
+      const x = await focused(a.page);
+      return x.label === "Settings" && x;
+    }, { message: "focus back on the Settings button" });
+    assert.equal(f.label, "Settings");
+  }
+});
+
+test("the core loop works from the keyboard alone", async ({ world, assert, step, waitFor }) => {
+  const [alice, bashir] = await world.peers(2);
+  const g = await world.guild({ name: "Keys", members: [alice, bashir], channels: ["random"] });
+  const general = g.channel("general");
+  const random = g.channel("random");
+  await bashir.send(general, "hello alice");
+
+  step("unlock by typing the passphrase");
+  // Locked, the way a person finds the app after closing it.
+  await alice.stop();
+  await alice.start();
+  const a = await alice.open({ unlock: false });
+  const page = a.page;
+  await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
+  const pass = page.locator('input[placeholder="Passphrase"]');
+  await pass.waitFor({ state: "visible" });
+  await waitFor(async () => (await focused(page)).tag === "INPUT", { message: "focus starts in the passphrase field" });
+  await page.keyboard.type(alice.passphrase);
+  await page.keyboard.press("Enter");
+  await page.locator('nav[aria-label="Guilds"]').waitFor({ state: "attached" });
+  await a.closeModals();
+
+  step("Ctrl+K to the guild's #general, Alt+↓ to #random");
+  await page.keyboard.press("Control+k");
+  await page.keyboard.type("general");
+  await page.keyboard.press("Enter");
+  await waitFor(async () => (await a.composer().getAttribute("placeholder"))?.includes("general"), { message: "in #general" });
+  await page.keyboard.press("Alt+ArrowDown");
+  await waitFor(async () => (await a.composer().getAttribute("placeholder"))?.includes("random"), { message: "Alt+↓ to #random" });
+
+  step("send");
+  await waitFor(async () => (await focused(page)).draft, { message: "the composer has focus after a channel switch" });
+  await page.keyboard.type("typed without a mouse");
+  await page.keyboard.press("Enter");
+  const sent = await alice.waitForMessage(random, "typed without a mouse");
+
+  step("Escape into the feed, Tab into the row's actions, react");
+  await page.keyboard.press("Escape");
+  const row = await waitFor(async () => {
+    const f = await focused(page);
+    return f.row && f.tag === "DIV" && f;
+  }, { message: "Escape from the empty composer lands on a message row" });
+  assert.equal(row.row, sent.id, "the row is the newest message");
+  // The feed is one tab stop: only the current row's own controls can be tabbed to.
+  const outside = await page.evaluate(() => {
+    const cur = document.activeElement.closest("[data-msg-id]");
+    return [...document.querySelectorAll('[role="log"] [data-msg-id] button, [role="log"] [data-msg-id] a[href]')].filter(
+      (el) => el.tabIndex >= 0 && el.closest("[data-msg-id]") !== cur,
+    ).length;
+  });
+  assert.equal(outside, 0, "no other row's controls are in the Tab order");
+  const react = await tabTo(page, (f) => /^React /.test(f.label), { max: 15 });
+  await page.keyboard.press("Enter");
+  const emoji = react.label.replace(/^React /, "");
+  await waitFor(async () => {
+    const m = (await alice.messages(random)).find((x) => x.id === sent.id);
+    return m?.reactions?.[emoji]?.length;
+  }, { message: `the ${emoji} reaction was stored` });
+
+  step("type to get back to the composer, ↑ to edit the last message");
+  await page.keyboard.type("x");
+  await waitFor(async () => (await focused(page)).draft, { message: "a letter pulls focus to the composer" });
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("ArrowUp");
+  await waitFor(async () => (await focused(page)).tag === "TEXTAREA" && !(await focused(page)).draft, { message: "the edit box has focus" });
+  await page.keyboard.press("Control+a");
+  await page.keyboard.type("edited without a mouse");
+  await page.keyboard.press("Enter");
+  await waitFor(async () => (await alice.messages(random)).find((x) => x.id === sent.id)?.content === "edited without a mouse", {
+    message: "the edit was stored",
+  });
+
+  step("Ctrl+, opens Settings; walk to a pane on the rail; Escape closes; focus comes back");
+  await waitFor(async () => (await focused(page)).tag !== "BODY", { message: "focus is somewhere after saving an edit" });
+  const before = await focused(page);
+  await page.keyboard.press("Control+,");
+  await a.dialog().waitFor({ state: "visible" });
+  await tabTo(page, (f) => f.rail && /Appearance/.test(f.label), { back: true });
+  await page.keyboard.press("Enter");
+  await page.locator('[role="dialog"] h3').filter({ hasText: "Appearance" }).waitFor();
+  await tabTo(page, (f) => f.rail && /Notifications/.test(f.label), { back: true });
+  await page.keyboard.press("Enter");
+  await page.locator('[role="dialog"] h3').filter({ hasText: "Notifications" }).waitFor();
+  await page.keyboard.press("Escape");
+  await waitFor(async () => (await page.locator('[role="dialog"]').count()) === 0, { message: "one Escape closes Settings" });
+  const after = await waitFor(async () => {
+    const f = await focused(page);
+    return f.tag !== "BODY" && f;
+  }, { message: "focus is not dropped on the page body" });
+  assert.equal(after.label, before.label, "focus returns to where it was before Settings opened");
+});
