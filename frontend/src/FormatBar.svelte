@@ -27,7 +27,18 @@
     dirMode = undefined,
     onCycleDir = undefined,
     compact = false,
+    // The selection toolbar: the six everyday marks only, floating over the
+    // text you selected. Underline, code block, quote and direction stay on
+    // their chords and in the + menu's Formatting bar.
+    selection = false,
   } = $props();
+
+  const SEL_KINDS = [["bold", "italic", "strike"], ["code", "spoiler", "link"]];
+  const groups = $derived(
+    selection
+      ? SEL_KINDS.map((g) => g.map((k) => FMT_GROUPS.flat().find((b) => b.kind === k)))
+      : FMT_GROUPS,
+  );
 
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
   const MOD_LABEL = isMac ? "⌘" : "Ctrl+";
@@ -51,8 +62,8 @@
   );
 </script>
 
-<div class="fmt-bar" class:compact role="toolbar" aria-label={label} use:roving>
-  {#each FMT_GROUPS as group, gi (gi)}
+<div class="fmt-bar" class:compact class:selection role="toolbar" aria-label={label} use:roving>
+  {#each groups as group, gi (gi)}
     {#if gi > 0}<span class="fmt-sep" aria-hidden="true"></span>{/if}
     {#each group as b (b.kind)}
       <button
@@ -103,6 +114,24 @@
     transition: opacity var(--dur-standard) ease;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   }
+  /* Floating over the selection: one lifted surface, opaque, shadowed. */
+  .fmt-bar.selection {
+    padding: 3px;
+    gap: 2px;
+    opacity: 1;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-pop);
+  }
+  .fmt-bar.selection .fmtbtn {
+    width: 28px;
+    height: 28px;
+  }
+  .fmt-bar.selection .fmt-sep {
+    margin: 0 2px;
+    background: var(--hairline);
+  }
   .fmt-bar.compact {
     padding: 2px 2px 3px;
     border-bottom: none;
@@ -145,8 +174,8 @@
     letter-spacing: 0.02em;
   }
   .dirbtn.on {
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent-hover);
+    background: var(--accent-soft);
   }
   .fmt-sep {
     width: 1px;

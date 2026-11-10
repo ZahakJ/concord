@@ -41,11 +41,11 @@ test("the composer's + menu keeps the draft and takes the keyboard", async ({ wo
     const f = await focused(a.page);
     return f.role === "menuitem" && f;
   });
-  assert.match(first.label, /Poll/);
+  assert.match(first.label, /Upload a file/);
   await a.page.keyboard.press("ArrowDown");
-  assert.match((await focused(a.page)).label, /Doodle/);
+  assert.match((await focused(a.page)).label, /GIF/);
   await a.page.keyboard.press("End");
-  assert.match((await focused(a.page)).label, /Schedule this message/);
+  assert.match((await focused(a.page)).label, /Advanced composer/);
   await a.page.keyboard.press("Escape");
   await waitFor(async () => (await focused(a.page)).label === "Add to your message", { message: "focus back on +" });
   assert.equal(await a.page.locator('[role="menu"]').count(), 0);

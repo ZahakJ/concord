@@ -248,7 +248,18 @@
   const ephTTL = $derived(ch ? channelTTL(S.activeChannelId) : 0);
   // Mobile markdown lives behind a toggle rather than an always-on toolbar row.
   let showFmt = $state(false);
-  const showFmtBar = $derived(!mobile || showFmt);
+  // The permanent bar is gone: selecting text raises the selection toolbar,
+  // the chords work everywhere, and the full bar is one + › Formatting away.
+  const showFmtBar = $derived(showFmt);
+  // Whether the draft has a non-empty selection — what raises the selection
+  // toolbar. Read off the textarea on the events that can change it.
+  let hasSel = $state(false);
+  // Names are ink unless the reader turned on "Colour names by role".
+  const inkFor = (f) => (S.prefs.roleNameColors ? nameColorFor(f) : "");
+  function trackSel() {
+    const el = composerEl;
+    hasSel = !!el && document.activeElement === el && el.selectionEnd > el.selectionStart;
+  }
   // The phone composer is ONE row — "+", the text, emoji, and mic-or-send. The
   // other five controls (GIF, poll, formatting, advanced compose, schedule) live
   // in this sheet. Eight 44px targets came to 352px, which wrapped to a second
@@ -1573,34 +1584,6 @@
 
 <svelte:window onkeydown={typeToFocus} />
 
-{#if S.replyingTo}
-  <div class="reply-banner">
-    <!-- The name alone cannot tell you WHICH message you picked, and in a
-         channel where somebody has just said three things in a row that is the
-         only question the banner is asked. The reply is committed before you
-         find out. Same snippet the sent quote strip prints, from the same
-         function, so the banner and the result cannot disagree. -->
-    <span class="rb-label">
-      <span class="rb-icon"><Icon name="reply" size={12} /></span>
-      Replying to <strong>{S.replyingTo.senderName || S.replyingTo.sender.slice(0, 9)}</strong>
-      {#if replySnippet}<span class="rb-snip">{replySnippet}</span>{/if}
-    </span>
-    <button class="mini" aria-label="Cancel reply" onclick={() => (S.replyingTo = null)}>
-      <Icon name="close" size={11} />
-    </button>
-    {#if mobile}
-      <!-- Swipe-to-reply is the gesture people trigger by accident, and Escape —
-           the only other way out — isn't on a phone keyboard. The whole banner
-           cancels, so the 23x15 pill isn't the sole escape. -->
-      <button
-        class="rb-cancel-all"
-        aria-hidden="true"
-        tabindex="-1"
-        onclick={() => (S.replyingTo = null)}
-      ></button>
-    {/if}
-  </div>
-{/if}
 <div class="typing-line muted">
   {#if uploading > 0}
     <span class="up-dot"></span> Adding {uploading > 1 ? `${uploading} attachments` : "attachment"}…
@@ -1609,21 +1592,21 @@
     {#if S.typingList.length === 1}
       <span
         class="typer"
-        style={nameColorFor(S.typingList[0].from) ? `color:${nameColorFor(S.typingList[0].from)}` : ""}
+        style={inkFor(S.typingList[0].from) ? `color:${inkFor(S.typingList[0].from)}` : ""}
         >{S.typingList[0].label}</span
       > is typing…
     {:else if S.typingList.length === 2}
       <span
         class="typer"
-        style={nameColorFor(S.typingList[0].from) ? `color:${nameColorFor(S.typingList[0].from)}` : ""}
+        style={inkFor(S.typingList[0].from) ? `color:${inkFor(S.typingList[0].from)}` : ""}
         >{S.typingList[0].label}</span
       > and <span
         class="typer"
-        style={nameColorFor(S.typingList[1].from) ? `color:${nameColorFor(S.typingList[1].from)}` : ""}
+        style={inkFor(S.typingList[1].from) ? `color:${inkFor(S.typingList[1].from)}` : ""}
         >{S.typingList[1].label}</span
       > are typing…
     {:else}
-      {S.typingList.length} people are typing…
+      Several people are typing…
     {/if}
   {/if}
 </div>
@@ -1660,7 +1643,13 @@
     oninput={onInput}
     onkeydown={onKeydown}
     onpaste={onPaste}
-    onblur={() => setTimeout(() => (suggest = null), 150)}
+    onselect={trackSel}
+    onkeyup={trackSel}
+    onmouseup={trackSel}
+    onblur={() => {
+      hasSel = false;
+      setTimeout(() => (suggest = null), 150);
+    }}
   ></textarea>
   <!-- Shown only while an override is in force. Off by default it costs the
        people who never write bidirectional text nothing at all, and the ones
@@ -1803,6 +1792,35 @@
       </div>
     {/if}
     <div class="input-shell" class:active={!!ch}>
+    {#if S.replyingTo}
+      <div class="reply-banner">
+        <!-- The name alone cannot tell you WHICH message you picked, and in a
+             channel where somebody has just said three things in a row that is the
+             only question the banner is asked. The reply is committed before you
+             find out. Same snippet the sent quote strip prints, from the same
+             function, so the banner and the result cannot disagree. -->
+        <span class="rb-label">
+          <span class="rb-icon"><Icon name="reply" size={14} /></span>
+          Replying to <strong>{S.replyingTo.senderName || S.replyingTo.sender.slice(0, 9)}</strong>
+          {#if replySnippet}<span class="rb-snip">{replySnippet}</span>{/if}
+        </span>
+        <button type="button" class="mini" aria-label="Cancel reply" onclick={() => (S.replyingTo = null)}>
+          <Icon name="close" size={11} />
+        </button>
+        {#if mobile}
+          <!-- Swipe-to-reply is the gesture people trigger by accident, and Escape —
+               the only other way out — isn't on a phone keyboard. The whole banner
+               cancels, so the 23x15 pill isn't the sole escape. -->
+          <button
+            type="button"
+        class="rb-cancel-all"
+            aria-hidden="true"
+            tabindex="-1"
+            onclick={() => (S.replyingTo = null)}
+          ></button>
+        {/if}
+      </div>
+    {/if}
     {#if pending.length || uploading > 0}
       <div class="attach-tray">
         {#each pending as p (p.id)}
@@ -1930,6 +1948,19 @@
     {/if}
     {#if showFmtBar}
       <FormatBar onFormat={applyFormat} disabled={!ch} {dirMode} onCycleDir={cycleDir} />
+    {:else if hasSel && !mobile}
+      <!-- Over the composer's top edge, never over the feed's last line: it
+           floats into the reserved typing strip above the surface. -->
+      <div class="sel-pop">
+        <FormatBar
+          selection
+          label="Format the selection"
+          onFormat={(k) => {
+            applyFormat(k);
+            trackSel();
+          }}
+        />
+      </div>
     {/if}
     <div class="input-box" class:focused={ch} class:recording={recording || !!preview}>
       {#if recording}
@@ -2075,21 +2106,61 @@
           </button>
         {/if}
       {:else}
-        <button
-          type="button"
-          class="iconbtn"
-          use:tooltip={"Attach a file or image (or paste / drop one)"}
-          aria-label="Attach a file"
-          disabled={!ch || uploading > 0}
-          onclick={() => fileInput.click()}
-        >
-          <Icon name="attach" size={20} />
-        </button>
+        <!-- One calm surface: the + menu at the start (everything you can add
+             or do), the text, then emoji and Send. Attach, GIF and the voice
+             message moved into + with the rest; the chords and drag-and-drop
+             still attach directly. -->
+        <Menu label="Add to your message" icon="plus" align="left" up>
+          <button type="button" class="menu-item" disabled={!ch || uploading > 0} onclick={() => fileInput.click()}>
+            <Icon name="attach" size={14} /> Upload a file
+          </button>
+          <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "gifs" })}>
+            <Icon name="image" size={14} /> GIF
+          </button>
+          {#if canRecord}
+            <button type="button" class="menu-item" disabled={!ch} onclick={startRecording}>
+              <Icon name="mic" size={14} /> Voice message
+            </button>
+          {/if}
+          <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "poll" })}>
+            <Icon name="poll" size={14} /> Poll
+          </button>
+          <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "doodle" })}>
+            <Icon name="edit" size={14} /> Doodle
+          </button>
+          <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "soundboard" })}>
+            <Icon name="speaker" size={14} /> Sound
+          </button>
+          <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "game" })}>
+            <Icon name="die" size={14} /> Game
+          </button>
+          {#if canStartThread}
+            <button type="button" class="menu-item" onclick={() => (S.modal = { kind: "newPost", forum: ch })}>
+              <Icon name="forum" size={14} /> Start a thread
+            </button>
+          {/if}
+          <button type="button" class="menu-item" disabled={!ch} onclick={scheduleSend}>
+            <Icon name="clock" size={14} />
+            {draft.trim() ? "Schedule this message" : "Scheduled messages"}
+          </button>
+          <button
+            type="button"
+            class="menu-item"
+            disabled={!ch}
+            onclick={() => { sealNext = !sealNext; if (sealNext) haptic("light"); composerEl?.focus(); }}
+          >
+            <Icon name="stamp" size={14} />
+            {sealNext ? "Don't seal the send time" : "Seal the send time"}
+          </button>
+          <button type="button" class="menu-item" aria-pressed={showFmt} disabled={!ch} onclick={() => { showFmt = !showFmt; composerEl?.focus(); }}>
+            <Icon name="bold" size={14} /> {showFmt ? "Hide formatting" : "Formatting"}
+          </button>
+          <button type="button" class="menu-item" disabled={!ch} onclick={openAdvanced}>
+            <Icon name="docpen" size={14} /> Advanced composer
+          </button>
+        </Menu>
         {@render draftBox()}
-        <!-- One tab stop, not nine. These are a toolbar and now say so with
-             their behaviour as well as their role: ←/→ walk the cluster, Tab
-             leaves it. Getting past the composer used to cost fifteen presses.
-             -->
+        <!-- One tab stop, not several: ←/→ walk the cluster, Tab leaves it. -->
         <div
           class="icon-cluster"
           role="toolbar"
@@ -2097,79 +2168,6 @@
           tabindex="-1"
           use:roving
         >
-        {#if canRecord && !draft.trim() && pending.length === 0}
-          <!-- Mic replaces nothing; it appears when there's no text/attachment to
-               send, the way messengers surface record-vs-send. -->
-          <button
-            type="button"
-            class="iconbtn"
-            use:tooltip
-            aria-label="Record a voice message"
-            disabled={!ch}
-            onclick={startRecording}
-          >
-            <Icon name="mic" size={20} />
-          </button>
-        {/if}
-          <!-- The guild's own GIF pack. A word, not a glyph: there is no icon
-               for "GIF" that anyone reads correctly, and this is the label
-               every other client uses.
-
-               No vendor named in the tooltip: which GIF service the Search tab
-               reaches is the rendezvous operator's choice, and the picker
-               itself reports it. A hardcoded "Tenor" here went stale the day
-               Google shut that API down (30 June 2026). -->
-          <button
-            type="button"
-            class="iconbtn gifbtn"
-            use:tooltip={"GIFs — this guild's pack, or a web search via your rendezvous"}
-            aria-label="Open the GIF picker"
-            disabled={!ch}
-            onclick={() => (S.modal = { kind: "gifs" })}
-          >GIF</button>
-          <!-- One door for the occasional controls, at every width. The wide
-               desktop strip used to lay nine glyphs flat with no grouping and
-               no overflow, so finding the emoji button meant reading nine
-               shapes; the squeezed column already folded them away and the only
-               reason the wide one did not was that it had the room. Room is not
-               a reason. Attach, GIF and emoji stay out — they are the three
-               people reach for constantly — and the rest are words in a menu,
-               which is what they wanted to be all along. -->
-          <Menu label="Add to your message" icon="plus" up>
-            <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "poll" })}>
-              <Icon name="poll" size={14} /> Poll
-            </button>
-            <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "doodle" })}>
-              <Icon name="edit" size={14} /> Doodle
-            </button>
-            <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "soundboard" })}>
-              <Icon name="speaker" size={14} /> Sound
-            </button>
-            <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "game" })}>
-              <Icon name="die" size={14} /> Game
-            </button>
-            {#if canStartThread}
-              <button type="button" class="menu-item" onclick={() => (S.modal = { kind: "newPost", forum: ch })}>
-                <Icon name="forum" size={14} /> Start a thread
-              </button>
-            {/if}
-            <button type="button" class="menu-item" disabled={!ch} onclick={openAdvanced}>
-              <Icon name="docpen" size={14} /> Advanced composer
-            </button>
-            <button
-              type="button"
-              class="menu-item"
-              disabled={!ch}
-              onclick={() => { sealNext = !sealNext; if (sealNext) haptic("light"); composerEl?.focus(); }}
-            >
-              <Icon name="stamp" size={14} />
-              {sealNext ? "Don't seal the send time" : "Seal the send time"}
-            </button>
-            <button type="button" class="menu-item" disabled={!ch} onclick={scheduleSend}>
-              <Icon name="clock" size={14} />
-              {draft.trim() ? "Schedule this message" : "Scheduled messages"}
-            </button>
-          </Menu>
           <!-- Armed seal stays VISIBLE. Folding it into the menu is right while
                it is off — it is a rare control — but once it is armed it is a
                claim being made about the next message you send, and a claim you
@@ -2386,18 +2384,23 @@
       text-decoration: underline;
     }
   }
+  /* Inside the composer's own surface, above the text, with a hairline under
+     it: the reply is part of what you are writing, not a banner over it. */
   .reply-banner {
     position: relative; /* anchors the phone-wide cancel overlay */
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: var(--sp-2);
-    padding: 6px 16px;
-    font-size: var(--fs-ui);
-    border-top: 1px solid var(--border);
-    /* Faint accent wash ties the banner to the reply you're composing. */
-    background: color-mix(in srgb, var(--accent) 7%, transparent);
-    animation: rb-in var(--dur-standard) var(--ease-out);
+    min-height: 32px;
+    padding: 0 6px 0 10px;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .reply-banner strong {
+    color: var(--text);
+    font-weight: 600;
   }
   @keyframes rb-in {
     from {
@@ -2453,11 +2456,17 @@
   /* Fixed height, not min-height: the strip is always in the DOM, so anything
      that grows with its content shifts the whole composer the moment someone
      starts typing. The phone value is the larger --fs-compact plus its padding. */
+  /* A reserved strip between the feed and the composer: empty, it keeps its
+     24px, so a typing notice never pushes the conversation or covers it. */
   .typing-line {
-    height: 20px;
-    font-size: var(--fs-compact);
-    font-style: italic;
-    padding: 3px 16px 1px;
+    height: 24px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--fs-small);
+    color: var(--text-muted);
+    padding: 0 var(--sp-edge);
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -2470,6 +2479,7 @@
     }
   }
   .typing-line .typer {
+    color: var(--text);
     font-weight: 600;
     font-style: normal;
     /* Truncate the NAME, not the sentence. The line already ellipsed as a
@@ -2718,18 +2728,19 @@
   /* One seamless input shell: toolbar, attach, text, and emoji all live
      INSIDE a single rounded well — no borders between the pieces. */
   .input-shell {
+    position: relative;
     background: var(--bg-input);
-    border: 1px solid transparent;
+    border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     transition:
       border-color var(--dur-standard) ease,
       background var(--dur-standard) ease,
       box-shadow var(--dur-standard) ease;
   }
+  /* The composer is the default focus target, so a ring would be permanent:
+     focus only firms up the edge. */
   .input-shell.active:focus-within {
-    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
-    background: color-mix(in srgb, var(--accent) 3%, var(--bg-input));
+    border-color: var(--text-faint);
   }
   .attach-tray {
     display: flex;
@@ -3032,11 +3043,18 @@
   .input-box {
     display: flex;
     align-items: flex-end;
-    gap: 3px;
+    gap: 2px;
+    min-height: 46px;
     background: transparent;
     border: none;
     border-radius: 0;
-    padding: 3px 8px;
+    padding: 6px 6px 6px 6px;
+  }
+  .sel-pop {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 40px;
+    z-index: 20;
   }
   .input-box.recording {
     align-items: center;
