@@ -98,6 +98,9 @@ const role = (e) => ({ k: "role", v: e.roleName || "a role", color: e.color || "
 // The hash rides in the value rather than in the markup, so the sentence the
 // screen shows and the sentence the accessible name reads are the same string.
 const channel = (e) => ({ k: "channel", v: e.channelName ? `#${e.channelName}` : "a channel" });
+// A rename names what THAT op set, not what the channel is called today: a
+// later rename would otherwise rewrite every earlier row ("renamed #a to #a").
+const renamedTo = (e) => (e.name ? { k: "channel", v: `#${e.name}` } : channel(e));
 
 // govSentence returns the sentence as parts, so the panel can style a name, a
 // role and a channel differently without this file emitting markup.
@@ -167,8 +170,8 @@ function baseSentence(e) {
       // whose channels predate this record has nothing to recover, and inventing
       // a former name would be the one thing an audit trail must never do.
       return e.prevName
-        ? [who, text(" renamed "), { k: "channel", v: `#${e.prevName}` }, text(" to "), channel(e)]
-        : [who, text(" renamed a channel to "), channel(e)];
+        ? [who, text(" renamed "), { k: "channel", v: `#${e.prevName}` }, text(" to "), renamedTo(e)]
+        : [who, text(" renamed a channel to "), renamedTo(e)];
     case "channel_move":
       return [who, text(" moved "), channel(e), text(" to another category")];
     // A category names itself in the same field a channel does, but it is not

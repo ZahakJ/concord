@@ -66,6 +66,11 @@ eq(
   "channel renamed with no former name in the log",
 );
 eq(
+  govSentenceText(e({ type: "channel_rename", channelName: "bob-name", name: "alice-name", prevName: "off-topic" })),
+  "Ada renamed #off-topic to #alice-name",
+  "a rename row names what its own op set, not the channel's current name",
+);
+eq(
   govSentenceText(e({ type: "channel_move", channelName: "rules" })),
   "Ada moved #rules to another category",
   "channel moved",

@@ -2710,6 +2710,9 @@ func (s *Service) applyChannelRename(guildID, actor, channelID, name string) {
 		return true
 	})
 	_ = s.store.UpdateChannelName(channelID, name)
+	// A frame that lost a concurrent rename must not get the last word just by
+	// arriving last; the log decides (channelname.go).
+	s.settleChannelNames(guildID)
 }
 
 // SetChannelLinks records which channels an ANNOUNCEMENT channel publishes to

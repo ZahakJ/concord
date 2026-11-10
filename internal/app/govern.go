@@ -253,6 +253,12 @@ func (s *Service) ingestGovOps(guildID string, ops []govOp, live bool) int {
 			s.noteEvicted(guildID, evictedBanned)
 		}
 	}
+	for _, a := range added {
+		if a.o.Type == "channel_rename" {
+			s.settleChannelNames(guildID)
+			break
+		}
+	}
 	s.emitGuildUpdate()
 	return len(added)
 }
