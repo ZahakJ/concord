@@ -275,6 +275,7 @@
   import { startEventRadar, markCalendarSeen, markAllCalendarsSeen } from "./lib/radar.svelte.js";
   import { startEphemeralSweep } from "./lib/ephemeral.svelte.js";
   import { parseShare, fileSrc, skippedNote } from "./lib/sharein.js";
+  import { backStep, makeTrail, installWebBack } from "./lib/webback.js";
 
   let composer = $state(null);
 
@@ -1022,6 +1023,38 @@
     if (canGoBack) return; // let the WebView handle a real history entry
     confirmExit(App);
   }
+
+  // The web build's Back button walks the same steps (lib/webback.js), and on
+  // a desktop-sized window one more: back to the conversation you came from.
+  const trail = makeTrail();
+  let walkingBack = false;
+  $effect(() => {
+    const id = S.activeChannelId;
+    if (walkingBack) {
+      walkingBack = false;
+      return;
+    }
+    trail.visit(id);
+  });
+  function webBackStep() {
+    if (popLayer()) return true;
+    const step = backStep({
+      inPost: !!activeChannelObj?.parent,
+      phoneChat: S.isMobile && !!S.activeChannelId && !S.drawerOpen,
+      prevChannel: !S.isMobile && trail.previous(),
+    });
+    if (step === "closePost") closePost();
+    else if (step === "toList") S.drawerOpen = true;
+    else if (step === "prevChannel") {
+      walkingBack = true;
+      jumpToChannel(trail.pop()).catch(() => (walkingBack = false));
+    }
+    return !!step;
+  }
+  $effect(() => {
+    if (!S.ready || typeof window === "undefined" || window.Capacitor || window.go) return;
+    return installWebBack(webBackStep);
+  });
 
   // On Capacitor, hook the OS: hardware back walks the stack above, and resuming
   // from the background triggers a fast reconnect + resync (the libp2p sockets
