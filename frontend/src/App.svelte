@@ -1820,7 +1820,7 @@
 {:else}
   <div
     class="app"
-    class:no-panel={isDM || !hasChannel || S.callStage}
+    class:no-panel={isDM || !hasChannel || S.callStage || S.cramped}
     class:offline-shift={S.offline}
     style={gridStyle}
   >
@@ -1937,7 +1937,7 @@
       {/if}
     </main>
 
-    {#if !isDM && hasChannel && S.prefs.memberPanel && !S.callStage}
+    {#if !isDM && hasChannel && S.prefs.memberPanel && !S.callStage && !S.cramped}
       <MemberPanel />
       <!-- Inner (left) edge of the member panel; dragging left widens it. -->
       <div

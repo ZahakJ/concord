@@ -133,6 +133,9 @@ export const S = $state({
   // which is where the composer's icon row and the header's action row have to
   // fold away instead of eating the content they sit beside.
   narrow: detectNarrow(),
+  // cramped: too little room for the member panel beside the chat at all. See
+  // detectCramped.
+  cramped: detectCramped(),
 
   // Connectivity for the connection pill: { peers, bootstrapReached,
   // hasBootstrap, outOfSyncGuilds }, refreshed on presence events + a slow poll.
@@ -659,12 +662,27 @@ function detectNarrow() {
   return window.innerWidth / zoom <= 1150;
 }
 
+// detectCramped: the member panel no longer fits beside a usable chat column.
+// Same zoom-divided measure as detectNarrow, a step further down. Turning the
+// app's own zoom up is what someone who needs bigger text does, and at 150% in
+// a 1180px laptop window the four columns kept their widths and the composer's
+// text box was left 12px wide, its placeholder drawn one letter per line. The
+// panel stands aside below this width (the setting is not changed; it comes
+// back when there is room), and the chat column gets what it freed.
+function detectCramped() {
+  if (typeof window === "undefined") return false;
+  const zoom = Number(document.documentElement.style.getPropertyValue("--ui-zoom")) || 1;
+  return window.innerWidth / zoom < 1000;
+}
+
 if (typeof window !== "undefined") {
   const sync = () => {
     const now = detectMobile();
     if (now !== S.isMobile) S.isMobile = now;
     const tight = detectNarrow();
     if (tight !== S.narrow) S.narrow = tight;
+    const cramped = detectCramped();
+    if (cramped !== S.cramped) S.cramped = cramped;
   };
   window.addEventListener("resize", sync);
   window.matchMedia?.("(orientation: portrait)")?.addEventListener?.("change", sync);
@@ -2581,6 +2599,8 @@ export function applyAppearance() {
   // whatever the last window resize decided.
   const tight = detectNarrow();
   if (tight !== S.narrow) S.narrow = tight;
+  const cramped = detectCramped();
+  if (cramped !== S.cramped) S.cramped = cramped;
   // The ground the name colours are measured against has just changed.
   readInkGround();
   if (S.prefs.accent) applyAccent(S.prefs.accent);
