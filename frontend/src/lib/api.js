@@ -243,7 +243,9 @@ export function leaveVoiceOnUnload(channelID) {
     fetch(`${apiBase}/rpc`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ method: "LeaveVoice", args: [channelID] }),
+      // "unload": this goodbye is a page going away, not End call. A 1:1 on
+      // the other side holds the call briefly for a reload to rejoin.
+      body: JSON.stringify({ method: "LeaveVoice", args: [channelID, "unload"] }),
       keepalive: true,
     }).catch(() => {});
     return true;

@@ -3,6 +3,7 @@ import {
   idle,
   isRinging,
   RING_MS,
+  GRACE_MS,
   DECLINED,
   recordText,
   callLength,
@@ -94,6 +95,29 @@ r = step(gActive, { type: "depart", goodbye: true, remaining: 0, now: 5000 });
 check("group: the others leaving does not end our side, and never rings again", r.st.phase === "active" && !isRinging(r.st));
 r = run(active, { type: "depart", goodbye: true, remaining: 0, now: 61000 }, { type: "hangup", now: 62000 });
 check("the hang-up that follows an ended call writes nothing twice", r.fx.length === 0);
+
+// ---- a page that went away (reload, closed tab) ----
+const unload = { type: "depart", goodbye: true, unload: true, remaining: 0, now: 61000 };
+r = step(active, unload);
+check("1:1: a goodbye from a page going away holds the call as Reconnecting", r.st.phase === "reconnecting" && r.fx.length === 0);
+r = run(active, unload, { type: "tick", now: 61000 + GRACE_MS - 1 });
+check("still reconnecting just inside the grace", r.st.phase === "reconnecting" && r.fx.length === 0);
+r = run(active, unload, { type: "arrive", now: 65000 });
+check(
+  "they rejoin inside the grace: the same call carries on, clock untouched",
+  r.st.phase === "active" && r.st.answeredAt === 1000 && !has(r.fx, (f) => f.clock || f.leave || f.local),
+);
+r = run(active, unload, { type: "tick", now: 61000 + GRACE_MS });
+check(
+  "nobody back by the end of the grace: the call ends, timed to when they left",
+  r.st.phase === "ended" && has(r.fx, (f) => f.leave) && has(r.fx, (f) => f.local === "ended:60") && has(r.fx, (f) => f.say === "ended"),
+);
+r = run(active, unload, { type: "hangup", now: 63000 });
+check("End call while they are reconnecting ends it at once", r.st.phase === "ended" && has(r.fx, (f) => f.local === "ended:62"));
+r = step(gActive, { ...unload });
+check("group: an unload goodbye changes nothing, as any goodbye", r.st.phase === "active");
+r = step(active, { type: "depart", goodbye: true, unload: false, remaining: 0, now: 61000 });
+check("an explicit End call from them still ends at once", r.st.phase === "ended");
 
 r = step(idle(), { type: "join-existing", now: 7, group: false });
 check("joining a room someone is in is a call, clock started", r.st.phase === "active" && r.st.answeredAt === 7 && has(r.fx, (f) => f.clock === "start"));

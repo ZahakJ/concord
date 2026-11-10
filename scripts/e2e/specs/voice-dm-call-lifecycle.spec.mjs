@@ -1,6 +1,7 @@
 // A 1:1 call is one honest state machine on both sides: a decline reaches the
 // caller and ends the call, an unanswered ring stops on both sides at the same
-// timeout, "End call" ends it for both, and calling someone offline says so —
+// timeout, "End call" ends it for both, a reload holds the call briefly instead
+// of ending it, and calling someone offline says so —
 // with each side's conversation recording what happened on that side.
 import { test } from "../harness.mjs";
 
@@ -111,6 +112,61 @@ test("End call in a 1:1 ends it for both", async ({ world, assert, step, waitFor
   const mine = (await alice.messages(dm.channelId)).filter((m) => m.kind === "call");
   assert.equal(mine.length, 1, "exactly one record on Alice's side");
   assert.equal((await alice.messages(dm.channelId)).filter((m) => m.kind === "call-missed").length, 0);
+});
+
+// A reload sends a goodbye too, but it is somebody who means to be right back:
+// the other side holds the call behind "Reconnecting…" for a short grace, the
+// call carries on if they rejoin inside it, and ends as before if they do not.
+async function answeredCall(world) {
+  const { alice, bashir, dm } = await pair(world);
+  const a = await alice.open({ viewport: "laptop", watchMedia: true });
+  const b = await bashir.open({ viewport: "laptop", watchMedia: true });
+  await startCall(a, "Bashir");
+  await ringCard(b).waitFor({ timeout: 45000 });
+  await ringCard(b).getByRole("button", { name: "Join" }).click();
+  await a.waitForMedia("audio");
+  await b.waitForMedia("audio");
+  return { alice, bashir, dm, a, b };
+}
+
+test("a reload in a 1:1 holds the call, and Rejoin carries it on", async ({ world, step, waitFor, shot }) => {
+  const { a, b } = await answeredCall(world);
+
+  step("Bashir reloads: Alice's call is not over, it is Reconnecting…");
+  const reloading = b.reload();
+  await waitFor(async () => /Reconnecting…/.test(await bar(a).innerText().catch(() => "")), {
+    timeout: 15000,
+    message: "Alice's bar to say Reconnecting…",
+  });
+  await shot(a, "other side reloading");
+  await reloading;
+
+  step("Bashir rejoins inside the grace: the call carries on for both");
+  // The reloaded page offers the call back ("You left Alice · Call again").
+  const card = b.page.locator(".ring-card", { hasText: "You left Alice" });
+  await card.getByRole("button", { name: /Call again|Rejoin/ }).click({ timeout: 15000 });
+  await bar(b).waitFor({ timeout: 30000 });
+  await waitFor(async () => /Voice connected/.test(await bar(a).innerText()), {
+    timeout: 30000,
+    message: "Alice's bar to say connected again",
+  });
+  await a.waitForMedia("audio", { timeout: 60000 });
+  await callLine(a, "Call ended ·").waitFor({ state: "detached", timeout: 1000 });
+});
+
+test("a reload in a 1:1 that does not come back ends the call after the grace", async ({ world, assert, step, waitFor, shot }) => {
+  const { alice, dm, a, b } = await answeredCall(world);
+
+  step("Bashir closes the page: Alice sees Reconnecting…, then the call ends");
+  await b.close();
+  await waitFor(async () => /Reconnecting…/.test(await bar(a).innerText().catch(() => "")), {
+    timeout: 15000,
+    message: "Alice's bar to say Reconnecting…",
+  });
+  await bar(a).waitFor({ state: "detached", timeout: 30000 });
+  await callLine(a, "Call ended ·").waitFor({ timeout: 30000 });
+  await shot(a, "ended after the grace");
+  assert.equal((await alice.messages(dm.channelId)).filter((m) => m.kind === "call").length, 1);
 });
 
 test("calling someone who is offline says so", async ({ world, assert, step, waitFor, shot }) => {

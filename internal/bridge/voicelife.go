@@ -3,6 +3,8 @@ package bridge
 import (
 	"sync"
 	"time"
+
+	appsvc "github.com/ZahakJ/concord/internal/app"
 )
 
 // How long a call outlives the UI that started it.
@@ -155,8 +157,9 @@ func (b *Bridge) endVoiceFor(clientID string) {
 	for _, ch := range rooms {
 		// LeaveVoice cancels the heartbeat goroutine AND announces the
 		// departure, so the room hears about it on the same beat it would have
-		// heard another "join".
-		_ = svc.LeaveVoice(ch)
+		// heard another "join". The page that held the call went away, which
+		// is what "unload" says — the same as its own goodbye would have.
+		_ = svc.LeaveVoiceBecause(ch, appsvc.LeaveReasonUnload)
 	}
 }
 

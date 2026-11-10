@@ -26,6 +26,18 @@
 //   active --hangup--> ended:ended            (we pressed End call)
 //   active --depart(goodbye, nobody left)--> ended:ended   (1:1: they hung up, so
 //                                              the call is over for both of us)
+//   active --depart(goodbye from a page going away)--> reconnecting
+//   reconnecting --arrive--> active            (they came back: same call, same clock)
+//   reconnecting --tick ≥ GRACE_MS--> ended:ended
+//   reconnecting --hangup--> ended:ended
+//
+//   A goodbye is not always a hang-up. Reloading or closing the page sends one
+//   too (lib/api.js leaveVoiceOnUnload), and a reload is somebody who means to
+//   be right back. A goodbye that says it came from a page going away (the
+//   announce's optional `reason: "unload"`, which an older peer ignores and an
+//   older sender never sets) holds the end for GRACE_MS behind "Reconnecting…";
+//   if they rejoin inside it the call simply carries on. End call is still an
+//   end at once, for both sides.
 //
 //   Ringing is entered ONCE per call. Once anybody has answered, being alone in
 //   the room again is "everyone else left" (a group) or the end of the call (a
@@ -63,6 +75,9 @@
 //     trace a call ever happened.
 
 export const RING_MS = 30000;
+// How long a 1:1 waits for somebody whose page went away (a reload, a closed
+// tab) before the call is over.
+export const GRACE_MS = 8000;
 
 // Content of the shared "call-missed" line for a decline. Anything else is the
 // historical "Missed call".
@@ -118,6 +133,10 @@ export function step(st, ev) {
         fx: [{ clock: "start" }],
       };
     case "arrive":
+      if (st.phase === "reconnecting") {
+        const { lostAt: _lost, ...back } = st;
+        return { st: { ...back, phase: "active" }, fx: [] };
+      }
       if (!isRinging(st)) return same;
       return { st: { ...st, phase: "active", answeredAt: ev.now }, fx: [{ clock: "start" }] };
     case "declined": {
@@ -138,6 +157,12 @@ export function step(st, ev) {
           fx: [{ leave: true }, { wire: "Missed call" }, { say: st.phase === "unreachable" ? "unreachable" : "missed" }],
         };
       }
+      if (st.phase === "reconnecting" && ev.now - st.lostAt >= GRACE_MS) {
+        return {
+          st: { ...st, phase: "ended", outcome: "ended" },
+          fx: [{ leave: true }, { local: ended(st.lostAt - st.answeredAt) }, { say: "ended" }],
+        };
+      }
       if (st.phase === "incoming" && ev.now - st.since >= RING_MS) {
         return { st: { ...st, phase: "ended", outcome: "missed" }, fx: [{ ring: false }, ...calleeMissed(st)] };
       }
@@ -146,7 +171,7 @@ export function step(st, ev) {
       if (isRinging(st)) {
         return { st: { ...st, phase: "ended", outcome: "cancelled" }, fx: [{ wire: "Missed call" }] };
       }
-      if (st.phase === "active") {
+      if (st.phase === "active" || st.phase === "reconnecting") {
         return {
           st: { ...st, phase: "ended", outcome: "ended" },
           fx: [{ local: ended(ev.now - st.answeredAt) }],
@@ -158,6 +183,7 @@ export function step(st, ev) {
       // problem the mesh is already reconnecting, and hanging up on it would
       // turn every Wi-Fi hiccup into a dropped call.
       if (st.phase !== "active" || st.group || !ev.goodbye || ev.remaining > 0) return same;
+      if (ev.unload) return { st: { ...st, phase: "reconnecting", lostAt: ev.now }, fx: [] };
       return {
         st: { ...st, phase: "ended", outcome: "ended" },
         fx: [{ leave: true }, { local: ended(ev.now - st.answeredAt) }, { say: "ended" }],

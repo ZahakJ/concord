@@ -4456,6 +4456,7 @@ export function callHealth() {
   // not run for it. "Voice connected" in green with ring time counting up was
   // what every surface but the stage said while the other phone was ringing.
   const dial = S.calls[S.voice.channelId];
+  if (dial?.phase === "reconnecting") return { state: "reconnecting", ...CALL_STATE.reconnecting, live: false };
   if (isRinging(dial)) {
     return { state: "ringing", ...(dial.phase === "unreachable" ? CALL_STATE.unreachable : CALL_STATE.ringing), live: false };
   }
@@ -4936,7 +4937,9 @@ function dmRosterChanged(channelId, v = null) {
     if (v.action === "join") callEvent(channelId, { type: "arrive", now });
     else if (v.action === "leave") {
       const remaining = others.has(v.fingerprint) ? 1 : 0;
-      callEvent(channelId, { type: "depart", goodbye: true, remaining, now });
+      // A goodbye from a page that was reloaded or closed says so; a 1:1 holds
+      // the call for that one behind "Reconnecting…" (lib/callflow.js).
+      callEvent(channelId, { type: "depart", goodbye: true, unload: v.reason === "unload", remaining, now });
     }
     return;
   }
@@ -5000,7 +5003,7 @@ setInterval(() => {
         if ((st.phase === "unreachable") !== !g.dmPeerOnline) callEvent(ch, { type: "reach", reachable: !!g.dmPeerOnline });
       }
       callEvent(ch, { type: "tick", now });
-    } else if (st.phase === "incoming") callEvent(ch, { type: "tick", now });
+    } else if (st.phase === "incoming" || st.phase === "reconnecting") callEvent(ch, { type: "tick", now });
   }
 }, 1000);
 

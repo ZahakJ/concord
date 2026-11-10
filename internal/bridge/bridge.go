@@ -120,6 +120,7 @@ type VoicePresence struct {
 	Action      string `json:"action"`           // join|leave|lock|unlock|knock|admit|move|disconnect
 	Target      string `json:"target,omitempty"` // the fingerprint being admitted/moved/disconnected
 	Dest        string `json:"dest,omitempty"`   // move: the voice channel to send them to
+	Reason      string `json:"reason,omitempty"` // leave: "unload" when a page went away rather than hanging up
 }
 
 // VoiceSignal carries an opaque WebRTC signaling blob from a peer.
@@ -644,7 +645,12 @@ func (b *Bridge) Login(passphrase string) error {
 	})
 	svc.OnVoicePresence(func(from, fingerprint, channelID, action, target, dest string) {
 		if b.OnVoicePresence != nil {
-			b.OnVoicePresence(VoicePresence{From: from, Fingerprint: fingerprint, ChannelID: channelID, Action: action, Target: target, Dest: dest})
+			p := VoicePresence{From: from, Fingerprint: fingerprint, ChannelID: channelID, Action: action, Target: target, Dest: dest}
+			// app.watchVoice hands a leave's reason over in the dest slot.
+			if action == "leave" {
+				p.Reason, p.Dest = dest, ""
+			}
+			b.OnVoicePresence(p)
 		}
 	})
 	svc.OnVoiceSignal(func(from string, data []byte) {
@@ -1334,12 +1340,22 @@ func (b *Bridge) JoinVoiceFor(channelID, clientID string) error {
 
 // LeaveVoice leaves a channel's voice room.
 func (b *Bridge) LeaveVoice(channelID string) error {
+	return b.LeaveVoiceBecause(channelID, "")
+}
+
+// LeaveVoiceBecause is LeaveVoice with the goodbye's reason: "unload" from a
+// page being torn down (lib/api.js leaveVoiceOnUnload), "" otherwise. Any
+// other value is dropped rather than published.
+func (b *Bridge) LeaveVoiceBecause(channelID, reason string) error {
 	b.forgetVoiceOwner(channelID)
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.LeaveVoice(channelID)
+	if reason != appsvc.LeaveReasonUnload {
+		reason = ""
+	}
+	return svc.LeaveVoiceBecause(channelID, reason)
 }
 
 // SignalCall broadcasts a soft-lock control action
@@ -3648,7 +3664,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "VoiceHeldElsewhere":
 		return b.VoiceHeldElsewhere(argStr(args, 0)), nil
 	case "LeaveVoice":
-		return nil, b.LeaveVoice(argStr(args, 0))
+		return nil, b.LeaveVoiceBecause(argStr(args, 0), argStr(args, 1))
 	case "SignalCall":
 		return nil, b.SignalCall(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "RelaySignal":
