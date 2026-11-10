@@ -275,6 +275,15 @@ assert(renderMarkdown("- a\n1. b") === "<ul><li>a</li></ul><ol><li>b</li></ol>",
 assert(renderMarkdown("- a\ntext") === "<ul><li>a</li></ul>text", "text after a list closes it");
 assert(!unsafe(renderMarkdown("- a\n  - <svg onload=x>\n    - <script>")), "nested items are escaped");
 
+
+// ---- message links ---------------------------------------------------------
+out = renderMarkdown("see concord://msg/abcd1234/ef567890 ok", [], null, { channels: [{ id: "abcd1234", name: "gen<eral" }] });
+assert(out.includes('class="msg-link"') && out.includes('data-jump-channel="abcd1234"') && out.includes('data-jump-msg="ef567890"'), `a message link becomes a jump chip: ${out}`);
+assert(out.includes("message in #gen&lt;eral"), `the chip names the channel, escaped: ${out}`);
+assert(renderMarkdown("concord://msg/aaaa1111/bbbb2222").includes("linked message"), "an unknown channel still gets a chip");
+assert(!renderMarkdown('concord://msg/x"><img src=x onerror=1>/y').includes("msg-link"), "nothing outside the id alphabet becomes a chip");
+assert(!unsafe(renderMarkdown('concord://msg/abcd1234/ef567890"onclick="alert(1)')), "a chip stays inert");
+
 if (failures) {
   console.error(`${failures} failure(s)`);
   process.exit(1);

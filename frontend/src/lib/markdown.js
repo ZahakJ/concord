@@ -227,6 +227,18 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
     held.push(html);
     return `\x01${held.length - 1}\x01`;
   };
+  // A message link — what "Copy message link" puts on the clipboard, and what
+  // a thread's opening post carries back to its source. It was plain text that
+  // nothing could follow; it is now a chip the feed turns into a jump. Ids are
+  // a fixed alphabet, so they are safe in an attribute as they stand; the
+  // label names the channel when it is one of this guild's.
+  s = s.replace(/concord:\/\/msg\/([A-Za-z0-9_-]{4,128})\/([A-Za-z0-9_-]{4,128})/g, (_, ch, id) => {
+    const c = (refs?.channels || []).find((x) => x.id === ch);
+    const label = c ? `message in #${escapeHtml(c.name)}` : "linked message";
+    return stash(
+      `<span class="msg-link" role="link" tabindex="0" data-jump-channel="${ch}" data-jump-msg="${id}">↪ ${label}</span>`,
+    );
+  });
   // Masked links first, then bare URLs.
   s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text, url) =>
     stash(`<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`),

@@ -246,6 +246,12 @@
   // Reveal a focused spoiler with Enter/Space (it's role=button tabindex=0).
   function onBodyKeydown(e) {
     if (e.key !== "Enter" && e.key !== " ") return;
+    const link = e.target.closest?.(".msg-link");
+    if (link) {
+      e.preventDefault();
+      jumpToMessage(link.dataset.jumpChannel, link.dataset.jumpMsg);
+      return;
+    }
     const spoiler = e.target.closest?.(".spoiler");
     if (spoiler && !spoiler.classList.contains("revealed")) {
       e.preventDefault();
@@ -259,6 +265,13 @@
     if (spoiler && !spoiler.classList.contains("revealed")) {
       e.preventDefault();
       spoiler.classList.add("revealed");
+      return;
+    }
+    // A message link goes to the message, wherever and however far back.
+    const link = e.target.closest?.(".msg-link");
+    if (link) {
+      e.preventDefault();
+      jumpToMessage(link.dataset.jumpChannel, link.dataset.jumpMsg);
       return;
     }
     // A #channel goes where it points. It carries the id, not the name, so a
@@ -890,13 +903,16 @@
       // The opening message quotes the origin (capped — a wall of text makes a
       // bad excerpt) and carries a concord://msg link back to it, in exactly
       // the shape "Copy Message Link" produces.
+      // It names who said it: the post is authored by whoever started the
+      // thread, so a bare quote read as their words.
       let src = copyText;
       if (src.length > 280) src = src.slice(0, 280) + "…";
       const quoted = src
         .split("\n")
         .map((l) => `> ${l}`)
         .join("\n");
-      const opener = `${quoted}\n\nconcord://msg/${m.channelId}/${m.id}`;
+      const who = (guest ? guestName : nameFor(m.sender, m.senderName)).replace(/[*_~|`\\]/g, "\\$&");
+      const opener = `**${who}** wrote:\n${quoted}\n\nconcord://msg/${m.channelId}/${m.id}`;
       const ch = await api.createThread(S.activeGuildId, m.channelId, title, opener, []);
       threadPrompt = false;
       threadTitle = "";
@@ -2943,6 +2959,18 @@
   /* #channel is a destination, so it reads like the links next to it. */
   .body :global(.mention-channel) {
     color: var(--accent-hover);
+  }
+  .body :global(.msg-link) {
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent-hover);
+    cursor: pointer;
+  }
+  .body :global(.msg-link:hover),
+  .body :global(.msg-link:focus-visible) {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
   }
   /* Spoiler: blacked-out until clicked. */
   /* Blurred rather than blacked out: you can see there are words, roughly how
