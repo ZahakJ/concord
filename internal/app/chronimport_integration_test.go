@@ -187,15 +187,47 @@ func TestChatImportIntoLiveGuild(t *testing.T) {
 			t.Fatalf("the guild now has %d channels called %s: %v", counts[name], name, counts)
 		}
 	}
+	// A category is made only when a new channel will live in it. Both of the
+	// export's "Text Channels" landed on rooms the owner already had, so that
+	// header would sit empty; the new voice room brings its "Voice" with it, and
+	// the cut-off channel, which named no category, goes under one bucket named
+	// after the source rather than above the owner's own rooms.
 	cats, _ := a.Categories(g.ID)
-	var haveText bool
+	catNames := map[string]string{}
+	for _, c := range cats {
+		catNames[c.ID] = c.Name
+	}
 	for _, c := range cats {
 		if c.Name == "Text Channels" {
-			haveText = true
+			t.Fatalf("an empty %q header was made around two reused channels; the guild has %+v", c.Name, cats)
 		}
 	}
-	if !haveText {
-		t.Fatalf("the export's category was not created; the guild has %+v", cats)
+	if res.CategoriesCreated != 2 {
+		t.Fatalf("created %d categories, want Voice and the import bucket: %+v", res.CategoriesCreated, cats)
+	}
+	wantCat := map[string]string{
+		"lounge":  "Voice",
+		"cut-off": "Imported — " + facts.Guild,
+		"general": "",
+		"plans":   "",
+	}
+	for _, gg := range a.Guilds() {
+		if gg.ID != g.ID {
+			continue
+		}
+		for _, ch := range gg.Channels {
+			want, ok := wantCat[strings.ToLower(ch.Name)]
+			if !ok || ch.Parent != "" {
+				continue
+			}
+			if got := catNames[ch.Category]; got != want {
+				t.Fatalf("#%s sits under %q, want %q", ch.Name, got, want)
+			}
+			delete(wantCat, strings.ToLower(ch.Name))
+		}
+	}
+	if len(wantCat) != 0 {
+		t.Fatalf("channels missing after the import: %v", wantCat)
 	}
 	emoji, _ := a.CustomEmoji(g.ID)
 	if len(emoji) != 1 || emoji[0].Name != facts.EmojiSanitized {
