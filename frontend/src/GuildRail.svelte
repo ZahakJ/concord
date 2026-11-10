@@ -258,13 +258,15 @@
 
   function folderUnread(guilds) {
     let count = 0,
-      mentions = 0;
+      mentions = 0,
+      attention = 0;
     for (const gg of guilds) {
       const u = guildUnread(gg);
       count += u.count;
       mentions += u.mentions;
+      attention += u.attention;
     }
-    return { count, mentions };
+    return { count, mentions, attention };
   }
 
   // ————————————————— drag & drop —————————————————
@@ -531,8 +533,13 @@
               <span class="face" style={guildTint(sv.id)}>{initials(sv.name)}</span>
             {/if}
           </button>
-          {#if sv.id !== S.activeGuildId && u.count > 0}
-            <span class="badge" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
+          <!-- A number is only ever things aimed at you; plain chatter is a
+               quiet dot (lib/readstate.js). A red 99+ for a hundred idle
+               messages and one mention hid the one that needed you. -->
+          {#if sv.id !== S.activeGuildId && u.attention > 0}
+            <span class="badge mention">{u.attention > 99 ? "99+" : u.attention}</span>
+          {:else if sv.id !== S.activeGuildId && u.count > 0}
+            <span class="unread-dot" aria-label="Unread messages"></span>
           {/if}
           {#if failedInGuild(sv)}
             <!-- A send failed somewhere in here. It takes the corner from the
@@ -584,8 +591,10 @@
                 </span>
               {/if}
             </button>
-            {#if !folder.open && fu.count > 0}
-              <span class="badge" class:mention={fu.mentions > 0}>{fu.count > 99 ? "99+" : fu.count}</span>
+            {#if !folder.open && fu.attention > 0}
+              <span class="badge mention">{fu.attention > 99 ? "99+" : fu.attention}</span>
+            {:else if !folder.open && fu.count > 0}
+              <span class="unread-dot" aria-label="Unread messages"></span>
             {/if}
           </div>
 
@@ -630,8 +639,10 @@
                       <span class="face" style={guildTint(gg.id)}>{initials(gg.name)}</span>
                     {/if}
                   </button>
-                  {#if gg.id !== S.activeGuildId && u.count > 0}
-                    <span class="badge" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
+                  {#if gg.id !== S.activeGuildId && u.attention > 0}
+                    <span class="badge mention">{u.attention > 99 ? "99+" : u.attention}</span>
+                  {:else if gg.id !== S.activeGuildId && u.count > 0}
+                    <span class="unread-dot" aria-label="Unread messages"></span>
                   {/if}
                   {#if liveGuilds.has(gg.id)}
                     <span class="live-dot" title="A scheduled event is live in {gg.name} — a channel inside wears LIVE"></span>
@@ -1000,11 +1011,10 @@
     height: 18px;
     padding: 0 5px;
     border-radius: var(--radius-md);
-    /* The badge rule, shared with ChannelList's .count: red (--danger) means
-       somebody is talking TO you — an @mention, or any message in a DM — and
-       accent means there is simply something new. The rail used to paint every
-       count red, so a guild with three idle messages shouted the same as a DM,
-       and the same number read red here and accent in the channel list. */
+    /* The badge rule (lib/readstate.js): a red number means somebody is
+       talking TO you — an @mention, or any message in a DM. Plain unread on
+       the rail is .unread-dot, never a number: a guild with a hundred idle
+       messages and one mention used to read "99+" in red. */
     background: var(--accent);
     color: var(--accent-fg);
     font-size: var(--fs-small);
@@ -1012,6 +1022,19 @@
     line-height: 1;
     display: grid;
     place-items: center;
+    border: 2px solid var(--bg-0);
+    pointer-events: none;
+    animation: badge-pop 0.25s var(--ease-spring) both;
+  }
+  /* Unread with nothing aimed at you: present, but not asking for anything. */
+  .unread-dot {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text);
     border: 2px solid var(--bg-0);
     pointer-events: none;
     animation: badge-pop 0.25s var(--ease-spring) both;

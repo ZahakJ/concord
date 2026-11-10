@@ -42,6 +42,7 @@ import { typistsAfter } from "./typing.js";
 import { landsOnWelcome } from "./firstrun.js";
 import { insertBySent } from "./feedorder.js";
 import { isBlankText } from "./compose.js";
+import { isReading, readThrough, attention } from "./readstate.js";
 import {
   LEVELS as NOTIF_LEVELS,
   normalize as normalizeNotifs,
@@ -762,6 +763,7 @@ function rememberPlace(guildId, channelId) {
   if (lastPlace.guildId === guildId && lastPlace.channels[guildId] === channelId) return;
   lastPlace.guildId = guildId;
   lastPlace.channels[guildId] = channelId;
+  if (S.guilds.find((g) => g.id === guildId)?.kind === "dm") lastPlace.dm = guildId;
   saveJSON("concord.lastPlace", lastPlace);
 }
 
@@ -779,26 +781,40 @@ function channelToResume(guild) {
 // backend re-emitting a message (edit/reaction/pin/sync) doesn't double-count.
 const countedMsgIds = new Set();
 
-// markRead marks a channel read as of now. throughTime (the newest message's
-// `sent`, when known) guards against peer clock skew: if a message we've
-// actually seen is timestamped ahead of our clock, "now" alone would leave it
-// counting as unread forever, so we advance lastRead past it.
+// markRead marks a channel read through a message: `through` is that
+// message's own `sent` (see lib/readstate.js for the rule and for why it is
+// never this device's clock). Without one — "Mark as read" from a menu or a
+// key, on a channel whose rows are not loaded — the core marks through the
+// newest message it holds there, which is the same thing by another route.
 //
-// The cursor is also pushed to the backend, which fans it out to every other
+// The cursor is pushed to the backend, which fans it out to every other
 // session and linked device (they get a "read-state" event), so reading here
-// clears the badge everywhere.
-export function markRead(channelId, throughTime = "") {
+// clears the badge everywhere. Its answer is the mark it actually holds (it
+// caps marks too far ahead of its clock), and that is the one kept here.
+export function markRead(channelId, through = "") {
   if (!channelId) return;
-  let t = new Date().toISOString();
-  if (throughTime && new Date(throughTime) > new Date(t)) t = new Date(throughTime).toISOString();
-  lastRead[channelId] = t;
-  saveJSON("concord.lastRead", lastRead);
   if (S.unread[channelId]) {
     const u = { ...S.unread };
     delete u[channelId];
     S.unread = u;
   }
-  api.markRead(channelId, Date.parse(t)).catch(() => {});
+  const at = Date.parse(through);
+  if (Number.isFinite(at)) {
+    const local = lastRead[channelId] ? Date.parse(lastRead[channelId]) : 0;
+    if (at > local) {
+      lastRead[channelId] = new Date(at).toISOString();
+      saveJSON("concord.lastRead", lastRead);
+    }
+    api
+      .markRead(channelId, at)
+      .then((held) => adoptMarks({ [channelId]: held }))
+      .catch(() => {});
+  } else {
+    api
+      .markReadLatest([channelId])
+      .then(adoptMarks)
+      .catch(() => {});
+  }
   // Reading a channel retires the inbox entries it contained — that is the read
   // model, and the badge has to follow it or the bell keeps claiming a number
   // you just cleared by reading the thing. Coalesced, so scrolling a busy
@@ -806,18 +822,61 @@ export function markRead(channelId, throughTime = "") {
   refreshInbox();
 }
 
+// adoptMarks takes the core's word for where channels are read through. It
+// can be LOWER than what this page asked for — that is the cap on a mark from
+// a fast clock doing its job — so it replaces rather than maxes.
+function adoptMarks(held) {
+  let changed = false;
+  for (const [id, at] of Object.entries(held || {})) {
+    if (typeof at !== "number" || at <= 0) continue;
+    const iso = new Date(at).toISOString();
+    if (lastRead[id] !== iso) {
+      lastRead[id] = iso;
+      changed = true;
+    }
+  }
+  if (changed) saveJSON("concord.lastRead", lastRead);
+}
+
 // markAllRead clears unread across every channel (Shift+Esc).
 export function markAllRead() {
-  const now = new Date().toISOString();
-  const at = Date.parse(now);
-  for (const g of S.guilds)
-    for (const c of g.channels) {
-      lastRead[c.id] = now;
-      api.markRead(c.id, at).catch(() => {});
-    }
-  saveJSON("concord.lastRead", lastRead);
+  const ids = [];
+  for (const g of S.guilds) for (const c of g.channels) ids.push(c.id);
   S.unread = {};
+  api
+    .markReadLatest(ids)
+    .then(adoptMarks)
+    .catch(() => {});
   refreshInbox();
+}
+
+// readingNow applies the read rule (lib/readstate.js) to the open channel with
+// the live inputs. The message list counts as on screen unless something
+// covers it: on a phone, Home parked over the conversation page; anywhere, the
+// call stage without its chat pane.
+export function readingNow() {
+  const covered = S.isMobile ? S.drawerOpen : false;
+  const staged = S.callStage && !S.callStageChat;
+  return isReading({
+    open: !!S.activeChannelId,
+    onScreen: !covered && !staged,
+    hidden: typeof document !== "undefined" && document.hidden,
+    focused: typeof document !== "undefined" && document.hasFocus(),
+    mobile: !!S.isMobile,
+    atBottom: feedNearBottom(),
+  });
+}
+
+// syncReading marks the open channel read if it is being read and anything in
+// it is past the mark. Called on every edge that can make the rule true: the
+// window coming back or gaining focus, the phone pushing the conversation
+// page, the feed reaching the bottom, a channel's history landing.
+export function syncReading() {
+  const id = S.activeChannelId;
+  if (!id || !readingNow()) return;
+  const through = readThrough(S.messages.filter((m) => m.channelId === id || !m.channelId));
+  const behind = through && (!lastRead[id] || Date.parse(through) > Date.parse(lastRead[id]));
+  if (behind || S.unread[id]) markRead(id, through);
 }
 
 // ---- notification levels ----
@@ -1434,7 +1493,7 @@ async function recomputeUnread() {
   const since = {};
   for (const g of S.guilds) {
     for (const c of g.channels) {
-      if (c.id === S.activeChannelId) continue;
+      if (c.id === S.activeChannelId && readingNow()) continue;
       since[c.id] = lastRead[c.id] || "";
     }
   }
@@ -1446,7 +1505,7 @@ async function recomputeUnread() {
   }
   for (const g of S.guilds) {
     for (const c of g.channels) {
-      if (c.id === S.activeChannelId) continue;
+      if (c.id === S.activeChannelId && readingNow()) continue;
       // With a working cheap count, skip channels that have nothing past the
       // cursor without ever touching the DB's ciphertext.
       //
@@ -1471,20 +1530,13 @@ async function recomputeUnread() {
 }
 
 // syncReadState pulls the backend's account-wide read cursors (which include
-// reads from other sessions and linked devices) and merges them into the
-// local ones — newest wins per channel.
+// reads from other sessions and linked devices) and adopts them. The core's
+// mark wins even when it is LOWER than this page's copy: a page whose clock ran
+// fast stored marks hours ahead in localStorage, and merging newest-wins here
+// would have restored the very marks the core repairs (readstate.go).
 async function syncReadState() {
   try {
-    const remote = (await api.readState()) || {};
-    let changed = false;
-    for (const [chId, at] of Object.entries(remote)) {
-      const local = lastRead[chId] ? Date.parse(lastRead[chId]) : 0;
-      if (at > local) {
-        lastRead[chId] = new Date(at).toISOString();
-        changed = true;
-      }
-    }
-    if (changed) saveJSON("concord.lastRead", lastRead);
+    adoptMarks((await api.readState()) || {});
   } catch {
     /* backend without read-state support — local cursors still work */
   }
@@ -1840,16 +1892,22 @@ const refTables = $derived.by(() => {
 });
 export const mentionRefs = () => refTables;
 
+// guildUnread totals a guild's (or DM's) unread. `attention` is what a badge
+// NUMBER shows — mentions in a guild, every message in a DM (lib/readstate.js)
+// — and `count` is what a quiet unread dot shows.
 export function guildUnread(g) {
   let count = 0;
   let mentions = 0;
+  let attn = 0;
+  const direct = g.kind === "dm" && !g.dmNotes;
   for (const c of g.channels) {
     const u = S.unread[c.id];
     if (!u || isMuted(c.id, g.id)) continue;
     count += u.count;
     mentions += u.mentions;
+    attn += attention(u, direct);
   }
-  return { count, mentions };
+  return { count, mentions, attention: attn };
 }
 
 // ---- toasts ----
@@ -1933,8 +1991,19 @@ export function dismissUpdate() {
 // ---- feed scroll (MessageList registers its element) ----
 
 let feedEl = null;
+let readScrollTimer = 0;
 export function registerFeed(el) {
+  if (feedEl === el) return;
+  feedEl?.removeEventListener("scroll", onFeedScrollRead);
   feedEl = el;
+  // Reaching the newest messages is one of the edges that makes a channel
+  // read (lib/readstate.js). Trailing and coarse: the rule only needs to be
+  // asked once the reader stops.
+  el?.addEventListener("scroll", onFeedScrollRead, { passive: true });
+}
+function onFeedScrollRead() {
+  clearTimeout(readScrollTimer);
+  readScrollTimer = setTimeout(syncReading, 250);
 }
 
 // focusFeed: put focus on the message list's roving tab stop.
@@ -2838,13 +2907,16 @@ export function dmList() {
   return list;
 }
 
-// openDMs lands where you actually were: the DM you last had open, else the one
-// with the newest message, else Notes. Anything else means the button takes you
-// to a conversation you did not ask for and were not looking at.
+// openDMs lands where you actually were: the DM you last had open, else Notes.
+// It used to fall back to the conversation with the newest message — which is
+// usually the one that just arrived, so pressing Home opened it and marked it
+// read before you had chosen to read it, and the list you came to triage no
+// longer showed what was new. For the same reason the DM you were in is only
+// resumed while nothing new is waiting in it; Notes is yours and never unread.
 export async function openDMs({ browse = false } = {}) {
   const list = dmList();
-  const resume = list.find((d) => d.id === lastPlace.guildId);
-  const target = resume || list.find((d) => !d.dmNotes) || list[0];
+  const resume = list.find((d) => d.id === (lastPlace.dm || lastPlace.guildId) && !guildUnread(d).count);
+  const target = resume || list.find((d) => d.dmNotes);
   if (!target || target.id === "__notes__") {
     await selectNotes({ browse });
     return;
@@ -3061,7 +3133,6 @@ export async function selectChannel(id) {
   // Snapshot where we left off BEFORE marking read, to place the "new messages"
   // divider for this viewing session.
   S.readAnchor = lastRead[id] || "";
-  markRead(id);
   S.typingList.forEach((t) => clearTimeout(t.timer));
   S.typingList = [];
   S.replyingTo = null;
@@ -3092,11 +3163,6 @@ export async function selectChannel(id) {
   S.feedLoading = false;
   // A short first page means there's nothing older to page back to.
   S.feedReachedStart = msgs.length < 200;
-  // Advance the read mark past the newest message actually loaded, so a peer's
-  // clock-skewed (future-dated) message we've now seen can't keep the badge lit.
-  let newest = "";
-  for (const m of S.messages) if (m.sent > newest) newest = m.sent;
-  if (newest) markRead(id, newest);
   // Land on the "NEW" divider when there's unread history, instead of dumping
   // the reader at the bottom past everything they missed.
   const hasUnread =
@@ -3108,6 +3174,9 @@ export async function selectChannel(id) {
   // an old scrollback session.
   if (hasUnread) scrollToNewDivider();
   else if (!restoreReadingPosition(id)) scrollSoon();
+  // Whether this counts as reading depends on where the feed lands, so ask
+  // once it has (the feed's own scroll listener covers the reader moving on).
+  tick().then(() => requestAnimationFrame(syncReading));
 }
 
 // retryHistory answers the feed's "Try again" after a failed history fetch.
@@ -3484,6 +3553,11 @@ function initEvents() {
   if (eventsWired) return;
   eventsWired = true;
 
+  // Coming back to a hidden window, or bringing a desktop window to the front,
+  // is an edge that makes the open channel read again (lib/readstate.js).
+  document.addEventListener("visibilitychange", syncReading);
+  window.addEventListener("focus", syncReading);
+
   on("message", (m) => {
     // Is this the FIRST time we've seen this message id? The backend re-emits the
     // whole message on every edit/reaction/pin and on sync backfill, all reusing
@@ -3562,19 +3636,21 @@ function initEvents() {
         } else {
           S.newBelow = true;
         }
-        // Mark read when the channel is on-screen. Use visibility, not
-        // document.hasFocus(): the latter tracks keyboard focus and is unreliable
-        // in a mobile WebView (often false while you're actively reading), which
-        // left the unread badge stuck on the channel you were looking at.
-        if (!document.hidden) markRead(m.channelId, m.sent);
+        // The open channel is read only while someone is reading it (the
+        // rule is in lib/readstate.js). Otherwise this message is unread like
+        // any other — it falls through to the badge below — and syncReading
+        // marks it the moment the window, page or scroll comes back.
+        if (readingNow()) markRead(m.channelId, readThrough([m, ...S.messages]));
       }
-    } else if (
+    }
+    if (
       firstSeen &&
       m.channelId &&
       countsAsChat(m) &&
       !m.deleted &&
       // Our own key signs relayed guest messages, but a guest is not us.
-      (m.sender !== S.identity.fingerprint || m.kind === "guest")
+      (m.sender !== S.identity.fingerprint || m.kind === "guest") &&
+      !(m.channelId === S.activeChannelId && readingNow())
     ) {
       // Genuinely-new (first-seen) message in an unread channel bumps the badge.
       const since = lastRead[m.channelId];
@@ -3685,7 +3761,7 @@ function initEvents() {
     // A channel read on the phone retires its inbox entries here too — the mark
     // the inbox consults is the account's, not this session's.
     refreshInbox();
-    if (r.channelId === S.activeChannelId) return; // on-screen: nothing to badge
+    if (r.channelId === S.activeChannelId && readingNow()) return; // being read: nothing to badge
     try {
       const u = await countChannelUnread(r.channelId);
       const next = { ...S.unread };

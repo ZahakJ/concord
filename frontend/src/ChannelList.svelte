@@ -811,7 +811,7 @@
           class="dm-item"
           data-menu-row
           class:active
-          class:unread={unread.count > 0 && !active}
+          class:unread={unread.count > 0}
           onclick={() => (dm.dmNotes ? selectNotes() : selectGuild(dm.id))}
           oncontextmenu={dm.dmNotes ? undefined : coarse ? (e) => e.preventDefault() : (e) => dmMenu(e, dm)}
           use:longpress={{ handler: (e) => !dm.dmNotes && dmMenu(e, dm) }}
@@ -864,7 +864,7 @@
               {/if}
             </span>
           </span>
-          {#if unread.count > 0 && !active}
+          {#if unread.count > 0}
             <span class="count" class:mention={unread.mentions > 0}
               >{unread.count > 99 ? "99+" : unread.count}</span
             >
@@ -899,8 +899,11 @@
                Gruvbox's mono face and gets 168, so the pack that packs tightest
                was the one that truncated. The tooltip and aria-label still
                carry the whole sentence. -->
+          <!-- Names its unit: it counts CHANNELS, and the rows below count
+               messages, so a bare "1 unread" over "# history 99+" read as a
+               contradiction. -->
           <span class="uj-text">
-            {unreadChannels.length} unread
+            {unreadChannels.length} {unreadChannels.length === 1 ? "channel" : "channels"}
             {#if unreadMentions > 0}· {unreadMentions} @you{/if}
           </span>
           <span class="uj-cta">Jump ↓</span>
@@ -1045,8 +1048,8 @@
             data-menu-row
             data-ch-id={c.id}
             class:active
-            class:unread={!!u && !active && !isMuted(c.id, g?.id)}
-            class:mentioned={!!u?.mentions && !active && !isMuted(c.id, g?.id)}
+            class:unread={!!u && !isMuted(c.id, g?.id)}
+            class:mentioned={!!u?.mentions && !isMuted(c.id, g?.id)}
             class:voice-active={inVoice}
             class:voice-joining={joiningHere}
             class:vdrop={vDropId === c.id}
@@ -1129,7 +1132,11 @@
                   <Icon name="edit" size={11} />
                 </span>
               {/if}
-              {#if c.type !== "voice" && !active && u && !isMuted(c.id, g?.id)}
+              <!-- No exception for the open channel: its unread is cleared the
+                   moment it is actually being read (lib/readstate.js), so a
+                   count still standing here — a phone's channel list over the
+                   open channel, a minimised window — is unread for real. -->
+              {#if c.type !== "voice" && u && !isMuted(c.id, g?.id)}
                 <!-- The number is how many messages are waiting — never the
                      mention tally. Substituting the mentions when there were
                      any made the badge SHRINK as a channel got busier: twenty
@@ -2185,7 +2192,10 @@
   .channel-row.unread .count {
     background: var(--accent);
   }
-  .count.mention {
+  /* Scoped like the rule above, or that rule (one class more specific) wins
+     and a channel holding an @you shows the plain accent count. */
+  .count.mention,
+  .channel-row.unread .count.mention {
     background: var(--danger);
     color: var(--danger-fg);
   }

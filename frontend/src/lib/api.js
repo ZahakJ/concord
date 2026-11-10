@@ -370,6 +370,7 @@ export const api = {
   renameGuild: (guildID, name) => call("RenameGuild", guildID, name),
   leaveGuild: (guildID) => call("LeaveGuild", guildID),
   markRead: (channelID, atMs) => call("MarkRead", channelID, atMs),
+  markReadLatest: (channelIDs) => call("MarkReadLatest", channelIDs),
   readState: () => call("ReadState"),
   appVersion: () => call("AppVersion"),
   // Saved messages (bookmarks) — device-local, never on any wire.

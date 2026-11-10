@@ -47,6 +47,7 @@
     openInbox,
     guildUnread,
     dmList,
+    syncReading,
   } from "./lib/state.svelte.js";
   import { untrack } from "svelte";
   import { pushLayer, syncLayer } from "./lib/navstack.svelte.js";
@@ -208,6 +209,13 @@
       rightFrac = open ? 1 : 0;
       untrack(holdLayer);
     }
+  });
+
+  // The conversation page settling over Home is the moment its channel starts
+  // being read (lib/readstate.js): while Home covers it, messages that land in
+  // the open channel stay unread — that is the phone's landing state.
+  $effect(() => {
+    if (!S.drawerOpen) untrack(syncReading);
   });
 
   // Pushing the page is selectChannel's job (state.svelte.js): every

@@ -7,6 +7,7 @@
   import { precacheEmoji } from "./lib/emojifull.svelte.js";
   import { api, leaveVoiceOnUnload } from "./lib/api.js";
   import { createVisibilityReporter } from "./lib/visibility.js";
+  import { windowTitle } from "./lib/readstate.js";
   import { VoiceMesh } from "./lib/voice.js";
   import { requestPermission, asksLazily } from "./lib/notify.js";
   import { installShortcuts } from "./lib/shortcuts.js";
@@ -469,14 +470,14 @@
   });
 
   // Window title carries the unread signal to the taskbar/dock: "(3) #general
-  // — Concord" while minimized or behind another window. Mentions only — raw
-  // unread counts would make the title flicker on every chatty channel.
+  // — Concord" while minimized or behind another window. Things aimed at you
+  // only (mentions, and every DM message) — raw unread counts would make the
+  // title flicker on every chatty channel. See lib/readstate.js.
   $effect(() => {
     const ch = activeChannel();
-    let mentions = 0;
-    for (const g of S.guilds) mentions += guildUnread(g).mentions;
-    const where = ch?.name ? `${isDMChannel(ch.id) ? "" : "#"}${ch.name} — ` : "";
-    document.title = `${mentions ? `(${mentions}) ` : ""}${where}Concord`;
+    let n = 0;
+    for (const g of S.guilds) n += guildUnread(g).attention;
+    document.title = windowTitle({ attention: n, channelName: ch?.name || "", guild: ch ? activeGuild() : null });
   });
 
   // Ring while a DM call is incoming; stops when accepted, declined, or ended.
