@@ -1538,9 +1538,9 @@ func (s *Store) NewestMessage(channelID string) (domain.Message, bool, error) {
 	var sent int64
 	var deleted int
 	err := s.db.QueryRow(
-		`SELECT id, channel_id, sender, deleted, content_enc, nonce, sent
+		`SELECT id, channel_id, sender, kind, deleted, content_enc, nonce, sent
 		 FROM messages WHERE channel_id = ? ORDER BY sent DESC LIMIT 1`, channelID).
-		Scan(&m.ID, &m.ChannelID, &m.Sender, &deleted, &enc, &nonceB, &sent)
+		Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Kind, &deleted, &enc, &nonceB, &sent)
 	if err == sql.ErrNoRows {
 		return domain.Message{}, false, nil
 	}

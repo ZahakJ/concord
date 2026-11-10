@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1269,6 +1270,57 @@ func (s *Service) SendCallNotice(channelID, kind, content string) (domain.Messag
 		return domain.Message{}, fmt.Errorf("app: bad call notice kind %q", kind)
 	}
 	return s.send(channelID, content, kind, "")
+}
+
+// NoteCall writes this side's own record of a DM call — "Call ended · 2m",
+// or a group call it was rung for and never answered — as kind "call". It is
+// stored and shown here and goes nowhere else: no publish, no mailbox, and the
+// sync ingest drops the kind (store.syncedKinds), the way it drops "device".
+//
+// Local because the two sides of one call are two different events. Only one
+// of them answered, or both did a second apart, and a shared line has to pick
+// one wording for both; an older client would also render a new shared kind as
+// an ordinary message from the sender. The shared "call-missed" line remains
+// for the case that has to travel: a ring that nobody answered, which the
+// callee may have been offline for.
+func (s *Service) NoteCall(channelID, content string) (domain.Message, error) {
+	if !validCallNote(content) {
+		return domain.Message{}, fmt.Errorf("app: bad call note %q", content)
+	}
+	s.mu.RLock()
+	_, ok := s.channelToGuild[channelID]
+	s.mu.RUnlock()
+	if !ok {
+		return domain.Message{}, fmt.Errorf("app: unknown channel %s", channelID)
+	}
+	msg, err := domain.NewMessage(channelID, s.PublicKey(), content)
+	if err != nil {
+		return domain.Message{}, err
+	}
+	msg.Kind = "call"
+	if _, err := s.store.SaveMessage(msg); err != nil {
+		return domain.Message{}, err
+	}
+	s.emitMessage(msg)
+	return msg, nil
+}
+
+// validCallNote accepts "ended:<seconds>" and "missed:<fingerprint>" — the two
+// records the frontend's call machine writes (frontend/src/lib/callflow.js).
+// Anything else would be free text sitting in a conversation as if it were a
+// call, so it is refused rather than stored.
+func validCallNote(content string) bool {
+	if len(content) > 200 {
+		return false
+	}
+	if rest, ok := strings.CutPrefix(content, "ended:"); ok {
+		n, err := strconv.Atoi(rest)
+		return err == nil && n >= 0
+	}
+	if rest, ok := strings.CutPrefix(content, "missed:"); ok {
+		return rest != "" && !strings.ContainsAny(rest, " \n")
+	}
+	return false
 }
 
 func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message, error) {

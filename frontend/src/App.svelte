@@ -30,6 +30,10 @@
     setVideoStream,
     clearVideoStreams,
     incomingCall,
+    declineCall,
+    acceptingCall,
+    joinedDMCall,
+    leavingDMCall,
     isDMChannel,
     jumpToChannel,
     openCallStage,
@@ -563,12 +567,20 @@
   });
 
   async function acceptCall(channelId) {
+    acceptingCall(channelId);
     await jumpToChannel(channelId); // open the DM so the call box is in view
     await joinVoice(channelId);
   }
-  function declineCall(channelId) {
-    S.dismissedCalls = [...S.dismissedCalls, channelId];
-  }
+
+  // A DM call ended by itself — declined, rang out, or the other side hung
+  // up. The machine (lib/callflow.js) decided; leaving is App's to do because
+  // App owns the mesh.
+  $effect(() => {
+    const ch = S.callEnd;
+    if (!ch) return;
+    S.callEnd = "";
+    if (S.voice?.channelId === ch) leaveVoice();
+  });
 
   // Skip the login screen if the backend is already unlocked (e.g. after a
   // browser refresh — the Go process stays running and holds the session).
@@ -1183,11 +1195,6 @@
   // ---- voice lifecycle (owns the mesh; state lives in S) ----
 
   let joining = false;
-  // Missed-call detection: did anyone else ever show up during this call, and
-  // did we enter it by accepting someone's ring (vs. initiating)? The caller's
-  // client is the source of truth for the "Missed call" line.
-  let voiceHadPeer = false;
-  let voiceWasAccept = false;
   // "Hide my IP" is a promise we can only keep when the rendezvous is running
   // TURN. Say so once per session if they asked for it and we cannot — not on
   // every join, and never as if the mesh itself were down.
@@ -1224,13 +1231,10 @@
       return;
     }
     joining = true;
-    voiceHadPeer = false;
-    voiceWasAccept = incomingCall()?.channelId === channelId;
     // Kill the incoming-call ring the instant we commit to joining — otherwise
     // it keeps brringing through the mic prompt + mesh setup (seconds) until
     // S.voice is finally set, which is the "we're both on the call but it's
-    // still ringing" cringe. incomingCall() skips S.joiningVoice. (Set AFTER
-    // voiceWasAccept, which itself calls incomingCall.)
+    // still ringing" cringe. incomingCall() skips S.joiningVoice.
     S.joiningVoice = channelId;
 
     // IP privacy. Fetch ICE config (STUN + optional TURN) up front. We
@@ -1297,10 +1301,7 @@
         autoGain: S.prefs.autoGain,
       },
       relay: api.relaySignal,
-      onRoster: (ids) => {
-        S.voiceParticipants = ids;
-        if (ids.length > 0) voiceHadPeer = true;
-      },
+      onRoster: (ids) => (S.voiceParticipants = ids),
       onSpeaking: (keys) => (S.voiceSpeaking = keys),
       // How each connection is really doing, per peer. The stage renders it;
       // without it a deadlocked call and a working one look identical.
@@ -1376,18 +1377,21 @@
     // We are inside. Everyone already in the room goes on the admitted set, and
     // the door is not ours to hold for a few seconds yet — see noteCallJoined.
     noteCallJoined(channelId);
-    startCallClock();
+    // A DM call's clock starts when somebody answers, not when we start
+    // ringing them — the machine starts it. Everything else is answered by
+    // walking in.
+    const dmPhase = joinedDMCall(channelId);
+    if (!dmPhase) startCallClock();
     // Android: a microphone-type foreground service for the call's duration —
     // without it, Android 14+ cuts the mic the moment the app leaves the
     // screen, and the room hears you silently drop.
     window.Capacitor?.Plugins?.ConcordCore?.startCallService?.().catch(() => {});
-    // Rejoining a call clears any prior "declined" suppression for this channel.
-    if (S.dismissedCalls.includes(channelId))
-      S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);
     playVoiceJoin();
     publishVoiceState();
     haptic("medium"); // the phone is usually at the ear by now — say it connected
-    flash("Joined voice", "success");
+    // Ringing somebody is not being in a call with them.
+    if (dmPhase === "ringing" || dmPhase === "unreachable") flash("Calling…", "info");
+    else flash("Joined voice", "success");
     joining = false;
   }
 
@@ -1395,6 +1399,9 @@
     if (!S.voice) return;
     closeCallStage();
     const ch = S.voice.channelId;
+    // Before anything is torn down: what this hang-up means for a DM call
+    // (a missed-call line if it never connected, our "Call ended" record).
+    leavingDMCall(ch);
     // The call is over — release the microphone foreground service first so
     // the ongoing-call notification never outlives the call it announces.
     window.Capacitor?.Plugins?.ConcordCore?.stopCallService?.().catch(() => {});
@@ -1411,10 +1418,6 @@
     S.voice.mesh.stop();
     S.voice = null;
     stopCallClock();
-    // Suppress the incoming-call ring for this channel: the others may still be
-    // in the room, and without this you'd immediately re-ring yourself for the
-    // call you just left. (Auto-cleared when the room's roster empties.)
-    if (ch && !S.dismissedCalls.includes(ch)) S.dismissedCalls = [...S.dismissedCalls, ch];
     S.voiceParticipants = [];
     S.voiceStates = {};
     S.voiceSpeaking = [];
@@ -1432,12 +1435,6 @@
     playVoiceLeave();
     haptic("medium");
     await api.leaveVoice(ch);
-    // A DM ring we initiated where the other side never showed → leave a quiet
-    // "Missed call" line in the conversation (both sides render it; it never
-    // pings or counts as unread — any non-"" kind is exempt).
-    if (!voiceHadPeer && !voiceWasAccept && isDMChannel(ch)) {
-      api.sendCallNotice(ch, "call-missed", "Missed call").catch(() => {});
-    }
   }
 
   async function toggleScreenShare() {
@@ -1963,8 +1960,12 @@
     <div class="ring-card">
       <span class="ring-pulse"></span>
       <div class="ring-info">
-        <strong>{call.name}</strong>
-        <span class="muted">is calling you…</span>
+        <strong>{call.caller}</strong>
+        <span class="muted">is calling you{call.group ? ` · ${call.name}` : ""}…</span>
+        {#if S.voice && S.voice.channelId !== call.channelId}
+          <!-- Answering moves you: say so before the click, not after it. -->
+          <span class="ring-note">Joining leaves {callLabel || "your current call"}</span>
+        {/if}
       </div>
       <div class="ring-actions">
         <button class="ring-btn decline" onclick={() => declineCall(call.channelId)}>Decline</button>
@@ -3159,6 +3160,10 @@
        min-content — one word per line. */
     flex: 1;
     min-width: 0;
+  }
+  .ring-note {
+    font-size: var(--fs-small);
+    color: var(--warn-text);
   }
   .ring-actions {
     display: flex;

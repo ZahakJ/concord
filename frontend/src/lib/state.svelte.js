@@ -44,6 +44,14 @@ import { insertBySent } from "./feedorder.js";
 import { isBlankText } from "./compose.js";
 import { isReading, readThrough, attention, addressedToYou } from "./readstate.js";
 import {
+  step as callStep,
+  isRinging,
+  declineBlob,
+  parseDecline,
+  callPreview,
+} from "./callflow.js";
+import { startCallClock } from "./calltimer.svelte.js";
+import {
   LEVELS as NOTIF_LEVELS,
   normalize as normalizeNotifs,
   migrateMutes,
@@ -388,9 +396,12 @@ export const S = $state({
   voiceRosters: {},
   // peers currently screen-sharing, keyed by peerId (surfaced as a share icon).
   voiceSharing: {},
-  // DM channels whose incoming call the user dismissed (declined) — suppressed
-  // until that call ends and the roster clears.
-  dismissedCalls: [],
+  // Each DM call as this side sees it — ringing, incoming, active, ended — by
+  // channel id. The machine and why it exists: lib/callflow.js.
+  calls: {},
+  // A DM call that ended on its own (declined, rang out, the other side hung
+  // up): the channel App.svelte should leave. App owns the mesh.
+  callEnd: "",
   muted: false,
   // Why we have no microphone in THIS call, as a getUserMedia error name, or ""
   // when we have one. A call you joined without a mic is a normal call with one
@@ -3608,11 +3619,13 @@ function initEvents() {
     // live. A conversation whose first messages arrived after that fetch read
     // "No messages yet" next to a badge of 2. The newest message wins, by its
     // own timestamp, so a backfilled older one never overwrites a newer line.
-    if (owner?.kind === "dm" && countsAsChat(m)) {
+    // A call record is a line too, worded the way the backend words it.
+    const callLine = callPreview(m.kind, m.content, m.sender === S.identity.fingerprint);
+    if (owner?.kind === "dm" && (countsAsChat(m) || callLine)) {
       const at = m.sent ? new Date(m.sent).getTime() : Date.now();
       if (at >= (owner.dmPreviewAt || 0)) {
-        owner.dmPreview = m.deleted ? "" : plainSnippet(m.content || "", 160);
-        owner.dmPreviewMine = m.sender === S.identity.fingerprint;
+        owner.dmPreview = m.deleted ? "" : callLine || plainSnippet(m.content || "", 160);
+        owner.dmPreviewMine = !callLine && m.sender === S.identity.fingerprint;
         owner.dmPreviewAt = at;
         S.guilds = [...S.guilds];
       }
@@ -3986,6 +3999,7 @@ function initEvents() {
       S.voiceStates = next;
     }
     updateVoiceRoster(v.channelId, v.from, v.fingerprint, v.action);
+    dmRosterChanged(v.channelId, v);
 
     // A browser guest joined the call from their invite link. If we're not in
     // the call yet they'd be sitting there alone, so say so — one nudge per
@@ -4061,6 +4075,8 @@ function initEvents() {
     S.modal = { kind: "guildInvite", invite: inv };
   });
   on("voice-signal", (v) => {
+    const declined = parseDecline(v.data);
+    if (declined) return onDeclineSignal(declined, v.data);
     if (S.voice) S.voice.mesh.handleSignal(v.from, v.data);
   });
 
@@ -4086,7 +4102,10 @@ function initEvents() {
       if (Object.keys(kept).length) next[ch] = kept;
       else if (Object.keys(peers).length) changed = true;
     }
-    if (changed) S.voiceRosters = next;
+    if (changed) {
+      S.voiceRosters = next;
+      for (const ch of Object.keys(S.calls)) if (!next[ch]) dmRosterChanged(ch);
+    }
     // A peer whose heartbeat stopped has left the call, whatever their
     // RTCPeerConnection still believes. This is the third of three layers that
     // clear a departed participant — the beacon on their side, the node
@@ -4150,15 +4169,13 @@ function updateVoiceRoster(channelId, peerId, fingerprint, action) {
   if (action === "leave") {
     delete room[peerId];
   } else {
-    room[peerId] = { fingerprint, ts: Date.now() };
+    // `since` survives the heartbeats, so "who was in the room first" — the
+    // person calling, on a ring card — is answerable.
+    room[peerId] = { fingerprint, ts: Date.now(), since: room[peerId]?.since || Date.now() };
   }
   if (Object.keys(room).length) rosters[channelId] = room;
   else {
     delete rosters[channelId];
-    // The call ended — a future call to this DM should ring again.
-    if (S.dismissedCalls.includes(channelId)) {
-      S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);
-    }
     // …but the lock survives if WE are the ones in the room. The roster counts
     // only other peers, so "empty" here also describes a host sitting alone in a
     // locked meeting waiting for people to knock — which is exactly office
@@ -4336,12 +4353,21 @@ export const CALL_STATE = {
   connecting: { label: "Connecting…", tone: "warn" },
   reconnecting: { label: "Reconnecting…", tone: "warn" },
   failed: { label: "Call not connected", tone: "bad" },
+  ringing: { label: "Calling…", tone: "warn" },
+  unreachable: { label: "They're offline", tone: "warn" },
 };
 export function callHealth() {
   if (!S.voice) return { state: "idle", ...CALL_STATE.connected, live: false };
   // Our own node is gone: nothing else we could say about the far side is
   // worth more than that.
   if (S.offline) return { state: "reconnecting", ...CALL_STATE.reconnecting, live: false };
+  // A DM call nobody has answered is not a connected call, and the clock does
+  // not run for it. "Voice connected" in green with ring time counting up was
+  // what every surface but the stage said while the other phone was ringing.
+  const dial = S.calls[S.voice.channelId];
+  if (isRinging(dial)) {
+    return { state: "ringing", ...(dial.phase === "unreachable" ? CALL_STATE.unreachable : CALL_STATE.ringing), live: false };
+  }
   const others = S.voiceParticipants;
   // Alone in the room is not a fault. The mesh is up; there is nobody on it.
   if (!others.length) return { state: "connected", ...CALL_STATE.connected, live: true };
@@ -4756,21 +4782,193 @@ export function clearCallState(channelId) {
   if (S.turnedAway === channelId) S.turnedAway = "";
 }
 
-// incomingCall reports a DM whose other member is in the voice channel while we
-// are not — i.e. someone is ringing us. Returns { guildId, channelId, name } or
-// null. Dismissed (declined) calls stay suppressed until the roster clears.
-export function incomingCall() {
-  for (const g of S.guilds) {
-    if (g.kind !== "dm" || g.name === "Notes") continue;
-    const ch = g.channels?.[0];
-    if (!ch) continue;
-    if (S.voice?.channelId === ch.id) continue; // already in this call
-    if (S.joiningVoice === ch.id) continue; // mid-join — stop ringing immediately
-    if (S.dismissedCalls.includes(ch.id)) continue;
-    const roster = S.voiceRosters[ch.id];
-    if (roster && Object.keys(roster).length > 0) {
-      return { guildId: g.id, channelId: ch.id, name: g.name };
+// ---- DM calls: the state machine in lib/callflow.js, wired to the app ----
+
+// The DM (or group DM) that owns a channel, or null for a guild channel.
+function dmOf(channelId) {
+  const g = S.guilds.find((x) => x.channels?.some((c) => c.id === channelId));
+  return g?.kind === "dm" && !g.dmNotes && g.name !== "Notes" ? g : null;
+}
+const isGroupDM = (g) => (g?.dmMembers ?? 2) > 2;
+
+// Distinct OTHER accounts in a room, from presence. Our own other devices do
+// not make a call answered, and do not ring us.
+function otherAccounts(channelId) {
+  const self = S.identity?.fingerprint;
+  const out = new Set();
+  for (const info of Object.values(S.voiceRosters[channelId] || {})) {
+    if (info.fingerprint && info.fingerprint !== self) out.add(info.fingerprint);
+  }
+  return out;
+}
+
+// callEvent feeds one event to a DM call's machine and carries out what it
+// says. The machine decides; this only has the hands.
+export function callEvent(channelId, ev) {
+  if (!channelId) return;
+  const prev = S.calls[channelId];
+  const { st, fx } = callStep(prev, ev);
+  if (st !== prev) S.calls = { ...S.calls, [channelId]: st };
+  for (const f of fx) {
+    if (f.leave && S.voice?.channelId === channelId) S.callEnd = channelId;
+    if (f.clock === "start") startCallClock(ev.now);
+    if (f.wire) api.sendCallNotice(channelId, "call-missed", f.wire).catch(() => {});
+    if (f.local) api.noteCall(channelId, f.local).catch(() => {});
+    if (f.sendDecline) {
+      const blob = declineBlob(channelId);
+      for (const pid of Object.keys(S.voiceRosters[channelId] || {})) {
+        if (pid !== S.identity?.peerId) api.relaySignal(pid, blob).catch(() => {});
+      }
     }
+    if (f.say) sayCallOutcome(channelId, f.say, ev.by);
+  }
+}
+
+function sayCallOutcome(channelId, what, by) {
+  const g = dmOf(channelId);
+  const who = (by && nameFor(by)) || (g && !isGroupDM(g) ? g.name : "") || "They";
+  if (what === "declined") flash(`${who} declined the call`, "info");
+  else if (what === "missed") flash(`No answer from ${g?.name || "them"}`, "info");
+  else if (what === "unreachable") flash(`${who} is offline — they'll see a missed call`, "info");
+  else if (what === "ended") flash(`${who} ended the call`, "info");
+}
+
+// The roster of a DM's room changed: tell its call. Called after every
+// presence update and every roster expiry.
+function dmRosterChanged(channelId, v = null) {
+  const g = dmOf(channelId);
+  if (!g) return;
+  const now = Date.now();
+  const others = otherAccounts(channelId);
+  if (S.voice?.channelId === channelId) {
+    if (!v || v.fingerprint === S.identity?.fingerprint) return;
+    if (v.action === "join") callEvent(channelId, { type: "arrive", now });
+    else if (v.action === "leave") {
+      const remaining = others.has(v.fingerprint) ? 1 : 0;
+      callEvent(channelId, { type: "depart", goodbye: true, remaining, now });
+    }
+    return;
+  }
+  if (S.joiningVoice === channelId) return;
+  const roster = S.voiceRosters[channelId] || {};
+  if (!Object.keys(roster).length) {
+    callEvent(channelId, { type: "gone", now });
+    return;
+  }
+  // One of OUR devices is in the room: that call is ours already, and the
+  // desktop ringing for the call the phone placed is a ring at yourself.
+  const selfIn = Object.values(roster).some((i) => i.fingerprint === S.identity?.fingerprint);
+  if (selfIn || !others.size) return;
+  const st = S.calls[channelId];
+  if (!st || st.phase === "idle") {
+    // The caller is whoever was in the room first, as far as we heard it.
+    const first = Object.values(roster).sort((a, b) => (a.since || a.ts) - (b.since || b.ts))[0];
+    callEvent(channelId, {
+      type: "ring",
+      now,
+      group: isGroupDM(g),
+      caller: first?.fingerprint || [...others][0],
+      answeredElsewhere: others.size > 1,
+    });
+  } else if (others.size > 1) {
+    callEvent(channelId, { type: "seen-answer" });
+  }
+}
+
+// A callee said no. Only the decline blob's channel is trusted: the libp2p
+// sender is authenticated, but this event names it by peer id alone, and in a
+// 1:1 there is only one person it can be.
+function onDeclineSignal(channelId, raw) {
+  const g = dmOf(channelId);
+  if (!g || S.voice?.channelId !== channelId) return;
+  let by = g.dmPeer || "";
+  if (isGroupDM(g)) {
+    try {
+      by = JSON.parse(raw).by || "";
+    } catch {
+      by = "";
+    }
+  }
+  const st = S.calls[channelId];
+  const declined = new Set([...(st?.declinedBy || []), by]);
+  const everyone = !isGroupDM(g) || declined.size >= (g.dmMembers ?? 2) - 1;
+  callEvent(channelId, { type: "declined", by, everyone, now: Date.now() });
+}
+
+// Ring clocks. One tick a second while any DM call is ringing either way; a
+// caller ringing a 1:1 also re-reads whether the other side is reachable, so
+// "they're offline" turns into "ringing" the moment they come online.
+setInterval(() => {
+  const now = Date.now();
+  for (const [ch, st] of Object.entries(S.calls)) {
+    if (isRinging(st)) {
+      const g = dmOf(ch);
+      // dmPeerOnline is omitted when false (omitempty), so dmPeer is what says
+      // the view knows who the other side is at all.
+      if (g && !isGroupDM(g) && g.dmPeer) {
+        if ((st.phase === "unreachable") !== !g.dmPeerOnline) callEvent(ch, { type: "reach", reachable: !!g.dmPeerOnline });
+      }
+      callEvent(ch, { type: "tick", now });
+    } else if (st.phase === "incoming") callEvent(ch, { type: "tick", now });
+  }
+}, 1000);
+
+// joinedDMCall: we are now in a DM's room. Either somebody was there (we
+// answered, or rejoined a call in progress) or we are ringing them. Returns
+// the call's phase, or false for a room that is not a DM's.
+export function joinedDMCall(channelId) {
+  const g = dmOf(channelId);
+  if (!g) return false;
+  const now = Date.now();
+  if (otherAccounts(channelId).size) {
+    callEvent(channelId, { type: "join-existing", now, group: isGroupDM(g) });
+  } else {
+    const reachable = isGroupDM(g) || !g.dmPeer ? true : !!g.dmPeerOnline;
+    // A fresh dial: a previous call in this DM that ended is history.
+    callEvent(channelId, { type: "reset" });
+    callEvent(channelId, { type: "dial", now, group: isGroupDM(g), reachable });
+  }
+  return S.calls[channelId]?.phase || "active";
+}
+
+// leavingDMCall: we are hanging up. The machine decides what record that
+// leaves (a missed-call line if it never connected, our own "Call ended").
+export function leavingDMCall(channelId) {
+  if (!dmOf(channelId)) return;
+  callEvent(channelId, { type: "hangup", now: Date.now() });
+}
+
+export function declineCall(channelId) {
+  callEvent(channelId, { type: "decline" });
+}
+export function acceptingCall(channelId) {
+  callEvent(channelId, { type: "accept" });
+}
+
+// The DM call our own side is ringing out on, if any — for the stage's pill.
+export function outgoingRing() {
+  const ch = S.voice?.channelId;
+  const st = ch && S.calls[ch];
+  return isRinging(st) ? { channelId: ch, phase: st.phase } : null;
+}
+
+// incomingCall: the DM call ringing us right now, or null. The card names the
+// person calling, and the conversation separately when it is a group — "Ada,
+// Ben, Dov is calling you…" named two people who were not in the call.
+export function incomingCall() {
+  for (const [ch, st] of Object.entries(S.calls)) {
+    if (st.phase !== "incoming") continue;
+    if (S.voice?.channelId === ch || S.joiningVoice === ch) continue;
+    const g = dmOf(ch);
+    if (!g) continue;
+    return {
+      guildId: g.id,
+      channelId: ch,
+      name: g.name,
+      caller: st.caller ? nameFor(st.caller) : g.name,
+      callerFpr: st.caller || "",
+      group: isGroupDM(g),
+    };
   }
   return null;
 }

@@ -43,6 +43,7 @@
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
   import { plainSnippet } from "./lib/snippet.js";
+  import { recordText } from "./lib/callflow.js";
   import { gameAt, isGameToken } from "./lib/games.js";
   import { msOf, rangeLabel } from "./lib/chronicle.js";
   import { entriesFor } from "./lib/outbox.svelte.js";
@@ -921,7 +922,7 @@
   // is navigating onto nothing — the focus call finds no element, and the tab
   // stop it was pointing at disappears with it. Home landing on a guild's
   // "created this channel" notice is exactly how that happens.
-  const NAV_SKIP = new Set(["system", "call-missed", "device", "invite"]);
+  const NAV_SKIP = new Set(["system", "call-missed", "call", "device", "invite"]);
   const rowKeys = () =>
     items.filter((x) => x.t === "row" && !NAV_SKIP.has(x.row.m.kind)).map((x) => x.k);
 
@@ -1709,17 +1710,28 @@
           {/if}
         </div>
       {/if}
-    {:else if it.row.m.kind === "call-missed"}
-      <!-- A DM ring that went unanswered. The caller's client emits it, both
-           sides render it; never pings (non-"" kinds are unread-exempt). -->
+    {:else if it.row.m.kind === "call-missed" || it.row.m.kind === "call"}
+      <!-- A call record, worded for this side (lib/callflow.js recordText).
+           "call-missed" travels — a ring nobody answered, or a decline — and
+           the caller's client emits it; "call" is this device's own record
+           and never left it. Neither pings (non-"" kinds are unread-exempt). -->
+      {@const mineCall = it.row.m.sender === S.identity.fingerprint}
       <div class="system-msg call-missed" class:enter={it.row.m.id === animateId}>
         <span>
           <span class="call-ic"><Icon name="phone" size={11} /></span>
-          {#if it.row.m.sender === S.identity.fingerprint}
-            You called — no answer
-          {:else}
-            Missed call from <strong>{it.row.m.senderName || it.row.m.sender.slice(0, 9)}</strong>
-          {/if}
+          {recordText({
+            kind: it.row.m.kind,
+            content: it.row.m.content,
+            mine: mineCall,
+            // The other side: the sender when it was them; in a 1:1 we
+            // posted, the person the conversation is with.
+            other: mineCall
+              ? isDMView && (activeGuild()?.dmMembers ?? 2) <= 2
+                ? activeGuild()?.name
+                : ""
+              : it.row.m.senderName || nameFor(it.row.m.sender),
+            nameOf: (f) => nameFor(f),
+          })}
           <span class="call-time">{fmtCallTime(it.row.m.sent)}</span>
         </span>
       </div>

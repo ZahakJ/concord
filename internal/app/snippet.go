@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -222,5 +223,52 @@ func (s *Service) LastSaid(channelID string) (text string, mine bool, atMillis i
 	if m.Deleted {
 		return "", false, m.Sent.UnixMilli()
 	}
-	return snippet(m.Content), accountFingerprintOf(m.Sender) == s.Fingerprint(), m.Sent.UnixMilli()
+	mine = accountFingerprintOf(m.Sender) == s.Fingerprint()
+	if t, ok := callPreview(m.Kind, m.Content, mine); ok {
+		// Never "You: …": the line already says who did what, from this side.
+		return t, false, m.Sent.UnixMilli()
+	}
+	return snippet(m.Content), mine, m.Sent.UnixMilli()
+}
+
+// callPreview words a call record for the DM list the way the conversation
+// words it (frontend/src/lib/callflow.js recordText). The raw content is a
+// token for the renderer, and the caller's list used to read "You: Missed
+// call" — about a call they placed and nobody missed.
+func callPreview(kind, content string, mine bool) (string, bool) {
+	switch kind {
+	case "call-missed":
+		switch {
+		case content == "Declined" && mine:
+			return "Call declined", true
+		case content == "Declined":
+			return "You declined a call", true
+		case mine:
+			return "You called — no answer", true
+		default:
+			return "Missed call", true
+		}
+	case "call":
+		if rest, ok := strings.CutPrefix(content, "ended:"); ok {
+			n, _ := strconv.Atoi(rest)
+			return "Call ended · " + callLength(n), true
+		}
+		return "Missed call", true
+	}
+	return "", false
+}
+
+// callLength is lib/callflow.js callLength: "45s", "2m", "1h 5m".
+func callLength(secs int) string {
+	if secs < 60 {
+		return strconv.Itoa(max(secs, 0)) + "s"
+	}
+	m := secs / 60
+	if m < 60 {
+		return strconv.Itoa(m) + "m"
+	}
+	if m%60 == 0 {
+		return strconv.Itoa(m/60) + "h"
+	}
+	return strconv.Itoa(m/60) + "h " + strconv.Itoa(m%60) + "m"
 }

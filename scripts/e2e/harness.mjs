@@ -356,6 +356,20 @@ export class Peer {
 
 // ---------------------------------------------------------------- browser
 
+// Init script for { watchMedia: true }: runs in the page, so it closes over
+// nothing.
+function watchPeerConnections() {
+  const Orig = window.RTCPeerConnection;
+  if (!Orig) return;
+  window.__pcs = [];
+  window.RTCPeerConnection = class extends Orig {
+    constructor(...a) {
+      super(...a);
+      window.__pcs.push(this);
+    }
+  };
+}
+
 export const VIEWPORTS = {
   desktop: { width: 1440, height: 900 },
   laptop: { width: 1180, height: 720 },
@@ -388,6 +402,10 @@ export class App {
       colorScheme: o.colorScheme || "dark",
       permissions: ["microphone", "camera", "notifications", "clipboard-read", "clipboard-write"],
     });
+    // Calls: every RTCPeerConnection the page makes is kept on window.__pcs,
+    // so a spec can read getStats() and prove media moves, not just that a
+    // tile was drawn. Installed before the app's first script runs.
+    if (o.watchMedia) await this.ctx.addInitScript(watchPeerConnections);
     this.page = await this.ctx.newPage();
     this.page.setDefaultTimeout(scaled(20000));
     this.page.on("console", (m) => {
@@ -608,6 +626,42 @@ export class App {
   // Toggles a reaction from the message toolbar's quick row ("👍", …).
   async react(text, emoji) {
     return this.messageAction(text, `React ${emoji}`);
+  }
+
+  // ---- calls (open the page with { watchMedia: true })
+
+  // Bytes and frames received so far over every live peer connection.
+  async inbound() {
+    return this.page.evaluate(async () => {
+      const t = { audio: 0, video: 0, frames: 0, connected: 0 };
+      for (const pc of window.__pcs || []) {
+        if (pc.connectionState === "closed") continue;
+        if (pc.connectionState === "connected") t.connected++;
+        (await pc.getStats()).forEach((r) => {
+          if (r.type !== "inbound-rtp") return;
+          if (r.kind === "audio") t.audio += r.bytesReceived || 0;
+          else {
+            t.video += r.bytesReceived || 0;
+            t.frames += r.framesDecoded || 0;
+          }
+        });
+      }
+      return t;
+    });
+  }
+
+  // Waits until `kind` ("audio" | "video") is arriving: received bytes grow
+  // across two reads a second apart. Proves media flows, which a tile cannot.
+  async waitForMedia(kind = "audio", { timeout = 45000 } = {}) {
+    return waitFor(
+      async () => {
+        const a = await this.inbound();
+        await sleep(1000);
+        const b = await this.inbound();
+        return b[kind] > a[kind] ? b : null;
+      },
+      { timeout: scaled(timeout), interval: 500, message: `${this.peer.name} to receive ${kind}` },
+    );
   }
 
   // Escape until no dialog is open (bounded: some dialogs ask before closing).

@@ -1741,6 +1741,16 @@ func (b *Bridge) SendCallNotice(channelID, kind, content string) error {
 	return err
 }
 
+// NoteCall writes this device's own record of a DM call (see app.NoteCall).
+func (b *Bridge) NoteCall(channelID, content string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	_, err = svc.NoteCall(channelID, content)
+	return err
+}
+
 // ScheduledSendView is one queued send-later message for the manager UI.
 // fireAt is unix seconds.
 type ScheduledSendView struct {
@@ -3502,6 +3512,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "SendCallNotice":
 		return nil, b.SendCallNotice(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	case "NoteCall":
+		return nil, b.NoteCall(argStr(args, 0), argStr(args, 1))
 	case "ScheduleSend":
 		return b.ScheduleSend(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt64(args, 3))
 	case "CancelScheduledSend":

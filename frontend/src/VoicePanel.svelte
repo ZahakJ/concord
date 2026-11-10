@@ -212,28 +212,33 @@
     };
   }
 
-  // Ring for ~30s while alone in a DM call, then quietly settle into "just you
-  // in the call" if they never pick up.
-  let ringTimedOut = $state(false);
-  $effect(() => {
-    if (!solo) {
-      ringTimedOut = false;
-      return;
-    }
-    ringTimedOut = false;
-    const id = setTimeout(() => (ringTimedOut = true), 30000);
-    return () => clearTimeout(id);
-  });
-  // Neither applies until we are actually in the room: "Waiting for others to
-  // join" while our own connection is still being made says the wrong thing
-  // about the wrong party.
+  // Ringing is the DM call's own state (lib/callflow.js), not "alone in a
+  // DM": that reading re-rang the caller every time the other person hung up,
+  // and rang on after a decline it had never heard about.
+  //
+  // Neither pill applies until we are actually in the room: "Waiting for
+  // others to join" while our own connection is still being made says the
+  // wrong thing about the wrong party.
   // …and neither applies while the call is in trouble. Killing the node under a
   // peer emptied its roster, so an offline client announced "Waiting for others
   // to join…" over the top of "Reconnecting to the call…" — a fourth framing of
   // one event, and the only cheerful one. An empty room is a fact about the
   // room; you cannot state it while you cannot reach the room.
-  const ringing = $derived(solo && isDM && !ringTimedOut && !joining && health.live);
-  const waiting = $derived(solo && !isDM && !joining && health.live);
+  const dial = $derived(S.calls[chId]);
+  const dmGroup = $derived((activeGuild()?.dmMembers ?? 2) > 2);
+  const dmName = $derived(activeGuild()?.name || "them");
+  const ringing = $derived(
+    isDM && !joining && !S.offline && (dial?.phase === "ringing" || dial?.phase === "unreachable"),
+  );
+  const ringText = $derived(
+    dial?.phase === "unreachable" && !dmGroup
+      ? `${dmName} is offline — they'll see a missed call`
+      : `Ringing ${dmGroup ? "everyone" : dmName}…`,
+  );
+  const waiting = $derived(solo && !ringing && !joining && health.live);
+  const waitText = $derived(
+    !isDM ? "Waiting for others to join…" : dmGroup ? "Everyone else left" : `Waiting for ${dmName}…`,
+  );
 
   // Everything Avatar can paint, from a member record. The call stage is a
   // screen made of nothing but avatars, at 96px, that people look at for an
@@ -983,7 +988,7 @@
   {#if (ringing || waiting) && !focusedScreen}
     <div class="ringing">
       <span class="dots"><span></span><span></span><span></span></span>
-      {ringing ? "Ringing…" : "Waiting for others to join…"}
+      {ringing ? ringText : waitText}
     </div>
   {/if}
 

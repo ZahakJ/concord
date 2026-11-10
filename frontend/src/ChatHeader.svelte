@@ -270,8 +270,13 @@
       <button class="ghost iconbtn" use:tooltip aria-label="Open the call" onclick={() => openCallStage()}>
         <Icon name="screen" /> <span class="n">Open the call</span>
       </button>
-      <button class="ghost iconbtn endcall" use:tooltip aria-label="Leave call" onclick={onLeaveVoice}>
-        <Icon name="door" /> <span class="n">End call</span>
+      <!-- One word for one thing: in a 1:1 hanging up ends the call for both of
+           you (lib/callflow.js), so it says End; in a group or a meeting the
+           others carry on, so it says Leave. Text and tooltip used to disagree
+           about which of the two this was. -->
+      {@const hangup = g?.kind === "dm" && (g.dmMembers ?? 2) <= 2 ? "End call" : "Leave call"}
+      <button class="ghost iconbtn endcall" use:tooltip aria-label={hangup} onclick={onLeaveVoice}>
+        <Icon name="door" /> <span class="n">{hangup}</span>
       </button>
     {:else if S.voice && S.voice.channelId === S.activeChannelId}
       <!-- Active voice collapses to one pill with mute + leave inside it. -->

@@ -160,7 +160,8 @@ A test fails on the first thrown error, and after five minutes
   passphrase screen. `viewport` is a name from `VIEWPORTS` (`desktop`,
   `laptop`, `tablet`, `phone`, `phoneSmall`, `phoneLandscape`) or
   `{width, height}`; `phone` and `phoneSmall` turn on touch and the mobile
-  user agent. `unlock: false` leaves it at the passphrase screen.
+  user agent. `unlock: false` leaves it at the passphrase screen. `watchMedia: true`
+  keeps every `RTCPeerConnection` the page makes, for the call helpers below.
 
 ### An open page (`App`)
 
@@ -192,6 +193,11 @@ A test fails on the first thrown error, and after five minutes
   "Add a guild" menu exactly as a person would.
 - `unlock()` / `reload()` reload the page and get past the passphrase screen
   again; `screenshot(file)`; `close()`.
+- Calls (page opened with `watchMedia: true`): `inbound()` → bytes and
+  frames received so far over every live peer connection
+  (`{audio, video, frames, connected}`); `waitForMedia("audio"|"video")` waits
+  until that kind is really arriving (bytes grow across a second) — proof that
+  media flows, which a drawn tile is not.
 
 ### Finding things on the page
 

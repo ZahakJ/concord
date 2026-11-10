@@ -438,6 +438,8 @@ export const api = {
     call("SendMessage", channelID, content, replyTo, dir),
   sendCallNotice: (channelID, kind, content) =>
     call("SendCallNotice", channelID, kind, content),
+  // A call record for this device only — "ended:<secs>" or "missed:<fpr>".
+  noteCall: (channelID, content) => call("NoteCall", channelID, content),
   // Send-later queue, held by the Go service so it fires without this window.
   // fireAtUnix is unix SECONDS (the JS side otherwise speaks epoch ms).
   scheduleSend: (channelID, content, replyTo, fireAtUnix) =>
