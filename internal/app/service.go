@@ -157,7 +157,7 @@ type Service struct {
 	onVoicePresence []func(from, fingerprint, channelID, action, target, dest string)
 	onVoiceSignal   []func(from string, data []byte)
 
-	onTyping      []func(from, channelID string)
+	onTyping      []func(from, channelID string, stop bool)
 	onGuildUpdate []func()
 	onGuildInvite []func(GuildInvite)
 	onReadState   []func(channelID string, at int64)
@@ -1912,12 +1912,24 @@ func (s *Service) selfStoredProfile() Profile {
 // profile to settle it. Now nothing a song touches is hashed at all.
 func (s *Service) selfWireProfile() Profile {
 	p := s.selfStoredProfile()
+	// Invisible means appearing offline, and an offline member is not
+	// listening to anything: what is playing would say otherwise.
+	if p.Presence == "invisible" {
+		return p
+	}
 	s.activityMu.Lock()
 	if s.activity != "" {
 		p.Activity = s.activityInfo
 	}
 	s.activityMu.Unlock()
 	return p
+}
+
+// invisible reports whether the user chose to appear offline. Signals only a
+// present user sends (typing) are withheld while it holds.
+func (s *Service) invisible() bool {
+	v, _ := s.store.GetSetting("presence")
+	return strings.TrimSpace(v) == "invisible"
 }
 
 // profileStamp reads this account's profile edit stamp (UnixMilli, 0 = a

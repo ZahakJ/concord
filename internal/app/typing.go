@@ -51,7 +51,7 @@ const typingPrefKey = "typing_indicators"
 // empty hello frame that reveals nothing of us). A member device answers with
 // its certificate and the NEXT keystroke attributes; an outsider answers
 // nothing and has cost us one stream on this connection, ever.
-func (s *Service) receiveTyping(guildID string, groupID []byte, channelID string, from peer.ID) {
+func (s *Service) receiveTyping(guildID string, groupID []byte, channelID string, from peer.ID, data []byte) {
 	fpr := s.presence(from).Fingerprint
 	if !s.guildHasMember(guildID, fpr) {
 		// Unlearned linked device, or an outsider. The roster is the authority
@@ -66,7 +66,7 @@ func (s *Service) receiveTyping(guildID string, groupID []byte, channelID string
 			return
 		}
 	}
-	s.emitTyping(fpr, channelID)
+	s.emitTyping(fpr, channelID, len(data) == 1 && data[0] == typingStop)
 }
 
 // ---- typing topics and the screen ----
@@ -97,8 +97,8 @@ func (s *Service) subscribeTyping(guildID string, groupID []byte, channelID stri
 	if s.backgrounded() {
 		return
 	}
-	_ = s.ps.Subscribe(s.ctx, domain.TypingTopicID(groupID, channelID), func(from peer.ID, _ []byte) {
-		s.receiveTyping(guildID, groupID, channelID, from)
+	_ = s.ps.Subscribe(s.ctx, domain.TypingTopicID(groupID, channelID), func(from peer.ID, data []byte) {
+		s.receiveTyping(guildID, groupID, channelID, from, data)
 	})
 }
 
@@ -137,8 +137,8 @@ func (s *Service) syncTypingTopics() {
 
 	for _, c := range rooms {
 		if want {
-			_ = s.ps.Subscribe(s.ctx, domain.TypingTopicID(c.groupID, c.channelID), func(from peer.ID, _ []byte) {
-				s.receiveTyping(c.guildID, c.groupID, c.channelID, from)
+			_ = s.ps.Subscribe(s.ctx, domain.TypingTopicID(c.groupID, c.channelID), func(from peer.ID, data []byte) {
+				s.receiveTyping(c.guildID, c.groupID, c.channelID, from, data)
 			})
 			continue
 		}

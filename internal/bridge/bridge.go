@@ -109,6 +109,7 @@ type TypingInfo struct {
 	From      string `json:"from"` // fingerprint
 	Name      string `json:"name"` // display name if known
 	ChannelID string `json:"channelId"`
+	Stop      bool   `json:"stop,omitempty"` // they emptied or left the draft
 }
 
 // VoicePresence reports a peer joining or leaving a channel's voice room.
@@ -648,7 +649,7 @@ func (b *Bridge) Login(passphrase string) error {
 			b.OnVoiceSignal(VoiceSignal{From: from, Data: string(data)})
 		}
 	})
-	svc.OnTyping(func(from, channelID string) {
+	svc.OnTyping(func(from, channelID string, stop bool) {
 		// "Badr is typing…" for someone whose messages you will never see is
 		// the loudest thing a blocked account can still do to you: it names
 		// them, it moves, and it promises a message that never arrives.
@@ -664,7 +665,7 @@ func (b *Bridge) Login(passphrase string) error {
 			if name == "" && from == svc.Fingerprint() {
 				name = svc.DisplayName()
 			}
-			b.OnTyping(TypingInfo{From: from, Name: name, ChannelID: channelID})
+			b.OnTyping(TypingInfo{From: from, Name: name, ChannelID: channelID, Stop: stop})
 		}
 	})
 	svc.OnGuildUpdate(func() {
@@ -1289,6 +1290,15 @@ func (b *Bridge) RenameChannel(guildID, channelID, name string) error {
 	return svc.RenameChannel(guildID, channelID, name)
 }
 
+// StopTyping ends this user's typing line in a channel.
+func (b *Bridge) StopTyping(channelID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.StopTyping(channelID)
+}
+
 // SendTyping broadcasts an ephemeral typing hint for a channel.
 func (b *Bridge) SendTyping(channelID string) error {
 	svc, err := b.service()
@@ -1904,6 +1914,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 		}
 		isOwner := svc.IsGuildOwner(guildID, fpr)
 		perms := uint32(svc.MemberPermission(guildID, fpr))
+		seen, seenOnline := seenAs(p, isSelf || online[fpr], isSelf)
 		out = append(out, MemberView{
 			Fingerprint: fpr,
 			Name:        cleanName(name),
@@ -1912,18 +1923,18 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			Emoji:       p.Emoji,
 			Color:       p.Color,
 			Avatar:      p.Avatar,
-			Activity:    p.Activity,
+			Activity:    seen.Activity,
 			Games:       p.Games,
 			Color2:      p.Color2,
 			Frame:       p.Frame,
 			Effect:      p.Effect,
 			Style:       p.Style,
 			Banner:      p.Banner,
-			Presence:    p.Presence,
+			Presence:    seen.Presence,
 			Bio:         p.Bio,
 			Birthday:    p.Birthday,
 			IsSelf:      isSelf,
-			Online:      isSelf || online[fpr],
+			Online:      seenOnline,
 			Verified:    isSelf || verified[fpr],
 			IsOwner:     isOwner,
 			IsHeir:      heir != "" && fpr == heir,
@@ -2517,6 +2528,22 @@ func (b *Bridge) ResolveSync(guildID string) error {
 	return nil
 }
 
+// seenAs is how someone else's presence is SHOWN. "Invisible" is a promise to
+// appear offline to everyone else, so a member who chose it is reported
+// exactly as a disconnected one: online false, no presence word, no
+// now-playing activity. The word still crosses the wire — an older peer reads
+// it to grey the dot, and one that did not know the word would paint the
+// member green — so this is where it stops: no view this node serves carries
+// it. Your own row (isSelf) keeps the truth.
+func seenAs(p appsvc.Profile, online, isSelf bool) (appsvc.Profile, bool) {
+	if isSelf || p.Presence != "invisible" {
+		return p, online
+	}
+	p.Presence = ""
+	p.Activity = nil
+	return p, false
+}
+
 func (b *Bridge) Contacts() ([]ContactView, error) {
 	svc, err := b.service()
 	if err != nil {
@@ -2876,9 +2903,10 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 					// placeholder instead of a raw fingerprint stub.
 					name = "New conversation"
 				}
-				dmPeerPresence = prof.Presence
+				seen, on := seenAs(prof, vc.isOnline(dmPeer), false)
+				dmPeerPresence = seen.Presence
 				dmPeerAvatar = prof.Avatar
-				dmPeerOnline = vc.isOnline(dmPeer)
+				dmPeerOnline = on
 			} else if len(intended) > 1 {
 				if isCustomDMName(g.Name) {
 					name = g.Name // user renamed the group; keep it
@@ -3604,6 +3632,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.RelaySignal(argStr(args, 0), argStr(args, 1))
 	case "SendTyping":
 		return nil, b.SendTyping(argStr(args, 0))
+	case "StopTyping":
+		return nil, b.StopTyping(argStr(args, 0))
 	case "SetProfile":
 		// birthday rides at the END of the positional list. A caller built
 		// before it existed stops at style (12 args) — for it the field is

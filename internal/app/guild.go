@@ -2839,33 +2839,58 @@ func (s *Service) emitGuildUpdate() {
 // topic we have just left. gossipsub's flood-publish sends it to every peer
 // subscribed to the topic and opens a fanout set for the next minute, which is
 // the whole saving the leave just bought, spent by a stray keystroke.
+//
+// An invisible user sends nothing: "Bea is typing…" beside a grey dot is the
+// one sentence that says she is not offline.
 func (s *Service) SendTyping(channelID string) error {
-	if !s.TypingEnabled() || s.backgrounded() {
+	return s.sendTypingSignal(channelID, typingStart)
+}
+
+// StopTyping tells the channel the draft was emptied or abandoned, so the
+// line ends now instead of on the receivers' four-second timer.
+//
+// An older peer treats any payload on the topic as "typing", so to it a stop
+// reads as one more keystroke: its line lingers the same four seconds it
+// always did after the last one, no longer.
+func (s *Service) StopTyping(channelID string) error {
+	return s.sendTypingSignal(channelID, typingStop)
+}
+
+// The typing topic's one-byte payloads. Receivers before the stop signal
+// ignore the byte entirely.
+const (
+	typingStop  byte = 0
+	typingStart byte = 1
+)
+
+func (s *Service) sendTypingSignal(channelID string, b byte) error {
+	if !s.TypingEnabled() || s.backgrounded() || s.invisible() {
 		return nil
 	}
 	groupID, err := s.groupForChannel(channelID)
 	if err != nil {
 		return err
 	}
-	return s.ps.Publish(s.ctx, domain.TypingTopicID(groupID, channelID), []byte{1})
+	return s.ps.Publish(s.ctx, domain.TypingTopicID(groupID, channelID), []byte{b})
 }
 
-// OnTyping fires when a peer signals typing in a channel.
-func (s *Service) OnTyping(fn func(from, channelID string)) {
+// OnTyping fires when a peer signals typing in a channel; stop is true for an
+// explicit end of typing.
+func (s *Service) OnTyping(fn func(from, channelID string, stop bool)) {
 	s.mu.Lock()
 	s.onTyping = append(s.onTyping, fn)
 	s.mu.Unlock()
 }
 
-func (s *Service) emitTyping(from, channelID string) {
+func (s *Service) emitTyping(from, channelID string, stop bool) {
 	if !s.TypingEnabled() {
 		return // reciprocal: not sending means not seeing
 	}
 	s.mu.RLock()
-	cbs := append([]func(string, string){}, s.onTyping...)
+	cbs := append([]func(string, string, bool){}, s.onTyping...)
 	s.mu.RUnlock()
 	for _, cb := range cbs {
-		cb(from, channelID)
+		cb(from, channelID, stop)
 	}
 }
 
