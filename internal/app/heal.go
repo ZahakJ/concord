@@ -471,6 +471,7 @@ func (s *Service) runHealLoop() {
 		tick++
 		s.healStrandedGuilds()
 		s.retryPendingDMInvites()
+		s.retryOfferedInvites()
 		s.noteDeviceLeaves()
 		// Backgrounded the tick itself is one slow beat, so reconcile rides
 		// every tick; foreground it runs on the polite cadence. The pending

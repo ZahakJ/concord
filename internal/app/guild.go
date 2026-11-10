@@ -940,6 +940,7 @@ func (s *Service) joinOfferedInvite(code string) {
 	// not ride back in on it. Only the user's own JoinViaInvite clears the
 	// tombstone.
 	if s.store.GuildIsLeft(ic.GuildID) {
+		s.noteOfferedRetry(ic.GuildID, "")
 		return
 	}
 	release := s.claimJoin(ic.GuildID)
@@ -948,9 +949,72 @@ func (s *Service) joinOfferedInvite(code string) {
 	_, already := s.guilds[ic.GuildID]
 	s.mu.RUnlock()
 	if already && s.guildHasMember(ic.GuildID, s.id.Fingerprint()) {
+		s.noteOfferedRetry(ic.GuildID, "")
 		return
 	}
-	_, _ = s.joinViaInviteLocked(ic)
+	_, err = s.joinViaInviteLocked(ic)
+	// A failure here used to be the end of it. The offer arrives once per
+	// connection to our other device, and that connection usually outlives
+	// the reason the join failed (the owner was offline, or answered "catching
+	// up", or the connection to them dropped mid-request), so a guild joined on
+	// one device stayed missing from the other until one of them restarted.
+	if err != nil && offeredJoinWorthRetrying(err) {
+		s.noteOfferedRetry(ic.GuildID, code)
+	} else {
+		s.noteOfferedRetry(ic.GuildID, "")
+	}
+}
+
+// offeredJoinWorthRetrying separates a join that may well work later from a
+// refusal that will not change by asking again (banned, removed, not allowed).
+// Only one refusal is temporary: an owner catching up on its own group state.
+func offeredJoinWorthRetrying(err error) bool {
+	msg := err.Error()
+	if !strings.Contains(msg, "invite rejected") {
+		return true
+	}
+	return strings.Contains(msg, "catching up")
+}
+
+// noteOfferedRetry records (code != "") or forgets (code == "") the offered
+// code to try again for a guild.
+func (s *Service) noteOfferedRetry(guildID, code string) {
+	s.joiningMu.Lock()
+	defer s.joiningMu.Unlock()
+	if code == "" {
+		delete(s.offeredRetry, guildID)
+		return
+	}
+	if s.offeredRetry == nil {
+		s.offeredRetry = map[string]string{}
+	}
+	s.offeredRetry[guildID] = code
+}
+
+// retryOfferedInvites tries again every offered code that failed for a reason
+// that may since have gone away. Runs on the heal tick, in the background: a
+// join to an owner who is still unreachable can take the full dial timeout,
+// and the heal loop has other work. One pass at a time.
+func (s *Service) retryOfferedInvites() {
+	if !s.offeredRetrying.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer s.offeredRetrying.Store(false)
+		s.retryOfferedInvitesNow()
+	}()
+}
+
+func (s *Service) retryOfferedInvitesNow() {
+	s.joiningMu.Lock()
+	codes := make([]string, 0, len(s.offeredRetry))
+	for _, c := range s.offeredRetry {
+		codes = append(codes, c)
+	}
+	s.joiningMu.Unlock()
+	for _, c := range codes {
+		s.joinOfferedInvite(c)
+	}
 }
 
 // JoinLinkedInvite redeems one of the invite codes a device-link handover

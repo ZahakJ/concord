@@ -293,6 +293,12 @@ type Service struct {
 	// claimJoin for why concurrent duplicate joins are actively harmful.
 	joining   map[string]*sync.Mutex
 	joiningMu sync.Mutex
+	// offeredRetry holds, per guild, the code one of our own devices offered
+	// us that we could not redeem yet (owner unreachable, owner catching up).
+	// Retried on the heal tick; see retryOfferedInvites. Guarded by joiningMu;
+	// in-memory, because a restart greets our devices again and they re-offer.
+	offeredRetry    map[string]string
+	offeredRetrying atomic.Bool
 
 	// blocked is the in-memory mirror of the block list (see block.go), guarded
 	// by mu. A blocked account's DM/guild invites are dropped on arrival.
