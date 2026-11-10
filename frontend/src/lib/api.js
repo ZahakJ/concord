@@ -77,6 +77,43 @@ function reportTransport(up) {
   for (const cb of [...healthWatchers]) cb(up);
 }
 
+// probeCore asks the core a trivial question with a deadline, and reports a
+// core that does not answer as down.
+//
+// A core that has crashed is noticed by itself: the socket refuses, fetch
+// rejects, the event stream errors. A core that has HUNG is not. Its sockets
+// stay open, the event stream simply goes quiet, and nothing ever fails — so
+// in a call the mesh to everybody else dropped within seconds while the stage
+// said "Voice connected" and "Waiting for others to join…" with the clock
+// running: it told the user the others had left, when the one who had dropped
+// out of the room was them. Two misses in a row, so one slow answer on a busy
+// machine is not an outage. Wails calls have no network under them and are
+// not probed.
+let probeMisses = 0;
+export async function probeCore(timeoutMs = 6000) {
+  if (wailsBindings() || typeof fetch !== "function") return true;
+  const headers = { "Content-Type": "application/json" };
+  if (apiToken) headers["Authorization"] = `Bearer ${apiToken}`;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    await fetch(`${apiBase}/rpc`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ method: "Session", args: [] }),
+      signal: ac.signal,
+    });
+    probeMisses = 0;
+    reportTransport(true);
+    return true;
+  } catch {
+    if (++probeMisses >= 2) reportTransport(false);
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // The one error the UI should never print verbatim.
 export function offlineError() {
   const err = new Error("Concord isn't responding — trying to reconnect");

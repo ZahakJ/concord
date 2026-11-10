@@ -2,7 +2,7 @@
 // that mutate it. Components import { S, ... } and read/mutate S's properties;
 // api.js stays the only transport layer underneath.
 import { tick } from "svelte";
-import { api, on, onTransportHealth } from "./api.js";
+import { api, on, onTransportHealth, probeCore } from "./api.js";
 import { notify, wantsPermissionPrompt } from "./notify.js";
 import { containsMention } from "./markdown.js";
 import { matchedWord as matchedAlertWord, normalize as normalizeAlertWords } from "./alertwords.js";
@@ -2657,6 +2657,13 @@ export async function refreshNetStatus() {
 // The transport's own verdict on whether anything is listening, raised into the
 // reconnecting bar. Coming back is worth a refresh: whatever happened while we
 // were blind (messages, members, presence) never reached this page.
+// While in a call, keep asking the core whether it is alive: a hung one is
+// otherwise invisible (see probeCore). Only in a call, because that is where
+// a silent core turns into a false statement about other people.
+setInterval(() => {
+  if (S.voice) probeCore().catch(() => {});
+}, 5000);
+
 onTransportHealth((up) => {
   const wasOffline = S.offline;
   S.offline = !up;
