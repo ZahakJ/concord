@@ -374,7 +374,10 @@
     align-items: center;
     gap: var(--sp-2);
     padding: 6px var(--sp-2);
-    background: var(--ok-soft);
+    /* The soft tints are translucent by design, and this strip sits over the
+       message list: scrolled text showed through and collided with the
+       strip's own labels. The tint is laid over the app's own opaque ground. */
+    background: linear-gradient(var(--ok-soft), var(--ok-soft)), var(--bg);
     border-bottom: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
     box-shadow: var(--shadow-pop);
     user-select: none;
@@ -491,9 +494,12 @@
   .dock.trouble {
     animation: none;
   }
-  .dock.trouble .head,
-  .phone-call.trouble .callbar {
+  .dock.trouble .head {
     background: var(--warn-soft);
+    color: var(--warn-text);
+  }
+  .phone-call.trouble .callbar {
+    background: linear-gradient(var(--warn-soft), var(--warn-soft)), var(--bg);
     color: var(--warn-text);
   }
   .dock.trouble .lbl,
