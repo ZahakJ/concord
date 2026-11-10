@@ -12,7 +12,9 @@
   import { RING_BY_ID, RINGS } from "../lib/rings.js";
   import { api } from "../lib/api.js";
   import { haptic } from "../lib/touch.js";
-  import { S } from "../lib/state.svelte.js";
+  import { S, flash } from "../lib/state.svelte.js";
+  import { onDestroy } from "svelte";
+  import { bioRoom, hasVisible, profileDraft } from "../lib/profilefields.js";
   import { rangefill } from "../lib/rangefill.js";
   import { pointOf } from "../lib/place.js";
   let { identity, onSubmit, onClose } = $props();
@@ -121,8 +123,13 @@
   let dragY = $state(0);
   let cropCanvas = $state(null);
 
+  // A file the browser cannot draw (a text file named .png, a truncated
+  // download, a format it does not decode) used to do nothing at all: no
+  // cropper, no word. People clicked again and again.
+  const unreadable = () => flash("That file isn't an image Concord can read — try a PNG, JPEG, GIF or WebP.", "error");
   function loadForCrop(file) {
-    if (!file || !file.type.startsWith("image/")) return;
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return unreadable();
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
@@ -132,7 +139,10 @@
       dragX = 0;
       dragY = 0;
     };
-    img.onerror = () => URL.revokeObjectURL(url);
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      unreadable();
+    };
     img.src = url;
   }
 
@@ -219,7 +229,10 @@
       c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
       banner = c.toDataURL("image/jpeg", 0.82);
     };
-    img.onerror = () => URL.revokeObjectURL(url);
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      unreadable();
+    };
     img.src = url;
   }
 
@@ -231,7 +244,59 @@
     else loadForCrop(item.getAsFile());
   }
 
+  // ---- unsaved edits ----
+  // Every other Settings pane applies as you go; this one has a Save button,
+  // and switching to Appearance and back used to drop the edits without a
+  // word. They are kept as a draft until saved or discarded (lib/profilefields).
+  const snap = () => ({
+    name, status, emoji, color, avatar, presence, bio, bMonth, bDay, color2, frame,
+    dec, dc, cf, effect, banner, speed, dir, glow, ringW, angle, fill, sat, pal,
+  });
+  function apply(v) {
+    ({ name, status, emoji, color, avatar, presence, bio, bMonth, bDay, color2, frame,
+      dec, dc, cf, effect, banner, speed, dir, glow, ringW, angle, fill, sat, pal } = v);
+  }
+  let saved = $state(snap());
+  const dirty = $derived(JSON.stringify(snap()) !== JSON.stringify(saved));
+  let fromDraft = $state(false);
+  if (profileDraft.value) {
+    apply(profileDraft.value);
+    fromDraft = true;
+  }
+  let discarding = false;
+  onDestroy(() => {
+    profileDraft.value = dirty && !discarding ? snap() : null;
+  });
+  function discardDraft() {
+    apply(saved);
+    fromDraft = false;
+    profileDraft.value = null;
+  }
+  function cancel() {
+    discarding = true;
+    onClose();
+  }
+
+  const room = $derived(bioRoom(bio));
+  const nameOk = $derived(hasVisible(name));
+  let saving = $state(false);
+
   async function save() {
+    if (!nameOk || room.over || saving) return;
+    saving = true;
+    try {
+      await commit();
+      saved = snap();
+      fromDraft = false;
+      profileDraft.value = null;
+    } catch (err) {
+      flash(err);
+    } finally {
+      saving = false;
+    }
+  }
+
+  async function commit() {
     // The shell's onSubmit handler forwards only the twelve classic fields
     // (the API is positional), so birthday is committed here, and only when it
     // actually changed, to spare a double broadcast. The shell's follow-up
@@ -246,7 +311,7 @@
         );
       } catch {}
     }
-    onSubmit({
+    await onSubmit({
       name: name.trim(),
       status: status.trim(),
       emoji,
@@ -355,15 +420,29 @@
         <input type="range" min="1" max="4" step="0.01" bind:value={zoom} use:rangefill={zoom} />
       </label>
       <div class="crop-actions">
-        <button type="button" class="ghost" onclick={() => (rawImg = null)}>Cancel</button>
-        <button type="button" onclick={applyCrop}>Apply</button>
+        <!-- Not "Cancel": the pane's own Cancel (discard every edit) sits just
+             below, and two Cancels a few rows apart meant different things. -->
+        <button type="button" class="ghost" onclick={() => (rawImg = null)}>Discard picture</button>
+        <button type="button" onclick={applyCrop}>Use picture</button>
       </div>
     </div>
   {/if}
 
   <label class="field">
     <span class="muted">Display name</span>
-    <input dir="auto" bind:value={name} maxlength="32" placeholder="Your name" />
+    <input
+      dir="auto"
+      bind:value={name}
+      maxlength="32"
+      placeholder="Your name"
+      aria-invalid={!nameOk ? "true" : undefined}
+      aria-describedby="name-hint"
+    />
+    <!-- Save greys out without a name; this says why, and says the limit the
+         field otherwise enforces by silently dropping the 33rd character. -->
+    <span id="name-hint" class="hint" class:bad={!nameOk}>
+      {#if !nameOk}A name needs at least one visible character.{:else}{[...name].length}/32{/if}
+    </span>
   </label>
   <div class="field">
     <span class="muted">Availability</span>
@@ -383,11 +462,28 @@
   </div>
   <label class="field">
     <span class="muted">Status</span>
-    <input bind:value={status} maxlength="64" placeholder="e.g. building something epic" />
+    <input dir="auto" bind:value={status} maxlength="64" placeholder="e.g. building something epic" />
   </label>
   <label class="field">
     <span class="muted">About me</span>
-    <textarea bind:value={bio} maxlength="600" rows="3" placeholder="A short bio — shown on your profile card"></textarea>
+    <textarea
+      dir="auto"
+      bind:value={bio}
+      rows="3"
+      placeholder="A short bio — shown on your profile card"
+      aria-invalid={room.over ? "true" : undefined}
+      aria-describedby="bio-hint"
+    ></textarea>
+    <!-- Counted the way the core counts it — bytes, which is what the profile
+         broadcast carries — so a non-Latin bio is told its real room instead
+         of being cut to half behind a "Profile updated". -->
+    <span id="bio-hint" class="hint" class:bad={room.over}>
+      {#if room.over}
+        {-room.left} over the limit — letters outside the Latin alphabet and emoji take more room. Shorten it to save.
+      {:else if room.left < 120}
+        {room.left} left
+      {/if}
+    </span>
   </label>
   <div class="field">
     <span class="muted">Birthday (optional)</span>
@@ -518,8 +614,16 @@
   </div>
 
   <div class="actions">
-    <button class="ghost" onclick={onClose}>Cancel</button>
-    <button onclick={save} disabled={!name.trim()}>Save</button>
+    {#if fromDraft && dirty}
+      <span class="draft-note">
+        Unsaved changes from before.
+        <button type="button" class="linkish" onclick={discardDraft}>Discard them</button>
+      </span>
+    {/if}
+    <button class="ghost" onclick={cancel}>Cancel</button>
+    <button onclick={save} disabled={!nameOk || room.over || saving || !dirty}>
+      {saving ? "Saving…" : "Save"}
+    </button>
   </div>
 
   {#if decorStudio}
@@ -576,6 +680,31 @@
 </RailShell>
 
 <style>
+  .hint {
+    min-height: 1.2em;
+    font-size: var(--fs-small);
+    color: var(--text-faint);
+    text-align: end;
+  }
+  .hint.bad {
+    color: var(--danger-text);
+    text-align: start;
+  }
+  .draft-note {
+    margin-inline-end: auto;
+    align-self: center;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+  }
+  .linkish {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--accent-hover);
+    text-decoration: underline;
+    font-size: inherit;
+    cursor: pointer;
+  }
   .small-btn {
     font-size: 12px;
     padding: 4px 10px;
