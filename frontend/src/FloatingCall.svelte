@@ -377,9 +377,10 @@
     /* The soft tints are translucent by design, and this strip sits over the
        message list: scrolled text showed through and collided with the
        strip's own labels. The tint is laid over the app's own opaque ground. */
-    background: linear-gradient(var(--ok-soft), var(--ok-soft)), var(--bg);
-    border-bottom: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
     box-shadow: var(--shadow-pop);
+    min-height: 44px;
     user-select: none;
   }
   .cb-open {
@@ -405,7 +406,7 @@
   .cb-lbl {
     font-size: var(--fs-compact);
     font-weight: 600;
-    color: var(--ok-text);
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -428,7 +429,6 @@
     user-select: none;
     /* The dock breathes softly while the call is live — a low green ambience
        that says "this is running" without demanding attention. */
-    animation: dock-breathe 4s ease-in-out infinite;
     transition: transform var(--dur-standard) ease, box-shadow var(--dur-standard) ease, width var(--dur-standard) ease;
   }
   .dock.watching {
@@ -499,7 +499,7 @@
     color: var(--warn-text);
   }
   .phone-call.trouble .callbar {
-    background: linear-gradient(var(--warn-soft), var(--warn-soft)), var(--bg);
+    background: var(--bg-elevated);
     color: var(--warn-text);
   }
   .dock.trouble .lbl,
@@ -514,28 +514,14 @@
   /* Lifted while dragged: bigger shadow + a slight grow under the pointer. */
   .dock.dragging {
     transform: scale(1.03);
-    box-shadow:
-      var(--shadow-pop),
-      0 18px 44px rgb(0 0 0 / 0.4);
-    animation: none;
-  }
-  @keyframes dock-breathe {
-    0%,
-    100% {
-      box-shadow: var(--shadow-pop);
-    }
-    50% {
-      box-shadow:
-        var(--shadow-pop),
-        0 0 18px color-mix(in srgb, var(--ok) 22%, transparent);
-    }
+    box-shadow: var(--shadow-pop);
   }
   .head {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
     padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
-    background: var(--ok-soft);
+    border-bottom: 1px solid var(--hairline);
     cursor: move;
     /* Ours, not the scroller's: with the default the browser claimed any
        vertical touch drag and cancelled the pointer mid-move. */
@@ -547,12 +533,6 @@
     border-radius: 50%;
     background: var(--ok);
     flex-shrink: 0;
-    animation: blink 1.4s ease-in-out infinite;
-  }
-  @keyframes blink {
-    50% {
-      opacity: 0.3;
-    }
   }
   /* Amber and still: the dot is the liveness claim, so it stops making it. */
   .live.held {
@@ -569,7 +549,7 @@
     min-width: 0;
     font-size: var(--fs-compact);
     font-weight: 600;
-    color: var(--ok-text);
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -581,7 +561,7 @@
     font-size: var(--fs-tiny);
     font-variant-numeric: tabular-nums;
     font-weight: 600;
-    color: color-mix(in srgb, var(--ok-text) 78%, transparent);
+    color: var(--ok-text);
   }
   .faces {
     display: flex;
@@ -597,23 +577,9 @@
     border: 2px solid transparent;
     transition: border-color var(--dur-quick) ease;
   }
-  /* Speaking: same layered ring-and-glow as the big call tiles, mini-sized. */
+  /* Speaking: a ring, no glow (§8.12). */
   .face.speaking :global(.avatar) {
     border-color: var(--ok);
-    animation: fc-glow 1.6s ease-in-out infinite;
-  }
-  @keyframes fc-glow {
-    0%,
-    100% {
-      box-shadow:
-        0 0 0 2px var(--ok-soft),
-        0 0 3px 0 color-mix(in srgb, var(--ok) 30%, transparent);
-    }
-    50% {
-      box-shadow:
-        0 0 0 2px color-mix(in srgb, var(--ok) 28%, transparent),
-        0 0 8px 2px color-mix(in srgb, var(--ok) 45%, transparent);
-    }
   }
   .ctl {
     display: flex;

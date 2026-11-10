@@ -61,7 +61,7 @@
     /* Opaque, like every other floating surface: --bg-0..3 carry an alpha in
        thirty-one of the theme packs and this one is over a dialog. */
     background: var(--bg-elevated);
-    border: 1px solid color-mix(in srgb, var(--ok) 28%, var(--border));
+    border: 1px solid var(--border);
     box-shadow: var(--shadow-pop);
   }
   .cm-live {
@@ -71,17 +71,6 @@
     border-radius: 50%;
     flex: none;
     background: var(--ok);
-    animation: cm-blink 1.4s ease-in-out infinite;
-  }
-  @keyframes cm-blink {
-    50% {
-      opacity: 0.3;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .cm-live {
-      animation: none;
-    }
   }
   @media (max-width: 768px) {
     .callmini .callbtn.sm {

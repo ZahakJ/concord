@@ -2,9 +2,10 @@
   // MobileShell is the phone layout: a navigation STACK instead of the desktop
   // 4-column grid. Two places, one on top of the other:
   //
-  //   HOME  — the guild rail beside the active guild's channel list (or the DM
-  //           list), full width, with a tab bar along the bottom edge under the
-  //           thumb: Home / Messages / Inbox / You.
+  //   HOME  — the sidebar at full width: the place header, the shortcut
+  //           strip, the jump field and the place's list (channels, or your
+  //           conversations), with a tab bar along the bottom edge under the
+  //           thumb: Guilds / Messages / Inbox / You.
   //   PAGE  — the conversation, pushed in over Home from the right edge.
   //
   // Back (the chevron, the hardware gesture, or a rightward swipe that drags
@@ -40,7 +41,6 @@
     openCallStage,
     toggleCallStageChat,
     channelShort,
-    accentForeground,
     confirmLeaveGuild,
     leaveGuildLabel,
     openGuildHub,
@@ -48,21 +48,25 @@
     guildUnread,
     dmList,
     syncReading,
+    isMuted,
+    toggleMute,
+    notifLevel,
+    setChannelNotifs,
+    markRead,
   } from "./lib/state.svelte.js";
+  import { LEVELS } from "./lib/notifs.js";
   import { untrack } from "svelte";
   import { pushLayer, syncLayer } from "./lib/navstack.svelte.js";
-  import { guildAccent } from "./lib/guildaccent.js";
+  import { openGuildSwitcher } from "./lib/guildswitch.svelte.js";
   import { api } from "./lib/api.js";
-  import { haptic } from "./lib/touch.js";
+  import { haptic, longpress } from "./lib/touch.js";
   import { focusOnMount } from "./lib/focus.js";
   import { runSearch, closeSearch, queueSearch, registerSearchInput } from "./lib/search.js";
-  import GuildRail from "./GuildRail.svelte";
   import ChannelList from "./ChannelList.svelte";
   import MessageList from "./MessageList.svelte";
-  import SetupCard from "./SetupCard.svelte";
   import PostHeader from "./PostHeader.svelte";
   import Composer from "./Composer.svelte";
-  import MemberPanel from "./MemberPanel.svelte";
+  import Inspector from "./Inspector.svelte";
   import Welcome from "./Welcome.svelte";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
@@ -80,15 +84,6 @@
     onToggleCamera,
   } = $props();
 
-  // Per-guild accent, same stamp and precedence as the desktop grid in
-  // App.svelte: explicit user preset > guild banner hue > pack/profile.
-  const guildAccentVars = $derived.by(() => {
-    if (S.prefs.accent || S.prefs.guildAccents === false) return "";
-    const g = activeGuild();
-    if (!g || g.kind === "dm") return "";
-    const c = guildAccent(g.banner);
-    return c ? `--accent:${c};--accent-fg:${accentForeground(c)};` : "";
-  });
 
   const isDM = $derived(activeGuild()?.kind === "dm");
   const hasChannel = $derived(!!S.activeChannelId && !!activeGuild());
@@ -131,6 +126,16 @@
     if (S.callStage) return channelShort(S.voice?.channelId || S.joiningVoice) || ch?.name || "Call";
     return ch ? ch.name : g.name;
   });
+  // "Lantern Makers · 4 reachable": where this conversation lives, and how
+  // many of its people this device can reach right now (§2.10).
+  const subtitle = $derived.by(() => {
+    const g = activeGuild();
+    if (!g || g.kind === "dm" || !hasChannel || S.callStage) return "";
+    const others = S.members.filter((m) => !m.isSelf);
+    if (!others.length) return g.name;
+    const n = others.filter((m) => m.online).length;
+    return `${g.name} · ${n ? `${n} reachable` : "nobody reachable"}`;
+  });
   const titleIcon = $derived.by(() => {
     const g = activeGuild();
     if (!g || g.kind === "dm") return "";
@@ -166,7 +171,9 @@
     moveTimer = setTimeout(() => (moving = false), ms);
   }
 
-  const rightW = $derived(Math.min(vw * 0.82, 300));
+  // The inspector is a pushed page of its own on a phone (§2.6), the full
+  // width, with the same swipe-back as the conversation.
+  const rightW = $derived(vw);
 
   // Landscape with the keyboard up. A phone on its side is about 390 CSS px
   // tall, and a tall IME (a half-open foldable reaches 336px) leaves the page
@@ -341,27 +348,37 @@
     if (!g) return;
     const dm = g.kind === "dm";
     const inCall = S.voice && S.voice.channelId === S.activeChannelId;
+    const chan = g.channels?.find((c) => c.id === S.activeChannelId);
+    const muted = isMuted(S.activeChannelId, g.id);
     haptic("light"); // the sheet slides up from the far end of the screen; say it opened
     openContextMenu(
       e,
       [
-        // The fuzzy palette (every channel, DM and global action) was reachable
-        // only by Ctrl+K, i.e. never on a phone. It is the fastest way to move
-        // around once there are more than a handful of conversations.
-        { label: "Jump to…", icon: "search", onClick: () => (S.quickSwitcher = true) },
-        { label: "Your calendar", icon: "calendar", onClick: () => (S.modal = { kind: "myCalendar" }) },
+        // The channel sheet (§2.6): the quick row above is what it is opened
+        // for; this is the long tail. Jump to… is the field on the Guilds page.
+        { label: "Notifications", header: true },
+        ...LEVELS.map((l) => ({
+          label: l.label,
+          icon: l.id === "none" ? "bellOff" : "bell",
+          active: notifLevel(S.activeChannelId, g.id) === l.id,
+          onClick: () => setChannelNotifs(S.activeChannelId, l.id),
+        })),
+        { sep: true },
+        { label: "Scheduled messages", icon: "clock", onClick: () => (S.modal = { kind: "scheduled" }) },
+        { label: "Events", icon: "calendar", onClick: () => (S.modal = { kind: "events" }) },
         { label: "Disappearing messages", icon: "clock", onClick: () => (S.modal = { kind: "disappear", channelId: S.activeChannelId }) },
-        S.voice &&
-          !S.callStage && {
-            label: "Open the call",
-            icon: "screen",
-            onClick: () => openCallStage(),
-          },
+        !dm && g.canManage && chan && chan.type !== "voice" && {
+          label: "Channel settings",
+          icon: "gear",
+          onClick: () => (S.modal = { kind: "channelTopic", channel: chan }),
+        },
+        { label: "Mark as read", icon: "check", onClick: () => markRead(S.activeChannelId) },
+        S.voice && !S.callStage && { label: "Open the call", icon: "screen", onClick: () => openCallStage() },
+        !g.dmNotes &&
+          (inCall
+            ? { label: dm ? "End call" : "Leave the call", icon: "door", onClick: () => onLeaveVoice() }
+            : { label: dm ? "Start a call" : "Join voice", icon: "speaker", onClick: () => onJoinVoice() }),
         !dm && { sep: true },
-        // One door to the guild. Emoji, roles and bans used to be three more
-        // rows here, and every one of them is a page inside the hub this row
-        // opens (lib/guildnav.js) — the sheet was listing a menu's contents
-        // beside the menu, and scrolling for it.
         !dm && { label: "Guild settings", icon: "gear", onClick: openGuildHub },
         !g.dmNotes && { sep: true },
         !g.dmNotes && {
@@ -373,21 +390,17 @@
       ],
       {
         title,
-        // The tile row: the four or five things this sheet is opened FOR. The
-        // list underneath is the long tail.
         actions: [
           { label: "Search", icon: "search", onClick: () => (searchOpen = true) },
           { label: "Pins", icon: "pin", onClick: () => (S.showPins = !S.showPins) },
-          // Every room has a calendar now: guilds share theirs, a DM's belongs
-          // to its people, Notes' is private (a group of one).
-          { label: "Events", icon: "calendar", onClick: () => (S.modal = { kind: "events" }) },
-          !g.dmNotes &&
-            (inCall
-              ? { label: dm ? "End call" : "Leave", icon: "door", danger: true, onClick: () => onLeaveVoice() }
-              : { label: dm ? "Call" : "Voice", icon: "speaker", onClick: () => onJoinVoice() }),
+          {
+            label: muted ? "Unmute" : "Mute",
+            icon: muted ? "bell" : "bellOff",
+            onClick: () => toggleMute(S.activeChannelId),
+          },
           !dm && g.canManage && {
             label: "Invite",
-            icon: "members",
+            icon: "personPlus",
             onClick: async () => (S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) }),
           },
         ],
@@ -596,7 +609,6 @@
 <div
   class="mshell"
   class:offline-shift={S.offline}
-  style={guildAccentVars}
   ontouchstart={onTouchStart}
   ontouchmove={onTouchMove}
   ontouchend={onTouchEnd}
@@ -617,10 +629,9 @@
       class:covered={homeCovered}
       style:transform={home === 1 && !dragging ? "none" : `translateX(${-(1 - home) * 22}%)`}
       inert={homeCovered}
-      aria-label="Home"
+      aria-label="Guilds"
     >
       <div class="home-body">
-        <div class="home-rail"><GuildRail /></div>
         {#if activeGuild()}
           <div class="home-list">
             <ChannelList
@@ -638,13 +649,21 @@
         {/if}
       </div>
       <nav class="tabbar" aria-label="Sections">
-        <button class="tab" class:on={tab === "home"} aria-current={tab === "home" ? "page" : undefined} onclick={goHome}>
+        <!-- A long-press on Guilds opens the switcher sheet, within thumb
+             reach (§2.6). -->
+        <button
+          class="tab"
+          class:on={tab === "home"}
+          aria-current={tab === "home" ? "page" : undefined}
+          onclick={goHome}
+          use:longpress={{ handler: () => openGuildSwitcher(null) }}
+        >
           <span class="tab-ic">
             <Icon name="hash" size={22} />
             {#if homeUnread.mentions > 0}<span class="tab-badge"><Badge count={homeUnread.mentions} ring="var(--bg-1)" /></span>
             {:else if homeUnread.count > 0}<span class="tab-dot"><Badge dot ring="var(--bg-1)" /></span>{/if}
           </span>
-          <span class="tab-lbl">Home</span>
+          <span class="tab-lbl">Guilds</span>
         </button>
         <button class="tab" class:on={tab === "messages"} aria-current={tab === "messages" ? "page" : undefined} onclick={goMessages}>
           <span class="tab-ic">
@@ -713,8 +732,13 @@
              The chevron is the only thing that says so before you tap it. -->
         <button class="mtitle" onclick={hasChannel ? moreMenu : undefined} disabled={!hasChannel}>
           {#if titleIcon}<span class="mtitle-ic"><Icon name={titleIcon} size={13} /></span>{/if}
-          <span class="mtitle-text">{title}</span>
-          {#if hasChannel}<span class="chev-down"><Icon name="chevron" size={12} /></span>{/if}
+          <span class="mtitle-block">
+            <span class="mtitle-line">
+              <span class="mtitle-text">{title}</span>
+              {#if hasChannel}<span class="chev-down"><Icon name="chevron" size={12} /></span>{/if}
+            </span>
+            {#if subtitle}<span class="mtitle-sub">{subtitle}</span>{/if}
+          </span>
         </button>
         {#if canRight}
           <button class="icon-btn" aria-label="Members" onclick={() => (S.membersOpen = true)}>
@@ -819,8 +843,6 @@
               >
                 {#if postObj}
                   <PostHeader channel={postObj} />
-                {:else}
-                  <SetupCard />
                 {/if}
                 <MessageList {onJoinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
                 <Composer bind:this={composer} />
@@ -874,7 +896,13 @@
       aria-label="Members"
       aria-hidden={rightFrac === 0}
     >
-      <MemberPanel />
+      <header class="mtopbar insp-bar">
+        <button class="icon-btn" aria-label="Back to the conversation" onclick={() => (S.membersOpen = false)}>
+          <Icon name="back" size={20} />
+        </button>
+        <span class="mtitle static"><span class="mtitle-text">{title}</span></span>
+      </header>
+      <Inspector docked={true} onClose={() => (S.membersOpen = false)} />
     </aside>
   {/if}
 </div>
@@ -1100,8 +1128,8 @@
     border-radius: var(--radius-md);
     background: transparent;
     color: var(--text-muted);
-    font-size: var(--fs-tiny);
-    font-weight: 600;
+    font-size: var(--fs-micro);
+    font-weight: 500;
     -webkit-user-select: none;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
@@ -1111,7 +1139,8 @@
     color: var(--text);
   }
   .tab.on {
-    color: var(--accent-hover);
+    color: var(--text);
+    font-weight: 600;
   }
   .tab-ic {
     position: relative;
@@ -1154,9 +1183,7 @@
     padding-top: max(var(--safe-top), var(--sa-top, 0px));
     box-sizing: content-box;
     background: var(--bg-1);
-    border-bottom: 1px solid var(--border);
-    /* Faint drop under the bar: reads as elevation over the feed. */
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+    border-bottom: 1px solid var(--hairline);
     position: relative;
     z-index: 5;
   }
@@ -1181,7 +1208,31 @@
     flex-shrink: 0;
     color: var(--text-faint);
   }
+  .mtitle-block {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+  .mtitle-line {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+  .mtitle-sub {
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+    font-weight: 400;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mtitle.static {
+    pointer-events: none;
+  }
   .mtitle-text {
+    font-family: var(--display-font);
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1496,6 +1547,15 @@
     padding-right: max(var(--safe-right), var(--sa-right, 0px));
     border-left: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   }
+  .drawer.right {
+    flex-direction: column;
+    border-left: none;
+  }
+  /* The drawer pads the status bar itself (above); its bar must not again. */
+  .drawer .insp-bar {
+    padding-top: 0;
+  }
+  .drawer.right > :global(.insp),
   .drawer.right > :global(.panel) {
     flex: 1;
     min-width: 0;

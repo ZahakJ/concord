@@ -57,7 +57,7 @@ Components read tokens and never repeat their values. A literal that is byte-ide
 
 `--danger`, `--ok` and `--warn` are fills with their own `-fg` inks; `--danger-text`, `--ok-text` and `--warn-text` are the same colours mixed toward `--text` for use as ink. `--mention-wash` is the tint for a message that mentions you, and is never drawn without an accent bar beside it.
 
-**Planned:** a guild's own colour becomes `--guild-accent`, set only on that guild's tile, icon, banner and a thin tint on its header, so it never changes how your own mentions, badges and focus look.
+A guild's own colour is `--guild-accent` (`lib/guildaccent.js`), set only on that guild's own marks — its strip tile, its switcher row, its place-header icon — so it never changes how your own mentions, badges and focus look. Your accent is held legible: `applyAccent` walks a weak or greyish choice toward white (dark) or black (light), keeping its hue, until the accent as ink clears 4.5:1 on the canvas and the badge fill clears 3:1 on the sidebar.
 
 ### Shape, elevation and focus
 
@@ -130,7 +130,7 @@ A theme pack may set surfaces, lines (including `--border-strong`), ink, accent 
 
 **Toasts** sit at the bottom right on a desktop, clear of the composer, and under the top bar on a phone, at most three at once. Every kind uses the same raised surface; the kind is carried by the icon's ink alone.
 
-**Nudges** (`Nudge.svelte`) ask for one thing: an icon, one sentence, one action and a dismiss. One is shown at a time. In a list it is a 40px row on `--bg-3`; `floating` gives it the raised surface for a caller that has to lay it over the app. The recovery-phrase reminder is one. **Planned:** a queue that picks which nudge shows (connection, then security, then setup, then tips) and a nudge row at the top of the sidebar to hold it.
+**Nudges** (`Nudge.svelte`) ask for one thing: an icon, one sentence, one action and a dismiss. One is shown at a time. In a list it is a 40px row on `--bg-3`; `floating` gives it the raised surface for a caller that has to lay it over the app. The sidebar's nudge row, at the top of its list, holds the one on screen, chosen by priority: the recovery phrase, then a guild owner's setup steps, then tips (notifications, an update). Losing the connection is not a nudge: it is the one full-width bar above the app.
 
 **Empty states** (`EmptyState.svelte`) are one pattern: an outlined mark, a headline that names the place, a sentence or two about what goes here, up to two actions and an optional meta line. They are left-aligned; where they sit is the parent's choice. `compact` is the size for panels and small dialogs.
 
@@ -140,7 +140,15 @@ A theme pack may set surfaces, lines (including `--border-strong`), ink, accent 
 
 **The header** has four controls: search (a field in place once used), the call button, the inspector toggle (people glyph and member count, Ctrl+U) and ⋯ for everything else. **The inspector** has Members, Pins, Files and Threads tabs; docked it is a flat column on `--bg-1`, as an overlay it is a lifted panel below the header. **The palette** (Ctrl+K) shows Unread, Recent and four actions when empty, and one ranked list with the matched characters in bold once you type.
 
-**Planned** for the screens: one dialog frame in four sizes (420, 560, 720 and 900px with a side rail) with the title and a close button in the header and one primary action named after what it does; a sidebar with a place header, a strip of shortcut tiles and a searchable guild switcher; the shell docking the inspector by width (open where the conversation keeps 640px) and overlaying it below the header otherwise; and the copy map in `lib/errors.js` covering every raw error the core can return.
+## The shell
+
+One sidebar (`ChannelList.svelte`, 280px by default, 264 between 769 and 1150px, dragged within 240–360) holds, top to bottom: the **place header** (the guild's icon and name in the display face — a click opens the guild switcher, a right-click the guild's menu — then "N reachable", how many members this device can reach right now, and Invite); the **shortcut strip** (`GuildRail.svelte`): Messages, as many guild tiles as fit and an overflow tile; the jump field (it opens the palette) and the Inbox; the nudge row; the place's list; the **unread messages** block when a direct message waits; the call dock in a call; and you.
+
+The strip is a shortcut, not the inventory. Which guilds earn a tile is `stripTiles` in `lib/rail.js`: the ones you pinned, in your order; then guilds with a mention; then unread ones; then the most recently opened — each class laid out by when its guilds entered it, so a tile never moves because a number changed, and nothing moves while the pointer is over the strip or the switcher is open. The guild you are in is always there. The overflow tile carries the hidden guilds' mentions as one number, or a dot — never how many are hidden. The **guild switcher** (`GuildSwitcher.svelte`) is the inventory: every guild, searchable, pinned ones first, then your order with folders opening in place; a row menu (pin, guild settings, mute, mark read, leave, rearrange), drag or Alt+↑/↓ to reorder, and Create and Join in its footer.
+
+`navModel` (a device-local pref, `"sidebar"` by default) can put the classic slim guild rail beside the list instead of the strip. The inspector docks beside the conversation only when the conversation keeps 640px with it there, measured on the app's own box so the app's zoom counts; otherwise it overlays the conversation below its header. `.app` carries `data-inspector="docked"` or `"overlay"`. On a phone (≤ 768px) the sidebar is the Guilds page, the conversation and the inspector are pages pushed over it, and the tab bar reads Guilds · Messages · Inbox · You.
+
+**Planned** for the screens: one dialog frame in four sizes (420, 560, 720 and 900px with a side rail) with the title and a close button in the header and one primary action named after what it does; and the copy map in `lib/errors.js` covering every raw error the core can return.
 
 ## Motion
 

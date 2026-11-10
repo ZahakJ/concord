@@ -1,22 +1,34 @@
 <script>
-  // The leftmost rail: a Concord "home" bubble (opens DMs), one bubble per DM
-  // and per guild with unread badges, plus create/join. Guilds can be dragged
-  // to reorder, dropped onto each other to form folders, and grouped/renamed.
-  // The layout is a device-local preference (lib/rail.js), not part of any
-  // guild's crypto state.
+  // The guilds, in one of two arrangements (the device-local `navModel` pref,
+  // decided in App.svelte):
+  //
+  //   layout="strip" — the sidebar's SHORTCUT row (the default): Messages, as
+  //     many guild tiles as fit the sidebar's width, and an overflow tile that
+  //     opens the guild switcher. Which guilds earn a tile is the stated rule in
+  //     lib/rail.js (stripTiles): pinned, then mentions, then unread, then most
+  //     recently opened, never reordered under the pointer.
+  //   layout="rail"  — the classic slim column beside the channel list, every
+  //     guild in the user's order with folders, kept whole as the alternative
+  //     arrangement.
+  //
+  // Both read the same marks: a number is something aimed at you, in your
+  // accent (Badge); plain unread is a quiet dot; never red. The rail order and
+  // folders are a device-local preference (lib/rail.js), not guild state.
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import GroupAvatar from "./GroupAvatar.svelte";
+  import Badge from "./Badge.svelte";
   import {
     S,
     selectGuild,
     openDMs,
     guildUnread,
+    guildNotifLevel,
     openContextMenu,
     startMeeting,
-    guildMenuItems,
     commitRail,
     openInbox,
+    dmList,
   } from "./lib/state.svelte.js";
   import { plural } from "./lib/plural.js";
   import {
@@ -25,22 +37,32 @@
     moveGuild,
     moveFolder,
     toggleFolder,
-    renameFolder,
-    setFolderColor,
-    dissolveFolder,
     DEFAULT_FOLDER_COLOR,
     guildInitials,
+    guildIdsInLayout,
+    stripFit,
+    stripTiles,
+    noteEntries,
   } from "./lib/rail.js";
+  import { guildMenu, folderMenu, renameFolderTo, stripPins, pinAt, noteOpened, openedTimes } from "./lib/guildmenu.js";
+  import { openGuildSwitcher, GSW } from "./lib/guildswitch.svelte.js";
+  import { tileColor } from "./lib/guildaccent.js";
   import { playFlyby } from "./lib/sounds.js";
   import { longpress } from "./lib/touch.js";
   import { tooltip } from "./lib/tooltip.js";
   import FxLayer from "./FxLayer.svelte";
+  import { untrack } from "svelte";
+  import { RADAR, guildLiveSet } from "./lib/radar.svelte.js";
+  import { failedInGuild } from "./lib/outbox.svelte.js";
 
-  // Seasonal touches: the FX engine has shipped snow, petals and leaves for a
-  // year, and nothing ever read the calendar. Local clock ONLY (no network —
-  // the no-runtime-fetch rule), a sparse field over just this 64px rail, and
-  // an Appearance toggle to turn it off. Quiet months return null and the
-  // layer simply isn't there.
+  // width: the sidebar's own width, which decides how many tiles fit.
+  let { layout = "rail", width = 280 } = $props();
+  const strip = $derived(layout === "strip");
+  const phone = $derived(S.isMobile);
+
+  // Seasonal touches over the classic rail. Opt-in now (Appearance, A-17): a
+  // drift of petals across a navigation column is a celebration, and
+  // celebrations are something you ask for. Local clock only, no network.
   function seasonFx() {
     const m = new Date().getMonth();
     if (m === 11 || m === 0)
@@ -51,108 +73,17 @@
       return { kind: "fall", tumble: true, n: 6, glyphs: ["🍂"], colors: ["#d97706"], size: [3, 5], dur: [9, 15], opacity: [0.3, 0.55], drift: 8 };
     return null;
   }
-  const season = seasonFx(); // computed once — nobody keeps the app open across an equinox
-  const seasonOn = $derived(!!season && S.prefs.seasonal !== false);
-  import { RADAR, guildLiveSet } from "./lib/radar.svelte.js";
-  import { failedInGuild } from "./lib/outbox.svelte.js";
+  const season = seasonFx();
+  const seasonOn = $derived(!strip && !!season && S.prefs.seasonal === true);
 
-  // The rail is an icon-only column — identifying a bubble is the whole point
-  // of hovering it, so the tip comes fast and sits to the right, off the strip.
-  // Text falls through to each pill's aria-label (see lib/tooltip.js).
   const railTip = { side: "right", delay: 80 };
+  const stripTip = { side: "bottom", delay: 80 };
+  const tip = $derived(strip ? stripTip : railTip);
 
-  // Touch: long-press opens the rail menus. iOS/WKWebView never synthesizes
-  // `contextmenu` for a plain element, so mute / leave / invite / guild settings
-  // / folder colour were unreachable from the rail entirely there; Android's
-  // synthesized one would double-fire alongside the longpress. Same pattern
-  // ChannelList and MemberPanel already use.
+  // Touch: long-press opens the menus. iOS never synthesizes `contextmenu` for
+  // a plain element, and Android's synthesized one would double-fire alongside
+  // the longpress, so on a coarse pointer the long-press is the only path.
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
-
-  // Every rail rearrangement — reorder, file into a folder, and (since a folder
-  // is only ever born by dropping one guild onto another) creating a folder at
-  // all — is built on HTML5 drag-and-drop, which no mobile WebView synthesizes
-  // from touch. Folders are a device-local preference, so a phone-only user
-  // could never have one. These give every drag a menu equivalent, which also
-  // hands the same operations to keyboard-only desktop users.
-  function arrangeItems(sv, folder) {
-    const items = [];
-    if (folder) {
-      const i = folder.ids.indexOf(sv.id);
-      if (i > 0)
-        items.push({ label: "Move up", icon: "chevron", onClick: () => moveInFolder(sv, folder, i - 1) });
-      if (i > -1 && i < folder.ids.length - 1)
-        // moveGuild reads its index against the layout BEFORE the guild is
-        // lifted out, so one step down is i+2, not i+1.
-        items.push({ label: "Move down", icon: "chevron", onClick: () => moveInFolder(sv, folder, i + 2) });
-      items.push({
-        label: "Take out of folder",
-        icon: "door",
-        onClick: () => commitRail(moveGuild(S.rail, sv.id, { kind: "top", index: topIndexOfFolder(folder.id) + 1 })),
-      });
-      return items;
-    }
-    const i = S.rail.findIndex((e) => e.t === "g" && e.id === sv.id);
-    if (i > 0) items.push({ label: "Move up", icon: "chevron", onClick: () => moveTop(sv, i - 1) });
-    if (i > -1 && i < S.rail.length - 1)
-      items.push({ label: "Move down", icon: "chevron", onClick: () => moveTop(sv, i + 2) });
-    const folders = S.rail.filter((e) => e.t === "f");
-    if (folders.length) {
-      items.push({ label: "Add to folder", header: true });
-      for (const f of folders)
-        items.push({
-          label: f.name || "Folder",
-          icon: "folder",
-          onClick: () => commitRail(moveGuild(S.rail, sv.id, { kind: "folder", folderId: f.id })),
-        });
-    }
-    const others = S.rail
-      .filter((e) => e.t === "g" && e.id !== sv.id)
-      .map((e) => guildById.get(e.id))
-      .filter(Boolean);
-    if (others.length) {
-      items.push({ label: "New folder with…", header: true });
-      for (const o of others)
-        items.push({
-          label: o.name,
-          icon: "diamond",
-          onClick: () => commitRail(combineGuilds(S.rail, sv.id, o.id, DEFAULT_FOLDER_COLOR)),
-        });
-    }
-    return items;
-  }
-  const moveTop = (sv, index) => commitRail(moveGuild(S.rail, sv.id, { kind: "top", index }));
-  const moveInFolder = (sv, folder, index) =>
-    commitRail(moveGuild(S.rail, sv.id, { kind: "folder", folderId: folder.id, index }));
-
-  // openContextMenu positions at the event, so a menu opened FROM a menu item
-  // needs the original point carried forward.
-  const atPoint = (e) => ({
-    clientX: e.clientX,
-    clientY: e.clientY,
-    preventDefault() {},
-    stopPropagation() {},
-  });
-
-  function guildMenu(e, sv, folder = null) {
-    const pt = atPoint(e);
-    const arrange = arrangeItems(sv, folder);
-    openContextMenu(
-      e,
-      [
-        ...guildMenuItems(sv),
-        // Behind one entry rather than inline: "New folder with…" lists every
-        // other guild, and a menu you have to scroll past to reach "Leave" is
-        // worse than one more tap.
-        arrange.length && { sep: true },
-        arrange.length && {
-          label: "Rearrange…",
-          icon: "folder",
-          onClick: () => openContextMenu(pt, arrange, { title: `Rearrange ${sv.name}` }),
-        },
-      ].filter(Boolean),
-      { title: sv.name },
-    );
-  }
 
   function addMenu(e) {
     openContextMenu(
@@ -160,37 +91,25 @@
       [
         { label: "Create a guild", icon: "spark", onClick: () => (S.modal = { kind: "create" }) },
         { label: "Join with an invite code", icon: "download", onClick: () => (S.modal = { kind: "join", code: "" }) },
-        {
-          label: "Instant meeting",
-          sub: "Lasts 1 hour to 30 days",
-          icon: "bolt",
-          onClick: startMeeting,
-        },
+        { label: "Instant meeting", sub: "Lasts 1 hour to 30 days", icon: "bolt", onClick: startMeeting },
       ],
       { title: "Add a guild" },
     );
   }
 
-  // Hammering the jet flies a Concorde past you. Tuned so ordinary use can't
-  // reach it: eight clicks with no more than FLYBY_GAP between any two, i.e. a
-  // deliberate burst of under three seconds. A pause resets the run — no timer
-  // needed, since the count is only ever read on the next click.
+  // Hammering the jet flies a Concorde past you: eight clicks with no more than
+  // FLYBY_GAP between any two. A pause resets the run.
   const FLYBY_CLICKS = 8;
   const FLYBY_GAP = 400;
   let clicks = 0;
   let lastClick = 0;
-
   let rolling = $state(false);
-  function homeClick() {
-    // Already in the DM area: openDMs() would re-select the FIRST dm in raw
-    // order, which is rarely the one you're reading — so a click that should be
-    // a no-op re-fetches the right panel and can bump you into another
-    // conversation. The barrel roll still plays; it's local feedback, not
-    // navigation, and the egg below needs the button to feel alive.
-    // On a phone the rail lives on the Home page, and a tap there browses: the
-    // DM list comes up, not the last conversation in it.
+  function messagesClick() {
+    // Already in the DM area: openDMs() would re-select the FIRST dm, which is
+    // rarely the one you are reading. On a phone a tap browses the list rather
+    // than opening the last conversation in it.
     if (!inDMs) openDMs({ browse: S.isMobile });
-
+    if (strip) return;
     const now = performance.now();
     clicks = now - lastClick < FLYBY_GAP ? clicks + 1 : 1;
     lastClick = now;
@@ -198,16 +117,10 @@
       clicks = 0;
       playFlyby();
     }
-
     rolling = false;
     requestAnimationFrame(() => (rolling = true));
   }
 
-  // Event radar surfaces (lib/radar.svelte.js): guilds with a meeting live
-  // RIGHT NOW wear a pulsing --ok dot; guilds where someone scheduled or moved
-  // an event you haven't looked at yet wear a quiet accent dot; the calendar
-  // pill below totals the unseen count so "click the calendar thingy" has a
-  // visible reason. All of it clears by opening the relevant calendar.
   const liveGuilds = $derived(guildLiveSet());
   const unseenTotal = $derived(Object.values(RADAR.unseen).reduce((a, b) => a + b, 0));
 
@@ -215,25 +128,18 @@
   const inDMs = $derived(g?.kind === "dm");
   const allGuilds = $derived(S.guilds.filter((x) => x.kind !== "dm"));
   const guildById = $derived(new Map(allGuilds.map((s) => [s.id, s])));
+  // The classic rail's floating DM faces: unread conversations and the open one.
   const dms = $derived(
-    S.guilds.filter(
-      (x) =>
-        x.kind === "dm" &&
-        !x.dmNotes &&
-        (guildUnread(x).count > 0 || x.id === S.activeGuildId),
-    ),
+    S.guilds.filter((x) => x.kind === "dm" && !x.dmNotes && (guildUnread(x).count > 0 || x.id === S.activeGuildId)),
   );
 
-  // Keep the persisted layout in step with the live guild set (adds/removes,
-  // dissolved folders). Runs whenever the guild list changes.
+  // Keep the persisted layout in step with the live guild set.
   $effect(() => {
     const ids = allGuilds.map((s) => s.id);
     const next = reconcile(S.rail, ids);
     if (JSON.stringify(next) !== JSON.stringify(S.rail)) commitRail(next);
   });
 
-  // The renderable layout: resolve guild objects; skip any the reconcile pass
-  // hasn't caught yet (defensive).
   const view = $derived(
     S.rail
       .map((e) => {
@@ -248,12 +154,35 @@
   );
 
   const initials = guildInitials;
+  // A tile without an icon wears its guild's colour — decoration, owned by the
+  // guild, never the user's accent (lib/guildaccent.js).
+  const faceStyle = (gg) => `--guild-accent:${tileColor(gg)}`;
 
-  function guildTint(id) {
-    let h = 0;
-    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-    const hue = h % 360;
-    return `background:linear-gradient(135deg, hsl(${hue} 42% 34%), hsl(${(hue + 45) % 360} 48% 25%));color:#fff`;
+  // Muted guild: everything off. guildUnread skips muted channels, so the raw
+  // mentions are counted here for the one mark a muted guild still shows: an
+  // outlined count when somebody @-ed you anyway.
+  const guildMuted = (gg) => guildNotifLevel(gg.id) === "none";
+  function rawMentions(gg) {
+    let n = 0;
+    for (const c of gg.channels) n += S.unread[c.id]?.mentions || 0;
+    return n;
+  }
+  function marks(gg) {
+    const u = guildUnread(gg);
+    const muted = guildMuted(gg);
+    return {
+      muted,
+      count: muted ? rawMentions(gg) : u.attention,
+      dot: !muted && u.attention === 0 && u.count > 0,
+    };
+  }
+  function tileLabel(gg) {
+    const m = marks(gg);
+    const parts = [gg.name];
+    if (m.count) parts.push(plural(m.count, "mention"));
+    else if (m.dot) parts.push("unread");
+    if (m.muted) parts.push("muted");
+    return parts.join(" · ");
   }
 
   function folderUnread(guilds) {
@@ -267,6 +196,113 @@
       attention += u.attention;
     }
     return { count, mentions, attention };
+  }
+
+  // ————————————————— the strip —————————————————
+  // Recency: every guild you open is noted on this device, for the strip's
+  // "most recently opened" class. A counter stands in for reactivity: the
+  // times live in localStorage, read through lib/guildmenu.js.
+  let openedRev = $state(0);
+  $effect(() => {
+    const id = S.activeGuildId;
+    const gg = id && guildById.get(id);
+    if (!gg) return;
+    noteOpened(id);
+    untrack(() => openedRev++);
+  });
+
+  // The strip does not reorder while you are reaching into it: the pointer is
+  // over it, or the switcher (the strip's inventory) is open. What changed
+  // meanwhile applies when the pointer leaves.
+  let hovering = $state(false);
+  let entries = {};
+  let tiles = $state({ shown: [], hidden: [] });
+  const DMS_N = 3;
+  $effect(() => {
+    if (!strip) return;
+    void openedRev;
+    const ids = guildIdsInLayout(S.rail).filter((id) => guildById.has(id));
+    const mentions = new Set();
+    const unread = new Set();
+    for (const id of ids) {
+      const m = marks(guildById.get(id));
+      if (m.count) mentions.add(id);
+      else if (m.dot) unread.add(id);
+    }
+    const ctx = { pins: stripPins(), mentions, unread, opened: openedTimes() };
+    const cur = guildById.has(S.activeGuildId) ? S.activeGuildId : "";
+    // A phone's strip scrolls sideways, so it holds more than fits: the rule
+    // still orders it, and the overflow tile is still last.
+    const n = phone ? Math.max(DMS_N * 4, 12) : stripFit(width);
+    if (hovering || GSW.open) return;
+    entries = noteEntries(entries, ids, ctx, Date.now());
+    tiles = stripTiles(ids, ctx, entries, cur, n);
+  });
+  const shownGuilds = $derived(tiles.shown.map((id) => guildById.get(id)).filter(Boolean));
+  // The overflow tile carries the hidden guilds' combined news: their mentions
+  // as one number, else a dot if any is unread. Never how MANY are hidden.
+  const overflow = $derived.by(() => {
+    let count = 0;
+    let dot = false;
+    const shown = new Set(shownGuilds.map((x) => x.id));
+    for (const gg of allGuilds) {
+      if (shown.has(gg.id)) continue;
+      const m = marks(gg);
+      if (m.muted) continue;
+      count += m.count;
+      dot = dot || m.dot;
+    }
+    return { count, dot };
+  });
+  // Messages: every message in a DM is aimed at you, so its number is the
+  // DMs' attention; message requests are a dot (a stranger who has not been
+  // accepted must not be able to make the app look like a friend is waiting).
+  const dmMarks = $derived.by(() => {
+    let count = 0;
+    for (const d of dmList()) if (!d.dmNotes) count += guildUnread(d).attention;
+    return { count, dot: !count && S.requests.length > 0 };
+  });
+
+  function openSwitcher() {
+    openGuildSwitcher(document.querySelector("[data-place-head]"));
+  }
+
+  // Drag on the strip: a short fixed row, so only pins reorder here — drop a
+  // pinned tile among the pins to move it, drop an unpinned one to pin it at
+  // that spot. Folders and the full order are the switcher's.
+  let sdrag = $state("");
+  let sdrop = $state(null); // { id, after }
+  function stripOver(e, gg) {
+    if (!sdrag) return;
+    e.preventDefault();
+    const r = e.currentTarget.getBoundingClientRect();
+    sdrop = { id: gg.id, after: e.clientX > r.left + r.width / 2 };
+  }
+  function stripDrop(e) {
+    if (!sdrag || !sdrop) return;
+    e.preventDefault();
+    const pins = stripPins();
+    let at = pins.indexOf(sdrop.id);
+    if (at === -1) at = pins.length;
+    else if (sdrop.after) at += 1;
+    const from = pins.indexOf(sdrag);
+    if (from !== -1 && from < at) at -= 1;
+    pinAt(sdrag, at);
+    sdrag = "";
+    sdrop = null;
+  }
+
+  // Folder names on the classic rail: renamed in place, from the field in the
+  // open folder or from the folder's menu.
+  function renameFromMenu(folder) {
+    if (!folder.open) commitRail(toggleFolder(S.rail, folder.id, true));
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-folder="${folder.id}"] .folder-name`);
+        el?.focus();
+        el?.select?.();
+      }),
+    );
   }
 
   // ————————————————— drag & drop —————————————————
@@ -384,99 +420,133 @@
     else if (drag.kind === "folder") commitRail(moveFolder(S.rail, drag.id, hint.index));
   }
 
-  // ————————————————— folder management —————————————————
-  // Concord-native folder swatches. A folder should read as Concord, which
-  // means not borrowing the violet every other chat app's rail is painted in.
-  const SWATCHES = [
-    ["Accent", "var(--accent)"],
-    ["Teal", "#2dd4bf"],
-    ["Violet", "#a78bfa"],
-    ["Amber", "#f5a524"],
-    ["Rose", "#f472b6"],
-    ["Sage", "#7bb87b"],
-    ["Slate", "#7c8798"],
-  ];
-  // The folder's name field is a 46px box in a 64px column — findable with a
-  // mouse, invisible as an affordance under a finger (its only cue was a hover
-  // border). Renaming gets a menu entry that opens the folder and puts the
-  // caret in the field, so the phone has a route to it at all.
-  function renameFromMenu(folder) {
-    if (!folder.open) commitRail(toggleFolder(S.rail, folder.id, true));
-    // Two frames: one for the rail to commit, one for the folder body to mount.
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-folder="${folder.id}"] .folder-name`);
-        el?.focus();
-        el?.select?.();
-      }),
-    );
-  }
-
-  function folderMenu(e, folder) {
-    const idx = topIndexOfFolder(folder.id);
-    openContextMenu(
-      e,
-      [
-        { label: folder.open ? "Collapse folder" : "Expand folder", icon: "folder", onClick: () => commitRail(toggleFolder(S.rail, folder.id)) },
-        { label: "Rename folder", icon: "edit", onClick: () => renameFromMenu(folder) },
-        idx > 0 && { label: "Move up", icon: "chevron", onClick: () => commitRail(moveFolder(S.rail, folder.id, idx - 1)) },
-        idx > -1 && idx < S.rail.length - 1 && { label: "Move down", icon: "chevron", onClick: () => commitRail(moveFolder(S.rail, folder.id, idx + 2)) },
-        { sep: true },
-        ...SWATCHES.map(([name, color]) => ({
-          label: name,
-          swatch: color,
-          active: (folder.color || "var(--accent)") === color,
-          onClick: () => commitRail(setFolderColor(S.rail, folder.id, color)),
-        })),
-        { label: "Ungroup folder", icon: "trash", danger: true, onClick: () => commitRail(dissolveFolder(S.rail, folder.id)) },
-      ],
-      { title: folder.name || "Folder" },
-    );
-  }
-  function onRename(e, folder) {
-    commitRail(renameFolder(S.rail, folder.id, e.target.value.slice(0, 40)));
-  }
 </script>
 
+{#if strip}
+  <!-- The strip. A nav of its own (inside the sidebar's) so "Guilds" stays a
+       landmark whichever arrangement is chosen. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <nav
+    class="strip"
+    class:phone
+    aria-label="Guilds"
+    onpointerenter={(e) => e.pointerType === "mouse" && (hovering = true)}
+    onpointerleave={() => (hovering = false)}
+  >
+    <span class="tile-wrap">
+      <button
+        class="tile msg"
+        class:current={inDMs}
+        use:tooltip={tip}
+        aria-label={dmMarks.count ? `Messages · ${plural(dmMarks.count, "unread message")}` : "Messages"}
+        aria-current={inDMs ? "page" : undefined}
+        onclick={messagesClick}
+      >
+        <Icon name="bubble" size={phone ? 20 : 16} />
+      </button>
+      {#if dmMarks.count}<span class="t-badge"><Badge count={dmMarks.count} max={9} ring="var(--bg-1)" /></span>
+      {:else if dmMarks.dot}<span class="t-dot"><Badge dot /></span>{/if}
+    </span>
+    {#each shownGuilds as gg (gg.id)}
+      {@const m = marks(gg)}
+      <span
+        class="tile-wrap"
+        class:drop-before={sdrop?.id === gg.id && !sdrop.after}
+        class:drop-after={sdrop?.id === gg.id && sdrop.after}
+      >
+        <button
+          class="tile"
+          class:current={gg.id === S.activeGuildId}
+          class:muted={m.muted}
+          class:gone={!!gg.evicted}
+          class:hasicon={!!gg.icon}
+          style={gg.icon ? undefined : faceStyle(gg)}
+          use:tooltip={{ ...tip, text: tileLabel(gg) }}
+          aria-label={gg.name}
+          aria-describedby={tileLabel(gg) !== gg.name ? `strip-d-${gg.id}` : undefined}
+          aria-current={gg.id === S.activeGuildId ? "page" : undefined}
+          draggable={!coarse}
+          ondragstart={(e) => {
+            sdrag = gg.id;
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", gg.id);
+          }}
+          ondragend={() => ((sdrag = ""), (sdrop = null))}
+          ondragover={(e) => stripOver(e, gg)}
+          ondrop={stripDrop}
+          onclick={() => selectGuild(gg.id, { browse: S.isMobile })}
+          oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => guildMenu(e, gg)}
+          use:longpress={{ handler: (e) => guildMenu(e, gg) }}
+        >
+          {#if gg.icon}
+            <img class="icon" src={gg.icon} alt="" />
+          {:else}
+            <span class="face">{initials(gg.name)}</span>
+          {/if}
+        </button>
+        {#if tileLabel(gg) !== gg.name}<span class="vh" id="strip-d-{gg.id}">{tileLabel(gg).slice(gg.name.length + 3)}</span>{/if}
+        {#if m.count}<span class="t-badge"><Badge count={m.count} max={9} muted={m.muted} ring="var(--bg-1)" /></span>
+        {:else if m.dot}<span class="t-dot"><Badge dot /></span>{/if}
+      </span>
+    {/each}
+    <span class="tile-wrap">
+      {#if allGuilds.length}
+        <button
+          class="tile more"
+          class:open={GSW.open}
+          use:tooltip={{ ...tip, text: "All guilds" }}
+          aria-label={overflow.count ? `All guilds · ${plural(overflow.count, "mention")} in guilds not shown` : "All guilds"}
+          aria-haspopup="dialog"
+          aria-expanded={GSW.open}
+          onclick={openSwitcher}
+        >
+          <Icon name="grid4" size={phone ? 18 : 14} />
+        </button>
+        {#if overflow.count}<span class="t-badge"><Badge count={overflow.count} max={9} ring="var(--bg-1)" /></span>
+        {:else if overflow.dot}<span class="t-dot"><Badge dot /></span>{/if}
+      {:else}
+        <!-- No guilds yet: the strip's last tile is the way to the first one. -->
+        <button
+          class="tile more"
+          use:tooltip={{ ...tip, text: "Create or join a guild" }}
+          aria-label="Create or join a guild"
+          aria-haspopup="dialog"
+          onclick={openSwitcher}
+        >
+          <Icon name="plus" size={phone ? 18 : 14} />
+        </button>
+      {/if}
+    </span>
+  </nav>
+{:else}
 <nav class="rail" aria-label="Guilds">
   {#if seasonOn}
     <div class="season" aria-hidden="true"><FxLayer fx={season} seed="season" scale={0.6} /></div>
   {/if}
-  <!-- The list scrolls; the add/meeting buttons below do not. They used to be
-       rendered last, after every guild, inside a 64px strip whose scrollbar is
-       hidden — so at ~13 bubbles (one phone screenful) the only way to create
-       or join anything was to guess that an unmarked column scrolls. -->
+  <!-- The list scrolls; the inbox, calendar and add buttons below do not. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    class="rail-scroll"
-    ondragover={overRail}
-    ondrop={dropOnRail}
-    class:dragging={!!drag}
-  >
-    <button
-      class="pill home"
-      class:active={inDMs}
-      use:tooltip={railTip}
-      aria-label={S.requests.length && !inDMs
-        ? `Home / Direct messages — ${S.requests.length} message request${S.requests.length === 1 ? "" : "s"} waiting`
-        : "Home / Direct messages"}
-      onclick={homeClick}
-    >
-      <span class="jet" class:roll={rolling} onanimationend={() => (rolling = false)}>
-        <Icon name="concorde" size={24} />
-      </span>
-      {#if S.requests.length && !inDMs}
-        <!-- Message requests get a dot, never the red count badge: a stranger who
-             has not been accepted must not be able to make the app look like a
-             friend is waiting. -->
-        <span class="req-dot" title="Message requests waiting"></span>
-      {/if}
-    </button>
+  <div class="rail-scroll" ondragover={overRail} ondrop={dropOnRail} class:dragging={!!drag}>
+    <div class="bubble-wrap">
+      <button
+        class="pill home"
+        class:active={inDMs}
+        use:tooltip={railTip}
+        aria-label={S.requests.length && !inDMs
+          ? `Messages — ${plural(S.requests.length, "message request")} waiting`
+          : "Messages"}
+        onclick={messagesClick}
+      >
+        <span class="jet" class:roll={rolling} onanimationend={() => (rolling = false)}>
+          <Icon name="concorde" size={22} />
+        </span>
+      </button>
+      {#if S.requests.length && !inDMs}<span class="p-dot"><Badge dot ring="var(--bg-1)" /></span>{/if}
+    </div>
     <div class="divider"></div>
 
-    {#each dms as dm, i (dm.id)}
+    {#each dms as dm (dm.id)}
       {@const u = guildUnread(dm)}
-      <div class="bubble-wrap" style="--i:{i}">
+      <div class="bubble-wrap">
         <button
           class="pill dm"
           class:active={dm.id === S.activeGuildId}
@@ -485,19 +555,19 @@
           onclick={() => selectGuild(dm.id, { browse: S.isMobile })}
         >
           {#if (dm.dmMembers ?? 2) > 2}
-            <GroupAvatar faces={dm.dmFaces || []} size={42} />
+            <GroupAvatar faces={dm.dmFaces || []} size={40} />
           {:else}
             <Avatar
               name={dm.name}
               image={dm.dmPeerAvatar || dm.dmFaces?.[0]?.avatar || dm.icon}
-              size={42}
+              size={40}
               online={dm.dmPeer ? !!dm.dmPeerOnline : null}
               presence={dm.dmPeerPresence || ""}
             />
           {/if}
         </button>
-        {#if dm.id !== S.activeGuildId && u.count > 0}
-          <span class="badge dm">{u.count > 99 ? "99+" : u.count}</span>
+        {#if dm.id !== S.activeGuildId && u.attention > 0}
+          <span class="p-badge"><Badge count={u.attention} ring="var(--bg-1)" /></span>
         {/if}
       </div>
     {/each}
@@ -507,16 +577,18 @@
     {#each view as entry, idx (entry.t === "f" ? entry.folder.id : entry.id)}
       {#if entry.t === "g"}
         {@const sv = entry.g}
-        {@const u = guildUnread(sv)}
+        {@const m = marks(sv)}
         {#if dropHint?.k === "bar" && dropHint.index === idx}<div class="dropbar"></div>{/if}
-        <div class="bubble-wrap" style="--i:{idx}">
+        <div class="bubble-wrap">
           <button
             class="pill"
             class:active={sv.id === S.activeGuildId}
             class:hasicon={sv.icon}
+            class:muted={m.muted}
             class:gone={!!sv.evicted}
             class:combine={dropHint?.k === "combine" && dropHint.id === sv.id}
-            use:tooltip={railTip}
+            style={sv.icon ? undefined : faceStyle(sv)}
+            use:tooltip={{ ...railTip, text: tileLabel(sv) }}
             aria-label={sv.name}
             draggable="true"
             ondragstart={(e) => startDrag(e, { kind: "guild", id: sv.id })}
@@ -530,78 +602,76 @@
             {#if sv.icon}
               <img class="icon" src={sv.icon} alt="" />
             {:else}
-              <span class="face" style={guildTint(sv.id)}>{initials(sv.name)}</span>
+              <span class="face">{initials(sv.name)}</span>
             {/if}
           </button>
-          <!-- A number is only ever things aimed at you; plain chatter is a
-               quiet dot (lib/readstate.js). A red 99+ for a hundred idle
-               messages and one mention hid the one that needed you. -->
-          {#if sv.id !== S.activeGuildId && u.attention > 0}
-            <span class="badge mention">{u.attention > 99 ? "99+" : u.attention}</span>
-          {:else if sv.id !== S.activeGuildId && u.count > 0}
-            <span class="unread-dot" aria-label="Unread messages"></span>
+          {#if sv.id !== S.activeGuildId && m.count}
+            <span class="p-badge"><Badge count={m.count} muted={m.muted} ring="var(--bg-1)" /></span>
+          {:else if sv.id !== S.activeGuildId && m.dot}
+            <span class="p-dot"><Badge dot ring="var(--bg-1)" /></span>
           {/if}
           {#if failedInGuild(sv)}
-            <!-- A send failed somewhere in here. It takes the corner from the
-                 event dots because a message that did not arrive outranks a
-                 calendar nudge, and because until now nothing outside the
-                 channel's own feed knew about it at all. -->
-            <span
-              class="fail-dot"
-              title="A message in {sv.name} didn't send — open it to retry"
-            ></span>
+            <span class="corner fail" title="A message in {sv.name} didn't send — open it to retry"></span>
           {:else if liveGuilds.has(sv.id)}
-            <span class="live-dot" title="A scheduled event is live in {sv.name} — a channel inside wears LIVE"></span>
+            <span class="corner live" title="A scheduled event is live in {sv.name}"></span>
           {:else if RADAR.unseen[sv.id]}
-            <span class="ev-dot" title="New event in {sv.name} — open its calendar"></span>
+            <span class="corner ev" title="New event in {sv.name} — open its calendar"></span>
           {/if}
         </div>
       {:else}
         {@const folder = entry.folder}
         {@const fu = folderUnread(entry.guilds)}
         {#if dropHint?.k === "bar" && dropHint.index === idx}<div class="dropbar"></div>{/if}
-        <div class="folder" class:open={folder.open} data-folder={folder.id}>
-          <div class="bubble-wrap folder-wrap" style="--fc:{folder.color}">
+        <div
+          class="folder"
+          class:open={folder.open}
+          data-folder={folder.id}
+          style={folder.color && folder.color !== DEFAULT_FOLDER_COLOR ? `--fc:${folder.color}` : undefined}
+        >
+          <div class="bubble-wrap">
             <button
               class="pill folder-tile"
               class:combine={dropHint?.k === "folder" && dropHint.id === folder.id}
               class:hasactive={entry.guilds.some((x) => x.id === S.activeGuildId) && !folder.open}
               use:tooltip={railTip}
               aria-label={folder.name || "Folder"}
+              aria-expanded={folder.open}
               draggable="true"
               ondragstart={(e) => startDrag(e, { kind: "folder", id: folder.id })}
               ondragend={endDrag}
               ondragover={(e) => overFolder(e, folder)}
               ondrop={(e) => dropOnFolder(e, folder)}
               onclick={() => commitRail(toggleFolder(S.rail, folder.id))}
-              oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => folderMenu(e, folder)}
-              use:longpress={{ handler: (e) => folderMenu(e, folder) }}
+              oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => folderMenu(e, folder, { onRename: renameFromMenu })}
+              use:longpress={{ handler: (e) => folderMenu(e, folder, { onRename: renameFromMenu }) }}
             >
               {#if folder.open}
-                <Icon name="folder" size={20} />
+                <Icon name="folder" size={18} />
               {:else}
                 <span class="mini-grid">
                   {#each entry.guilds.slice(0, 4) as gg (gg.id)}
                     {#if gg.icon}
                       <img class="mini" src={gg.icon} alt="" />
                     {:else}
-                      <span class="mini face" style={guildTint(gg.id)}>{initials(gg.name)[0]}</span>
+                      <span class="mini face" style={faceStyle(gg)}>{initials(gg.name)[0]}</span>
                     {/if}
                   {/each}
                 </span>
               {/if}
             </button>
             {#if !folder.open && fu.attention > 0}
-              <span class="badge mention">{fu.attention > 99 ? "99+" : fu.attention}</span>
+              <span class="p-badge"><Badge count={fu.attention} ring="var(--bg-1)" /></span>
             {:else if !folder.open && fu.count > 0}
-              <span class="unread-dot" aria-label="Unread messages"></span>
+              <span class="p-dot"><Badge dot ring="var(--bg-1)" /></span>
             {/if}
           </div>
 
           {#if folder.open}
             <div
               class="folder-body"
-              ondragover={(e) => { if (drag?.kind === "guild") { e.preventDefault(); } }}
+              ondragover={(e) => {
+                if (drag?.kind === "guild") e.preventDefault();
+              }}
               ondrop={(e) => dropInFolder(e, folder)}
               role="group"
             >
@@ -611,18 +681,20 @@
                 placeholder="Folder"
                 aria-label="Folder name"
                 onclick={(e) => e.stopPropagation()}
-                oninput={(e) => onRename(e, folder)}
+                oninput={(e) => renameFolderTo(folder, e.currentTarget.value)}
               />
               {#each entry.guilds as gg, mi (gg.id)}
-                {@const u = guildUnread(gg)}
-                {#if dropHint?.k === "fbar" && dropHint.fid === folder.id && dropHint.index === mi}<div class="dropbar dropbar--in"></div>{/if}
-                <div class="bubble-wrap" style="--i:{mi}">
+                {@const m = marks(gg)}
+                {#if dropHint?.k === "fbar" && dropHint.fid === folder.id && dropHint.index === mi}<div class="dropbar"></div>{/if}
+                <div class="bubble-wrap">
                   <button
                     class="pill"
                     class:active={gg.id === S.activeGuildId}
                     class:hasicon={gg.icon}
+                    class:muted={m.muted}
                     class:gone={!!gg.evicted}
-                    use:tooltip={railTip}
+                    style={gg.icon ? undefined : faceStyle(gg)}
+                    use:tooltip={{ ...railTip, text: tileLabel(gg) }}
                     aria-label={gg.name}
                     draggable="true"
                     ondragstart={(e) => startDrag(e, { kind: "guild", id: gg.id })}
@@ -636,18 +708,13 @@
                     {#if gg.icon}
                       <img class="icon" src={gg.icon} alt="" />
                     {:else}
-                      <span class="face" style={guildTint(gg.id)}>{initials(gg.name)}</span>
+                      <span class="face">{initials(gg.name)}</span>
                     {/if}
                   </button>
-                  {#if gg.id !== S.activeGuildId && u.attention > 0}
-                    <span class="badge mention">{u.attention > 99 ? "99+" : u.attention}</span>
-                  {:else if gg.id !== S.activeGuildId && u.count > 0}
-                    <span class="unread-dot" aria-label="Unread messages"></span>
-                  {/if}
-                  {#if liveGuilds.has(gg.id)}
-                    <span class="live-dot" title="A scheduled event is live in {gg.name} — a channel inside wears LIVE"></span>
-                  {:else if RADAR.unseen[gg.id]}
-                    <span class="ev-dot" title="New event in {gg.name} — open its calendar"></span>
+                  {#if gg.id !== S.activeGuildId && m.count}
+                    <span class="p-badge"><Badge count={m.count} muted={m.muted} ring="var(--bg-1)" /></span>
+                  {:else if gg.id !== S.activeGuildId && m.dot}
+                    <span class="p-dot"><Badge dot ring="var(--bg-1)" /></span>
                   {/if}
                 </div>
               {/each}
@@ -660,74 +727,204 @@
   </div>
 
   <div class="rail-foot">
-    <!-- The blended "Your calendar" used to hide behind the Welcome screen and
-         the jump palette — invisible once you live in a channel. The rail is
-         the one strip on screen in every layout (desktop column, phone
-         drawer), and the pinned footer keeps it reachable at any guild count.
-         Same pill DNA as the guilds above; tapping again puts it away. -->
-    <!-- The inbox. It sits with the calendar rather than up with the guilds
-         because it is not a place — it is a question about all of them, and the
-         answer is the same wherever you happen to be standing. -->
     <div class="bubble-wrap">
       <button
-        class="pill cal"
+        class="pill quiet-pill"
         class:active={S.modal?.kind === "inbox"}
         use:tooltip={{ ...railTip, text: "Inbox — every mention, reply and alert word aimed at you" }}
-        aria-label={S.inbox.unread > 0
-          ? `Inbox — ${plural(S.inbox.unread, "unread item")}`
-          : "Inbox"}
+        aria-label={S.inbox.unread > 0 ? `Inbox — ${plural(S.inbox.unread, "unread item")}` : "Inbox"}
         onclick={() => (S.modal?.kind === "inbox" ? (S.modal = null) : openInbox())}
       >
-        <Icon name="bell" size={20} />
+        <Icon name="bell" size={18} />
       </button>
-      {#if S.inbox.unread > 0}
-        <!-- Red, like the guild bubbles' mention badge: this IS the mention
-             count, gathered from every guild at once, and giving it a different
-             colour would say it was a different kind of thing. -->
-        <span class="badge mention">{S.inbox.unread > 99 ? "99+" : S.inbox.unread}</span>
-      {/if}
+      {#if S.inbox.unread > 0}<span class="p-badge"><Badge count={S.inbox.unread} ring="var(--bg-1)" /></span>{/if}
     </div>
-    <button
-      class="pill cal"
-      class:active={S.modal?.kind === "myCalendar"}
-      use:tooltip={{ ...railTip, text: "Your calendar — everything you're part of, one river" }}
-      aria-label="Your calendar"
-      onclick={() => (S.modal = S.modal?.kind === "myCalendar" ? null : { kind: "myCalendar" })}
-    >
-      <Icon name="calendar" size={20} />
-      {#if unseenTotal > 0}
-        <!-- Accent, not danger: new plans are an invitation, and red is spent
-             on "people are talking at you". Opening the calendar clears it. -->
-        <span class="cal-badge" aria-label="{unseenTotal} new or changed {unseenTotal === 1 ? 'event' : 'events'}">
-          {unseenTotal > 99 ? "99+" : unseenTotal}
-        </span>
-      {/if}
-    </button>
+    <div class="bubble-wrap">
+      <button
+        class="pill quiet-pill"
+        class:active={S.modal?.kind === "myCalendar"}
+        use:tooltip={{ ...railTip, text: "Your calendar — everything you're part of, one river" }}
+        aria-label={unseenTotal > 0 ? `Your calendar — ${plural(unseenTotal, "new or changed event")}` : "Your calendar"}
+        onclick={() => (S.modal = S.modal?.kind === "myCalendar" ? null : { kind: "myCalendar" })}
+      >
+        <Icon name="calendar" size={18} />
+      </button>
+      {#if unseenTotal > 0}<span class="p-badge"><Badge count={unseenTotal} ring="var(--bg-1)" /></span>{/if}
+    </div>
     <div class="divider"></div>
-    <!-- One plate, three verbs. Desktop used to stack three dashed-outline
-         circles here — create, meeting, join — and a dashed circle is the
-         universal idiom for an empty slot or a drop target, so three real
-         actions wore the costume of placeholders. They were also identical to
-         each other, in a 64px column whose other buttons are solid rounded
-         plates: three treatments in one strip. The + is the one people need,
-         so it gets the plate and the other two move into the menu it was
-         already opening on a phone. -->
-    <button class="pill new" use:tooltip={railTip} aria-label="Add a guild" aria-haspopup="menu" onclick={addMenu}>
-      <Icon name="plus" />
+    <button class="pill quiet-pill" use:tooltip={railTip} aria-label="Add a guild" aria-haspopup="menu" onclick={addMenu}>
+      <Icon name="plus" size={18} />
     </button>
   </div>
 </nav>
+{/if}
 
 <style>
+  /* ————————————————— the strip ————————————————— */
+  .strip {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    height: 40px;
+    padding: 0 10px;
+    flex: none;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--bg-1);
+    position: relative;
+  }
+  .vh {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .tile-wrap {
+    position: relative;
+    display: flex;
+    flex: none;
+  }
+  .tile {
+    position: relative;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border-radius: 7px;
+    display: grid;
+    place-items: center;
+    background: var(--guild-accent, var(--bg-3));
+    color: var(--text-muted);
+    overflow: hidden;
+    transition: filter var(--dur-quick) var(--ease-out);
+  }
+  .tile .face {
+    color: #fff;
+    font-size: var(--fs-micro);
+    font-weight: 600;
+    letter-spacing: 0;
+  }
+  .tile .icon {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .tile.msg,
+  .tile.more {
+    background: var(--bg-3);
+  }
+  @media (pointer: fine) {
+    .tile:hover {
+      filter: brightness(1.12);
+    }
+    .tile.msg:hover,
+    .tile.more:hover {
+      color: var(--text);
+      filter: none;
+    }
+  }
+  .tile.more.open {
+    color: var(--text);
+  }
+  /* The one "you are here" mark: a 2px ink ring INSIDE the tile, on a 1px gap
+     in the sidebar's colour, so nothing reaches into the 4px gaps between
+     tiles. Drawn over the icon (::after), which an inset shadow is not. */
+  .tile::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .tile.current::after {
+    box-shadow:
+      inset 0 0 0 1px var(--bg-1),
+      inset 0 0 0 3px var(--text);
+  }
+  .tile.msg.current {
+    color: var(--text);
+  }
+  .tile.muted {
+    opacity: 0.55;
+  }
+  .tile.gone {
+    filter: grayscale(1);
+    opacity: 0.45;
+  }
+  /* A count at the top-right corner, cut out of the sidebar; a plain unread is
+     a dot 3px under the tile. One mark per tile, never two in one spot. */
+  .t-badge {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    pointer-events: none;
+    display: flex;
+  }
+  .t-dot {
+    position: absolute;
+    left: 50%;
+    bottom: -9px;
+    translate: -50% 0;
+    pointer-events: none;
+    display: flex;
+  }
+  .tile-wrap.drop-before::before,
+  .tile-wrap.drop-after::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--accent-hover);
+  }
+  .tile-wrap.drop-before::before {
+    left: -3px;
+  }
+  .tile-wrap.drop-after::after {
+    right: -3px;
+  }
+  /* Phone: 40px tiles in 48px hit areas, a row that scrolls sideways. */
+  .strip.phone {
+    height: 52px;
+    gap: var(--sp-2);
+    padding: 0 var(--sp-3);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+  .strip.phone::-webkit-scrollbar {
+    display: none;
+  }
+  .strip.phone .tile {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+  }
+  .strip.phone .tile .face {
+    font-size: var(--fs-small);
+  }
+  .strip.phone .tile::before {
+    content: "";
+    position: absolute;
+    inset: -4px;
+  }
+  .strip.phone .t-badge {
+    top: -4px;
+    right: -6px;
+  }
+  .strip.phone .t-dot {
+    bottom: -7px;
+  }
+
+  /* ————————————————— the classic rail ————————————————— */
   .rail {
-    background: var(--bg-0);
+    background: var(--bg-1);
+    border-right: 1px solid var(--hairline);
     display: flex;
     flex-direction: column;
     min-height: 0;
     position: relative;
   }
-  /* Seasonal field floats over the rail's chrome but under nothing clickable —
-     pointer-events off, and the pills stack above it. */
   .season {
     position: absolute;
     inset: 0;
@@ -739,9 +936,8 @@
     position: absolute;
     inset: 0;
   }
-  /* `0 1 auto`, not `1`: a rail that fits keeps the add buttons directly under
-     the last guild, exactly as before. Only once the list outgrows the column
-     does the scroller claim the remaining height and leave the footer pinned. */
+  /* `0 1 auto`: a rail that fits keeps its footer right under the last guild;
+     only a rail that outgrows the column scrolls with the footer pinned. */
   .rail-scroll {
     flex: 0 1 auto;
     min-height: 0;
@@ -751,124 +947,131 @@
     gap: var(--sp-2);
     padding: 10px 0;
     overflow-y: auto;
-    /* A fling off the end of the rail must not continue into the chat feed
-       showing past the open drawer. */
     overscroll-behavior: contain;
     scrollbar-width: none;
   }
   .rail-scroll::-webkit-scrollbar {
     display: none;
   }
-  /* Creating or joining is always one tap away, whatever the guild count. The
-     hairline is also the only cue this strip has that the list above it
-     scrolls — its scrollbar is hidden, so at 20 guilds the way to add one was
-     to guess that an unmarked 64px column scrolls. */
   .rail-foot {
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: var(--sp-2);
-    padding: 8px 0 calc(10px + var(--safe-bottom));
-    border-top: 1px solid var(--border);
-    background: var(--bg-0);
+    padding: var(--sp-2) 0 calc(10px + var(--safe-bottom));
+    border-top: 1px solid var(--hairline);
   }
-  /* A guild you are no longer in keeps its place — the history is still yours to
-     read — but stops looking like somewhere you can go. It is the rail's version
-     of the banner, and it is what stops a removal reading as normal service. */
+  .bubble-wrap {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+  }
+  .pill {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    background: var(--guild-accent, var(--bg-3));
+    color: var(--text-muted);
+    display: grid;
+    place-items: center;
+    padding: 0;
+    overflow: hidden;
+    flex-shrink: 0;
+    transition: filter var(--dur-quick) var(--ease-out);
+  }
+  .pill .face {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    font-size: var(--fs-small);
+    font-weight: 600;
+  }
+  .pill .icon {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  @media (pointer: fine) {
+    .pill:hover {
+      filter: brightness(1.12);
+    }
+    .pill.home:hover,
+    .pill.quiet-pill:hover {
+      color: var(--text);
+      filter: none;
+    }
+  }
+  .pill::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .pill.active::after {
+    box-shadow:
+      inset 0 0 0 1px var(--bg-1),
+      inset 0 0 0 3px var(--text);
+  }
+  .pill.home,
+  .pill.quiet-pill {
+    background: var(--bg-3);
+  }
+  .pill.home.active,
+  .pill.quiet-pill.active {
+    color: var(--text);
+  }
+  .pill.muted {
+    opacity: 0.55;
+  }
   .pill.gone {
     opacity: 0.45;
     filter: grayscale(1);
   }
-  .pill.gone.active {
-    opacity: 0.7;
-  }
-  .pill {
-    position: relative;
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    background: var(--bg-2);
-    color: var(--text);
-    font-weight: 600;
-    font-size: var(--fs-ui);
-    text-transform: uppercase;
-    display: grid;
-    place-items: center;
-    padding: 0;
-    transition:
-      border-radius var(--dur-standard) var(--ease-out),
-      background var(--dur-standard) ease,
-      transform var(--dur-quick) ease,
-      box-shadow var(--dur-standard) ease;
-    flex-shrink: 0;
-  }
-  /* Mouse only: a tap synthesises :hover and leaves the pill stuck in its
-     squircle-and-lifted state until you tap elsewhere. :active is the touch
-     answer, and it is already unconditional below. */
-  @media (pointer: fine) {
-    .pill:hover {
-      border-radius: var(--radius-lg);
-      background: var(--bg-3);
-      transform: translateY(-1px) scale(1.04);
-    }
-  }
-  .pill:active {
-    transform: scale(0.92);
-  }
-  .pill.active {
-    border-radius: var(--radius-lg);
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-  /* A DM bubble IS its avatar, so its container has to take the avatar's shape
-     from the theme. Left at a hard 50% it stayed a circle while the picture
-     inside squared off, and the corners spilled past the outline — a square
-     drawn over a circle, which reads as broken CSS rather than as a style.
-     Guild pills keep the 50% -> 14px squircle morph above: those are tiles, not
-     faces, and the corner softening on them is the deliberate hover cue. */
-  .pill.dm,
-  .pill.dm:hover,
-  .pill.dm.active {
+  /* A DM bubble IS its avatar: it takes the avatar's shape from the theme. */
+  .pill.dm {
     border-radius: var(--avatar-radius);
+    background: transparent;
+    overflow: visible;
   }
-  .pill.dm.active {
-    background: var(--bg-2);
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
-  .pill.dm .badge {
-    top: -3px;
-    bottom: auto;
-  }
-  .pill.home {
-    border-radius: var(--radius-lg);
-    background: var(--bg-3);
-    color: var(--accent-hover);
-  }
-  @media (pointer: fine) {
-    .pill.home:hover {
-      border-radius: var(--radius-lg);
-      color: var(--accent-fg);
-      background: var(--accent);
-    }
-  }
-  .pill.home :global(svg) {
-    transition: transform var(--dur-standard) var(--ease-spring);
-  }
-  .pill.home:hover :global(svg) {
-    transform: rotate(-10deg) translateY(-1px);
-  }
-  .req-dot {
+  .p-badge {
     position: absolute;
-    top: -1px;
-    right: -1px;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    border: 2px solid var(--bg-0);
+    top: -5px;
+    right: -5px;
     pointer-events: none;
+    display: flex;
+  }
+  .p-dot {
+    position: absolute;
+    top: 50%;
+    left: -9px;
+    translate: 0 -50%;
+    pointer-events: none;
+    display: flex;
+  }
+  /* Event radar and failed sends: a small corner mark, opposite the count. */
+  .corner {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--bg-1);
+    pointer-events: none;
+  }
+  .corner.live {
+    background: var(--ok);
+  }
+  .corner.ev {
+    background: var(--text-muted);
+  }
+  .corner.fail {
+    background: var(--danger);
   }
   .jet {
     display: inline-flex;
@@ -878,9 +1081,6 @@
     animation: barrel-roll 0.72s cubic-bezier(0.5, 0.05, 0.2, 1);
   }
   @keyframes barrel-roll {
-    0% {
-      transform: rotate(0) scale(1);
-    }
     55% {
       transform: rotate(235deg) scale(1.28);
     }
@@ -888,308 +1088,25 @@
       transform: rotate(360deg) scale(1);
     }
   }
-  .pill.home.active {
-    border-radius: var(--radius-lg);
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-  .pill .icon {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: inherit;
-  }
-  .pill.hasicon {
-    background: var(--bg-2);
-    overflow: hidden;
-  }
   .divider {
-    width: 28px;
-    height: 2px;
-    border-radius: 2px;
-    background: var(--border);
-    margin: 2px 0;
+    width: 24px;
+    height: 1px;
+    background: var(--hairline);
     flex-shrink: 0;
-  }
-  /* The calendar pill: home's squircle voice (a place you go, not a guild),
-     accent ink so it reads as "yours". .pill.active supplies the open state —
-     the same fill a selected guild wears. */
-  .pill.cal {
-    border-radius: var(--radius-lg);
-    background: var(--bg-3);
-    color: var(--accent-hover);
-  }
-  @media (pointer: fine) {
-    .pill.cal:hover {
-      border-radius: var(--radius-lg);
-      background: var(--accent);
-      color: var(--accent-fg);
-    }
-  }
-  .pill.cal.active {
-    border-radius: var(--radius-lg);
-  }
-  /* Same plate as the bell and the calendar above it, differentiated by its
-     glyph rather than by a different species of button. */
-  .pill.new {
-    border-radius: var(--radius-lg);
-    background: var(--bg-3);
-    color: var(--accent-hover);
-  }
-  .pill.new :global(svg) {
-    transition: transform var(--dur-calm) var(--ease-spring);
-  }
-  @media (pointer: fine) {
-    .pill.new:hover {
-      border-radius: var(--radius-lg);
-      background: var(--accent);
-      color: var(--accent-fg);
-    }
-    /* The + spins toward the menu it opens. */
-    .pill.new:hover :global(svg) {
-      transform: rotate(90deg);
-    }
-  }
-  .bubble-wrap {
-    position: relative;
-    display: flex;
-    flex-shrink: 0;
-    animation: rail-in 0.3s var(--ease-out) both;
-    animation-delay: calc(40ms + var(--i, 0) * 25ms);
-  }
-  .pill.home,
-  .pill.new,
-  .pill.cal {
-    animation: rail-in 0.3s var(--ease-out) both;
-  }
-  .pill.new {
-    animation-delay: 0.18s;
-  }
-  @keyframes rail-in {
-    from {
-      opacity: 0;
-      transform: translateX(-14px) scale(0.8);
-    }
-  }
-  .bubble-wrap::before {
-    content: "";
-    position: absolute;
-    left: -11px;
-    top: 50%;
-    translate: 0 -50%;
-    width: 4px;
-    height: 0;
-    border-radius: 0 4px 4px 0;
-    background: var(--accent);
-    opacity: 0;
-    pointer-events: none;
-    transition:
-      height var(--dur-calm) var(--ease-spring),
-      opacity var(--dur-standard) ease;
-  }
-  @media (pointer: fine) {
-    .bubble-wrap:hover::before {
-      height: 16px;
-      opacity: 0.7;
-    }
-  }
-  .bubble-wrap:has(.pill.active)::before {
-    height: 30px;
-    opacity: 1;
-  }
-  @supports not selector(:has(*)) {
-    .pill.active {
-      box-shadow: 0 0 0 2px var(--accent);
-    }
-  }
-  .badge {
-    position: absolute;
-    top: -3px;
-    right: -3px;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: var(--radius-md);
-    /* The badge rule (lib/readstate.js): a number means somebody is talking
-       TO you — an @mention, or any message in a DM — and it wears your
-       accent, never red (red is for errors). Plain unread on the rail is
-       .unread-dot, never a number: a guild with a hundred idle messages and
-       one mention used to read "99+" in red. */
-    background: var(--accent);
-    color: var(--accent-fg);
-    font-size: var(--fs-small);
-    font-weight: 700;
-    line-height: 1;
-    display: grid;
-    place-items: center;
-    border: 2px solid var(--bg-0);
-    pointer-events: none;
-    animation: badge-pop 0.25s var(--ease-spring) both;
-  }
-  /* Unread with nothing aimed at you: present, but not asking for anything. */
-  .unread-dot {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--text);
-    border: 2px solid var(--bg-0);
-    pointer-events: none;
-    animation: badge-pop 0.25s var(--ease-spring) both;
-  }
-  .badge.mention,
-  .badge.dm {
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-  @keyframes badge-pop {
-    from {
-      transform: scale(0.4);
-      opacity: 0;
-    }
-  }
-  /* ---- event radar dots (bottom-right, opposite corner from unread) ----
-     live-dot: a meeting is happening inside — pulsing --ok, mirror of the
-     channel row's LIVE chip. ev-dot: unseen new/changed event — still accent,
-     quiet, cleared by opening that calendar. Both ride the bubble corner so
-     they can coexist with the red unread count at the top. */
-  .live-dot,
-  .ev-dot,
-  .fail-dot {
-    position: absolute;
-    bottom: -2px;
-    right: -2px;
-    width: 11px;
-    height: 11px;
-    border-radius: 50%;
-    border: 2px solid var(--bg-0);
-    pointer-events: none;
-    animation: badge-pop 0.25s var(--ease-spring) both;
-  }
-  .live-dot {
-    background: var(--ok);
-    animation:
-      badge-pop 0.25s var(--ease-spring) both,
-      rail-live-pulse 1.4s ease-in-out 0.3s infinite;
-  }
-  @keyframes rail-live-pulse {
-    50% {
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 25%, transparent);
-    }
-  }
-  .ev-dot {
-    background: var(--accent);
-    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
-  }
-  .fail-dot {
-    background: var(--danger);
-    box-shadow: 0 0 6px color-mix(in srgb, var(--danger) 55%, transparent);
-  }
-  /* The rail calendar's unseen-events count: same geometry as the unread
-     badge, accent ink — a nudge toward plans, not an alarm. */
-  .cal-badge {
-    position: absolute;
-    top: -3px;
-    right: -3px;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: var(--radius-md);
-    background: var(--accent);
-    color: var(--accent-fg);
-    font-size: var(--fs-small);
-    font-weight: 700;
-    line-height: 1;
-    display: grid;
-    place-items: center;
-    border: 2px solid var(--bg-0);
-    pointer-events: none;
-    animation: badge-pop 0.25s var(--ease-spring) both;
-  }
-  .badge.mention {
-    animation:
-      badge-pop 0.25s var(--ease-spring) both,
-      badge-beat 2.6s ease-in-out 0.4s infinite;
-  }
-  @keyframes badge-beat {
-    0%,
-    72%,
-    100% {
-      transform: scale(1);
-    }
-    80% {
-      transform: scale(1.18);
-    }
-    88% {
-      transform: scale(1);
-    }
-    94% {
-      transform: scale(1.12);
-    }
   }
   @media (prefers-reduced-motion: reduce) {
-    .badge.mention {
-      animation: badge-pop 0.25s var(--ease-spring) both;
-    }
-    .live-dot,
-    .ev-dot,
-    .cal-badge {
-      animation: none;
-    }
-    .bubble-wrap,
-    .pill.home,
-    .pill.new,
-    .pill.cal,
     .jet.roll {
       animation: none;
     }
-    .pill:hover,
-    .pill:active {
-      transform: none;
-    }
-    .pill.new:hover :global(svg),
-    .pill.home:hover :global(svg) {
-      transform: none;
-    }
   }
   @media (max-width: 768px) {
-    .rail-scroll {
-      gap: 10px;
-      padding: 12px 0;
-    }
     .pill {
-      width: 48px;
-      height: 48px;
+      width: 44px;
+      height: 44px;
     }
-    .bubble-wrap::before {
-      left: -8px;
-    }
-    /* An open folder has to be wide enough for a name field that will not
-       trigger iOS focus zoom, which starts under 16px. The underline stays
-       drawn: hover was the only thing that ever said this was editable, and a
-       finger cannot produce one. */
-    .folder.open {
-      width: 60px; /* the rail column is 64px — leave it a rim */
-    }
-    .folder-name {
-      width: 54px;
-      font-size: 16px;
-      border-bottom-color: color-mix(in srgb, var(--border) 70%, transparent);
-      padding: 3px 0;
-    }
-  }
-  .face {
-    width: 100%;
-    height: 100%;
-    display: grid;
-    place-items: center;
-    border-radius: inherit;
-    font-weight: 700;
   }
 
-  /* ————————————————— folders ————————————————— */
+  /* ————————————————— rail folders ————————————————— */
   .folder {
     display: flex;
     flex-direction: column;
@@ -1198,27 +1115,25 @@
     flex-shrink: 0;
   }
   .folder.open {
-    background: color-mix(in srgb, var(--fc, var(--accent)) 16%, transparent);
-    border-radius: 18px;
-    padding: 6px 0 8px;
+    background: var(--bg-3);
+    border-radius: var(--radius-lg);
+    padding: 6px 0 var(--sp-2);
     width: 52px;
   }
   .folder-tile {
-    background: color-mix(in srgb, var(--fc, var(--accent)) 26%, var(--bg-2));
-    color: var(--text);
-    overflow: hidden;
+    background: var(--bg-3);
+    color: var(--text-muted);
   }
-  @media (pointer: fine) {
-    .folder-tile:hover {
-      background: color-mix(in srgb, var(--fc, var(--accent)) 40%, var(--bg-2));
-    }
-  }
-  .folder-tile.hasactive {
-    box-shadow: 0 0 0 2px var(--fc, var(--accent));
+  .folder.open .folder-tile {
+    background: transparent;
   }
   .folder-tile :global(svg) {
-    color: var(--fc, var(--accent));
-    filter: brightness(1.6);
+    color: var(--fc, var(--text-muted));
+  }
+  .folder-tile.hasactive::after {
+    box-shadow:
+      inset 0 0 0 1px var(--bg-1),
+      inset 0 0 0 3px var(--text);
   }
   .mini-grid {
     width: 100%;
@@ -1233,12 +1148,14 @@
   .mini {
     width: 100%;
     height: 100%;
-    border-radius: var(--radius-sm);
+    border-radius: 3px;
+    background: var(--guild-accent, var(--bg-2));
     object-fit: cover;
     display: grid;
     place-items: center;
+    color: #fff;
     font-size: var(--fs-micro);
-    font-weight: 700;
+    font-weight: 600;
     overflow: hidden;
   }
   .folder-body {
@@ -1266,28 +1183,29 @@
   }
   .folder-name:focus {
     color: var(--text);
-    border-bottom-color: var(--fc, var(--accent));
+    border-bottom-color: var(--accent-hover);
   }
-
-  /* drag feedback */
-  .pill.combine {
-    box-shadow: 0 0 0 3px var(--accent);
-    transform: scale(1.06);
+  @media (max-width: 768px) {
+    .folder.open {
+      width: 60px;
+    }
+    .folder-name {
+      width: 54px;
+      font-size: 16px;
+      border-bottom-color: var(--border);
+      padding: 3px 0;
+    }
   }
+  .pill.combine,
   .folder-tile.combine {
-    box-shadow: 0 0 0 3px var(--fc, var(--accent));
-    transform: scale(1.06);
+    box-shadow: 0 0 0 2px var(--accent-hover);
   }
   .dropbar {
-    width: 30px;
-    height: 3px;
-    border-radius: 3px;
-    background: var(--accent);
+    width: 28px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--accent-hover);
     flex-shrink: 0;
-    animation: badge-pop var(--dur-standard) ease both;
-  }
-  .dropbar--in {
-    width: 24px;
   }
   .rail-scroll.dragging .pill {
     cursor: grab;

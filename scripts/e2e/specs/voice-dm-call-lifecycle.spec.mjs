@@ -75,7 +75,7 @@ test("an unanswered ring stops on both sides", async ({ world, assert, step, wai
   await callLine(b, "Missed call from Alice").waitFor({ timeout: 30000 });
 
   step("and the caller's DM list does not claim she missed it");
-  await a.page.locator('nav[aria-label="Guilds"]').getByRole("button", { name: /^Home \/ Direct messages/ }).click();
+  await a.page.locator('nav[aria-label="Guilds"]').getByRole("button", { name: /^Messages/ }).click();
   const row = a.page.locator(".dm-item").filter({ has: a.page.locator(".dm-name", { hasText: "Bashir" }) }).first();
   await waitFor(async () => /You called — no answer/.test(await row.innerText()), { timeout: 30000, message: "the DM row preview" });
   assert.doesNotMatch(await row.innerText(), /You: Missed call/);

@@ -22,7 +22,7 @@ test("deleted category's channels go to the end", async ({ world, assert, step, 
   await alice.rpc("DeleteCategory", g.id, cat.id);
   const b = await bob.open();
   await b.openChannel(general.name, "Shelves");
-  const order = () => b.page.locator("aside").first().innerText();
+  const order = () => b.page.locator('nav[aria-label="Guilds and channels"] .scroll').first().innerText();
   await waitFor(async () => !/Staff Room/i.test(await order()), { message: "the category is still listed" });
   await shot(b, "after category delete");
   const text = await order();

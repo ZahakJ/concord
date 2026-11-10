@@ -1,313 +1,106 @@
 <script>
-  // Shown in the main area when no channel is open (typically a brand-new
-  // user with no guilds yet). Turns an empty screen into a warm first run.
+  // The welcome (§8.3): what a new account, or anyone with no conversation
+  // open, sees in the conversation column. The one empty-state pattern — the
+  // app's own mark, a headline, a sentence, the two ways in — and below it two
+  // quiet rows to the places you already have. Never shown inside a guild
+  // (a guild with no channels has its own empty state, App.svelte).
   import Icon from "./Icon.svelte";
+  import EmptyState from "./EmptyState.svelte";
   import { S, selectNotes } from "./lib/state.svelte.js";
+
+  const hasGuild = $derived(S.guilds.some((g) => g.kind !== "dm"));
 </script>
 
 <div class="welcome">
-  <span class="ambient" aria-hidden="true"></span>
-  <div class="hero">
-    <span class="contrail" aria-hidden="true"></span>
-    <div class="badge"><Icon name="concorde" size={40} /></div>
-  </div>
-  <h1>Welcome to <span class="brand">Concord</span></h1>
-  <p class="muted lede">
-    Your community, on your machines, readable by no one else. Spin up a guild, join a friend's
-    with their invite code, or jot something in your private Notes.
-  </p>
-  <div class="chips">
-    <span class="chip"><Icon name="lock" size={12} /> End-to-end encrypted</span>
-    <span class="chip"><Icon name="members" size={12} /> Peer-to-peer</span>
-    <span class="chip"><Icon name="spark" size={12} /> No central servers</span>
-  </div>
-  <div class="cards">
-    <button class="card" onclick={() => (S.modal = { kind: "create" })}>
-      <span class="ic"><Icon name="plus" size={18} /></span>
-      <strong>Create a guild</strong>
-      <span class="muted sub">Start a space for your friends</span>
-    </button>
-    <button class="card" onclick={() => (S.modal = { kind: "join", code: "" })}>
-      <span class="ic"><Icon name="download" size={18} /></span>
-      <strong>Join with an invite code</strong>
-      <span class="muted sub">Paste a code a friend sent you</span>
-    </button>
-    <button class="card" onclick={selectNotes}>
-      <span class="ic"><Icon name="edit" size={18} /></span>
-      <strong>Open your Notes</strong>
-      <span class="muted sub">A private, encrypted scratchpad</span>
-    </button>
-    {#if S.guilds.some((g) => g.kind !== "dm")}
-      <!-- Only once there's a guild to have plans in — a brand-new user's
-           welcome shouldn't open onto an empty calendar. -->
-      <button class="card" onclick={() => (S.modal = { kind: "myCalendar" })}>
-        <span class="ic"><Icon name="calendar" size={18} /></span>
-        <strong>Your calendar</strong>
-        <span class="muted sub">What's coming up, across every guild</span>
+  <div class="inner">
+    <EmptyState
+      icon="concorde"
+      headline="Welcome to Concord"
+      sub="A guild is a space of your own, kept on the devices of the people in it and readable by no one else. Start one, or join a friend's with the code they sent you."
+    >
+      {#snippet actions()}
+        <button class="primary" onclick={() => (S.modal = { kind: "create" })}>Create a guild</button>
+        <button class="quiet" onclick={() => (S.modal = { kind: "join", code: "" })}>Join with an invite code</button>
+      {/snippet}
+    </EmptyState>
+    <div class="more">
+      <button class="row" onclick={selectNotes}>
+        <Icon name="edit" size={16} />
+        <span class="lbl">Open your Notes</span>
+        <span class="sub">a private scratchpad</span>
       </button>
-    {/if}
+      {#if hasGuild}
+        <!-- Only once there is a guild to have plans in: a brand-new account's
+             welcome should not open onto an empty calendar. -->
+        <button class="row" onclick={() => (S.modal = { kind: "myCalendar" })}>
+          <Icon name="calendar" size={16} />
+          <span class="lbl">Your calendar</span>
+          <span class="sub">what's coming up, across every guild</span>
+        </button>
+      {/if}
+    </div>
   </div>
 </div>
 
 <style>
   .welcome {
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: var(--sp-5);
-    gap: 10px;
+    justify-content: flex-end;
     overflow-y: auto;
-    position: relative;
-    overflow-x: hidden;
+    padding: var(--sp-6) var(--sp-edge);
+    background: var(--bg-2);
   }
-  /* Ambient aurora: one soft accent blob drifting slowly behind everything —
-     the room feels lit, not flat. Single element, GPU-cheap (transform only). */
-  .ambient {
-    position: absolute;
-    top: 8%;
-    left: 50%;
-    width: 420px;
-    height: 420px;
-    margin-left: -210px;
-    border-radius: 50%;
-    background: radial-gradient(circle, color-mix(in srgb, var(--accent) 12%, transparent), transparent 65%);
-    pointer-events: none;
-    animation: drift 14s ease-in-out infinite;
+  .inner {
+    max-width: 560px;
   }
-  @keyframes drift {
-    0%,
-    100% {
-      transform: translate(0, 0) scale(1);
-    }
-    33% {
-      transform: translate(50px, 26px) scale(1.12);
-    }
-    66% {
-      transform: translate(-40px, -14px) scale(0.94);
-    }
-  }
-  /* "Concord" carries the accent — a soft gradient so the wordmark glows. */
-  .brand {
-    background: linear-gradient(120deg, var(--accent-hover), var(--accent));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-  .hero {
-    position: relative;
-    display: grid;
-    place-items: center;
-    padding: 10px 0;
-  }
-  /* The jet's contrail: a fading dashed streak behind the badge, plus a soft
-     accent glow. Pure CSS — no images (strict CSP). */
-  .contrail {
-    position: absolute;
-    top: 50%;
-    right: 66px;
-    width: 150px;
-    height: 2px;
-    border-radius: 2px;
-    background: repeating-linear-gradient(
-      90deg,
-      transparent 0 8px,
-      color-mix(in srgb, var(--accent) 45%, transparent) 8px 22px
-    );
-    mask-image: linear-gradient(90deg, transparent, black);
-    -webkit-mask-image: linear-gradient(90deg, transparent, black);
-  }
-  .badge {
-    position: relative;
-    width: 76px;
-    height: 76px;
-    border-radius: 20px;
-    display: grid;
-    place-items: center;
-    background: linear-gradient(120deg, var(--accent), var(--accent-hover));
-    color: var(--accent-fg);
-    box-shadow:
-      var(--shadow-pop),
-      0 0 44px color-mix(in srgb, var(--accent) 30%, transparent);
-    /* Arrive, then float: the jet gently bobs at cruise altitude. */
-    animation:
-      arrive 0.5s ease both,
-      hover-bob 5s ease-in-out 0.5s infinite;
-  }
-  @keyframes arrive {
-    from {
-      transform: translateX(-14px);
-      opacity: 0;
-    }
-    to {
-      transform: none;
-      opacity: 1;
-    }
-  }
-  @keyframes hover-bob {
-    0%,
-    100% {
-      transform: translateY(0) rotate(0deg);
-    }
-    50% {
-      transform: translateY(-5px) rotate(-1.2deg);
-    }
-  }
-  h1 {
-    margin: 8px 0 0;
-    font-size: var(--fs-display);
-  }
-  p {
-    max-width: 440px;
-    line-height: 1.55;
-    font-size: 14px;
-    margin: 0;
-  }
-  .chips {
-    display: flex;
-    gap: var(--sp-2);
-    flex-wrap: wrap;
-    justify-content: center;
-    margin-top: var(--sp-1);
-  }
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-    font-size: var(--fs-compact);
-    font-weight: 600;
-    /* Chips land a beat after the headline, left to right. */
-    animation: card-in 0.35s ease backwards;
-  }
-  .chip:nth-child(2) {
-    animation-delay: 0.08s;
-  }
-  .chip:nth-child(3) {
-    animation-delay: var(--dur-standard);
-  }
-  .cards {
-    display: flex;
-    gap: var(--sp-3);
-    margin-top: 18px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .card {
-    width: 190px;
+  .more {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: var(--sp-1);
-    padding: var(--sp-4);
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
+    gap: 2px;
+    padding: 0 var(--sp-4);
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 32px;
+    padding: 0 var(--sp-2);
+    margin-left: calc(-1 * var(--sp-2));
+    border-radius: var(--radius-sm);
     color: var(--text);
-    text-align: left;
-    transition:
-      transform var(--dur-standard) ease,
-      border-color var(--dur-standard) ease,
-      box-shadow var(--dur-standard) ease;
-    /* Staggered arrival: each card fades up a beat after the previous. */
-    animation: card-in 0.35s ease backwards;
+    font-size: var(--fs-ui);
+    text-align: start;
   }
-  .cards .card:nth-child(2) {
-    animation-delay: 0.07s;
-  }
-  .cards .card:nth-child(3) {
-    animation-delay: var(--dur-quick);
-  }
-  .cards .card:nth-child(4) {
-    animation-delay: 0.21s;
-  }
-  @keyframes card-in {
-    from {
-      opacity: 0;
-      transform: translateY(10px);
-    }
-  }
-  /* Mouse only: on touch this lift sticks to the last card you tapped, so the
-     screen keeps a card raised behind whatever dialog just opened. */
-  @media (pointer: fine) {
-    .card:hover {
-      background: var(--bg-1);
-      border-color: var(--accent);
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 14%, transparent);
-    }
-    .card:hover .ic {
-      transform: scale(1.12) rotate(-5deg);
-    }
-  }
-  .card:active {
-    transform: translateY(0);
-  }
-  .ic {
-    width: 36px;
-    height: 36px;
-    border-radius: var(--radius-md);
-    display: grid;
-    place-items: center;
-    background: linear-gradient(
-      135deg,
-      var(--accent-soft),
-      color-mix(in srgb, var(--accent) 30%, transparent)
-    );
-    color: var(--accent-hover);
-    margin-bottom: 6px;
-    transition: transform var(--dur-standard) var(--ease-spring);
+  .row :global(svg) {
+    color: var(--text-muted);
+    flex: none;
   }
   .sub {
+    color: var(--text-muted);
     font-size: var(--fs-compact);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .card,
-    .card:hover,
-    .chip {
-      animation: none;
-      transform: none;
-    }
-    .badge,
-    .ambient {
-      animation: none;
-    }
-    .card:hover .ic {
-      transform: none;
+  @media (pointer: fine) {
+    .row:hover {
+      background: var(--bg-3);
     }
   }
-
-  /* ---- touch adjustments: cards stack full-width, comfy targets ---- */
+  .row:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -2px;
+  }
   @media (max-width: 768px) {
-    /* The first thing a new user sees after the door, held at arm's length —
-       the lede has to read as body copy, not as a caption. */
-    p {
-      font-size: var(--fs-body);
-    }
-    .cards {
-      flex-direction: column;
-      width: 100%;
-      max-width: 380px;
-      gap: 10px;
-    }
-    .card {
-      width: 100%;
-      padding: 16px 18px;
-    }
-    .card:active {
-      border-color: var(--accent);
-      background: var(--bg-1);
-    }
-    .chip {
-      padding: 6px 12px;
-    }
     .welcome {
-      padding: 20px 16px calc(20px + var(--safe-bottom));
+      justify-content: flex-start;
+      padding-top: var(--sp-5);
+    }
+    .row {
+      min-height: 44px;
     }
   }
 </style>

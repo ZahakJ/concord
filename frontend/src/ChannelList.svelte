@@ -1,13 +1,24 @@
+<script module>
+  // "Later" on the recovery-phrase nudge lasts the session, not the mount: the
+  // sidebar remounts on every shell change and the phrase must not nag back
+  // the moment you resize a window.
+  const phraseLater = $state({ on: false });
+</script>
+
 <script>
-  // Second column: the active guild's channels, unread counts, per-channel
-  // mute, and the self row (profile + network settings) pinned to the bottom.
+  // The sidebar (§2.3): the place header, the shortcut strip, the jump row,
+  // the one nudge, the place's list (channels by category, or your
+  // conversations), the unread-messages block, the call dock and you.
   import Icon from "./Icon.svelte";
+  import Badge from "./Badge.svelte";
+  import Nudge from "./Nudge.svelte";
+  import Kbd from "./Kbd.svelte";
+  import GuildRail from "./GuildRail.svelte";
+  import SetupCard from "./SetupCard.svelte";
   import Avatar from "./Avatar.svelte";
   import GroupAvatar from "./GroupAvatar.svelte";
   import Menu from "./Menu.svelte";
   import StatusPopover from "./StatusPopover.svelte";
-  import Banner from "./Banner.svelte";
-  import { guildBannerArt } from "./lib/guildbanners.js";
   import { splitStatus, presenceLabel } from "./lib/presence.js";
   import {
     S,
@@ -51,8 +62,18 @@
     disconnectVoiceMember,
     clockOpts,
     setPref,
-    openGuildHub,
+    openInbox,
+    openDMs,
+    dismissNotifyAsk,
+    dismissUpdate,
   } from "./lib/state.svelte.js";
+  import { requestPermission } from "./lib/notify.js";
+  import { plural } from "./lib/plural.js";
+  import { guildInitials } from "./lib/rail.js";
+  import { tileColor } from "./lib/guildaccent.js";
+  import { GSW, toggleGuildSwitcher } from "./lib/guildswitch.svelte.js";
+  import { guildMenu } from "./lib/guildmenu.js";
+  import { syncLayer } from "./lib/navstack.svelte.js";
   import { api } from "./lib/api.js";
   import { tooltip } from "./lib/tooltip.js";
   import { RADAR, liveChannelSet } from "./lib/radar.svelte.js";
@@ -80,8 +101,144 @@
   // the longpress action — so on coarse pointers longpress is the only path).
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
 
-  let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } =
+  // strip: draw the shortcut strip under the place header (the default
+  // arrangement). Off when the classic rail stands beside the list instead.
+  let { strip = true, onJoinVoice, onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } =
     $props();
+
+  // The sidebar's own width decides how many strip tiles fit and when
+  // "N reachable" folds to its glyph.
+  let colW = $state(280);
+
+  // ---- the place header ----
+  function placeMenu(e) {
+    if (g && g.kind !== "dm") guildMenu(e, g);
+  }
+  async function invitePeople() {
+    try {
+      S.modal = { kind: "invite", code: await api.inviteCode(g.id) };
+    } catch (err) {
+      flash(err);
+    }
+  }
+
+  // "N reachable" (§2.10): members other than you whose presence says they are
+  // here right now. Invisible members are offline to everyone else, and render
+  // that way, so they count that way. No new core call: the member list with
+  // presence is already in state.
+  const others = $derived(S.members.filter((m) => !m.isSelf));
+  const reachable = $derived(others.filter((m) => m.online).length);
+  const reachLabel = $derived(
+    reachable === 0 ? "Nobody else is reachable right now" : `${reachable} of ${others.length} members reachable right now`,
+  );
+  let reachPop = $state(null);
+  function toggleReach(e) {
+    if (reachPop) {
+      reachPop = null;
+      return;
+    }
+    const r = e.currentTarget.getBoundingClientRect();
+    reachPop = { x: Math.max(8, Math.min(r.left, window.innerWidth - 256)), y: r.bottom + 6 };
+  }
+  syncLayer("popover", () => !!reachPop, () => (reachPop = null));
+  $effect(() => {
+    if (!reachPop) return;
+    const off = (ev) => {
+      if (!ev.target.closest?.(".reach-pop, .ph-reach")) reachPop = null;
+    };
+    window.addEventListener("pointerdown", off, true);
+    return () => window.removeEventListener("pointerdown", off, true);
+  });
+
+  // ---- the nudge queue (§5.14) ----
+  // One at a time, by priority: security (the recovery phrase) > owner setup >
+  // tips (notifications, an update). The connection is not a nudge: losing it
+  // is the one full-width bar (App.svelte). "Later" on the phrase quiets it for
+  // this session only — it keeps coming back until the words are verified.
+  let setupWants = $state(false);
+  const nudgeNow = $derived(
+    S.prefs.backupPending && !phraseLater.on
+      ? "phrase"
+      : setupWants
+        ? "setup"
+        : S.notifyAsk
+          ? "notify"
+          : S.update
+            ? "update"
+            : "",
+  );
+
+  // ---- unread messages ----
+  // Arrival order, appended at the end and never re-sorted: rows leave only
+  // when they are read, so nothing jumps under the pointer.
+  let dmOrder = $state([]);
+  $effect(() => {
+    const unread = dmList().filter((d) => !d.dmNotes && guildUnread(d).count > 0);
+    const ids = new Set(unread.map((d) => d.id));
+    const kept = dmOrder.filter((id) => ids.has(id));
+    const fresh = unread
+      .filter((d) => !kept.includes(d.id))
+      .sort((a, b) => (a.lastActivity || 0) - (b.lastActivity || 0))
+      .map((d) => d.id);
+    const next = [...kept, ...fresh];
+    if (next.join() !== dmOrder.join()) dmOrder = next;
+  });
+  const dmBlock = $derived(dmOrder.map((id) => S.guilds.find((x) => x.id === id)).filter(Boolean));
+
+  // ---- unread above / below (§2.3) ----
+  // When unread rows are scrolled out of the list's view, a pill on that edge
+  // says so and takes you to the nearest one. Measured, not tracked: the rows
+  // are re-read on scroll and whenever the unread set changes.
+  let offscreen = $state({ up: 0, upM: 0, down: 0, downM: 0 });
+  function measureUnread() {
+    const sc = scrollEl;
+    if (!sc) return;
+    const box = sc.getBoundingClientRect();
+    const o = { up: 0, upM: 0, down: 0, downM: 0 };
+    for (const row of sc.querySelectorAll(".channel-row.unread")) {
+      const r = row.getBoundingClientRect();
+      const m = row.classList.contains("mentioned") ? 1 : 0;
+      if (r.bottom <= box.top + 4) {
+        o.up++;
+        o.upM += m;
+      } else if (r.top >= box.bottom - 4) {
+        o.down++;
+        o.downM += m;
+      }
+    }
+    if (o.up !== offscreen.up || o.down !== offscreen.down || o.upM !== offscreen.upM || o.downM !== offscreen.downM) offscreen = o;
+  }
+  $effect(() => {
+    void S.unread;
+    void g?.id;
+    void S.prefs.collapsedCats;
+    const sc = scrollEl;
+    if (!sc) return;
+    requestAnimationFrame(measureUnread);
+    const ro = new ResizeObserver(measureUnread);
+    ro.observe(sc);
+    return () => ro.disconnect();
+  });
+  function jumpUnread(dir) {
+    const sc = scrollEl;
+    if (!sc) return;
+    const box = sc.getBoundingClientRect();
+    const rows = [...sc.querySelectorAll(".channel-row.unread")];
+    const target =
+      dir < 0
+        ? rows.filter((r) => r.getBoundingClientRect().bottom <= box.top + 4).pop()
+        : rows.find((r) => r.getBoundingClientRect().top >= box.bottom - 4);
+    target?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+  const markLabel = (m) => (m ? plural(m, "mention") : "Unread");
+
+  // The call's guild, for the dock's second line.
+  const callGuildName = $derived.by(() => {
+    const id = S.voice?.channelId;
+    if (!id) return "";
+    const cg = S.guilds.find((x) => x.channels.some((c) => c.id === id));
+    return cg && cg.kind !== "dm" ? cg.name : "";
+  });
 
   // Joining a call mounts the call bar under the list, and the list gives up
   // the bar's height to it. On a phone that is a sixth of the screen, and the
@@ -303,45 +460,6 @@
     }
     return count ? { count, mentions } : null;
   }
-
-  // Unread channels in this guild, in sidebar order — powers the jump pill and
-  // Alt+↑/↓ navigation. The shortcut alone is not the feature: without a
-  // visible affordance nothing tells you how many are waiting, or where.
-  const unreadChannels = $derived.by(() =>
-    groups
-      .flatMap((grp) => grp.channels)
-      .filter(
-        (c) =>
-          c.type !== "voice" &&
-          c.id !== S.activeChannelId &&
-          !isMuted(c.id, g?.id) &&
-          !!channelUnread(c),
-      ),
-  );
-  const unreadMentions = $derived(
-    unreadChannels.reduce((n, c) => n + (channelUnread(c)?.mentions || 0), 0),
-  );
-
-  function jumpToNextUnread() {
-    const list = unreadChannels;
-    if (!list.length) return;
-    // Prefer a channel with a mention; otherwise the next one after the
-    // current position (wrapping), so repeated presses walk the list.
-    const mention = list.find((c) => (channelUnread(c)?.mentions || 0) > 0);
-    if (mention) {
-      selectChannel(mention.id);
-      return;
-    }
-    const all = groups.flatMap((grp) => grp.channels);
-    const here = all.findIndex((c) => c.id === S.activeChannelId);
-    const next =
-      list.find((c) => all.indexOf(c) > here) || list[0];
-    selectChannel(next.id);
-  }
-
-  // (Alt+Shift+↑/↓ already walks unread channels — see lib/shortcuts.js. The
-  // pill below is the DISCOVERABLE version of that: it says how many are
-  // waiting and jumps mention-first on click.)
 
   const typeIcon = channelTypeIcon;
 
@@ -752,68 +870,156 @@
   }
 </script>
 
-<aside class="cols">
+<nav class="cols" aria-label="Guilds and channels" bind:clientWidth={colW}>
+  <!-- The place header: where you are, and the door to everywhere else. The
+       name opens the guild switcher (the inventory); a right-click or a
+       long-press opens the guild's menu. "N reachable" is the honest
+       peer-to-peer signal: how many members this device can reach right now.
+       It gives way first when the sidebar is narrow (§2.9), then the name
+       truncates; the chevron and invite never shrink. -->
   {#if g && g.kind !== "dm"}
-    <!-- The banner used to be interpolated straight into this button's
-         background-image — an unquoted url(…) built from a string a PEER
-         sends. It now goes through Banner.svelte instead, which (a) draws
-         and animates the preset templates rather than decoding an image, and
-         (b) is the one place that vets an image value before it reaches a CSS
-         url(). guildBannerArt() decides what is safe to paint at all: an
-         unknown template id or a non-image string yields null, and the header
-         simply renders without a banner. -->
-    {@const art = guildBannerArt(g.banner)}
-    <button
-      class="guild-name guild-header"
-      class:has-banner={!!art}
-      class:ink-dark={art?.ink === "dark"}
-      use:tooltip={{ text: g.description || g.name }}
-      aria-label={g.description || g.name}
-      onclick={openGuildHub}
-      oncontextmenu={(e) => openContextMenu(e, guildMenuItems(g), { title: g.name })}
+    <header
+      class="place-head"
+      data-place-head
+      style="--guild-accent:{tileColor(g)}"
+      class:gone={!!g.evicted}
     >
-      {#if art}
-        <Banner banner={g.banner} scrim={art.ink} tint class="gh-art" />
-      {/if}
-      <!-- One wrapper so the row can sit ABOVE the art layer: the art is
-           absolutely positioned, and positioned boxes paint over in-flow ones
-           whatever the DOM order. -->
-      <span class="gh-row">
-        {#if g.icon}
-          <img class="g-icon" src={g.icon} alt="" />
-        {/if}
-        <strong>{g.name}</strong>
-        <Icon name="chevron" size={13} />
-      </span>
-    </button>
-  {:else}
-    <header class="guild-name" class:dm-head={g?.kind === "dm"}>
-      {#if g?.kind === "dm"}
-        <!-- The bar. It was a label with a bare 13px "+" hanging off the end,
-             in the one column of the app that has no guild header to give it
-             weight. The action now says what it does instead of making you
-             hover a plus to find out, and it is a pill rather than a ghost
-             glyph, because starting a conversation is the only thing this
-             column offers and it should look like an offer.
-             No section glyph: the sidebar is 220px by default and a plate plus
-             its gap is a third of what the title needs, which cost the word
-             "messages". -->
-        <span class="dm-head-title">
-          <strong>Direct messages</strong>
+      <button
+        class="ph-main"
+        aria-haspopup="dialog"
+        aria-expanded={GSW.open}
+        aria-label="{g.name} — switch guild"
+        onclick={(e) => toggleGuildSwitcher(e.currentTarget.closest("[data-place-head]"))}
+        oncontextmenu={coarse ? (e) => e.preventDefault() : placeMenu}
+        use:longpress={{ handler: placeMenu }}
+      >
+        <span class="ph-icon" class:hasicon={!!g.icon}>
+          {#if g.icon}<img src={g.icon} alt="" />{:else}{guildInitials(g.name)}{/if}
         </span>
-        <button class="dm-new" onclick={newMessage} aria-label="New message" use:tooltip={"New message"}>
-          <Icon name="plus" size={13} /> <span class="dn-lbl">New</span>
+        <span class="ph-name"><bdi>{g.name}</bdi></span>
+        <span class="ph-chev" aria-hidden="true"><Icon name="chevron" size={14} /></span>
+      </button>
+      {#if others.length && !g.evicted}
+        <button
+          class="ph-reach"
+          class:glyph-only={colW < 300}
+          aria-label={reachLabel}
+          aria-haspopup="dialog"
+          aria-expanded={!!reachPop}
+          use:tooltip={{ text: reachLabel }}
+          onclick={toggleReach}
+        >
+          <span class="reach-glyph" class:none={reachable === 0} class:all={reachable === others.length} aria-hidden="true"></span>
+          <!-- Below 300px the words go and the number stays (§2.9). -->
+          <span class="reach-n">{reachable}<span class="reach-w">&nbsp;reachable</span></span>
         </button>
-      {:else}
-        <strong>Concord</strong>
+      {/if}
+      {#if g.canManage && !g.evicted}
+        <button class="iconbtn ph-invite" aria-label="Invite people" use:tooltip onclick={invitePeople}>
+          <Icon name="personPlus" size={16} />
+        </button>
       {/if}
     </header>
+  {:else if g?.kind === "dm"}
+    <header class="place-head dm-head" data-place-head>
+      <span class="ph-main static"><span class="ph-name"><bdi>Messages</bdi></span></span>
+      <button class="iconbtn ph-invite" onclick={newMessage} aria-label="New message" use:tooltip>
+        <Icon name="edit" size={16} />
+      </button>
+    </header>
+  {:else}
+    <header class="place-head" data-place-head>
+      <span class="ph-main static"><span class="ph-name"><bdi>Concord</bdi></span></span>
+    </header>
   {/if}
+
+  {#if strip}
+    <GuildRail layout="strip" width={colW} />
+  {/if}
+
+  <!-- One field for going anywhere (it opens the palette), and the inbox,
+       which is not a place but a question about all of them. -->
+  <div class="jump-row">
+    <button class="jump" onclick={() => (S.quickSwitcher = true)} aria-keyshortcuts="Control+K">
+      <Icon name="search" size={14} />
+      <span class="jump-lbl">Jump to…</span>
+      {#if !S.isMobile}<Kbd>Ctrl K</Kbd>{/if}
+    </button>
+    {#if !S.isMobile}
+      <span class="inbox-wrap">
+        <button
+          class="iconbtn inbox-btn"
+          class:on={S.modal?.kind === "inbox"}
+          aria-label={S.inbox.unread > 0 ? `Inbox — ${S.inbox.unread} unread` : "Inbox"}
+          use:tooltip={{ text: "Inbox — mentions, replies and alert words aimed at you" }}
+          onclick={() => (S.modal?.kind === "inbox" ? (S.modal = null) : openInbox())}
+        >
+          <Icon name="bell" size={16} />
+        </button>
+        {#if S.inbox.unread > 0}<span class="inbox-badge"><Badge count={S.inbox.unread} ring="var(--bg-1)" /></span>{/if}
+      </span>
+    {/if}
+  </div>
 
   <!-- Drag-to-reorder is a pointer-only enhancement; keyboard users reorder via
        the row menu's "Move to…", so the drag handlers stay off the a11y tree. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="scroll" class:channels-touch={coarse} ondragleave={listDragLeave} bind:this={scrollEl}>
+  <div class="list-wrap">
+  {#if offscreen.up}
+    <button class="edge-pill up" onclick={() => jumpUnread(-1)}>↑ {markLabel(offscreen.upM)}</button>
+  {/if}
+  {#if offscreen.down}
+    <button class="edge-pill down" onclick={() => jumpUnread(1)}>↓ {markLabel(offscreen.downM)}</button>
+  {/if}
+  <div class="scroll" class:channels-touch={coarse} ondragleave={listDragLeave} onscroll={measureUnread} bind:this={scrollEl}>
+    <!-- The one nudge (§5.14): a queue, one at a time, at the top of the list
+         and never over the feed. Security outranks setup, setup outranks tips.
+         The setup checklist stays mounted while it is armed — it watches the
+         feed to tick its own steps — and simply draws nothing while something
+         more important holds the row. -->
+    {#if nudgeNow === "phrase"}
+      <div class="nudge-row">
+        <Nudge
+          icon="key"
+          tone="warn"
+          action="Show me"
+          onAction={() => (S.modal = { kind: "settings", focus: "phrase" })}
+          dismissLabel="Later"
+          onDismiss={() => (phraseLater.on = true)}
+        >
+          <strong>Write down your recovery phrase.</strong> It is the only way back into this account.
+        </Nudge>
+      </div>
+    {:else if nudgeNow === "notify"}
+      <div class="nudge-row">
+        <Nudge
+          icon="bell"
+          action="Turn on"
+          onAction={() => {
+            requestPermission();
+            dismissNotifyAsk(true);
+          }}
+          dismissLabel="Not now"
+          onDismiss={() => dismissNotifyAsk(true)}
+        >
+          <strong>You just missed a message.</strong> Concord can tell you next time.
+        </Nudge>
+      </div>
+    {:else if nudgeNow === "update"}
+      <div class="nudge-row">
+        <Nudge
+          icon="download"
+          action="Update"
+          onAction={() => (S.modal = { kind: "settings", startUpdate: true })}
+          onDismiss={dismissUpdate}
+        >
+          <strong>Concord {S.update.latest}</strong> is ready (you have {S.update.current}).
+        </Nudge>
+      </div>
+    {/if}
+    {#if g && g.kind !== "dm"}
+      <SetupCard hidden={nudgeNow !== "setup"} bind:wants={setupWants} />
+    {/if}
     {#if g?.kind === "dm"}
       {#if S.requests.length}
         <!-- Strangers wait here. Deliberately a quiet row, not a badge on the
@@ -822,12 +1028,12 @@
         <button class="dm-item requests" onclick={() => (S.modal = { kind: "requests" })}>
           <span class="dm-notes-icon"><Icon name="members" size={15} /></span>
           <span class="dm-name">Message requests</span>
-          <span class="count">{S.requests.length > 99 ? "99+" : S.requests.length}</span>
+          <Badge dot label="{S.requests.length} waiting" />
         </button>
       {/if}
       {#each dms as dm (dm.id)}
         {@const active = dm.id === S.activeGuildId}
-        {@const unread = dm.dmNotes ? { count: 0 } : guildUnread(dm)}
+        {@const unread = dm.dmNotes ? { count: 0, attention: 0 } : guildUnread(dm)}
         {@const draft = draftIn(dm.channels?.[0]?.id)}
         <button
           class="dm-item"
@@ -886,10 +1092,10 @@
               {/if}
             </span>
           </span>
-          {#if unread.count > 0}
-            <span class="count" class:mention={unread.mentions > 0}
-              >{unread.count > 99 ? "99+" : unread.count}</span
-            >
+          {#if unread.attention > 0}
+            <Badge count={unread.attention} label={`${unread.attention} unread`} />
+          {:else if unread.count > 0}
+            <Badge dot label="Unread" />
           {/if}
         </button>
       {/each}
@@ -906,63 +1112,11 @@
         </div>
       {/if}
     {:else if g}
-      {#if unreadChannels.length}
-        <!-- "Jump to unread" is usually a shortcut and nothing else. This SHOWS
-             what's waiting, where, and lets one click walk it. -->
-        <button
-          class="unread-jump"
-          class:mention={unreadMentions > 0}
-          use:tooltip={"Jump to the next unread channel (mentions first) · Alt+Shift+↓"}
-          aria-label="Jump to the next unread channel (mentions first) · Alt+Shift+↓"
-          onclick={jumpToNextUnread}
-        >
-          <span class="uj-dot"></span>
-          <!-- Short on purpose. "3 channels unread · 2 @you" needs 196px in
-               Gruvbox's mono face and gets 168, so the pack that packs tightest
-               was the one that truncated. The tooltip and aria-label still
-               carry the whole sentence. -->
-          <!-- Names its unit: it counts CHANNELS, and the rows below count
-               messages, so a bare "1 unread" over "# history 99+" read as a
-               contradiction. -->
-          <span class="uj-text">
-            {unreadChannels.length} {unreadChannels.length === 1 ? "channel" : "channels"}
-            {#if unreadMentions > 0}· {unreadMentions} @you{/if}
-          </span>
-          <span class="uj-cta">Jump ↓</span>
-        </button>
-      {/if}
-      <div class="section-head">
-        <span>Channels</span>
-        {#if g?.evicted}
-          <!-- Out of the guild: there is nothing to add to, and a locked "+"
-               would suggest a role could unlock it. -->
-        {:else if !canManageChannels}
-          <!-- No silent nothing: members without Manage Channels see WHY. -->
-          <button
-            class="add-locked tap-hit"
-            use:tooltip={"You need the Manage Channels permission to add channels"}
-            aria-label="Adding channels requires the Manage Channels permission"
-            onclick={() => flash("You need the Manage Channels permission to add channels here — ask an admin for a role that grants it.")}
-          >
-            <Icon name="plus" size={13} />
-          </button>
-        {:else}
-        <Menu label="Add channel or category" icon="plus" align="right" compact>
-          <button class="menu-item" onclick={() => (S.modal = { kind: "channel" })}>
-            <Icon name="hash" size={14} /> New channel
-          </button>
-          <button class="menu-item" onclick={() => (S.modal = { kind: "category" })}>
-            <Icon name="chevron" size={14} /> New category
-          </button>
-        </Menu>
-        {/if}
-      </div>
-
       {#if !(g?.channels || []).length}
         <!-- On a phone this list is the whole screen, and it used to be empty
-             under the heading with nothing to say why. -->
+             with nothing to say why. -->
         <p class="no-ch">
-          No channels yet.{canManageChannels && !g?.evicted ? " Use + to make the first one." : ""}
+          No channels yet.{canManageChannels && !g?.evicted ? " Add the first one below." : ""}
         </p>
       {/if}
       {#each groups as grp (grp.id || "_uncat")}
@@ -1168,28 +1322,21 @@
                    moment it is actually being read (lib/readstate.js), so a
                    count still standing here — a phone's channel list over the
                    open channel, a minimised window — is unread for real. -->
+              <!-- A number only for what is aimed at you (§1.3): the mentions,
+                   in your accent. Plain unread is the weight of the name plus
+                   a quiet dot. A muted channel shows nothing — unless someone
+                   @-ed you anyway, which is an outlined count. The label is
+                   where a screen reader learns either. -->
               {#if c.type !== "voice" && u && !isMuted(c.id, g?.id)}
-                <!-- The number is how many messages are waiting — never the
-                     mention tally. Substituting the mentions when there were
-                     any made the badge SHRINK as a channel got busier: twenty
-                     unread with one @you rendered as "1", which reads as one
-                     message and disagrees with the nineteen notifications that
-                     had already fired, with the summary pill above ("3 unread ·
-                     1 @you"), and with the catch-up card, which lists the true
-                     count for the same channel two inches away. The mention is
-                     carried by the colour, exactly as it is on the DM rows and
-                     the guild-rail bubbles, and by the label — which is also
-                     the only place a screen reader could ever have learned
-                     either number. -->
-                <span
-                  class="count"
-                  class:mention={u.mentions > 0}
-                  aria-label={u.mentions > 0
-                    ? `${u.count} unread, ${u.mentions} mentioning you`
-                    : `${u.count} unread`}
-                >
-                  {u.count > 99 ? "99+" : u.count}
+                <span class="ch-mark">
+                  {#if u.mentions > 0}
+                    <Badge count={u.mentions} label={`${u.count} unread, ${u.mentions} mentioning you`} />
+                  {:else}
+                    <Badge dot label={`${u.count} unread`} />
+                  {/if}
                 </span>
+              {:else if c.type !== "voice" && u?.mentions && isMuted(c.id, g?.id)}
+                <span class="ch-mark"><Badge count={u.mentions} muted label={`Muted, ${u.mentions} mentioning you`} /></span>
               {/if}
               {#if joiningHere}
                 <!-- Pressed, and saying why. A click on a voice row opens your
@@ -1198,14 +1345,11 @@
                      people click it again. -->
                 <span class="ch-joining">Connecting…</span>
               {:else if occupied}
-                <!-- How many, then the equalizer. The row said only "somebody is
-                     in here" — you had to read the participant list under it to
-                     find out whether that was one person or six, and in a
-                     collapsed category there is no list to read. -->
-                <span class="ch-heads" aria-label="{voiceMembersFor(c.id).length} in this call">
-                  {voiceMembersFor(c.id).length}
-                </span>
-                <span class="eq" class:you={inVoice} aria-hidden="true"><i></i><i></i><i></i></span>
+                <!-- How many. The row said only "somebody is in here" — you had
+                     to read the participant list under it to find out whether
+                     that was one person or six, and in a collapsed category
+                     there is no list to read. -->
+                <span class="ch-heads">{voiceMembersFor(c.id).length} in call</span>
               {/if}
             </button>
             {#if canManageChannels && !coarse}
@@ -1349,57 +1493,88 @@
           {/if}
         {/each}
       {/each}
+      {#if canManageChannels && !g?.evicted}
+        <!-- The list's own way to grow, after its last row: a quiet row rather
+             than a "+" on a CHANNELS heading the list no longer has. -->
+        <div class="add-ch">
+          <Menu name="Add channel or category" align="left" compact>
+            {#snippet trigger()}
+              <span class="add-ch-in"><Icon name="plus" size={14} /> Add a channel</span>
+            {/snippet}
+            <button class="menu-item" onclick={() => (S.modal = { kind: "channel" })}>
+              <Icon name="hash" size={14} /> New channel
+            </button>
+            <button class="menu-item" onclick={() => (S.modal = { kind: "category" })}>
+              <Icon name="folder" size={14} /> New category
+            </button>
+          </Menu>
+        </div>
+      {/if}
     {:else}
-      <!-- No CTAs here: the center welcome cards already offer Create/Join
-           prominently, so repeating them in the sidebar was redundant. Just a
-           gentle pointer. -->
-      <div class="empty-block">
-        <span class="empty-ic"><Icon name="concorde" size={20} /></span>
-        <p class="muted">
-          No guilds yet. A guild is your own space — channels, voice, files, all
-          encrypted and hosted by its members. Start one from the welcome cards →
-        </p>
-      </div>
+      <!-- No guild at all: the welcome in the conversation column offers the
+           two ways in; this says what a guild is, in one line. -->
+      <p class="no-ch">No guilds yet. A guild is a space of your own, kept by the people in it.</p>
     {/if}
   </div>
+  </div>
 
-  <!-- Persistent bottom-left call controller: shows whenever you're in a
-       call, whatever you're viewing. The full tiles are a layer; this bar is
-       how you open them from anywhere in the list. -->
+  <!-- Unread messages (§2.3): direct messages waiting while you are in a
+       guild. Newest last, and it never reorders while it is on screen — a row
+       leaves only when it is read, so the one you were reaching for is still
+       where it was. -->
+  {#if !S.isMobile && g?.kind !== "dm" && (dmBlock.length || S.requests.length)}
+    <div class="unread-block" aria-label="Unread messages" role="group">
+      <div class="ub-head">Unread messages</div>
+      {#if S.requests.length}
+        <button class="ub-row" onclick={() => (S.modal = { kind: "requests" })}>
+          <span class="ub-ic"><Icon name="members" size={14} /></span>
+          <span class="ub-name">Message requests</span>
+          <Badge dot label="{S.requests.length} waiting" />
+        </button>
+      {/if}
+      {#each dmBlock.slice(-3) as dm (dm.id)}
+        {@const u = guildUnread(dm)}
+        <button class="ub-row" onclick={() => selectGuild(dm.id)} data-menu-row oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => dmMenu(e, dm)}>
+          {#if (dm.dmMembers ?? 2) > 2}
+            <GroupAvatar faces={dm.dmFaces || []} size={20} />
+          {:else}
+            <Avatar
+              name={dm.name}
+              image={dm.dmPeerAvatar || dm.dmFaces?.[0]?.avatar || dm.icon}
+              size={20}
+              online={dm.dmPeer ? !!dm.dmPeerOnline : null}
+              presence={dm.dmPeerPresence || ""}
+            />
+          {/if}
+          <span class="ub-name"><bdi>{dm.name}</bdi></span>
+          {#if u.attention}<Badge count={u.attention} label={`${u.attention} unread`} />{:else if u.count}<Badge dot label="Unread" />{/if}
+        </button>
+      {/each}
+      {#if dmBlock.length > 3}
+        <button class="ub-more" onclick={() => openDMs()}>+{dmBlock.length - 3} more</button>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- The call dock (§8.12): in a call, the sidebar holds the call — which
+       room, whether it is carrying, who is in it, and the five controls — so
+       there is one call surface, not a floating window beside a bar. While the
+       stage itself is on screen its own controls are right there, and the dock
+       shrinks to the line that is still news. -->
   {#if S.voice}
-    <!-- While the stage is on screen its own control row is right there, so
-         this bar shrinks to the one line that is still news — which call,
-         how long, and the way out — instead of a second set of the same five
-         buttons a few hundred pixels to the left of the first. With the Leave
-         button beside it there is no room for "Voice connected" AND the clock,
-         so the room's name leads and the call's state is the small line. -->
     {@const compact = !!S.callStage && !S.isMobile}
-    <div class="voice-bar" class:trouble={!callState.live} class:compact>
-      <button
-        class="vb-info"
-        use:tooltip
-        aria-label="Open the call"
-        onclick={() => openCallStage()}
-      >
+    {@const roster = voiceMembersFor(S.voice.channelId)}
+    <div class="voice-bar" class:trouble={!callState.live} class:compact role="group" aria-label="Call">
+      <button class="vb-info" use:tooltip aria-label="Open the call" onclick={() => openCallStage()}>
         <span class="vb-text">
-          <strong>
-            <!-- On the title line, not centred on the two-line block: the dot
-                 belongs to "Voice connected", and centred it floated between
-                 that and the channel name under it. -->
-            <span class="vb-live" class:held={!callState.live}></span>
-            <!-- Not a literal. This bar printed "Voice connected" in green with
-                 a pulsing dot whatever the call was doing, so killing the node
-                 under a peer left it saying so, directly under a banner reading
-                 "You're offline. The call is trying to reconnect too." Same
-                 state machine as the stage now (callHealth). -->
-            <span class="vb-label">{compact ? channelShort(S.voice.channelId) || "Call" : callState.label}</span>
-            <!-- The elapsed time doubles as proof the call is alive: a clock
-                 that has stopped is a call that has died. It could not stop —
-                 it was a wall clock started at join — so it now holds while
-                 nothing is carrying, and says so. -->
-            {#if clock}<span class="vb-clock" class:held={!callState.live}>{clock}</span>{/if}
-          </strong>
-          <span class="muted vb-ch">{compact ? callState.label : channelShort(S.voice.channelId) || "Call"}</span>
+          <span class="vb-title">
+            <span class="vb-label">{channelShort(S.voice.channelId) || "Call"}</span>
+            {#if callGuildName}<span class="vb-guild">{callGuildName}</span>{/if}
+          </span>
+          <span class="vb-state" class:held={!callState.live}>
+            <span class="vb-live" class:held={!callState.live} aria-hidden="true"></span>
+            {callState.label}{#if clock}<span class="vb-clock">&nbsp;· {clock}</span>{/if}
+          </span>
         </span>
       </button>
       {#if compact}
@@ -1407,64 +1582,77 @@
           <Icon name="door" size={14} />
         </button>
       {:else}
-      <span class="vb-actions">
-        <!-- Deafen was missing here and on the header pill, so two of the four
-             places you can mute offered a different SET of controls as well as a
-             different look. Same glyphs, same order and the same plate on all
-             four surfaces now (.callbtn, app.css): mic and deafen light danger
-             when they are stopping something, camera and screen light accent
-             when they are sending it, and green is left to mean one thing —
-             that there is a call. -->
-        <button
-          class="callbtn sm cut"
-          class:on={S.muted}
-          use:tooltip
-          aria-label={S.muted ? "Unmute" : "Mute"}
-          aria-pressed={S.muted}
-          onclick={onToggleMute}
-        >
-          <Icon name={S.muted ? "micOff" : "mic"} size={14} />
-        </button>
-        <button
-          class="callbtn sm cut"
-          class:on={S.deafened}
-          use:tooltip
-          aria-label={S.deafened ? "Undeafen" : "Deafen"}
-          aria-pressed={S.deafened}
-          onclick={onToggleDeafen}
-        >
-          <Icon name={S.deafened ? "deafened" : "speaker"} size={14} />
-        </button>
-        <button
-          class="callbtn sm"
-          class:on={S.cameraOn}
-          use:tooltip
-          aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
-          aria-pressed={S.cameraOn}
-          onclick={onToggleCamera}
-        >
-          <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={14} />
-        </button>
-        {#if canShareScreen}
+        {#if roster.length}
+          <div class="vb-faces" aria-label="{roster.length} in this call" role="img">
+            {#each roster.slice(0, 5) as vm (vm.peerId)}
+              {@const vmem = memberByFpr(vm.fingerprint)}
+              <span class="vb-face" class:speaking={vm.speaking} title={nameFor(vm.fingerprint)}>
+                <Avatar
+                  name={nameFor(vm.fingerprint)}
+                  image={vm.self ? S.identity.avatar : vmem?.avatar || ""}
+                  emoji={vm.self ? S.identity.emoji : vmem?.emoji || ""}
+                  color={vm.self ? S.identity.color : vmem?.color || ""}
+                  size={24}
+                />
+                {#if vm.muted || vm.deafened}<span class="vb-muted"><Icon name="micOff" size={9} /></span>{/if}
+              </span>
+            {/each}
+            {#if roster.length > 5}<span class="vb-more">+{roster.length - 5}</span>{/if}
+          </div>
+        {/if}
+        <span class="vb-actions">
+          <button
+            class="callbtn sm cut"
+            class:on={S.muted}
+            use:tooltip
+            aria-label={S.muted ? "Unmute" : "Mute"}
+            aria-pressed={S.muted}
+            onclick={onToggleMute}
+          >
+            <Icon name={S.muted ? "micOff" : "mic"} size={14} />
+          </button>
+          <button
+            class="callbtn sm cut"
+            class:on={S.deafened}
+            use:tooltip
+            aria-label={S.deafened ? "Undeafen" : "Deafen"}
+            aria-pressed={S.deafened}
+            onclick={onToggleDeafen}
+          >
+            <Icon name={S.deafened ? "deafened" : "speaker"} size={14} />
+          </button>
           <button
             class="callbtn sm"
-            class:on={S.sharing}
+            class:on={S.cameraOn}
             use:tooltip
-            aria-label={S.sharing ? "Stop sharing" : "Share screen"}
-            aria-pressed={S.sharing}
-            onclick={onToggleShare}
+            aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
+            aria-pressed={S.cameraOn}
+            onclick={onToggleCamera}
           >
-            <Icon name={S.sharing ? "screenOff" : "screen"} size={14} />
+            <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={14} />
           </button>
-        {/if}
-        <button class="callbtn sm hang" use:tooltip aria-label="Disconnect" onclick={onLeaveVoice}>
-          <Icon name="door" size={14} />
-        </button>
-      </span>
+          {#if canShareScreen}
+            <button
+              class="callbtn sm"
+              class:on={S.sharing}
+              use:tooltip
+              aria-label={S.sharing ? "Stop sharing" : "Share screen"}
+              aria-pressed={S.sharing}
+              onclick={onToggleShare}
+            >
+              <Icon name={S.sharing ? "screenOff" : "screen"} size={14} />
+            </button>
+          {/if}
+          <button class="callbtn sm hang" use:tooltip aria-label="Disconnect" onclick={onLeaveVoice}>
+            <Icon name="door" size={14} />
+          </button>
+        </span>
       {/if}
     </div>
   {/if}
 
+  <!-- You: avatar with presence (sets your status), name and status (your
+       profile card), the microphone, and Settings. -->
   <div class="me-row">
     <button
       bind:this={statusTrigger}
@@ -1480,7 +1668,7 @@
         emoji={S.identity.emoji}
         color={S.identity.color}
         image={S.identity.avatar}
-        size={34}
+        size={32}
         online={true}
         presence={S.identity.presence || ""}
         frame={S.identity.frame || ""}
@@ -1499,7 +1687,7 @@
     >
       <span class="me-text">
         <strong>{S.displayName || "Set your name"}</strong>
-        <span class="muted small-status">
+        <span class="small-status">
           {#if myActivityLine}
             <span class="eq me-eq" aria-label="Listening"><i></i><i></i><i></i></span>
             {myActivityLine}
@@ -1510,11 +1698,55 @@
         </span>
       </span>
     </button>
-    <button class="me-gear ghost" use:tooltip aria-label="Settings" onclick={() => (S.modal = { kind: "settings" })}>
-      <Icon name="gear" />
+    {#if !S.voice}
+      <!-- In a call the dock above carries the microphone; outside one this is
+           the mute you join with. -->
+      <button
+        class="iconbtn me-mic"
+        class:on={S.muted}
+        use:tooltip
+        aria-label={S.muted ? "Unmute your microphone" : "Mute your microphone"}
+        aria-pressed={S.muted}
+        onclick={onToggleMute}
+      >
+        <Icon name={S.muted ? "micOff" : "mic"} size={16} />
+      </button>
+    {/if}
+    <button class="iconbtn me-gear" use:tooltip aria-label="Settings" aria-keyshortcuts="Control+," onclick={() => (S.modal = { kind: "settings" })}>
+      <Icon name="gear" size={16} />
     </button>
   </div>
-</aside>
+</nav>
+
+{#if reachPop}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div
+    class="reach-pop"
+    role="dialog"
+    aria-label="Who this device can reach"
+    style="left:{reachPop.x}px;top:{reachPop.y}px"
+  >
+    {#if reachable === 0}
+      <p>
+        Nobody else in <bdi>{g?.name}</bdi> is online. You can still write — messages wait on this device and go out
+        when someone comes back.
+      </p>
+    {:else}
+      <p>
+        {reachable} of {others.length} members {reachable === 1 ? "is" : "are"} online now. Messages you send reach
+        them directly; everyone else gets them when they next come online.
+      </p>
+    {/if}
+    <button
+      class="link"
+      onclick={() => {
+        reachPop = null;
+        if (S.isMobile) S.membersOpen = true;
+        else if (!S.prefs.memberPanel) setPref("memberPanel", true);
+      }}>See who</button
+    >
+  </div>
+{/if}
 
 {#if statusPop}
   <StatusPopover anchor={statusPop} onClose={() => (statusPop = null)} />
@@ -1526,150 +1758,11 @@
     font-size: var(--fs-compact);
     color: var(--text-muted);
   }
-  .cols {
-    background: var(--bg-1);
-    border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    overflow-x: hidden; /* the column is a fixed width; never scroll sideways */
-  }
-  .guild-name {
-    /* The column is a container so the header can fit itself to the width the
-       reader dragged it to, rather than to the window's. */
-    container-type: inline-size;
-    container-name: chancol;
-    padding: 12px 14px;
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-size: var(--fs-body);
-  }
-  /* DM column title carries the "New message" + on the right (no separate
-     "Direct messages" section header below — that was a duplicate label). */
-  .guild-name.dm-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--sp-2);
-    overflow: visible;
-  }
-  .dm-head-title {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    min-width: 0;
-    overflow: hidden;
-  }
-  /* The title gives before the action does, and it ellipsises rather than being
-     cut mid-word by the header's own clip.
-     Except it should not have to give at all. "Direct messages" is the panel's
-     own name — not a user string that can grow — and it read "Direct messag…"
-     at a 1440px window with 300px of sidebar, which is the default. It is a
-     heading, so it goes on the heading size the rest of the app's section
-     titles use, and at that size it fits the column at its narrowest. */
-  .dm-head-title strong {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--fs-compact);
-  }
   /* …and below the width where both still fit, the action drops its word for
      the icon the rest of the rail uses. Same target, same tooltip, same
      accessible name. 176px is measured: the title is 104px and the labelled
      pill 52px, so both survive to there and the column can be dragged narrower
      than that. */
-  @container chancol (max-width: 176px) {
-    .dn-lbl {
-      display: none;
-    }
-    .dm-new {
-      padding: 4px 6px;
-    }
-  }
-  .dm-new {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    flex: none;
-    padding: 4px 9px 4px 6px;
-    border-radius: 999px;
-    background: var(--bg-3);
-    color: var(--text-muted);
-    font-size: var(--fs-compact);
-    cursor: pointer;
-    transition:
-      background var(--dur-standard) ease,
-      color var(--dur-standard) ease;
-  }
-  .dm-new:hover {
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-  .guild-header {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    width: 100%;
-    background: transparent;
-    color: var(--text);
-    text-align: left;
-    border-radius: 0;
-  }
-  @media (pointer: fine) {
-    .guild-header:hover {
-      background: var(--bg-3);
-    }
-  }
-  .guild-header:active {
-    background: var(--bg-3);
-  }
-  .guild-header.has-banner {
-    position: relative;
-    color: #fff;
-    min-height: 56px;
-    align-items: flex-end;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-  }
-  /* The pale templates (Linen Press) ask for dark ink; Banner.svelte flips its
-     scrim to match, so the pair stays readable together. */
-  .guild-header.has-banner.ink-dark {
-    color: #12161a;
-    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.65);
-  }
-  .guild-header :global(.gh-art) {
-    position: absolute;
-    inset: 0;
-  }
-  /* A banner header is a big button: it still has to answer the cursor, and it
-     can't do that with a background colour any more. */
-  .guild-header.has-banner:hover :global(.gh-art) {
-    filter: brightness(1.14);
-  }
-  .gh-row {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    flex: 1;
-    min-width: 0;
-  }
-  .guild-header strong {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--fs-body);
-  }
-  .g-icon {
-    width: 26px;
-    height: 26px;
-    border-radius: var(--radius-md);
-    object-fit: cover;
-    flex-shrink: 0;
-  }
   .scroll {
     flex: 1;
     overflow-y: auto;
@@ -1681,34 +1774,25 @@
        made the divider "pulsate". clip keeps them visible; hidden would too,
        but clip doesn't create a scroll port. */
     overflow-x: clip;
-    padding: var(--sp-2);
+    padding: var(--sp-1) var(--sp-2) var(--sp-2);
     display: flex;
     flex-direction: column;
-    gap: 2px;
-  }
-  .section-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    text-transform: uppercase;
-    font-size: var(--fs-small);
-    letter-spacing: 0.06em;
-    font-weight: 700;
-    color: var(--text-muted);
-    margin: 6px 6px 4px;
+    min-height: 0;
   }
   .cat-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    text-transform: uppercase;
-    font-size: var(--fs-tiny);
-    letter-spacing: 0.06em;
-    color: var(--text-faint);
-    font-weight: 700;
-    /* Same 6px inset as .section-head — the two headings stack in one column
-       and a 2px difference reads as a wobble. */
-    margin: 10px 6px 2px;
+    min-height: 28px;
+    font-size: var(--fs-small);
+    color: var(--text-muted);
+    font-weight: 600;
+    /* Sentence case, no tracking (§1.4): type does the hierarchy. */
+    margin: var(--sp-3) 0 2px;
+    padding: 0 var(--sp-1) 0 var(--sp-2);
+  }
+  .cat-head:first-child {
+    margin-top: var(--sp-1);
   }
   /* The header is the fold control, so it has to BE a button and fill the
      row — a caret you have to hit exactly is worse than no caret. */
@@ -1732,11 +1816,20 @@
   /* The glyph is a right-pointing chevron, so OPEN is the rotated state: it
      points down at what it is showing, and folds back to pointing at the rows
      it is hiding. */
+  /* The caret appears where it is news: folded, or under the pointer. */
   .cat-caret {
     display: inline-grid;
     place-items: center;
+    width: 0;
+    overflow: hidden;
+    color: var(--text-faint);
     transform: rotate(90deg);
     transition: transform var(--dur-quick) var(--ease-out);
+  }
+  .cat-caret.folded,
+  .cat-toggle:hover .cat-caret,
+  .cat-toggle:focus-visible .cat-caret {
+    width: 11px;
   }
   .cat-caret.folded {
     transform: none;
@@ -1784,19 +1877,10 @@
   }
   /* The DM "New message" + is the only way to start a conversation, so it's
      always visible (not hover-gated like the category adders). */
-  .cat-add.always {
-    opacity: 0.7;
-  }
-  .cat-add.always:hover {
-    opacity: 1;
-  }
   .cat-add:focus-visible {
     opacity: 1; /* keyboard users must see the control they've tabbed onto */
   }
   .cat-head:hover .cat-add,
-  .section-head:hover .cat-add {
-    opacity: 1;
-  }
   .cat-add:hover {
     color: var(--text);
   }
@@ -1825,15 +1909,6 @@
     font-size: var(--fs-tiny);
     color: var(--text-muted);
     white-space: nowrap;
-  }
-  /* A voice row lit up as a landing spot while someone is being carried. */
-  .channel-row.vdrop {
-    background: var(--accent-soft);
-    box-shadow: inset 0 0 0 1.5px var(--accent);
-    border-radius: var(--radius-sm);
-  }
-  .channel-row.vdrop .channel {
-    color: var(--text);
   }
   /* The person in flight fades in place, so it's clear which one you picked
      up and that they haven't moved yet. */
@@ -1984,26 +2059,6 @@
       animation: none;
     }
   }
-  .channel-row {
-    position: relative;
-    display: flex;
-    align-items: center;
-    border-radius: var(--radius-sm);
-    transition: background var(--dur-standard) ease;
-  }
-  .channel-row.active::before {
-    content: "";
-    position: absolute;
-    left: -8px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 3px;
-    height: 60%;
-    border-radius: 0 3px 3px 0;
-    background: var(--accent);
-    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
-    animation: nub-in 0.25s var(--ease-spring);
-  }
   @keyframes nub-in {
     from {
       transform: translateY(-50%) scaleY(0.2);
@@ -2016,73 +2071,10 @@
       background: var(--bg-3);
     }
   }
-  .channel-row:active {
-    background: var(--bg-3);
-  }
-  /* Active reads as "accent-charged", distinct from a passing hover. */
-  .channel-row.active {
-    background: var(--accent-soft);
-  }
-  .channel-row.active .channel {
-    color: var(--text);
-  }
-  /* Drag-to-reorder affordances. The source row dims while lifted; the target
-     shows a slim accent insertion line in the 2px gap between rows. Transitions
-     are already zeroed globally under prefers-reduced-motion. */
-  .channel-row.dragging {
-    opacity: 0.35;
-  }
-  .channel-row.drop-before::after,
-  .channel-row.drop-after::after {
-    content: "";
-    position: absolute;
-    left: 4px;
-    right: 4px;
-    height: 2px;
-    border-radius: 1px;
-    background: var(--accent);
-    pointer-events: none;
-    z-index: 1;
-  }
-  .channel-row.drop-before::after {
-    top: -2px;
-  }
-  .channel-row.drop-after::after {
-    bottom: -2px;
-  }
   /* Hovering a drag over a category header: "drop here to file it under…". */
   .cat-head.drop-into {
     color: var(--accent-hover);
     box-shadow: inset 0 -2px 0 var(--accent);
-  }
-  .channel {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    background: transparent;
-    color: var(--text-muted);
-    padding: 7px 8px;
-    font-size: var(--fs-ui);
-    text-align: left;
-    min-width: 0;
-    border-radius: var(--radius-sm);
-    /* The row's ground already eases; its ink did not, so the name snapped to
-       full brightness a beat before the background caught up. */
-    transition: color var(--dur-standard) ease;
-  }
-  .channel:hover,
-  .channel:active {
-    background: transparent;
-    color: var(--text);
-  }
-  /* Rows glide a hair right on hover — the list feels sprung, not painted. */
-  .channel,
-  .dm-item {
-    transition:
-      background var(--dur-standard) ease,
-      color var(--dur-standard) ease,
-      transform var(--dur-standard) ease;
   }
   @media (pointer: fine) {
     .channel-row:hover .channel,
@@ -2099,9 +2091,6 @@
     height: 12px;
     flex-shrink: 0;
     color: var(--ok-text);
-  }
-  .eq.you {
-    color: var(--accent-hover);
   }
   .eq i {
     width: 2.5px;
@@ -2135,9 +2124,6 @@
       transform: none;
     }
   }
-  .channel.muted-ch {
-    color: var(--text-faint);
-  }
   /* Quiet: it is a reminder, not an alert. A draft is something YOU left, so
      it never competes with the unread count beside it. */
   .ch-draft {
@@ -2146,10 +2132,6 @@
     flex: none;
     color: var(--text-faint);
   }
-  .channel-row:hover .ch-draft,
-  .channel-row.active .ch-draft {
-    color: var(--accent-hover);
-  }
   /* The failed mark is the one exception to "quiet": it is not a reminder, it
      is a message that did not arrive, and it stays lit without a hover. */
   .ch-failed {
@@ -2157,35 +2139,6 @@
     place-items: center;
     flex: none;
     color: var(--danger-text);
-  }
-  .ch-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  /* ---- unread & mentions ----------------------------------------------
-     The usual unread cue is a white bar and a bold name. This does that AND
-     tints the bar (accent = unread, danger = @you), tints the count pill to
-     match, and keeps the whole row a touch brighter so it reads at a glance. */
-  .channel-row {
-    position: relative;
-  }
-  .channel-row.unread::before {
-    content: "";
-    position: absolute;
-    left: -6px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 4px;
-    height: 18px;
-    border-radius: 0 3px 3px 0;
-    background: var(--text);
-    animation: unread-in 0.22s var(--ease-spring);
-  }
-  .channel-row.mentioned::before {
-    background: var(--danger);
-    box-shadow: 0 0 8px color-mix(in srgb, var(--danger) 55%, transparent);
   }
   @keyframes unread-in {
     from {
@@ -2198,58 +2151,15 @@
       animation: none;
     }
   }
-  .channel-row.unread .channel {
-    color: var(--text);
-  }
-  .channel-row.unread .ch-name {
-    font-weight: 600;
-  }
-  .channel-row.mentioned .ch-name {
-    color: var(--text);
-  }
-  .count {
-    min-width: 18px;
-    padding: 0 5px;
-    height: 16px;
-    border-radius: var(--radius-md);
-    background: var(--text-muted);
-    color: var(--bg-1);
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    display: grid;
-    place-items: center;
-    animation: count-pop 0.25s var(--ease-spring) both;
-  }
   @keyframes count-pop {
     from {
       transform: scale(0.4);
       opacity: 0;
     }
   }
-  /* A plain unread count is quiet: only a number aimed at you (below) wears
-     the accent. */
-  .channel-row.unread .count {
-    background: var(--bg-3);
-    color: var(--text-muted);
-  }
-  /* Scoped like the rule above, or that rule (one class more specific) wins
-     and a channel holding an @you shows the quiet count. */
-  .count.mention,
-  .channel-row.unread .count.mention {
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
   .ch-menu {
     display: inline-flex;
     opacity: 0;
-  }
-  /* Focused, it has to show itself as it does under the pointer, or Tab lands
-     on a button drawn at opacity 0 and the focus ring rings nothing. Open
-     counts too: a menu hanging off an invisible trigger reads as a stray. */
-  .channel-row:hover .ch-menu,
-  .ch-menu:focus-within,
-  .ch-menu:has([aria-expanded="true"]) {
-    opacity: 1;
   }
   /* ---- reclaiming the hover gutter (mouse only) ----
      The chevron and the bell are hover affordances, but they were laid out all
@@ -2281,9 +2191,6 @@
     .mute-slot {
       display: none;
     }
-    .channel-row:hover .count {
-      opacity: 0;
-    }
     .count {
       transition: opacity var(--dur-quick) ease;
     }
@@ -2305,10 +2212,6 @@
     flex: none;
     width: 25px; /* 13px glyph + .mute-btn's 6px sides */
   }
-  .channel-row:hover .mute-btn,
-  .mute-btn:focus-visible {
-    opacity: 1;
-  }
   .mute-btn:hover {
     background: transparent;
     color: var(--text);
@@ -2327,10 +2230,6 @@
     font-weight: 700;
     opacity: 0;
   }
-  .channel-row:hover .join-btn,
-  .join-btn:focus-visible {
-    opacity: 1;
-  }
   .join-btn:hover {
     background: var(--accent);
     color: var(--accent-fg);
@@ -2342,58 +2241,6 @@
     .join-btn {
       display: none;
     }
-  }
-  /* How many people are in the room, beside the equalizer that says somebody
-     is. */
-  .ch-heads {
-    flex: none;
-    min-width: 16px;
-    padding: 0 5px;
-    text-align: center;
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    color: var(--ok-text);
-    background: var(--ok-soft);
-    border-radius: 999px;
-  }
-  /* Gentle empty states for "no DMs yet" / "no guilds yet": a soft icon chip,
-     one line of copy, and the single action that fixes it. */
-  .empty-block {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: var(--sp-2);
-    margin: 14px 6px;
-    padding: var(--sp-4) var(--sp-3);
-    border: 1px dashed var(--border);
-    border-radius: var(--radius-md);
-  }
-  .empty-block p {
-    margin: 0;
-    font-size: var(--fs-compact);
-    line-height: 1.5;
-  }
-  .empty-ic {
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-  }
-  .empty-cta {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    justify-content: center;
-    padding: 7px 10px;
-    font-size: var(--fs-ui);
-    font-weight: 600;
-    border-radius: var(--radius-sm);
   }
   /* A DM row is TWO lines, and the second one is the point. The list used to be
      a bare column of names — no snippet, no time, no unread, no presence line —
@@ -2407,11 +2254,11 @@
     align-items: center;
     gap: var(--sp-2);
     width: 100%;
-    padding: var(--sp-2);
+    padding: 6px var(--sp-2);
     background: transparent;
     color: var(--text-muted);
     text-align: left;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-sm);
     transition:
       background var(--dur-standard) ease,
       color var(--dur-standard) ease;
@@ -2478,21 +2325,9 @@
     color: var(--text);
   }
   .dm-item.active {
-    background: var(--accent-soft);
+    background: var(--bg-3);
+    box-shadow: inset 2px 0 0 var(--text);
     color: var(--text);
-  }
-  /* ---- the row a menu is about ----
-     The menu opens at the cursor and says nothing about which row it belongs
-     to. `data-menu-target` is stamped by openContextMenu (lib/state.svelte.js)
-     on whatever `data-menu-row` the gesture came from, for exactly as long as
-     the menu is up. The ground is a step past hover and the hairline is
-     something hover never draws, so it reads as "this one, held" and not as a
-     stronger hover. :global keeps the compiler from pruning a selector that
-     never appears in this file's markup. */
-  .channel-row:global([data-menu-target]),
-  .dm-item:global([data-menu-target]) {
-    background: color-mix(in srgb, var(--bg-3) 82%, transparent);
-    box-shadow: inset 0 0 0 1px var(--border);
   }
   .dm-name {
     min-width: 0; /* let it shrink so long group-DM names ellipsize, not overflow */
@@ -2517,8 +2352,8 @@
     border-radius: 50%;
     display: grid;
     place-items: center;
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+    background: var(--bg-3);
+    color: var(--text-muted);
     flex-shrink: 0;
   }
   /* Requests are neutral, not accented: a stranger knocking should read as
@@ -2526,84 +2361,6 @@
   .dm-item.requests .dm-notes-icon {
     background: var(--bg-3);
     color: var(--text-muted);
-  }
-  /* A DM is somebody talking to you, so its count wears the accent like a
-     mention (the rule is written out at GuildRail's .badge). It was the base
-     grey, which put a grey 2 here beside a coloured 2 for the same
-     conversation in the rail. */
-  .dm-item .count {
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-  .dm-item.requests .count {
-    background: var(--bg-3);
-    color: var(--text-muted);
-  }
-  /* This bar's entire job is to say "you are in a call, and it's here", and it
-     was losing that sentence to its own buttons: "Voice connected" needs 104px
-     and had 49, at 1280, 1440 and 1920 alike, because four icons and a label
-     were sharing one line of a fixed 210px rail. Any layout where the status
-     text loses to its own controls is the wrong layout — so the text takes the
-     row and the controls take the next one, which is what the phone tier had
-     already worked out for itself. */
-  .voice-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    row-gap: 6px;
-    gap: 6px;
-    padding: 8px 10px;
-    margin: 0 8px;
-    border-radius: var(--radius-md);
-    background: var(--ok-soft);
-    color: var(--ok-text);
-    border: 1px solid color-mix(in srgb, var(--ok) 28%, transparent);
-    box-shadow: 0 0 14px color-mix(in srgb, var(--ok) 10%, transparent);
-  }
-  /* The green IS the claim. When the call is not carrying — this device
-     offline, every peer reconnecting or failed — the bar says so in the one
-     way that cannot be missed, and stops glowing. */
-  .voice-bar.trouble {
-    background: var(--warn-soft);
-    color: var(--warn-text);
-    border-color: color-mix(in srgb, var(--warn) 30%, transparent);
-    box-shadow: none;
-  }
-  .voice-bar.trouble .vb-info {
-    color: var(--warn-text);
-  }
-  .voice-bar.trouble .vb-info:hover {
-    background: color-mix(in srgb, var(--warn) 18%, transparent);
-  }
-  .vb-info {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    min-width: 0;
-    flex: 1 0 100%;
-    background: transparent;
-    color: var(--ok-text);
-    text-align: left;
-    padding: 2px 4px;
-    border-radius: var(--radius-sm);
-  }
-  .vb-info:hover {
-    background: color-mix(in srgb, var(--ok) 18%, transparent);
-  }
-  .vb-live {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--ok);
-    flex-shrink: 0;
-    animation: vb-blink 1.4s ease-in-out infinite;
-  }
-  /* Not blinking, and not green. The dot is the ONE thing on this bar that
-     means "live"; while nothing is carrying it must not claim to. */
-  .vb-live.held {
-    background: var(--warn);
-    animation: none;
   }
   @keyframes vb-blink {
     50% {
@@ -2615,172 +2372,18 @@
       animation: none;
     }
   }
-  .vb-text {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-  .vb-text {
-    flex: 1;
-  }
-  .vb-text strong {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    font-size: var(--fs-compact);
-    /* "Voice connected" is two words, and a rail dragged narrow will break it
-       across two lines and push the mic button off its own row. */
-    white-space: nowrap;
-    min-width: 0;
-  }
-  .vb-text strong .vb-live {
-    align-self: center;
-  }
-  /* The label gives way, never the clock. The whole line used to clip as one,
-     so at a 900px window "Voice connected" kept every letter and the timer
-     beside it was cut to "0:". The clock is the evidence the call is alive;
-     the words are something you already know. */
-  .vb-label {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .vb-ch {
-    padding-left: 14px; /* under the label, past the 8px dot and its 6px gap */
-  }
-  .voice-bar.compact {
-    flex-wrap: nowrap;
-  }
-  .voice-bar.compact .vb-info {
-    flex: 1 1 auto;
-  }
-  /* Tabular figures so the seconds don't shuffle the label sideways every
-     tick, and a hair dimmer than the words it follows: the clock is evidence,
-     not a heading. */
-  .vb-clock {
-    flex: none;
-    margin-left: auto;
-    padding-left: 6px;
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-    opacity: 0.8;
-  }
-  /* A held clock is EVIDENCE, so it has to look held rather than merely be a
-     number that has stopped changing while you are not watching. */
-  .vb-clock.held {
-    opacity: 0.55;
-    text-decoration: line-through;
-    text-decoration-thickness: 1px;
-  }
-  .vb-ch {
-    font-size: var(--fs-small);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .vb-actions {
-    display: flex;
-    flex: 1 0 100%;
-    justify-content: space-between;
-    gap: 2px;
-  }
-  /* The buttons are .callbtn (app.css) — the stage bar's own language at the
-     bar's size, which is what stops this being a third design of one control.
-     Nothing local left to say about them. */
-  .me-row {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-1);
-    /* Pad past the phone's bottom system bar (Android gesture/button bar, iOS
-       home indicator) — without this, edge-to-edge draw (viewport-fit=cover)
-       lets the OS nav overlap the self row and its settings/sign-out button.
-       env() is 0 on desktop, so this is a no-op there. */
-    /* No safe-area inset: on a phone this row lives inside the left drawer,
-       which pads its own bottom, and on desktop the inset is 0 anyway. Adding it
-       here stacked the gesture-bar gap twice inside the drawer. */
-    padding: var(--sp-2);
-    border-top: 1px solid var(--border);
-    background: var(--bg-0);
-    /* Your own framed avatar lives here; its ring overflows by design. */
-    overflow: clip;
-  }
-  .me-status-trigger {
-    background: transparent;
-    padding: 3px;
-    border-radius: 50%;
-    line-height: 0;
-    flex-shrink: 0;
-    transition:
-      background var(--dur-quick) ease,
-      transform var(--dur-standard) var(--ease-spring);
-  }
-  .me-status-trigger:hover {
-    background: var(--bg-3);
-    transform: scale(1.07);
-  }
   @media (prefers-reduced-motion: reduce) {
     .me-status-trigger:hover {
       transform: none;
     }
   }
-  /* The footer's listening equalizer sits inline with the status line. */
-  .me-eq {
-    height: 9px;
-    margin-right: var(--sp-1);
-    vertical-align: baseline;
-    color: var(--accent-hover);
-  }
-  /* The dot's cutout ring should match this row's background, not the column's. */
-  .me-status-trigger :global(.dot) {
-    border-color: var(--bg-0);
-  }
-  .me-status-trigger :global(.mood) {
-    background: var(--bg-0);
-    box-shadow: 0 0 0 2px var(--bg-0);
-  }
   .st-emoji {
     margin-right: 3px;
-  }
-  .me {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: transparent;
-    color: var(--text);
-    text-align: left;
-    padding: 6px;
-    border-radius: var(--radius-sm);
-    min-width: 0;
   }
   @media (pointer: fine) {
     .me:hover {
       background: var(--bg-3);
     }
-  }
-  .me:active {
-    background: var(--bg-3);
-  }
-  .me-text {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    font-size: var(--fs-ui);
-  }
-  .me-text strong {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .small-status {
-    font-size: var(--fs-small);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .me-gear {
-    padding: var(--sp-2);
-    border: none;
   }
   /* Touch: taller rows (44px+ targets), slightly larger type, and the
      hover-revealed affordances (category +/trash, channel menu, mute bell)
@@ -2798,10 +2401,6 @@
     }
     /* The one-tap way to walk unreads — the control this column exists to offer
        on a phone — was the only affordance the touch block never grew. */
-    .unread-jump {
-      min-height: var(--tap-min);
-      font-size: var(--fs-ui);
-    }
     .count {
       height: 18px;
       min-width: 20px;
@@ -2817,7 +2416,6 @@
        "quiet"; the opacity was saying "invisible" on top of it. (.always keeps
        its own 0.7 on desktop, and that has to go the same way here.) */
     .cat-add,
-    .cat-add.always,
     .ch-menu,
     .mute-btn {
       opacity: 1;
@@ -2877,9 +2475,6 @@
       min-height: 32px;
       margin-top: var(--sp-1);
     }
-    .channels-touch .section-head {
-      margin-bottom: calc(-1 * var(--sp-2));
-    }
     .channels-touch .mute-slot {
       display: none;
     }
@@ -2925,80 +2520,11 @@
         calc(100% - var(--tap-min));
     }
   }
-  .add-locked {
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-sm);
-    color: var(--text-faint);
-    opacity: 0.55;
-    cursor: help;
-  }
-  .add-locked:hover {
-    background: var(--bg-3);
-    opacity: 0.8;
-  }
-  /* Unread summary pill: what's waiting and where, without a shortcut. */
-  .unread-jump {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    width: 100%;
-    margin: 0 0 6px;
-    padding: 7px 10px;
-    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    color: var(--text);
-    font-size: var(--fs-compact);
-    cursor: pointer;
-    animation: uj-in 0.25s ease;
-    transition:
-      background var(--dur-quick) ease,
-      border-color var(--dur-quick) ease;
-  }
   @keyframes uj-in {
     from {
       opacity: 0;
       transform: translateY(-4px);
     }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .unread-jump {
-      animation: none;
-    }
-  }
-  @media (pointer: fine) {
-    .unread-jump:hover {
-      background: color-mix(in srgb, var(--accent) 22%, transparent);
-      border-color: var(--accent);
-    }
-  }
-  .unread-jump:active {
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
-    border-color: var(--accent);
-  }
-  .unread-jump.mention {
-    border-color: color-mix(in srgb, var(--danger) 55%, transparent);
-    background: color-mix(in srgb, var(--danger) 12%, transparent);
-  }
-  .unread-jump.mention:hover {
-    background: color-mix(in srgb, var(--danger) 20%, transparent);
-  }
-  .uj-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--accent);
-    flex: none;
-    animation: uj-pulse 2.4s ease-in-out infinite;
-  }
-  .unread-jump.mention .uj-dot {
-    background: var(--danger);
   }
   @keyframes uj-pulse {
     0%,
@@ -3009,27 +2535,622 @@
       box-shadow: 0 0 0 4px transparent;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .uj-dot {
-      animation: none;
+
+  /* ———————— the sidebar ———————— */
+  .cols {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+    background: var(--bg-1);
+    border-right: 1px solid var(--hairline);
+    overflow: hidden;
+  }
+  .place-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    height: var(--header-h);
+    flex: none;
+    padding: 0 var(--sp-2) 0 var(--sp-3);
+    border-bottom: 1px solid var(--hairline);
+    min-width: 0;
+  }
+  .ph-main {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 36px;
+    margin-left: calc(-1 * var(--sp-1));
+    padding: 0 var(--sp-1);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    text-align: start;
+  }
+  .ph-main.static {
+    pointer-events: none;
+  }
+  @media (pointer: fine) {
+    button.ph-main:hover {
+      background: var(--bg-3);
     }
   }
-  .uj-text {
+  .ph-main:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -2px;
+  }
+  .ph-icon {
+    flex: none;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-sm);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background: var(--guild-accent, var(--bg-3));
+    color: #fff;
+    font-size: var(--fs-micro);
+    font-weight: 600;
+  }
+  .ph-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .place-head.gone .ph-icon {
+    filter: grayscale(1);
+    opacity: 0.6;
+  }
+  .ph-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--display-font);
+    font-size: var(--fs-title);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .ph-chev {
+    flex: none;
+    display: grid;
+    color: var(--text-faint);
+    rotate: 90deg;
+  }
+  .ph-reach {
+    flex: 0 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
+    color: var(--text-faint);
+    font-size: var(--fs-tiny);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .reach-n {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ph-reach.glyph-only .reach-w {
+    display: none;
+  }
+  @media (pointer: fine) {
+    .ph-reach:hover {
+      background: var(--bg-3);
+      color: var(--text-muted);
+    }
+  }
+  /* Hollow = nobody, half = some, full = everyone: shape, not colour. */
+  .reach-glyph {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1.5px currentColor;
+    background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+  }
+  .reach-glyph.none {
+    background: none;
+  }
+  .reach-glyph.all {
+    background: currentColor;
+  }
+  .ph-invite {
+    flex: none;
+  }
+  .reach-pop {
+    position: fixed;
+    z-index: var(--z-layer);
+    width: 240px;
+    padding: var(--sp-3);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-pop);
+    font-size: var(--fs-compact);
+    color: var(--text);
+  }
+  .reach-pop p {
+    margin: 0 0 var(--sp-2);
+    line-height: 1.45;
+  }
+  .jump-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    margin: var(--sp-2) 10px;
+  }
+  .jump {
     flex: 1;
     min-width: 0;
-    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    height: 32px;
+    padding: 0 6px 0 10px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-3);
+    color: var(--text-muted);
+    font-size: var(--fs-ui);
+    text-align: start;
+  }
+  .jump-lbl {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .uj-cta {
-    flex: none;
-    font-size: var(--fs-small);
-    font-weight: 700;
-    color: var(--accent-hover);
-    letter-spacing: 0.02em;
+  @media (pointer: fine) {
+    .jump:hover {
+      color: var(--text);
+    }
   }
-  .unread-jump.mention .uj-cta {
+  .jump:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: 1px;
+  }
+  .inbox-wrap {
+    position: relative;
+    display: flex;
+    flex: none;
+  }
+  .inbox-btn.on {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .inbox-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    display: flex;
+    pointer-events: none;
+  }
+  .list-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .edge-pill {
+    position: absolute;
+    left: 50%;
+    translate: -50% 0;
+    z-index: var(--z-sticky);
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-pop);
+    color: var(--text);
+    font-size: var(--fs-small);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .edge-pill.up {
+    top: 6px;
+  }
+  .edge-pill.down {
+    bottom: 6px;
+  }
+  .nudge-row {
+    padding: var(--sp-1) 0 6px;
+  }
+
+  /* ———————— rows ———————— */
+  .channel-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    border-radius: var(--radius-sm);
+    margin-bottom: 1px;
+  }
+  .channel {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-height: 32px;
+    padding: 0 var(--sp-2);
+    border-radius: inherit;
+    color: var(--text-muted);
+    font-size: var(--fs-ui);
+    text-align: start;
+  }
+  .channel > :global(svg:first-child) {
+    flex: none;
+    color: var(--text-faint);
+  }
+  .ch-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    unicode-bidi: plaintext;
+  }
+  @media (pointer: fine) {
+    .channel-row:hover {
+      background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+    }
+    .channel-row:hover .channel {
+      color: var(--text);
+    }
+  }
+  .channel:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -2px;
+  }
+  .channel-row.unread .channel {
+    color: var(--text);
+  }
+  .channel-row.unread .ch-name {
+    font-weight: 600;
+  }
+  /* Selected: the fill alone is 1.13:1 in the light theme, so a 2px ink bar
+     on the start edge is the cue. */
+  .channel-row.active {
+    background: var(--bg-3);
+    box-shadow: inset 2px 0 0 var(--text);
+  }
+  .channel-row.active .channel {
+    color: var(--text);
+  }
+  .channel-row.active:not(.unread) .ch-name {
+    font-weight: 500;
+  }
+  .channel-row:global([data-menu-target]) {
+    background: var(--bg-3);
+  }
+  .ch-mark {
+    flex: none;
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+  }
+  .ch-heads {
+    flex: none;
+    margin-left: auto;
+    color: var(--ok-text);
+    font-size: var(--fs-micro);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .channel-row.dragging {
+    opacity: 0.4;
+  }
+  .channel-row.drop-before::before,
+  .channel-row.drop-after::after {
+    content: "";
+    position: absolute;
+    left: var(--sp-2);
+    right: var(--sp-2);
+    height: 2px;
+    border-radius: 2px;
+    background: var(--accent-hover);
+    pointer-events: none;
+  }
+  .channel-row.drop-before::before {
+    top: -1px;
+  }
+  .channel-row.drop-after::after {
+    bottom: -1px;
+  }
+  .add-ch {
+    margin-top: var(--sp-2);
+  }
+  .add-ch :global(.trigger.own) {
+    display: flex;
+    width: 100%;
+    min-height: 32px;
+    padding: 0 var(--sp-2);
+    border-radius: var(--radius-sm);
+    color: var(--text-faint);
+    font-size: var(--fs-ui);
+  }
+  .add-ch :global(.menu-root) {
+    display: block;
+  }
+  @media (pointer: fine) {
+    .add-ch :global(.trigger.own:hover) {
+      background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+      color: var(--text);
+    }
+  }
+  .add-ch-in {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+
+  /* ———————— unread messages ———————— */
+  .unread-block {
+    flex: none;
+    border-top: 1px solid var(--hairline);
+    padding: 10px var(--sp-2) 6px;
+  }
+  .ub-head {
+    padding: 0 var(--sp-2) 6px;
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .ub-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    width: 100%;
+    min-height: 30px;
+    padding: 0 var(--sp-2);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: var(--fs-ui);
+    font-weight: 600;
+    text-align: start;
+  }
+  .ub-ic {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    color: var(--text-muted);
+  }
+  .ub-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ub-more {
+    padding: 2px var(--sp-2);
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+  }
+  @media (pointer: fine) {
+    .ub-row:hover,
+    .ub-more:hover {
+      background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+    }
+  }
+
+  /* ———————— the call dock ———————— */
+  .voice-bar {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0 var(--sp-2) var(--sp-2);
+    padding: var(--sp-2) 10px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+    background: var(--bg-2);
+  }
+  .voice-bar.compact {
+    flex-direction: row;
+    align-items: center;
+  }
+  .vb-info {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    padding: 0;
+    text-align: start;
+    color: var(--text);
+  }
+  .vb-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .vb-title {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+  }
+  .vb-label {
+    font-weight: 600;
+    font-size: var(--fs-ui);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .vb-guild {
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .vb-state {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--ok-text);
+    font-size: var(--fs-small);
+    font-variant-numeric: tabular-nums;
+  }
+  .vb-state.held {
+    color: var(--text-muted);
+  }
+  .vb-live {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ok);
+  }
+  .vb-live.held {
+    background: var(--text-faint);
+    animation: vb-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes vb-pulse {
+    50% {
+      opacity: 0.35;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vb-live.held {
+      animation: none;
+    }
+  }
+  .vb-faces {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+  }
+  .vb-face {
+    position: relative;
+    display: flex;
+    border-radius: 50%;
+  }
+  .vb-face.speaking {
+    box-shadow: 0 0 0 2px var(--ok);
+  }
+  .vb-muted {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    display: grid;
+    place-items: center;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--bg-2);
+    color: var(--text-muted);
+  }
+  .vb-more {
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+    font-variant-numeric: tabular-nums;
+  }
+  .vb-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+  }
+  .vb-actions .hang {
+    margin-left: auto;
+  }
+
+  /* ———————— you ———————— */
+  .me-row {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    height: 56px;
+    padding: 0 var(--sp-2) 0 10px;
+    border-top: 1px solid var(--hairline);
+  }
+  .me {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    padding: var(--sp-1);
+    border-radius: var(--radius-sm);
+    text-align: start;
+    color: var(--text);
+  }
+  @media (pointer: fine) {
+    .me:hover {
+      background: var(--bg-3);
+    }
+  }
+  .me-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .me-text strong {
+    font-size: var(--fs-ui);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .small-status {
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .me-mic.on {
     color: var(--danger-text);
+  }
+  .me-gear,
+  .me-mic {
+    flex: none;
+  }
+
+  /* Phone (§2.6): 44px visible rows inside 48px hit areas, a 40px jump field,
+     32px section labels. Last in the sheet so it wins over the desktop rows. */
+  @media (max-width: 768px) {
+    .channel {
+      min-height: 44px;
+      font-size: var(--fs-body);
+    }
+    .channel-row {
+      margin-bottom: 2px;
+    }
+    .channel::after {
+      content: "";
+      position: absolute;
+      inset: -2px 0;
+    }
+    .cat-head {
+      min-height: 32px;
+    }
+    .jump {
+      height: 40px;
+    }
+    .jump-row {
+      margin: var(--sp-2) var(--sp-3);
+    }
+    .ub-row {
+      min-height: 44px;
+    }
+    .add-ch :global(.trigger.own) {
+      min-height: 44px;
+    }
+    .place-head {
+      padding-right: var(--sp-1);
+    }
+    .ph-invite {
+      width: 44px;
+      height: 44px;
+    }
   }
 </style>

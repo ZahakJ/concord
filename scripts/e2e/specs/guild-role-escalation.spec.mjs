@@ -15,7 +15,8 @@ test("role editor locks permissions the editor lacks", async ({ world, assert, s
   const b = await bob.open();
   await b.openChannel(g.allChannels[0].name, "Escalators");
   step("Bob opens Roles and starts a new role");
-  await b.page.locator(".guild-header").first().click();
+  await b.page.locator("[data-place-head] .ph-main").first().click({ button: "right" });
+  await b.page.locator(".cm[role=menu]").getByText("Guild settings", { exact: true }).click();
   await b.page.getByRole("button", { name: /^Roles/ }).first().click();
   await b.page.getByRole("button", { name: /New role/ }).first().click();
   const sync = b.page.getByRole("checkbox", { name: /Sync host/ });

@@ -611,10 +611,10 @@ export class App {
     return items.evaluateAll((els) => els.map((e) => (e.querySelector(".r-title")?.textContent || e.textContent).trim()));
   }
 
-  // Home → the direct-message list → the conversation with this name (the
+  // Messages → the direct-message list → the conversation with this name (the
   // other person's display name, or "Notes" for your own).
   async openDM(name) {
-    await this.page.locator('nav[aria-label="Guilds"]').getByRole("button", { name: /^Home \/ Direct messages/ }).click();
+    await this.page.locator('nav[aria-label="Guilds"]').getByRole("button", { name: /^Messages/ }).click();
     await this.page.locator(".dm-item").filter({ has: this.page.locator(".dm-name", { hasText: name }) }).first().click();
     await waitFor(async () => !(await this.composer().isDisabled()), { timeout: 15000, message: `the DM with ${name} to open` });
     return this;
@@ -682,12 +682,23 @@ export class App {
     }
   }
 
-  // "Add a guild" → "Create a guild". Resolves once the new guild's pill is
-  // in the rail.
+  // The guild switcher (the strip's last tile, "All guilds" — or "Create or
+  // join a guild" with none yet), then one of its footer actions.
+  async switcherAction(label) {
+    await this.page
+      .locator('nav[aria-label="Guilds"]')
+      .getByRole("button", { name: /^(All guilds|Create or join a guild)/ })
+      .first()
+      .click();
+    // Scoped to the switcher: a brand-new account's welcome offers the same words.
+    await this.page.locator('[role="dialog"][aria-label="Guilds"]').getByRole("button", { name: label }).click();
+    return this;
+  }
+
+  // Switcher → "Create a guild". Resolves once the new guild's tile is on the
+  // strip (a new guild is opened, and the open guild is always on it).
   async createGuild(name) {
-    await this.page.getByRole("button", { name: "Add a guild" }).click();
-    // By role: a brand-new account's welcome card offers the same words.
-    await this.page.getByRole("menuitem", { name: "Create a guild" }).click();
+    await this.switcherAction("Create a guild");
     await this.dialog().getByLabel("Guild name").fill(name);
     await this.dialog().getByRole("button", { name: "Create", exact: true }).click();
     await this.page
@@ -698,10 +709,9 @@ export class App {
     return this;
   }
 
-  // The "Add a guild" → "Join with an invite code" flow, as a person does it.
+  // Switcher → "Join with an invite code", as a person does it.
   async joinGuild(code, guildName) {
-    await this.page.getByRole("button", { name: "Add a guild" }).click();
-    await this.page.getByRole("menuitem", { name: "Join with an invite code" }).click();
+    await this.switcherAction("Join with an invite code");
     const box = this.page.locator('textarea[placeholder="Paste invite code here…"]');
     await box.fill(code);
     await this.dialog().getByRole("button", { name: "Join", exact: true }).click();

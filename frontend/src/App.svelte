@@ -19,7 +19,6 @@
     activeGuild,
     activeChannel,
     guildUnread,
-    accentForeground,
     onLogin,
     refreshGuilds,
     refreshRightPanel,
@@ -41,7 +40,6 @@
     toggleCallStageChat,
     channelShort,
     checkForUpdate,
-    dismissUpdate,
     setChannelTopic,
     nudge,
     selectChannel,
@@ -59,7 +57,6 @@
     toggleMicMute,
     toggleDeafen,
     setPref,
-    dismissNotifyAsk,
   } from "./lib/state.svelte.js";
 
   import { guildAccent } from "./lib/guildaccent.js";
@@ -71,7 +68,9 @@
   import { popLayer, navDepth, syncLayer } from "./lib/navstack.svelte.js";
   import { haptic, hapticNotify } from "./lib/touch.js";
   import Icon from "./Icon.svelte";
-  import Nudge from "./Nudge.svelte";
+  import GuildSwitcher from "./GuildSwitcher.svelte";
+  import { GSW } from "./lib/guildswitch.svelte.js";
+  import { tooltip } from "./lib/tooltip.js";
   import Login from "./Login.svelte";
   import MobileShell from "./MobileShell.svelte";
   import GuildRail from "./GuildRail.svelte";
@@ -79,7 +78,7 @@
   import ChatHeader from "./ChatHeader.svelte";
   import MessageList from "./MessageList.svelte";
   import Composer from "./Composer.svelte";
-  import MemberPanel from "./MemberPanel.svelte";
+  import Inspector from "./Inspector.svelte";
   import Welcome from "./Welcome.svelte";
   import EmptyState from "./EmptyState.svelte";
   import { PERM, has } from "./lib/perms.js";
@@ -90,7 +89,6 @@
   import FxOverlay from "./FxOverlay.svelte";
   import { validFx } from "./lib/themefx.js";
   import JoinVeil from "./JoinVeil.svelte";
-  import SetupCard from "./SetupCard.svelte";
   import PostHeader from "./PostHeader.svelte";
   import EventNudges from "./EventNudges.svelte";
   import { pointOf, rectOf } from "./lib/place.js";
@@ -309,80 +307,135 @@
     return p?.type === "forum" ? p : null;
   });
 
-  // Resizable side columns. The persisted pref only overrides the stylesheet
-  // when it differs from the wide-desktop default: an untouched pref leaves the
-  // CSS var unset, so the sub-900px media query can still pick its narrower
-  // base widths. Once you drag, your width wins at every desktop size (clamped).
-  const COL_MIN = 160;
-  const COL_MAX = 360;
-  const COL_DEFAULTS = { colChannels: 220, colMembers: 260 };
-  // Live width during a drag, px (0 = not dragging). Persisting happens once,
-  // on pointerup, so a drag doesn't hammer localStorage on every pointermove.
-  let liveCols = $state({ colChannels: 0, colMembers: 0 });
+  // ---- the shell's grid (§2.1–2.2) ----
+  //
+  // Two arrangements of the same navigation, chosen by one device-local pref:
+  // `navModel` "sidebar" (the default — one sidebar with a shortcut strip under
+  // the place header) or "rail" (the classic slim guild rail beside the list).
+  // Nothing outside the shell's own files knows which is on screen.
+  const railModel = $derived(S.prefs.navModel === "rail");
+  const sidebarHidden = $derived(S.prefs.sidebarHidden === true);
 
-  function clampCol(w) {
-    return Math.min(COL_MAX, Math.max(COL_MIN, Math.round(w)));
-  }
-  function colVar(key) {
-    if (liveCols[key]) return liveCols[key];
-    const v = Number(S.prefs[key]);
-    // Untouched (or garbage) pref → no override; stylesheet defaults decide.
-    if (!v || v === COL_DEFAULTS[key]) return 0;
-    return clampCol(v);
-  }
-  // Per-guild accent: the active guild's banner hue becomes --accent for the
-  // whole view, and every derived token (hover/soft/glow are color-mix'd from
-  // it) follows — each guild reads as a PLACE. Precedence: a user's explicit
-  // accent preset always wins, then the guild, then pack/profile (the root
-  // values this stamp overrides). "Use guild colors" in Appearance opts out.
-  const guildAccentVars = $derived.by(() => {
-    if (S.prefs.accent || S.prefs.guildAccents === false) return "";
-    const g = activeGuild();
-    if (!g || g.kind === "dm") return "";
-    const c = guildAccent(g.banner);
-    return c ? `--accent:${c};--accent-fg:${accentForeground(c)}` : "";
+  // Widths. The sidebar is 280 by default (264 in the 769–1150 band, where the
+  // conversation must keep ≥ 556 at 820), dragged within 240–360 (240–320 in
+  // the band); the classic arrangement's list is narrower, the rail beside it
+  // taking 64. The inspector is 320, dragged within 280–420. A drag persists
+  // once, on release (colChannels / colMembers).
+  const RAIL_W = 64;
+  const HIDDEN_W = 44;
+  const sbMin = 240;
+  const sbMax = $derived(S.narrow ? 320 : 360);
+  const sbDefault = $derived(railModel ? (S.narrow ? 240 : 264) : S.narrow ? 264 : 280);
+  const INSP_MIN = 280;
+  const INSP_MAX = 420;
+  const INSP_DEFAULT = 320;
+  let liveCols = $state({ colChannels: 0, colMembers: 0 });
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(v)));
+  // A width you dragged on a wide window is kept, clamped to what the band
+  // allows; an untouched one follows the band's default.
+  const sidebarW = $derived(
+    liveCols.colChannels || (Number(S.prefs.sidebarW) ? clamp(S.prefs.sidebarW, sbMin, sbMax) : sbDefault),
+  );
+  const inspectorW = $derived(
+    liveCols.colMembers || (Number(S.prefs.inspectorW) ? clamp(S.prefs.inspectorW, INSP_MIN, INSP_MAX) : INSP_DEFAULT),
+  );
+  const leftW = $derived((railModel ? RAIL_W : 0) + (sidebarHidden ? HIDDEN_W : sidebarW));
+
+  // Docking (§2.2): the inspector sits beside the conversation only when the
+  // conversation keeps 640px with it there. Measured on the app's own box, so
+  // the app's zoom and a dragged sidebar both count — a media query sees
+  // neither. The answer is the shell's contract with the inspector:
+  // data-inspector="docked" | "overlay" on .app.
+  let appW = $state(0);
+  let appEl = $state(null);
+  $effect(() => {
+    if (!appEl || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => (appW = e.contentRect.width));
+    ro.observe(appEl);
+    return () => ro.disconnect();
   });
+  const docked = $derived(appW > 0 && appW - leftW - inspectorW >= 640);
+
+  // Open or closed is remembered per device AND per context: closing the
+  // overlay on a laptop must not hide the docked panel on the desk monitor.
+  // `memberPanel` (what Ctrl+U and the header toggle flip) is the live value;
+  // crossing between docked and overlay files it under the context being left
+  // and takes up the one being entered. The overlay starts closed.
+  let lastDocked = null;
+  $effect(() => {
+    if (!appW) return;
+    const d = docked;
+    const open = !!S.prefs.memberPanel;
+    untrack(() => {
+      const key = d ? "inspectorDockedOpen" : "inspectorOverlayOpen";
+      if (d !== lastDocked) {
+        lastDocked = d;
+        // A docked panel follows what the toggle last said (the pref predates
+        // contexts); an overlay you never opened stays shut.
+        const want = d ? (S.prefs[key] ?? open) !== false : S.prefs[key] === true;
+        if (want !== open) setPref("memberPanel", want);
+        return;
+      }
+      if (S.prefs[key] !== open) setPref(key, open);
+    });
+  });
+  const inspectorShown = $derived(!isDM && hasChannel && !S.callStage && !!S.prefs.memberPanel);
+  // The overlay is a layer: Escape and Back close it, like any other.
+  syncLayer("panel", () => inspectorShown && !docked, () => setPref("memberPanel", false));
+  // …and so does a press on the empty feed (never a link, a reaction, a picture
+  // or the composer: those are things you meant to press).
+  function overlayOutside(e) {
+    if (docked || !inspectorShown) return;
+    const t = e.target;
+    // Empty background only: the feed's own box or its spacers, never a row.
+    if (t?.classList?.contains("feed") || t?.classList?.contains("vs") || t?.classList?.contains("feedwrap"))
+      setPref("memberPanel", false);
+  }
 
   const gridStyle = $derived(
     [
-      colVar("colChannels") ? `--col-channels:${colVar("colChannels")}px` : "",
-      colVar("colMembers") ? `--col-members:${colVar("colMembers")}px` : "",
-      guildAccentVars,
-    ]
-      .filter(Boolean)
-      .join(";"),
+      `--rail-w:${railModel ? RAIL_W : 0}px`,
+      `--sb-w:${sidebarHidden ? HIDDEN_W : sidebarW}px`,
+      `--insp-w:${inspectorW}px`,
+      `grid-template-columns:${[
+        railModel ? "var(--rail-w)" : "",
+        "var(--sb-w)",
+        "minmax(0, 1fr)",
+        inspectorShown && docked ? "var(--insp-w)" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}`,
+    ].join(";"),
   );
 
-  // dir: +1 when dragging right widens the column (channel list, handle on its
-  // right edge), -1 when dragging left widens it (member panel, handle on its
-  // left edge). Start width is measured from the rendered column — the handle's
-  // previous sibling in the grid — so the clamp applies on top of whichever
-  // base (220/260, or 190/200 under 900px) is currently in effect.
+  // dir: +1 when dragging right widens the column (the sidebar, handle on its
+  // right edge), -1 when dragging left widens it (the inspector). Layout
+  // pixels throughout (lib/place.js): at 125% the column used to grow 1.25px
+  // per pixel of travel.
   function startColDrag(e, key, dir) {
     if (e.button !== 0) return;
-    e.preventDefault(); // don't start a text selection under the drag
+    e.preventDefault();
     const handle = e.currentTarget;
-    // Layout pixels: the width this writes is a CSS length, and a rect and a
-    // pointer are both visual — at 125% the column grew 1.25px per pixel of
-    // travel and started from a width a quarter too wide. See lib/place.js.
-    const startW = handle.previousElementSibling
-      ? rectOf(handle.previousElementSibling).w
-      : COL_DEFAULTS[key];
+    const startW = key === "colChannels" ? sidebarW : inspectorW;
+    const [lo, hi] = key === "colChannels" ? [sbMin, sbMax] : [INSP_MIN, INSP_MAX];
     const startX = pointOf(e).x;
     handle.setPointerCapture(e.pointerId);
     const move = (ev) => {
-      liveCols[key] = clampCol(startW + dir * (pointOf(ev).x - startX));
+      liveCols[key] = clamp(startW + dir * (pointOf(ev).x - startX), lo, hi);
     };
     const up = () => {
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", up);
       handle.removeEventListener("pointercancel", up);
-      if (liveCols[key]) setPref(key, liveCols[key]);
-      liveCols[key] = 0; // pref carries the width from here on
+      if (liveCols[key]) setPref(key === "colChannels" ? "sidebarW" : "inspectorW", liveCols[key]);
+      liveCols[key] = 0;
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up);
     handle.addEventListener("pointercancel", up);
+  }
+  function resetCol(key) {
+    setPref(key === "colChannels" ? "sidebarW" : "inspectorW", 0);
   }
 
   // Voice: joining does not open the tiles. The full call is a layer you open
@@ -1715,7 +1768,6 @@
   // sticky "don't ask again" that the notification bar gets would be the wrong
   // shape here, because the thing being asked for has not been done and the
   // consequence of never doing it is losing the account.
-  let backupNudgeHidden = $state(false);
 
   // Every fenced code block the markdown renderer emits carries a Copy button.
   // The blocks arrive as {@html}, in the feed, the archive, forum posts and the
@@ -1760,73 +1812,9 @@
   </div>
 {/if}
 
-<!-- Notification rationale. Raised by offerNotifications() the first time a
-     message arrives that the OS grant would have surfaced, so the sentence can
-     point at something that just happened rather than at a hypothetical. The
-     Enable button is what opens the system dialog — on Android there are only
-     ever two of those, and this is how one gets spent on somebody who wants it. -->
-<!-- …and not while a dialog is open. These pills are fixed at z-index 205 and
-     the modal overlay is 100, so on a phone — where a dialog presents as a
-     bottom sheet that can reach the top of the screen — the pill landed on the
-     sheet's drag handle, its back arrow and its ✕, and its own Enable button
-     took the taps aimed at them. An offer that can wait is not worth a dialog
-     you cannot close. The condition is reactive: it comes back on its own the
-     moment the sheet does. -->
-{#if S.notifyAsk && !S.update && !ringingChannel && !S.offline && !S.modal}
-  <div class="update-banner notif-ask">
-    <span class="ub-text">
-      <strong>You just missed a message.</strong> Turn on notifications and Concord can tell you next time.
-    </span>
-    <button
-      class="ub-dl"
-      onclick={() => {
-        requestPermission();
-        dismissNotifyAsk(true);
-      }}
-    >
-      Enable
-    </button>
-    <button class="ub-close" onclick={() => dismissNotifyAsk(true)} aria-label="Not now">×</button>
-  </div>
-{/if}
-
-<!-- The signup screen holds the door and asks for the recovery phrase back, but
-     a page reload walks straight past it — and an account created on one device
-     with its phrase written down nowhere is one dead disk away from being gone
-     for good. There is no server holding a copy and no reset link, so nobody
-     else can put this right later. It keeps coming back until the words have
-     been verified, or simply looked at again in Settings; "Later" quiets it for
-     this session only, which is the whole point of it. -->
-{#if S.ready && S.prefs.backupPending && !backupNudgeHidden && !S.update && !S.notifyAsk && !ringingChannel && !S.offline && !S.modal}
-  <div class="backup-nudge">
-    <Nudge
-      icon="key"
-      tone="warn"
-      floating
-      action="Show me"
-      onAction={() => (S.modal = { kind: "settings", focus: "phrase" })}
-      dismissLabel="Later"
-      onDismiss={() => (backupNudgeHidden = true)}
-    >
-      <strong>Write down your recovery phrase.</strong> It is the only way back into this account, and
-      right now it exists on this device and nowhere else.
-    </Nudge>
-  </div>
-{/if}
-
-{#if S.update && !ringingChannel && !S.offline && !S.modal}
-  <div class="update-banner">
-    <span class="ub-text">
-      <strong>Update available</strong> — Concord {S.update.latest} is out (you have {S.update.current}).
-    </span>
-    <!-- Fully in-app: opens Settings → Software update AND kicks the install
-         off immediately. No external links — the app updates itself. -->
-    <button class="ub-dl" onclick={() => (S.modal = { kind: "settings", startUpdate: true })}>
-      Update now
-    </button>
-    <button class="ub-close" onclick={dismissUpdate} aria-label="Dismiss">×</button>
-  </div>
-{/if}
+<!-- The notification offer, the update offer and the recovery-phrase reminder
+     are nudges now: one at a time, in the sidebar's nudge row (ChannelList),
+     never floating over the conversation or a dialog. -->
 
 {#if S.ready}
   <!-- Live backdrop for animated theme packs; inert/hidden otherwise (CSS gates
@@ -1859,32 +1847,52 @@
     onToggleCamera={toggleCamera}
   />
 {:else}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="app"
-    class:no-panel={isDM || !hasChannel || S.callStage || S.cramped}
+    class:rail-model={railModel}
+    class:sb-hidden={sidebarHidden}
     class:offline-shift={S.offline}
+    data-inspector={docked ? "docked" : "overlay"}
+    data-nav-model={railModel ? "rail" : "sidebar"}
     style={gridStyle}
+    bind:this={appEl}
+    onpointerdown={overlayOutside}
   >
-    <GuildRail />
-    <ChannelList
-      onJoinVoice={joinVoice}
-      onLeaveVoice={leaveVoice}
-      onToggleMute={toggleMicMute}
-      onToggleDeafen={toggleDeafen}
-      onToggleShare={toggleScreenShare}
-      onToggleCamera={toggleCamera}
-    />
-    <!-- Overlaps the channel list's right edge (explicit grid placement, so it
-         takes no track of its own). Must come right after ChannelList: the drag
-         measures its previous sibling. Double-click resets to the default. -->
-    <div
-      class="col-rz rz-channels"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize channel list"
-      onpointerdown={(e) => startColDrag(e, "colChannels", 1)}
-      ondblclick={() => setPref("colChannels", COL_DEFAULTS.colChannels)}
-    ></div>
+    {#if railModel}<GuildRail layout="rail" />{/if}
+    {#if sidebarHidden}
+      <!-- The sidebar put away: a slim gutter holding the way back. -->
+      <div class="sb-gutter">
+        <button
+          class="iconbtn"
+          aria-label="Show sidebar"
+          use:tooltip={{ text: "Show sidebar", side: "right" }}
+          onclick={() => setPref("sidebarHidden", false)}
+        >
+          <Icon name="menu" size={16} />
+        </button>
+      </div>
+    {:else}
+      <ChannelList
+        strip={!railModel}
+        onJoinVoice={joinVoice}
+        onLeaveVoice={leaveVoice}
+        onToggleMute={toggleMicMute}
+        onToggleDeafen={toggleDeafen}
+        onToggleShare={toggleScreenShare}
+        onToggleCamera={toggleCamera}
+      />
+      <!-- The sidebar's resize handle: out of the grid flow (absolute), so it
+           never takes a track. Double-click resets to the default. -->
+      <div
+        class="col-rz rz-channels"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        onpointerdown={(e) => startColDrag(e, "colChannels", 1)}
+        ondblclick={() => resetCol("colChannels")}
+      ></div>
+    {/if}
 
     <main class="chat" class:staging={S.callStage} class:with-chat={S.callStage && S.callStageChat}>
       {#if S.callStage && voiceStage.C}
@@ -1957,11 +1965,6 @@
             >
               {#if postObj}
                 <PostHeader channel={postObj} />
-              {:else}
-                <!-- Above the feed, not inside it: the checklist has to survive
-                     the first message being sent, and anything mounted inside
-                     MessageList lives or dies with the empty state. -->
-                <SetupCard />
               {/if}
               <MessageList onJoinVoice={joinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
               <Composer bind:this={composer} />
@@ -1998,17 +2001,25 @@
       {/if}
     </main>
 
-    {#if !isDM && hasChannel && S.prefs.memberPanel && !S.callStage && !S.cramped}
-      <MemberPanel />
-      <!-- Inner (left) edge of the member panel; dragging left widens it. -->
-      <div
-        class="col-rz rz-members"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize member panel"
-        onpointerdown={(e) => startColDrag(e, "colMembers", -1)}
-        ondblclick={() => setPref("colMembers", COL_DEFAULTS.colMembers)}
-      ></div>
+    <!-- The inspector's slot (§2.2). Docked: a grid column beside the
+         conversation, with its resize handle. Overlay: over the right of the
+         conversation, starting BELOW the header so the header and its toggle
+         stay usable. Whether it docks is decided here, by width; the panel
+         only reads data-inspector on .app. -->
+    {#if inspectorShown}
+      <div class="insp-slot" class:overlay={!docked}>
+        <Inspector {docked} onClose={() => setPref("memberPanel", false)} />
+      </div>
+      {#if docked}
+        <div
+          class="col-rz rz-members"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize inspector"
+          onpointerdown={(e) => startColDrag(e, "colMembers", -1)}
+          ondblclick={() => resetCol("colMembers")}
+        ></div>
+      {/if}
     {/if}
   </div>{/if}
 {#if S.ready}
@@ -2018,6 +2029,7 @@
     <QuickSwitcher />
   {/if}
 
+  {#if GSW.open}<GuildSwitcher />{/if}
   <ProfilePopover />
   <ContextMenu />
 
@@ -2053,8 +2065,10 @@
     </div>
   {/if}
 
-  <!-- Ongoing call while the stage is put away: a draggable pinned window.
-       Mounted for the whole call and merely hidden while the tiles are up —
+  <!-- Ongoing call while the stage is put away: a draggable pinned window —
+       but only where there is no sidebar to hold the call dock (the sidebar
+       hidden, or a phone): one call surface at a time (§8.12). Mounted for the
+       whole call and merely hidden while the tiles are up —
        remounting it threw away wherever it had been parked, which is the same
        reason the component already hides rather than unmounts behind the phone
        drawers. -->
@@ -2062,7 +2076,7 @@
     {@const FloatingCall = parkedCall.C}
     <FloatingCall
       label={callLabel}
-      away={!!callElsewhere}
+      away={!!callElsewhere && (S.isMobile || sidebarHidden)}
       onLeave={leaveVoice}
       onToggleMute={toggleMicMute}
       onToggleDeafen={toggleDeafen}
@@ -2443,11 +2457,13 @@
 {/if}
 
 <style>
+  /* An empty state in a feed is bottom-anchored and left-aligned (§5.15). */
   .no-channels {
     flex: 1;
-    display: grid;
-    place-items: center;
-    padding: var(--sp-6);
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: var(--sp-6) var(--sp-edge);
   }
   /* Shown only when a dialog's code takes longer than a frame or two to arrive
      — a cold first open, or a slow disk. Deliberately not a full backdrop: the
@@ -2804,16 +2820,11 @@
     background: var(--danger);
     color: var(--danger-fg);
   }
+  /* The shell (§2.1). The columns are written by the script (gridStyle): the
+     classic rail if chosen, the sidebar, the conversation, and the inspector
+     only when it docks. */
   .app {
     display: grid;
-    /* Side-column widths come from the vars only once the user has dragged a
-       resize handle (script sets them from S.prefs); the --cw/--mw fallbacks
-       here are the untouched defaults, and the 900px tier below narrows them.
-       The intermediate vars exist so the resize HANDLES (absolute, below) can
-       track the same widths without repeating the fallback logic. */
-    --cw: var(--col-channels, 220px);
-    --mw: var(--col-members, 260px);
-    grid-template-columns: 64px var(--cw) 1fr var(--mw);
     height: 100%;
     /* Sit above the animated theme backdrop (.theme-bg, z-index 0). */
     position: relative;
@@ -2823,9 +2834,6 @@
     grid-template-rows: 100%;
     overflow: hidden;
   }
-  .app.no-panel {
-    grid-template-columns: 64px var(--cw) 1fr;
-  }
   /* Room for the offline bar. Shifting the whole shell rather than overlaying
      it is the entire point: the header underneath stays usable. */
   .app.offline-shift {
@@ -2833,12 +2841,40 @@
     margin-top: var(--ob-total);
     height: calc(100% - var(--ob-total));
   }
-  /* Column resize handles: thin strips overlapping each side column's inner
-     edge. Absolutely positioned OUT of the grid flow on purpose — as grid
-     children they perturbed auto-placement and rehomed every later sibling
-     (the chat column collapsed into a 32px strip; caught by the live smoke
-     test). Desktop-only — coarse pointers can't hit a 5px strip, and phones
-     get MobileShell anyway. */
+  .sb-gutter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 10px;
+    background: var(--bg-1);
+    border-right: 1px solid var(--hairline);
+  }
+  /* The inspector's slot. Docked it is a grid column; as an overlay it sits
+     over the conversation's right edge, below the header, on the lifted
+     surface — it is floating, so it is the one that casts the shadow. */
+  .insp-slot {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .insp-slot > :global(*) {
+    flex: 1;
+    min-height: 0;
+  }
+  /* The overlay's place: over the conversation's right edge, below the header
+     (the panel paints its own lifted surface). */
+  .insp-slot.overlay {
+    position: absolute;
+    top: var(--header-h);
+    right: 0;
+    bottom: 0;
+    width: min(var(--insp-w), calc(100% - var(--rail-w) - var(--sb-w)));
+    z-index: var(--z-raised);
+  }
+  /* Column resize handles: thin strips over each side column's inner edge.
+     Absolute, OUT of the grid flow: as grid children they rehomed every later
+     sibling. Pointer-only — a finger cannot hit a 5px strip. */
   .col-rz {
     display: none;
     position: absolute;
@@ -2848,41 +2884,27 @@
     z-index: 5;
     cursor: col-resize;
     touch-action: none; /* a drag resizes; it must never scroll */
-    background: var(--accent);
+    background: var(--border-strong);
     opacity: 0; /* invisible until hovered; the cursor is the affordance */
     transition: opacity var(--dur-quick) ease;
   }
   .rz-channels {
-    left: calc(64px + var(--cw) - 5px);
+    left: calc(var(--rail-w) + var(--sb-w) - 3px);
   }
   .rz-members {
-    right: var(--mw);
+    right: calc(var(--insp-w) - 3px);
   }
   @media (pointer: fine) {
     .col-rz {
       display: block;
     }
     .col-rz:hover {
-      opacity: 0.5;
+      opacity: 0.6;
     }
   }
   @media (prefers-reduced-motion: reduce) {
     .col-rz {
       transition: none;
-    }
-  }
-  /* Narrow desktop (a window parked beside something else). Not a phone tier —
-     below 768px S.isMobile is true and MobileShell renders instead of .app —
-     just a density step for the columns.
-     The member panel used to be display:none'd here while ChatHeader still
-     offered its toggle, so the control silently did nothing for a whole band of
-     window widths. It keeps its column, narrower; the toggle decides. */
-  @media (max-width: 900px) {
-    .app {
-      /* Only the fallbacks narrow — a user-dragged width still wins, and the
-         handles keep tracking via the same intermediate vars. */
-      --cw: var(--col-channels, 190px);
-      --mw: var(--col-members, 200px);
     }
   }
   .chat {

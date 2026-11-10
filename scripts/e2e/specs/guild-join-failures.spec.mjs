@@ -10,8 +10,7 @@ test("join failures say what went wrong", async ({ world, assert, step, waitFor,
 
   const openJoin = async (app) => {
     await app.page.keyboard.press("Escape");
-    await app.page.getByRole("button", { name: "Add a guild" }).click();
-    await app.page.getByRole("menuitem", { name: "Join with an invite code" }).click();
+    await app.switcherAction("Join with an invite code");
     const box = app.page.getByRole("textbox", { name: "Invite code" });
     await box.waitFor({ state: "visible" });
     return box;

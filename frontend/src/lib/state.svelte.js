@@ -6,6 +6,7 @@ import { api, on, onTransportHealth, probeCore } from "./api.js";
 import { notify, wantsPermissionPrompt } from "./notify.js";
 import { draftIn, noteDraft } from "./drafts.svelte.js";
 import { containsMention } from "./markdown.js";
+import { clampAccent } from "./guildaccent.js";
 import { matchedWord as matchedAlertWord, normalize as normalizeAlertWords } from "./alertwords.js";
 import { awayLongEnough, guildLastSeen, buildDigest, worthShowing } from "./digest.js";
 import {
@@ -2468,8 +2469,11 @@ export function applyAccent(color) {
   // leave --accent-fg wherever it happened to be — including whatever the last
   // accent needed. Fall through to the CSS accent and derive from that.
   if (!color) return syncAccentFg();
-  document.documentElement.style.setProperty("--accent", color);
-  document.documentElement.style.setProperty("--accent-fg", accentForeground(color));
+  // Held legible in the theme on screen: a weak colour would make the badges
+  // that mean "this needs you" vanish into the sidebar (lib/guildaccent.js).
+  const held = clampAccent(color, document.documentElement.dataset.theme);
+  document.documentElement.style.setProperty("--accent", held);
+  document.documentElement.style.setProperty("--accent-fg", accentForeground(held));
 }
 
 const DENSITIES = new Set(["compact", "cozy", "comfortable"]);

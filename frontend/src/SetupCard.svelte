@@ -14,6 +14,13 @@
   // guild, per device, exactly as the flag is stored.
   import { onDestroy } from "svelte";
   import Icon from "./Icon.svelte";
+  import Nudge from "./Nudge.svelte";
+
+  // hidden: another nudge holds the one slot right now; the checklist keeps
+  // watching (its steps tick from the feed) and draws nothing. wants: whether
+  // it has something to say, for the queue that decides who holds the slot.
+  let { hidden = false, wants = $bindable(false) } = $props();
+  let open = $state(false);
   import { S, activeGuild, flash, openGuildHub } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import {
@@ -125,6 +132,9 @@
   });
 
   const left = $derived(steps.filter((s) => !s.done).length);
+  $effect(() => {
+    wants = armed && (left > 0 || celebrating);
+  });
   const done = $derived(steps.length - left);
 
   // Finishing should feel like finishing.
@@ -186,261 +196,93 @@
   }
 </script>
 
-<!-- The card retires itself once the last row ticks — after four seconds of
-     saying so. A checklist with nothing left on it is clutter; a checklist that
-     disappears mid-click is a reward withheld. The ✕ is for people who want out
-     early, and it says "hide", because there is nothing here to fail at. -->
-{#if armed && (left > 0 || celebrating)}
+<!-- The owner's checklist is a nudge (§5.14): one row in the sidebar's nudge
+     slot, never a card pinned over the feed. "Show steps" opens the four
+     steps under it, in the sidebar. The row retires itself once the last step
+     ticks — after four seconds of saying so. ✕ is "hide", because there is
+     nothing here to fail at. -->
+{#if armed && (left > 0 || celebrating) && !hidden}
   <div class="setup" class:won={celebrating} role="region" aria-label="Set up this guild">
-    <div class="head">
-      <span class="hd-text">
-        <strong>{celebrating ? "All set." : "Get started"}</strong>
-        <span class="muted">
-          {celebrating ? `${g.name} is ready for people.` : `${done} of ${steps.length} done`}
-        </span>
-      </span>
-      <button class="x" onclick={dismiss} aria-label="Hide the setup steps" title="Hide">
-        <Icon name="close" size={14} />
-      </button>
-    </div>
-    <!-- Progress, as a thing that moves. A count on its own ("3 of 4 left")
-         is arithmetic; a bar that grows under it is the errand shrinking. -->
-    <div class="bar" role="presentation">
-      <span style="width:{(done / steps.length) * 100}%"></span>
-    </div>
-    <ul>
-      {#each steps as s (s.id)}
-        <li class:done={s.done}>
-          {#if s.done}
-            <span class="row static">
-              <span class="tick"><Icon name="check" size={12} /></span>
-              <span class="txt">
+    <Nudge
+      icon={celebrating ? "check" : "spark"}
+      action={celebrating ? "" : open ? "Hide steps" : "Show steps"}
+      onAction={() => (open = !open)}
+      dismissLabel="Hide the setup steps"
+      onDismiss={dismiss}
+    >
+      {#if celebrating}
+        <strong>All set.</strong> <bdi>{g.name}</bdi> is ready for people.
+      {:else}
+        <strong>Set up <bdi>{g.name}</bdi></strong> · {done} of {steps.length} done
+      {/if}
+    </Nudge>
+    {#if open && !celebrating}
+      <ul>
+        {#each steps as s (s.id)}
+          <li class:done={s.done}>
+            {#if s.done}
+              <span class="row static">
+                <span class="tick"><Icon name="check" size={12} /></span>
                 <span class="lbl">{s.label}</span>
-                <span class="sub">{s.sub}</span>
               </span>
-            </span>
-          {:else}
-            <button class="row" onclick={s.go}>
-              <span class="tick"><Icon name={s.icon} size={13} /></span>
-              <span class="txt">
+            {:else}
+              <button class="row" onclick={s.go}>
+                <span class="tick"><Icon name={s.icon} size={13} /></span>
                 <span class="lbl">{s.label}</span>
-                <span class="sub">{s.sub}</span>
-              </span>
-              <span class="chev" aria-hidden="true">›</span>
-            </button>
-          {/if}
-        </li>
-      {/each}
-    </ul>
+              </button>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
   </div>
 {/if}
 
 <style>
   .setup {
-    /* Capped and centred. It used to run the full width of the pane — 1200px of
-       card holding four short rows and three identical buttons, sitting above an
-       empty-channel hero that was also asking for attention. A card that is the
-       width of a card competes with nothing. */
-    width: min(560px, 100%);
-    margin: var(--sp-4) auto 0;
-    border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
-    background: linear-gradient(
-      160deg,
-      color-mix(in srgb, var(--accent) 9%, var(--bg-1)),
-      var(--bg-1) 62%
-    );
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-    box-shadow: var(--shadow-pop);
-    animation: setup-in 0.34s var(--ease-spring) both;
-  }
-  .head {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--sp-2);
-    padding: 13px var(--sp-3) 10px;
-  }
-  .hd-text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .hd-text strong {
-    font-size: var(--fs-body);
-    font-weight: 700;
-    line-height: 1.2;
-  }
-  .hd-text .muted {
-    font-size: var(--fs-small);
-    color: var(--text-muted);
-  }
-  .x {
-    flex: none;
-    width: 26px;
-    height: 26px;
-    display: grid;
-    place-items: center;
-    background: transparent;
-    color: var(--text-faint);
-    border-radius: var(--radius-sm);
-  }
-  .x:hover {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  /* ---- progress ----------------------------------------------------------- */
-  .bar {
-    height: 4px;
-    margin: 0 var(--sp-3) 12px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--border) 70%, transparent);
-    overflow: hidden;
-  }
-  .bar span {
-    display: block;
-    height: 100%;
-    border-radius: inherit;
-    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
-    /* A checklist filling up is a small reward, and it is watched. Travel,
-       not a state change — off the token scale on purpose. */
-    transition: width 0.45s var(--ease-spring);
-  }
-  /* Finished: the bar is full, the frame warms, and the whole card lifts once. */
-  .setup.won {
-    border-color: var(--accent);
-    animation: setup-won 0.5s var(--ease-spring) both;
-  }
-  @keyframes setup-won {
-    0% {
-      transform: scale(1);
-    }
-    45% {
-      transform: scale(1.012);
-    }
-    100% {
-      transform: scale(1);
-    }
+    padding: var(--sp-1) 0 6px;
   }
   ul {
     list-style: none;
-    margin: 0;
-    padding: 0 var(--sp-2) var(--sp-2);
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    margin: var(--sp-1) 0 0;
+    padding: 0;
   }
-  /* The whole row is the target. Three identically-labelled "Do it" buttons in
-     a column said the same thing three times and made the rows themselves inert
-     — you could not click the sentence describing what you wanted to do. */
   .row {
     display: flex;
     align-items: center;
-    gap: var(--sp-3);
+    gap: 10px;
     width: 100%;
-    padding: 9px 10px;
-    border-radius: var(--radius-md);
-    background: transparent;
+    min-height: 32px;
+    padding: 0 var(--sp-2) 0 10px;
+    border-radius: var(--radius-sm);
     color: var(--text);
-    text-align: left;
-    transition:
-      background var(--dur-quick) ease,
-      transform var(--dur-quick) var(--ease-out);
+    font-size: var(--fs-ui);
+    text-align: start;
   }
-  .row.static {
-    cursor: default;
+  @media (pointer: fine) {
+    button.row:hover {
+      background: var(--bg-3);
+    }
   }
-  button.row:hover {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-    transform: translateX(2px);
+  .row:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -2px;
   }
   .tick {
-    flex: none;
-    width: 28px;
-    height: 28px;
     display: grid;
     place-items: center;
-    border-radius: 50%;
-    background: var(--bg-3);
-    color: var(--text-muted);
-    transition:
-      background var(--dur-quick) ease,
-      color var(--dur-quick) ease;
-  }
-  button.row:hover .tick {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-  }
-  /* Done is a filled tick, not a line through the words. A checklist that
-     crosses out what you achieved reads as a list of chores. */
-  li.done .tick {
-    background: var(--accent);
-    color: var(--accent-fg);
-    animation: tick-in 0.3s var(--ease-spring) both;
-  }
-  @keyframes tick-in {
-    from {
-      transform: scale(0.4);
-    }
-  }
-  .txt {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-  .lbl {
-    font-size: var(--fs-ui);
-    font-weight: 600;
-  }
-  li.done .lbl {
-    color: var(--text-muted);
-    font-weight: 500;
-  }
-  .sub {
-    font-size: var(--fs-small);
-    line-height: 1.4;
+    width: 18px;
     color: var(--text-muted);
   }
-  .chev {
-    flex: none;
-    font-size: 19px;
-    line-height: 1;
+  .done .row {
     color: var(--text-faint);
-    transition: transform var(--dur-quick) ease;
   }
-  button.row:hover .chev {
-    color: var(--accent-hover);
-    transform: translateX(2px);
-  }
-  @keyframes setup-in {
-    from {
-      opacity: 0;
-      transform: translateY(-8px);
-    }
+  .done .lbl {
+    text-decoration: line-through;
   }
   @media (max-width: 768px) {
-    .setup {
-      margin: var(--sp-3) var(--sp-3) 0;
-      width: auto;
-    }
     .row {
-      min-height: 52px;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .setup,
-    .setup.won,
-    .row,
-    .chev,
-    li.done .tick {
-      animation: none;
-      transition: none;
-    }
-    .bar span {
-      transition: none;
+      min-height: var(--tap-min);
     }
   }
 </style>
