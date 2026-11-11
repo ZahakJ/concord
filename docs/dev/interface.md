@@ -17,7 +17,7 @@ Concord should read like a well-set page. The conversation is the reason the win
 7. **Interaction never moves what you are reading.** Toolbars and indicators float or use space reserved for them.
 8. **One of each.** One dialog frame, one empty state, one nudge on screen at a time, one call surface at a time, one way to show an error.
 9. **Say it like a person.** No raw error from the core ever reaches the screen.
-10. **The keyboard reaches everything.** Menus take focus, Escape closes the top layer, and focus returns to whatever opened it. F6 and Shift+F6 move between the shell's regions (sidebar, header, feed, composer, inspector; `lib/regions.js`), and a focused message opens its menu from Enter, the menu key or Shift+F10.
+10. **The keyboard reaches everything.** Menus take focus, Escape closes the top layer, and focus returns to whatever opened it. F6 and Shift+F6 move between the shell's regions (sidebar, header, feed, composer, inspector; `lib/regions.js`), and a focused message opens its menu from Enter, the menu key or Shift+F10. F6 into the sidebar lands on the selected row, and Tab past the last control wraps to it rather than onto the page.
 
 Light and dark are designed separately — paper and graphite — rather than one being the inverse of the other. Every word that carries information clears 4.5:1 against the surface it sits on, in both; a disabled control is exempt and says why it is disabled.
 
@@ -94,7 +94,7 @@ A theme pack may set surfaces, lines (including `--border-strong`), ink, accent 
 
 ## Components
 
-**Buttons** come in six kinds, as classes on a `<button>`: `primary` (accent fill, one per surface), `quiet` (a `--bg-3` fill), `ghost` (an outline, for Cancel; `ghost danger` outlines it in the danger ink), `danger` (for a destructive action that has been confirmed), `link` (accent text inside a sentence) and `iconbtn` (a lone glyph, 32px; 40px under a coarse pointer, 44px on a phone). `sm` and `lg` make a kind 28 or 40px tall. A bare `<button>` has no fill and takes its ink from where it sits; give it a kind. Disabled buttons are at 45% and should say why, next to them or in a tooltip.
+**Buttons** come in six kinds, as classes on a `<button>`: `primary` (accent fill, one per surface), `quiet` (a `--bg-3` fill), `ghost` (an outline, for Cancel; `ghost danger` outlines it in the danger ink), `danger` (for a destructive action that has been confirmed), `link` (accent text inside a sentence) and `iconbtn` (a lone glyph, 32px; 40px under a coarse pointer, 44px on a phone). `sm` and `lg` make a kind 28 or 40px tall. A bare `<button>` has no fill and takes its ink from where it sits; give it a kind. Disabled buttons are at 45% and should say why, next to them or in a tooltip; a disabled `primary` instead rests as a `--bg-3` chip in `--text-muted` (the resting state of most forms, so it must read as waiting, not broken).
 
 **Fields** sit on `--bg-input` with a `--border-strong` edge. Focus turns the edge to the accent with a soft halo of it; `aria-invalid="true"` turns the edge red. Put the reason under the field and tie it with `aria-describedby`. `Select.svelte` is the same field with a chevron, opening a menu.
 
