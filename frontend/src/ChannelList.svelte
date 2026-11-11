@@ -10,6 +10,7 @@
   // the one nudge, the place's list (channels by category, or your
   // conversations), the unread-messages block, the call dock and you.
   import Icon from "./Icon.svelte";
+  import GuildMark from "./GuildMark.svelte";
   import Badge from "./Badge.svelte";
   import Nudge from "./Nudge.svelte";
   import Kbd from "./Kbd.svelte";
@@ -69,7 +70,6 @@
   } from "./lib/state.svelte.js";
   import { requestPermission } from "./lib/notify.js";
   import { plural } from "./lib/plural.js";
-  import { guildInitials } from "./lib/rail.js";
   import { tileColor } from "./lib/guildaccent.js";
   import { GSW, toggleGuildSwitcher } from "./lib/guildswitch.svelte.js";
   import { guildMenu } from "./lib/guildmenu.js";
@@ -928,7 +928,7 @@
         use:longpress={{ handler: placeMenu }}
       >
         <span class="ph-icon" class:hasicon={!!g.icon}>
-          {#if g.icon}<img src={g.icon} alt="" />{:else}{guildInitials(g.name)}{/if}
+          {#if g.icon}<img src={g.icon} alt="" />{:else}<GuildMark {g} size={13} />{/if}
         </span>
         <span class="ph-name"><bdi>{g.name}</bdi></span>
         <span class="ph-chev" aria-hidden="true"><Icon name="chevron" size={14} /></span>
@@ -2661,9 +2661,9 @@
     display: grid;
     place-items: center;
     overflow: hidden;
-    background: var(--guild-accent, var(--bg-3));
-    color: #fff;
-    font-size: var(--fs-micro);
+    background: color-mix(in srgb, var(--guild-accent, var(--text-muted)) 18%, var(--bg-3));
+    color: color-mix(in srgb, var(--guild-accent, var(--text-muted)) 70%, var(--text));
+    font-size: var(--fs-small);
     font-weight: 600;
   }
   .ph-icon img {

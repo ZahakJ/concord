@@ -19,6 +19,7 @@
   import Avatar from "./Avatar.svelte";
   import GroupAvatar from "./GroupAvatar.svelte";
   import Badge from "./Badge.svelte";
+  import GuildMark from "./GuildMark.svelte";
   import {
     S,
     selectGuild,
@@ -482,7 +483,7 @@
           {#if gg.icon}
             <img class="icon" src={gg.icon} alt="" />
           {:else}
-            <span class="face">{initials(gg.name)}</span>
+            <span class="face"><GuildMark g={gg} /></span>
           {/if}
         </button>
         {#if tileLabel(gg) !== gg.name}<span class="vh" id="strip-d-{gg.id}">{tileLabel(gg).slice(gg.name.length + 3)}</span>{/if}
@@ -603,7 +604,7 @@
             {#if sv.icon}
               <img class="icon" src={sv.icon} alt="" />
             {:else}
-              <span class="face">{initials(sv.name)}</span>
+              <span class="face"><GuildMark g={sv} size={16} /></span>
             {/if}
           </button>
           {#if sv.id !== S.activeGuildId && m.count}
@@ -709,7 +710,7 @@
                     {#if gg.icon}
                       <img class="icon" src={gg.icon} alt="" />
                     {:else}
-                      <span class="face">{initials(gg.name)}</span>
+                      <span class="face"><GuildMark g={gg} /></span>
                     {/if}
                   </button>
                   {#if gg.id !== S.activeGuildId && m.count}
@@ -793,14 +794,16 @@
     border-radius: 7px;
     display: grid;
     place-items: center;
-    background: var(--guild-accent, var(--bg-3));
+    background: color-mix(in srgb, var(--guild-accent, var(--text-muted)) 18%, var(--bg-3));
     color: var(--text-muted);
     overflow: hidden;
     transition: filter var(--dur-quick) var(--ease-out);
   }
+  /* A guild without an icon: its colour as an 18% tint with the mark in its
+     ink, not a flat swatch with white initials. */
   .tile .face {
-    color: #fff;
-    font-size: var(--fs-micro);
+    color: color-mix(in srgb, var(--guild-accent, var(--text-muted)) 70%, var(--text));
+    font-size: var(--fs-compact);
     font-weight: 600;
     letter-spacing: 0;
   }
@@ -902,7 +905,7 @@
     border-radius: var(--radius-md);
   }
   .strip.phone .tile .face {
-    font-size: var(--fs-small);
+    font-size: var(--fs-ui);
   }
   .strip.phone .tile::before {
     content: "";
@@ -987,8 +990,9 @@
     height: 100%;
     display: grid;
     place-items: center;
-    color: #fff;
-    font-size: var(--fs-small);
+    background: color-mix(in srgb, var(--guild-accent, var(--text-muted)) 18%, var(--bg-3));
+    color: color-mix(in srgb, var(--guild-accent, var(--text-muted)) 70%, var(--text));
+    font-size: var(--fs-ui);
     font-weight: 600;
   }
   .pill .icon {

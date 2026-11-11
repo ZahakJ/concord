@@ -297,3 +297,35 @@ export function stripTiles(ids, ctx, prev, current, n) {
   }
   return { shown: order.filter((id) => chosen.has(id)), hidden: order.filter((id) => !chosen.has(id)) };
 }
+
+// ————————————————— a guild's mark without an icon —————————————————
+//
+// Two-letter initials on a flat colour square are the most generic tile there
+// is, and at thirty guilds they were a wall of look-alikes with two "CA"s. A
+// guild without an icon now shows ONE letter, and when an earlier guild (by
+// id, so the answer never depends on the order on screen) already has that
+// letter, a glyph from the icon set instead, chosen from its id.
+const MARK_GLYPHS = ["diamond", "spark", "bolt", "die", "palette", "megaphone", "seal", "key", "bookmark", "grid4", "camera", "crown"];
+const hashId = (id) => {
+  let h = 0;
+  for (const c of String(id)) h = (h * 31 + c.codePointAt(0)) >>> 0;
+  return h;
+};
+export function guildMarks(guilds) {
+  const out = new Map();
+  const byLetter = new Map();
+  for (const g of [...(guilds || [])].filter((x) => x && x.kind !== "dm").sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    const letter = ([...String(g.name || "").trim()][0] || "?").toUpperCase();
+    const taken = byLetter.get(letter);
+    if (!taken) {
+      byLetter.set(letter, new Set());
+      out.set(g.id, { letter, glyph: "" });
+      continue;
+    }
+    let i = hashId(g.id) % MARK_GLYPHS.length;
+    while (taken.has(MARK_GLYPHS[i]) && taken.size < MARK_GLYPHS.length) i = (i + 1) % MARK_GLYPHS.length;
+    taken.add(MARK_GLYPHS[i]);
+    out.set(g.id, { letter, glyph: MARK_GLYPHS[i] });
+  }
+  return out;
+}

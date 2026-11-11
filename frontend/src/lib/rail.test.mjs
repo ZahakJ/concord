@@ -216,3 +216,29 @@ console.log("rail.test.mjs: all passed");
   }
   if (!process.exitCode) console.log("rail.test.mjs: strip ok");
 }
+
+// ---- guild marks ----
+{
+  const { guildMarks } = await import("./rail.js");
+  const fail = (msg) => {
+    console.error("  FAIL", msg);
+    process.exitCode = 1;
+  };
+  const gs = [
+    { id: "b", name: "Choir Altos" },
+    { id: "a", name: "Chess After Dark" },
+    { id: "c", name: "Night Owls" },
+    { id: "d", name: "chess club" },
+    { id: "dm1", name: "Someone", kind: "dm" },
+  ];
+  const m = guildMarks(gs);
+  if (m.get("a").letter !== "C" || m.get("a").glyph) fail("the first C (by id) keeps its letter");
+  if (!m.get("b").glyph || !m.get("d").glyph) fail("later Cs get a glyph");
+  if (m.get("b").glyph === m.get("d").glyph) fail("two glyphs under one letter differ");
+  if (m.get("c").letter !== "N" || m.get("c").glyph) fail("a unique letter is just the letter");
+  if (m.has("dm1")) fail("direct messages have no guild mark");
+  // The same answer whatever order the list is in.
+  const again = guildMarks([...gs].reverse());
+  for (const id of ["a", "b", "c", "d"]) if (JSON.stringify(again.get(id)) !== JSON.stringify(m.get(id))) fail(`stable for ${id}`);
+  if (!process.exitCode) console.log("rail.test.mjs: guild marks ok");
+}

@@ -11,6 +11,7 @@
   // context-menu key opens the row's menu without focus ever leaving the field.
   import Icon from "./Icon.svelte";
   import Badge from "./Badge.svelte";
+  import GuildMark from "./GuildMark.svelte";
   import {
     S,
     selectGuild,
@@ -23,7 +24,7 @@
     setPref,
   } from "./lib/state.svelte.js";
   import { layer } from "./lib/navstack.svelte.js";
-  import { combineGuilds, moveGuild, moveFolder, toggleFolder, guildInitials, DEFAULT_FOLDER_COLOR } from "./lib/rail.js";
+  import { combineGuilds, moveGuild, moveFolder, toggleFolder, DEFAULT_FOLDER_COLOR } from "./lib/rail.js";
   import { guildMenu, folderMenu, renameFolderTo, stripPins, isPinned, togglePin, pinAt } from "./lib/guildmenu.js";
   import { closeGuildSwitcher, GSW } from "./lib/guildswitch.svelte.js";
   import { tileColor } from "./lib/guildaccent.js";
@@ -447,7 +448,7 @@
           oncontextmenu={(e) => rowMenu(e, r)}
         >
           <span class="gicon" class:muted={m.muted} style={g.icon ? undefined : `--guild-accent:${tileColor(g)}`}>
-            {#if g.icon}<img src={g.icon} alt="" />{:else}{guildInitials(g.name)}{/if}
+            {#if g.icon}<img src={g.icon} alt="" />{:else}<GuildMark {g} />{/if}
           </span>
           <span class="name" class:dim={m.muted}>{g.name}</span>
           <span class="trail">
@@ -643,9 +644,9 @@
     overflow: hidden;
     display: grid;
     place-items: center;
-    background: var(--guild-accent, var(--bg-3));
-    color: #fff;
-    font-size: var(--fs-micro);
+    background: color-mix(in srgb, var(--guild-accent, var(--text-muted)) 18%, var(--bg-3));
+    color: color-mix(in srgb, var(--guild-accent, var(--text-muted)) 70%, var(--text));
+    font-size: var(--fs-compact);
     font-weight: 600;
   }
   .gicon img {
