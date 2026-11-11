@@ -225,10 +225,12 @@ export function guildInitials(name) {
 
 // How many guild tiles fit a sidebar this wide: n guild tiles plus the
 // Messages and overflow tiles are (n + 2) × 28px with (n + 1) 4px gaps, inside
-// 10px of padding each side — so 32n + 80 ≤ width. 6 at the default 280px, 5
-// at 240 and at the tablet's 264, 8 at 360.
+// 8px of padding each side — so 32n + 76 ≤ width. The width is the sidebar's
+// clientWidth, a pixel under its nominal size for its border: with 10px of
+// padding the 240px sidebar came out one tile short (4, not 5). 6 at the
+// default 280px, 5 at 240 and at the tablet's 264, 8 at 360.
 export function stripFit(width) {
-  return Math.max(1, Math.floor((width - 80) / 32));
+  return Math.max(1, Math.floor((width - 76) / 32));
 }
 
 // classOf answers which of the four strip classes a guild is in right now, or

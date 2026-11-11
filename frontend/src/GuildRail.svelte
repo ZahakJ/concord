@@ -767,7 +767,7 @@
     align-items: center;
     gap: var(--sp-1);
     height: 40px;
-    padding: 0 10px;
+    padding: 0 var(--sp-2);
     flex: none;
     border-bottom: 1px solid var(--hairline);
     background: var(--bg-1);

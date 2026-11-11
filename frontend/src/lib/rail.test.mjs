@@ -160,6 +160,8 @@ console.log("rail.test.mjs: all passed");
   const same = (a, b, msg) => JSON.stringify(a) !== JSON.stringify(b) && fail(`${msg}: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`);
 
   same([stripFit(280), stripFit(240), stripFit(360), stripFit(264)], [6, 5, 8, 5], "tiles that fit 280/240/360/264");
+  // The measured width is a pixel under the nominal one (the sidebar's border).
+  same([stripFit(279), stripFit(239), stripFit(359), stripFit(263)], [6, 5, 8, 5], "the same counts a border's pixel narrower");
 
   const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
   const ctx = (o = {}) => ({ pins: [], mentions: new Set(), unread: new Set(), opened: new Map(), ...o });
