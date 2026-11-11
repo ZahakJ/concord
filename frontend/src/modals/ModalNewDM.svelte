@@ -96,7 +96,12 @@
 
   <div class="list">
     {#each shown as c (c.fingerprint)}
-      <button class="row" class:sel={picked.has(c.fingerprint)} onclick={() => toggle(c.fingerprint)}>
+      <button
+        class="row"
+        class:sel={picked.has(c.fingerprint)}
+        aria-pressed={picked.has(c.fingerprint)}
+        onclick={() => toggle(c.fingerprint)}
+      >
         <Avatar
           name={c.name || c.fingerprint}
           image={c.avatar || ""}
@@ -108,7 +113,11 @@
         {#if c.verified}
           <span class="vbadge" title="Verified"><Icon name="check" size={11} /></span>
         {/if}
-        <span class="check" class:on={picked.has(c.fingerprint)}>
+        <!-- One mark per row: a checkbox, because several people can be
+             picked (two or more make a group). The verified tick sits with
+             the name it vouches for, so the two can't be read as a pair of
+             controls. -->
+        <span class="check" class:on={picked.has(c.fingerprint)} aria-hidden="true">
           {#if picked.has(c.fingerprint)}<Icon name="check" size={12} />{/if}
         </span>
       </button>
@@ -164,29 +173,34 @@
     background: var(--accent-soft);
   }
   .nm {
-    flex: 1;
+    flex: 0 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .vbadge {
-    color: var(--ok-text);
+    color: var(--accent-hover);
     display: grid;
     place-items: center;
   }
+  /* The app's checkbox, drawn (app.css input[type=checkbox]): the row is
+     the control, so this is its mark rather than a second input. */
   .check {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
+    width: 16px;
+    height: 16px;
+    margin-left: auto;
+    border-radius: 4px;
+    box-shadow: inset 0 0 0 1.5px var(--text-faint);
+    background: var(--bg-input);
     display: grid;
     place-items: center;
-    color: #fff;
+    color: var(--accent-fg);
     flex-shrink: 0;
   }
   .check.on {
     background: var(--accent);
-    border-color: transparent;
+    box-shadow: none;
   }
   .none {
     padding: 14px;
@@ -219,6 +233,10 @@
       padding: 10px 20px calc(10px + var(--safe-bottom));
       background: var(--bg-elevated);
       border-top: 1px solid var(--border);
+    }
+    /* Every other sheet ends on a full-width commit; so does this one. */
+    .foot .primary {
+      flex: 1;
     }
   }
   .link {

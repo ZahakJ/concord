@@ -44,14 +44,14 @@ function ensureTip() {
       position: fixed;
       z-index: var(--z-tooltip); /* above ContextMenu (401) — a tip must never be under a menu it describes */
       display: none;
-      max-width: 260px;
-      padding: 5px 9px;
+      max-width: 240px;
+      padding: var(--sp-1) var(--sp-2);
       background: var(--bg-elevated, var(--bg-3, var(--bg-2)));
       border: 1px solid var(--border);
-      border-radius: var(--radius-md);
+      border-radius: var(--radius-sm);
       color: var(--text);
-      font-size: var(--fs-tiny);
-      font-weight: 600;
+      font-size: var(--fs-small);
+      font-weight: 500;
       line-height: 1.35;
       overflow-wrap: break-word;
       box-shadow: var(--shadow-pop, 0 4px 12px rgba(0, 0, 0, 0.3));
@@ -109,9 +109,17 @@ function show(node, opts) {
   window.addEventListener("scroll", hide, true);
 }
 
+// When a tip was on screen a moment ago, the next one comes at once: someone
+// sweeping along a toolbar reading labels has already waited the delay once,
+// and making them wait it again on every button is what made the tips feel
+// sluggish (§5.6: 500ms, then 0 while moving between triggers for 300ms).
+let lastShownAt = 0;
+const WARM_MS = 300;
+
 function hide() {
   clearTimeout(showTimer);
   showTimer = 0;
+  if (anchor) lastShownAt = performance.now();
   anchor = null;
   if (!tip) return;
   tip.classList.remove("show");
@@ -121,8 +129,8 @@ function hide() {
 
 const normalize = (params) =>
   typeof params === "string"
-    ? { text: params, side: "bottom", delay: 300 }
-    : { text: params?.text || "", side: params?.side || "bottom", delay: params?.delay ?? 300 };
+    ? { text: params, side: "bottom", delay: 500 }
+    : { text: params?.text || "", side: params?.side || "bottom", delay: params?.delay ?? 500 };
 
 export function tooltip(node, params = {}) {
   if (coarse) return {};
@@ -134,7 +142,8 @@ export function tooltip(node, params = {}) {
   };
   const enter = () => {
     cancel();
-    showTimer = setTimeout(() => show(node, opts), opts.delay);
+    const warm = anchor || performance.now() - lastShownAt < WARM_MS;
+    showTimer = setTimeout(() => show(node, opts), warm ? 0 : opts.delay);
   };
   // Keyboard focus gets the tip immediately: tabbing is deliberate, and the
   // delay only exists to keep pointer sweeps quiet. :focus-visible skips

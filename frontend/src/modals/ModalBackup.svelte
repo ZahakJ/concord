@@ -227,12 +227,7 @@
     margin: 12px 0;
     font-size: var(--fs-tiny);
   }
-  /* The base input rule is width:100% with field padding, meant for text
-     boxes; left alone it stretches the tick away from its own label. */
   .check input[type="checkbox"] {
-    width: auto;
-    flex: none;
-    padding: 0;
     margin: 1px 0 0;
   }
   .check .sub {
