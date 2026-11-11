@@ -113,7 +113,7 @@
   }
 </script>
 
-<RailShell title="Guild emoji — {g?.name ?? ''}" {onClose}>
+<RailShell title="Guild emoji" {onClose}>
   {#if canManage}
     <p class="muted lead">
       Upload emoji anyone in this guild can use by typing <code>:name:</code>. Keep them small and
@@ -177,9 +177,6 @@
     <p class="muted tiny">Only someone who can manage this guild may add or remove emoji.</p>
   {/if}
 
-  <div class="actions">
-    <button class="ghost" onclick={onClose}>Done</button>
-  </div>
 </RailShell>
 
 {#if confirmRm}

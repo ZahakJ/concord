@@ -227,7 +227,6 @@
       headline="Only the guild's owner can import an archive"
       sub="The archive is signed by the owner's key — that signature is what lets every other member trust it."
     />
-    <div class="actions"><button class="ghost" onclick={onClose}>Close</button></div>
   {:else if step === "pick"}
     <p class="lead">
       Point this at a folder of exported channel JSON. Concord reads it once, tells you
@@ -534,8 +533,7 @@
         sub={done?.error || "Nothing was attached to this guild."}
       />
       <div class="actions">
-        <button class="ghost" onclick={() => (step = "pick")}>Try again</button>
-        <button class="primary" onclick={onClose}>Close</button>
+        <button class="primary" onclick={() => (step = "pick")}>Try again</button>
       </div>
     {:else if prog?.phase === "done" && done?.result}
       <div class="sec-head"><h4>Imported</h4></div>
@@ -578,9 +576,6 @@
         This runs in the background. You can close this and keep using Concord — you'll be
         told when it lands.
       </p>
-      <div class="actions">
-        <button class="ghost" onclick={onClose}>Close</button>
-      </div>
     {/if}
   {/if}
 </RailShell>

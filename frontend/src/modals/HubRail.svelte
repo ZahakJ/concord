@@ -141,14 +141,16 @@
     background: var(--danger-text);
   }
 
+  /* Fifteen rows in five groups have to fit the 700px frame without a
+     scroll, or the last group — the Danger zone — is the one cut off. The
+     rows keep the 32px target; the air between groups is what gives. */
   .grp {
     display: flex;
     flex-direction: column;
-    gap: 1px;
     flex: none;
   }
   .glabel {
-    padding: 14px var(--sp-2) var(--sp-1);
+    padding: var(--sp-2) var(--sp-2) 2px;
     font-size: var(--fs-small);
     font-weight: 600;
     color: var(--text-muted);

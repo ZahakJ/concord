@@ -1,4 +1,5 @@
 <script>
+  import Caution from "./Caution.svelte";
   // Backup and restore of the whole account's history.
   //
   // Not the same thing as "Export history" in the channel menu: that writes a
@@ -141,10 +142,11 @@
           : ""}.
       </p>
     {/if}
-    <p class="warn small">
-      <Icon name="lock" size={12} /> There is no way to recover this file's passphrase. Lose it and
-      the backup is unreadable, by anyone, including you.
-    </p>
+    <Caution
+      icon="lock"
+      text="There is no way to recover this file's passphrase."
+      detail="Lose it and the backup is unreadable, by anyone, including you."
+    />
   </section>
 
   <section>
@@ -207,7 +209,7 @@
     color: var(--text-muted);
   }
   .warn {
-    color: var(--warn, var(--danger));
+    color: var(--warn-text);
     margin: 6px 0 0;
   }
   .fld {

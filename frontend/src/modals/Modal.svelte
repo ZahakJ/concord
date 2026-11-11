@@ -640,12 +640,22 @@
   .dialog.scrolls :global(.actions) {
     border-top-color: var(--hairline);
   }
+  /* In a railed pane the footer belongs to the pane's bottom edge, not to
+     wherever the form happens to end: a short form (a guild's Overview, an
+     export) left [Cancel][Save] floating mid-pane over 400px of nothing,
+     while a long one pinned the same footer at the bottom. */
+  .dialog.railed > .pane > :global(.actions) {
+    margin-top: auto;
+  }
   /* ONE button size per role. Every variant button in a dialog is the md
      control — 32px, --fs-compact — unless it asked for sm or lg: the footers
      had settled on that, but the buttons inside the body (a "Copy code", a
      "Start the meeting", a "New role") were whatever the inherited 16px and
      8px/14px padding made of them, so one dialog carried three heights. */
-  .dialog :global(:is(button.primary, button.quiet, button.ghost, button.danger):not(.sm, .lg)) {
+  /* Not a settings row: a destructive SettingRow is a button.row.danger,
+     and this rule turned it into a centred 32px button with its icon
+     hanging below the label. */
+  .dialog :global(:is(button.primary, button.quiet, button.ghost, button.danger):not(.sm, .lg, .row)) {
     display: inline-flex;
     align-items: center;
     justify-content: center;

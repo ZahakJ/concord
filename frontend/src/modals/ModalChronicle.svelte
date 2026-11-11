@@ -83,12 +83,11 @@
       />
     </div>
     {#if g?.isOwner}
+      <!-- No Close: the frame's × is the close, and a second one competed
+           with it in every railed pane that had one. -->
       <div class="actions">
-        <button class="ghost" onclick={onClose}>Close</button>
         <button class="primary" onclick={() => openPanel("chronicleImport", "chronicle")}>Import a chat archive</button>
       </div>
-    {:else}
-      <div class="actions"><button class="ghost" onclick={onClose}>Close</button></div>
     {/if}
   {:else}
     <div class="src">
@@ -178,9 +177,6 @@
       </p>
     {/if}
 
-    <div class="actions">
-      <button class="ghost" onclick={onClose}>Close</button>
-    </div>
   {/if}
 </RailShell>
 

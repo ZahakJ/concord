@@ -100,6 +100,9 @@
      the leading side, the control on the trailing side, 24px between them.
      Rows are separated by a hairline; there is no card around a group. */
   .row {
+    /* A destructive row is a button.danger, which brings the filled
+       button's weight with it. */
+    font-weight: 400;
     display: flex;
     align-items: center;
     gap: var(--sp-5);

@@ -171,6 +171,9 @@
     border-top: 1px solid var(--hairline);
   }
   .row {
+    /* A destructive row is a button.danger, which brings the filled
+       button's weight with it. */
+    font-weight: 400;
     display: flex;
     align-items: center;
     gap: var(--sp-3);

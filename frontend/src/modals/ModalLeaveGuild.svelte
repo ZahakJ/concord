@@ -1,4 +1,5 @@
 <script>
+  import Caution from "./Caution.svelte";
   // Leave and delete my copy.
   //
   // The row used to say "Delete guild", in a section headed DANGER ZONE, to the
@@ -42,19 +43,17 @@
     {#if g.isOwner}
       <!-- The owner-specific consequence, and the two things that answer it. -->
       <div class="consequence">
-        <p class="warn-line">
-          <Icon name="alert" size={13} />
-          <span>
-            You own this guild.
-            {#if heirNamed}
-              You have named an heir, so somebody can take it over after you go — but until they
-              do, nobody can add or remove members.
-            {:else}
-              <strong>Nobody will be able to add or remove members after you go</strong>, and there
-              is no way to appoint anyone once you are gone.
-            {/if}
-          </span>
-        </p>
+        {#if heirNamed}
+          <Caution
+            text="You own this guild: until your heir takes over, nobody can add or remove members."
+            detail="You have named an heir, so somebody can take the guild over after you go."
+          />
+        {:else}
+          <Caution
+            text="You own this guild: after you go, nobody can add or remove members."
+            detail="There is no way to appoint anyone once you are gone. Name an heir or transfer ownership first if the guild should carry on."
+          />
+        {/if}
         <div class="doors">
           <button class="link" onclick={() => switchPanel("ownership")}>
             {heirNamed ? "Change the heir" : "Name an heir first"}

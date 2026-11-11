@@ -121,6 +121,11 @@
       <p class="hint">
         Anyone with this code can join, so share it directly with people you trust.
       </p>
+      <!-- A troubleshooting question, so a quiet link under the code it is
+           about rather than a third button in the footer. -->
+      <button class="link check" onclick={() => openPanel("reach", "invite")}>
+        Can people reach me?
+      </button>
     </div>
   </div>
 
@@ -155,16 +160,10 @@
   {/if}
 
   <div class="actions">
-    <!-- A troubleshooting question, so a link at the start of the footer
-         rather than a step in the flow. -->
-    <button class="link check" onclick={() => openPanel("reach", "invite")}>
-      Can people reach me?
-    </button>
     {#if canShare}
       <button class="quiet" class:copied onclick={copy}>{copied ? "Copied" : "Copy"}</button>
       <button class="primary" onclick={share}>Share invite…</button>
     {:else}
-      <button class="ghost" onclick={onClose}>Done</button>
       <button class="primary" class:copied onclick={copy}>
         {#if copied}<Icon name="check" size={14} />{/if}
         {copied ? "Copied" : "Copy invite"}
@@ -294,7 +293,7 @@
     color: var(--text-muted);
   }
   .check {
-    margin-right: auto;
+    align-self: flex-start;
     font-size: var(--fs-compact);
   }
   .copied {

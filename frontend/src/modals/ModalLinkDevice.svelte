@@ -1,4 +1,5 @@
 <script>
+  import Caution from "./Caution.svelte";
   // "Link a device": the issuer side. Shows a QR (and the raw code as a
   // fallback) that a new device scans/pastes to join this account. The code
   // carries a single-use secret + how to reach us; it expires in ~2 minutes.
@@ -143,10 +144,10 @@
     <p class="muted">Generating code…</p>
   {/if}
 
-  <p class="muted tiny warn">
-    Anyone who scans this within the next couple of minutes can add a device to
-    your account — only use it on a device you own.
-  </p>
+  <Caution
+    text="Only scan this with a device you own."
+    detail="Anyone who scans this code within the next couple of minutes can add a device to your account."
+  />
   {/if}
 </RailShell>
 
@@ -235,8 +236,5 @@
   }
   .tiny {
     font-size: var(--fs-compact);
-  }
-  .warn {
-    color: var(--danger-text);
   }
 </style>

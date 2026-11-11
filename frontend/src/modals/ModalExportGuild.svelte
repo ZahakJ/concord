@@ -1,4 +1,5 @@
 <script>
+  import Caution from "./Caution.svelte";
   // Export history — a PAGE, because of what it does.
   //
   // It used to be a chevron row in the hub, identical in shape to the ten rows
@@ -131,13 +132,10 @@
   </div>
 
   <!-- The sentence the row never said. It is the whole reason this is a page. -->
-  <p class="warn-line">
-    <Icon name="alert" size={13} />
-    <span>
-      This writes an <strong>unencrypted</strong> copy of everything to your disk. Anyone who can
-      read that file can read the guild, and no retention setting reaches it once it is written.
-    </span>
-  </p>
+  <Caution
+    text="The file is not encrypted: anyone who can read it can read the guild."
+    detail="This writes a plain copy of everything to your disk, and no retention setting reaches it once it is written."
+  />
 
   {#if err}
     <p class="err">{err}</p>

@@ -1,4 +1,5 @@
 <script>
+  import Caution from "./Caution.svelte";
   import Icon from "../Icon.svelte";
   // Privacy & safety: the switches whose defaults are deliberate, each with the
   // reason it's set that way. These used to sit in the main Settings list with
@@ -145,10 +146,11 @@
       onclick={() => setPref("hideCallIp", !S.prefs.hideCallIp)}
     />
     {#if mediaRelay === false}
-      <p class="warn-line ip-note">
-        <Icon name="alert" size={13} />
-        <span>This rendezvous can't relay calls, so people on a call can still see your IP. The switch starts working if it gains a relay.</span>
-      </p>
+      <Caution
+        class="ip-note"
+        text="This rendezvous can't relay calls, so others on a call can still see your IP."
+        detail="The switch starts working if your rendezvous gains a relay."
+      />
     {/if}
     <SettingRow
       icon="edit"
@@ -257,7 +259,7 @@
   /* Full-strength, not a faded disabled row: locking a privacy switch without
      saying why is how this read as broken. Sits in the group's card under
      Hide my IP so the reason is on the setting, not in an ⓘ. */
-  .ip-note {
+  :global(.warn-line.ip-note) {
     padding: 0 0 var(--sp-2) var(--sp-5);
   }
 </style>

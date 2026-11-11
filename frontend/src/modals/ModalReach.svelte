@@ -1,4 +1,5 @@
 <script>
+  import Caution from "./Caution.svelte";
   // "Can people reach me?" — the diagnosis, not the manual.
   //
   // The three settings that decide reachability live in three different places
@@ -199,27 +200,17 @@
     </div>
 
     {#if portDrifts}
-      <p class="warn-line">
-        <Icon name="alert" size={13} />
-        <span>
-          Your port changes each time Concord starts, so invite codes you have already shared lose
-          their direct route after a restart.
-          {#if r.hasRendezvous}Friends still get in through your rendezvous.{:else}With no rendezvous
-            set, those codes stop working.{/if}
-          Pinning a port keeps them valid.
-        </span>
-      </p>
+      <Caution
+        text="Your port changes on every restart, so shared invite codes lose their direct route."
+        detail={`${r.hasRendezvous ? "Friends still get in through your rendezvous." : "With no rendezvous set, those codes stop working."} Pinning a port keeps them valid.`}
+      />
     {/if}
 
     {#if r.pinnedPortTaken}
-      <p class="warn-line">
-        <Icon name="alert" size={13} />
-        <span>
-          Port {r.pinnedPort} was already taken by another program when Concord started, so your
-          router rule leads nowhere this session. Pick another port, or close that program, and
-          restart.
-        </span>
-      </p>
+      <Caution
+        text={`Port ${r.pinnedPort} is taken by another program this session.`}
+        detail="It was already in use when Concord started, so your router rule leads nowhere until then. Pick another port, or close that program, and restart."
+      />
     {/if}
 
     <SettingGroup

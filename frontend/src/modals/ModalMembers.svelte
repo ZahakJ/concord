@@ -227,12 +227,14 @@
                 </td>
               {/if}
               <td class="who">
-                <Avatar name={m.name || m.fingerprint} image={m.avatar} emoji={m.emoji} color={m.color} size={24} />
-                <span class="nm">
-                  <span class="n1">{m.name || "Unknown"}</span>
-                  {#if m.username && m.username !== m.name}
-                    <span class="n2">{m.username}</span>
-                  {/if}
+                <span class="who-in">
+                  <Avatar name={m.name || m.fingerprint} image={m.avatar} emoji={m.emoji} color={m.color} size={24} />
+                  <span class="nm">
+                    <span class="n1">{m.name || "Unknown"}</span>
+                    {#if m.username && m.username !== m.name}
+                      <span class="n2">{m.username}</span>
+                    {/if}
+                  </span>
                 </span>
               </td>
               <td class="roles">
@@ -482,7 +484,10 @@
   .pick {
     width: 30px;
   }
-  .who {
+  /* The cell stays a table cell — a flex td leaves the table's row model,
+     drawing its own divider at its own height (about 10px above the row's)
+     and ignoring the row's vertical centring. The flex lives inside it. */
+  .who-in {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
