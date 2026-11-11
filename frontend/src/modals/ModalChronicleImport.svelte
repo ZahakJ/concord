@@ -14,6 +14,7 @@
   // backend with an id, and reopening this dialog picks the job back up rather
   // than offering to start a second one.
   import RailShell from "./RailShell.svelte";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
   import EmptyState from "../EmptyState.svelte";
   import InfoDot from "./InfoDot.svelte";
@@ -65,6 +66,10 @@
   let sortDir = $state(-1);
 
   let starting = $state(false);
+  // Replacing an attached archive is the one irreversible thing this wizard
+  // does, so it is asked as its own question rather than carried by the
+  // label of the button that also starts an ordinary import.
+  let askReplace = $state(false);
 
   // ---- picking a folder ----
 
@@ -512,8 +517,12 @@
     {#if S.chronicle}<p class="note" role="note">{replaceNotice(S.chronicle)}</p>{/if}
     <div class="actions">
       <button class="ghost" onclick={() => (step = "bill")}>Back</button>
-      <button class="primary" disabled={starting || !est?.messages} onclick={start}>
-        {#if starting}<span class="spin"></span> Starting…{:else}{S.chronicle ? "Replace and import" : "Import"}{/if}
+      <button
+        class="primary"
+        disabled={starting || !est?.messages}
+        onclick={() => (S.chronicle ? (askReplace = true) : start())}
+      >
+        {#if starting}<span class="spin"></span> Starting…{:else}{S.chronicle ? "Replace and import…" : "Import"}{/if}
       </button>
     </div>
   {:else}
@@ -575,6 +584,20 @@
     {/if}
   {/if}
 </RailShell>
+
+{#if askReplace && S.chronicle}
+  <ConfirmDialog
+    title={`Replace “${S.chronicle.source || "the imported archive"}”?`}
+    body={`${replaceNotice(S.chronicle)} This can't be undone.`}
+    confirmLabel="Replace and import"
+    danger
+    onConfirm={() => {
+      askReplace = false;
+      start();
+    }}
+    onClose={() => (askReplace = false)}
+  />
+{/if}
 
 <style>
   .lead {
