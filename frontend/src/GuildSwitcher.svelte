@@ -30,9 +30,12 @@
   import { plural } from "./lib/plural.js";
   import { focusOnMount } from "./lib/focus.js";
   import { viewport } from "./lib/place.js";
+  import { sheetdrag } from "./lib/sheet.js";
 
   const L = layer("popover", closeGuildSwitcher);
   void L;
+  let sheetEl = $state(null);
+  let scrimEl = $state(null);
   const phone = $derived(S.isMobile);
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
 
@@ -310,9 +313,20 @@
 />
 
 {#if phone}
-  <button class="gsw-scrim" aria-label="Close guild switcher" onclick={closeGuildSwitcher}></button>
+  <button class="gsw-scrim" aria-label="Close guild switcher" onclick={closeGuildSwitcher} bind:this={scrimEl}></button>
 {/if}
-<div class="gsw" class:sheet={phone} style={pos} role="dialog" aria-label="Guilds">
+<div class="gsw" class:sheet={phone} style={pos} role="dialog" aria-label="Guilds" bind:this={sheetEl}>
+  {#if phone}
+    <!-- A sheet has a grip, and pulling it down dismisses it, like every
+         other sheet on the phone. -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="gsw-grab"
+      use:sheetdrag={{ sheet: () => sheetEl, scrim: () => scrimEl, scroller: () => listEl, onDismiss: closeGuildSwitcher }}
+    >
+      <span class="gsw-handle"></span>
+    </div>
+  {/if}
   <div class="gsw-head">
     <label class="gsw-find">
       <Icon name="search" size={14} />
@@ -501,6 +515,20 @@
       opacity: 0;
       transform: translateY(-4px);
     }
+  }
+  .gsw-grab {
+    padding: 8px 0 4px;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .gsw-handle {
+    display: block;
+    width: 40px;
+    height: 5px;
+    margin: 0 auto;
+    border-radius: 999px;
+    background: var(--border);
   }
   .gsw.sheet {
     left: 0;

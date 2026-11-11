@@ -292,7 +292,12 @@
     if (g && g.kind !== "dm") lastGuildId = g.id;
   });
   function goHome() {
-    if (tab === "home") return;
+    // Tapping the tab you are on takes its list back to the top, as tab bars
+    // do; the switcher is the long-press.
+    if (tab === "home") {
+      document.querySelector(".home-list .scroll")?.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      return;
+    }
     const g = S.guilds.find((x) => x.id === lastGuildId) || S.guilds.find((x) => x.kind !== "dm");
     if (g) selectGuild(g.id, { browse: true });
   }
