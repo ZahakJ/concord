@@ -1818,6 +1818,16 @@ button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
+/* A primary that cannot be pressed yet is the resting state of almost every
+   form (Create, Post, Save before anything is typed). Faded, it was a pale
+   accent fill under white ink at about 2:1 in the light theme: a button that
+   looked broken rather than waiting. It rests as a quiet grey chip in muted
+   ink instead, and turns into the accent the moment it can be pressed. */
+button.primary:disabled {
+  opacity: 1;
+  background: var(--bg-3);
+  color: var(--text-muted);
+}
 
 /* ---- call chrome: one language, three sizes -------------------------------
    A two-person call at 1440x900 puts four call bars on screen at once — the
