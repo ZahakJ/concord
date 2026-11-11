@@ -1842,9 +1842,12 @@ button:disabled {
   width: 24px;
   height: 24px;
 }
+/* The dock's controls are the md icon button, 32px: at 26px (22px of
+   glyph and ring) mic, deafen, camera and screen were the smallest targets
+   in the sidebar while the call was the thing going on. */
 .callbtn.sm {
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
 }
 .callbtn.lg {
   width: 44px;

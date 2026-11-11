@@ -259,20 +259,18 @@
 
     <div class="caption-wrap">
       <p class="caption">{story.caption}</p>
-      <!-- The author's accent pair as the underline — their colors sign the
-           words the way they ring their tile in the tray. Backend-gated #hex. -->
+      <!-- The author's colour as the underline — it signs the words the way it
+           rings their tile. Solid, not a gradient: decoration stays flat. -->
       <span
         class="accent"
         aria-hidden="true"
-        style="background:linear-gradient(90deg, {story.color1 || 'var(--accent)'}, {story.color2 ||
-          story.color1 ||
-          'var(--accent)'})"
+        style="background:{story.color1 || 'var(--accent)'}"
       ></span>
     </div>
 
     {#if !isSelf}
       <button class="reply" onclick={reply}>
-        <Icon name="spark" size={13} /> Reply
+        <Icon name="reply" size={14} /> Reply
       </button>
     {/if}
   </div>
@@ -378,13 +376,14 @@
     width: auto;
     border-radius: 999px;
     padding: 0 12px;
-    background: rgba(196, 49, 42, 0.9);
+    background: var(--danger);
+    color: var(--danger-fg);
     font-size: var(--fs-small);
     font-weight: 600;
   }
   .del.armed:hover,
   .del.armed:active {
-    background: rgba(219, 55, 47, 0.95);
+    filter: brightness(1.12);
   }
   .caption-wrap {
     position: relative;
@@ -424,7 +423,8 @@
     color: #fff;
     border: 1px solid rgba(255, 255, 255, 0.35);
     border-radius: 999px;
-    padding: 9px 18px;
+    min-height: 40px;
+    padding: 0 18px;
     font-size: var(--fs-ui);
     font-weight: 600;
   }
