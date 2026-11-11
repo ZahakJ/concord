@@ -9,6 +9,7 @@
   //      digest entry, not in the passphrase backup. Your phone does not know
   //      about it, and neither does a restored account. A privacy setting that
   //      silently fails to travel is worse than one that says it doesn't.
+  import EmptyState from "../EmptyState.svelte";
   import RailShell from "./RailShell.svelte";
   import Avatar from "../Avatar.svelte";
   import Icon from "../Icon.svelte";
@@ -19,12 +20,12 @@
 
 <RailShell title="Blocked users" {onClose}>
   {#if S.blocked.length === 0}
-    <p class="muted empty">
-      You haven't blocked anyone. Blocking hides everything the person posts —
-      messages, forum threads, reactions on yours, their typing line, their
-      moments, their name in a call — and stops them adding you to a DM or a
-      guild. Open their profile and choose “Block”.
-    </p>
+    <EmptyState
+      compact
+      icon="eyeOff"
+      headline="Nobody blocked"
+      sub="Blocking hides everything a person posts — messages, threads, reactions, moments, their name in a call — and stops them adding you to a DM or a guild. Open their profile and choose “Block”."
+    />
   {:else}
     <p class="muted tiny intro">
       You don't see anything these people post, and they can't add you to a DM
@@ -78,11 +79,7 @@
     align-items: flex-start;
     font-size: var(--fs-small);
     line-height: 1.5;
-    margin: var(--sp-3) 0 0;
-    padding: var(--sp-2) 10px;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    margin: var(--sp-2) 0 0;
   }
   .scope :global(svg) {
     flex-shrink: 0;

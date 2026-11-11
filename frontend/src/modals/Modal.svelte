@@ -654,6 +654,12 @@
     padding: 0 14px;
     font-size: var(--fs-compact);
   }
+  /* An empty state in a dialog lines up with the rest of the body: the
+     column already has the dialog's inset. */
+  .dialog :global(.empty) {
+    padding-left: 0;
+    padding-right: 0;
+  }
   .dialog :global(.actions > button) {
     min-height: 32px;
     padding-top: 0;

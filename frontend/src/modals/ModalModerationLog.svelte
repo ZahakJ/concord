@@ -126,7 +126,7 @@
       sub="No roles, removals, bans, mutes or channel changes have happened in this guild. When one does, it will be signed and it will show up here."
     />
   {:else if shown.length === 0}
-    <p class="note">Nothing in this part of the log yet. Try another filter.</p>
+    <EmptyState compact icon="list" headline="Nothing here yet" sub="Nothing in this part of the log so far. Try another filter." />
   {:else}
     <ul class="log">
       {#each shown as e (e.hash)}
@@ -204,7 +204,11 @@
     font-size: var(--fs-ui);
     color: var(--text-muted);
   }
+  /* flex: none — the pane is a flex column, and a child with overflow-x set
+     has a zero minimum height, so a long log squeezed the filter row to a
+     3px sliver under the description. */
   .filters {
+    flex: none;
     margin-bottom: var(--sp-3);
     overflow-x: auto;
     scrollbar-width: none;

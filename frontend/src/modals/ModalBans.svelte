@@ -1,5 +1,6 @@
 <script>
   // Lists a guild's banned members and lets a moderator lift a ban.
+  import EmptyState from "../EmptyState.svelte";
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
@@ -77,7 +78,12 @@
   {#if loading}
     <p class="muted empty">Loading…</p>
   {:else if bans.length === 0}
-    <p class="muted empty">No one is banned from this guild.</p>
+    <EmptyState
+      compact
+      icon="door"
+      headline="Nobody banned"
+      sub="A member banned from the member list or their profile shows up here, with the reason, and can be let back in."
+    />
   {:else}
     {#if bans.length > 4}
       <label class="search">

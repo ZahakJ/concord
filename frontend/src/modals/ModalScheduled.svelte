@@ -3,6 +3,7 @@
   // (held by the Go service — see lib/scheduled.svelte.js) and pending message
   // reminders (local to this window), each with when it fires, where it lives,
   // and a cancel. Jumping takes you to the channel/message.
+  import EmptyState from "../EmptyState.svelte";
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import { S, jumpToChannel } from "../lib/state.svelte.js";
@@ -64,9 +65,12 @@
   <section>
     <strong class="label">Reminders</strong>
     {#if reminders.length === 0}
-      <p class="muted empty">
-        No reminders. {S.isMobile ? "Long-press" : "Right-click"} a message → “Remind me”.
-      </p>
+      <EmptyState
+        compact
+        icon="bell"
+        headline="No reminders"
+        sub={`${S.isMobile ? "Long-press" : "Right-click"} a message and choose “Remind me”.`}
+      />
     {:else}
       {#each reminders as r (r.id)}
         <div class="row">

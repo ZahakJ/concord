@@ -6,6 +6,7 @@
   // event in your Notes calendar. Nothing about your calendar is stored on the
   // server, which is also why the page honestly reads "unreachable" when this
   // app is closed.
+  import EmptyState from "../EmptyState.svelte";
   import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import Select from "../Select.svelte";
@@ -238,7 +239,12 @@
     info="Each booking is also an event in your Notes calendar and a ⚡ meeting room in your sidebar. Cancelling frees the slot and expires the visitor's link — they'll see the meeting is no longer valid."
   >
     {#if bookings.length === 0}
-      <p class="empty">Nothing booked yet.</p>
+      <EmptyState
+        compact
+        icon="calendar"
+        headline="Nothing booked yet"
+        sub="When someone books one of your open hours it shows up here, and in your calendar."
+      />
     {:else}
       {#each bookings as b (b.eventId)}
         <div class="bkrow">
