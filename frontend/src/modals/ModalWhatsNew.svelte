@@ -46,7 +46,9 @@
   // being shouted at.
 </script>
 
-<Modal title={`What's new${version ? ` in ${version}` : ""}`} size="m" {onClose}>
+<!-- No build channel in the title: "What's new in dev" named an internal
+     word to the person reading it. The version is in Settings › Account. -->
+<Modal title="What's new" size="m" {onClose}>
   <div class="rows">
     {#each HIGHLIGHTS as h (h.title)}
       <div class="row">
@@ -78,12 +80,9 @@
   }
   .ric {
     flex: none;
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border);
     display: grid;
     place-items: center;
+    height: 20px;
     color: var(--text-muted);
   }
   .rtext {

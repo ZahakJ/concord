@@ -236,7 +236,7 @@
       <input
         id="chron-dir"
         type="text"
-        placeholder="/home/you/exports/old-community"
+        placeholder="The folder your export is in"
         bind:value={dir}
         autofocus={!S.isMobile}
         onkeydown={(e) => e.key === "Enter" && scan()}

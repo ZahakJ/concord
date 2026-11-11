@@ -4,7 +4,6 @@
   // redeems the invite code — see internal/app/dm.go, which deliberately does
   // NOT auto-redeem guild invites the way DM invites are auto-redeemed).
   import Modal from "./Modal.svelte";
-  import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import { S, flash, refreshGuilds, selectGuild } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
@@ -38,34 +37,43 @@
       image={fromContact?.avatar || ""}
       emoji={fromContact?.emoji || ""}
       color={fromContact?.color || ""}
-      size={44}
+      size={40}
     />
-    <p>
-      <strong>{invite.fromName || invite.from.slice(0, 9)}</strong> invited you to
-      <strong>{invite.guild || "their guild"}</strong>.
-    </p>
-    <p class="tiny muted">
-      You've verified them, which is why this reached you at all — invites from
-      anyone else are ignored.
-    </p>
+    <div class="who-text">
+      <p>
+        <strong>{invite.fromName || invite.from.slice(0, 9)}</strong> invited you to
+        <strong>{invite.guild || "their guild"}</strong>.
+      </p>
+      <p class="tiny muted">
+        You've verified them, which is why this reached you at all — invites from
+        anyone else are ignored.
+      </p>
+    </div>
   </div>
   <div class="actions">
     <button class="ghost" disabled={busy} onclick={onClose}>Ignore</button>
     <button class="primary" disabled={busy} onclick={accept}>
-      <Icon name="check" size={14} />
       {busy ? "Joining…" : "Join guild"}
     </button>
   </div>
 </Modal>
 
 <style>
+  /* Left-aligned like every dialog body: the inviter's avatar beside the
+     sentence, not stacked over it in the middle of the box. */
   .who {
     display: flex;
+    align-items: flex-start;
+    gap: var(--sp-3);
+  }
+  .who-text {
+    display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: var(--sp-2);
-    text-align: center;
-    padding: 6px 0 4px;
+    gap: var(--sp-1);
+    min-width: 0;
+  }
+  .tiny {
+    font-size: var(--fs-small);
   }
   .who p {
     margin: 0;

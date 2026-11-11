@@ -113,17 +113,19 @@
 </script>
 
 <Modal title="Join a guild" {onClose}>
-  <!-- The doorway: an empty dashed bubble that becomes the guild's actual rail
-       bubble the moment a real code lands. aria-live so the reveal is spoken. -->
-  <div class="hero" aria-live="polite">
-    <span class="bubble" class:ready class:knock={busy} class:bad={showError} style={ready ? tint(preview.id) : ""}>
-      {#if ready && initials}
-        {initials}
-      {:else}
-        <Icon name="door" size={24} />
-      {/if}
-    </span>
+  <!-- Before a code: one line saying what to paste. Once a real code lands,
+       a preview row — the guild's bubble, its name, where things stand —
+       left-aligned like every dialog body. aria-live so the reveal is spoken.
+       (A centred dashed door tile stood in for the guild before; it was a
+       decoration in a dialog that has one job.) -->
+  <div class="hero" class:ready aria-live="polite">
     {#if ready}
+      <span class="bubble" class:ready class:knock={busy} class:bad={showError} style={tint(preview.id)}>
+        {#if initials}{initials}{:else}<Icon name="door" size={18} />{/if}
+      </span>
+    {/if}
+    {#if ready}
+      <span class="hero-text">
       <span class="dest">{preview.name || "A guild awaits"}</span>
       <span class="sub arrived" class:warn={!!failure}>
         {#if failure}
@@ -134,8 +136,8 @@
           {busy ? "Knocking — whoever made this code lets you in…" : "You're invited — step in."}
         {/if}
       </span>
+      </span>
     {:else}
-      <span class="dest ph">Somewhere new</span>
       <span class="sub" class:warn={!!failure || code.trim().length > 8}>
         {#if failure}
           {failure.title}
@@ -181,20 +183,28 @@
 <style>
   .hero {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: var(--sp-2);
-    padding: var(--sp-1) 0 0;
-    text-align: center;
+    gap: var(--sp-3);
+    min-height: 20px;
+  }
+  .hero.ready {
+    padding: var(--sp-1) 0;
+  }
+  .hero-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
   }
   .bubble {
-    width: 64px;
-    height: 64px;
-    border-radius: 20px;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
     display: grid;
     place-items: center;
-    font-size: var(--fs-display);
-    font-weight: 700;
+    font-size: var(--fs-ui);
+    font-weight: 600;
     color: var(--accent-hover);
     background: var(--accent-soft);
     border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
@@ -230,24 +240,17 @@
     }
   }
   .dest {
-    font-size: var(--fs-title);
-    font-weight: 700;
-    max-width: 280px;
+    font-size: var(--fs-ui);
+    font-weight: 600;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     animation: rise 0.25s ease both;
   }
-  .dest.ph {
-    color: var(--text-faint);
-    font-weight: 500;
-    font-size: var(--fs-ui);
-    animation: none;
-  }
   .sub {
     font-size: var(--fs-compact);
     color: var(--text-muted);
-    max-width: 300px;
   }
   .sub.arrived {
     color: var(--ok-text);
@@ -255,7 +258,7 @@
   }
   .sub.warn,
   .sub.arrived.warn {
-    color: var(--warn);
+    color: var(--warn-text);
   }
   @keyframes rise {
     from {

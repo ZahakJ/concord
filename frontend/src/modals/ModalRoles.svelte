@@ -5,7 +5,7 @@
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
-  import { S, activeGuild, refreshRightPanel, flash, nameInk } from "../lib/state.svelte.js";
+  import { S, activeGuild, refreshRightPanel, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { PERM_LIST, PERM_ALL, has } from "../lib/perms.js";
 
@@ -145,12 +145,18 @@
     {#if loading}
       <p class="muted empty">Loading…</p>
     {:else}
+      <!-- The list's own header: how many, and the one way to add another. -->
+      <div class="list-head">
+        <span class="count">{roles.length} {roles.length === 1 ? "role" : "roles"}, highest first</span>
+        <button class="primary new" onclick={newRole}><Icon name="plus" size={13} /> New role</button>
+      </div>
       <div class="list">
         {#each roles as r (r.id)}
           <div class="role-row">
             <button class="role" data-role-id={r.id} onclick={() => edit(r)}>
               <span class="swatch" style="background:{r.color || 'var(--text-faint)'}"></span>
-              <span class="role-name" style={r.color ? `color:${nameInk(r.color)}` : ""}>{r.name}</span>
+              <span class="role-name">{r.name}</span>
+              <span class="chev" aria-hidden="true"><Icon name="chevron" size={14} /></span>
             </button>
             <button class="del" title="Delete role" aria-label="Delete role" onclick={() => (confirmDel = r)}>
               <Icon name="trash" size={13} />
@@ -160,7 +166,6 @@
           <p class="muted empty">No roles yet. Create one to grant specific permissions.</p>
         {/each}
       </div>
-      <button class="primary new" onclick={newRole}><Icon name="plus" size={13} /> New role</button>
     {/if}
   {/if}
 </RailShell>
@@ -196,14 +201,39 @@
       overflow-y: visible;
     }
   }
+  .list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    flex: none;
+  }
+  .count {
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+  }
+  /* List rows split by hairlines; the role's colour is its swatch, the name
+     is in ink like every other name in a list. */
   .role-row {
     display: flex;
     align-items: center;
-    border-radius: var(--radius-sm);
+    min-height: 40px;
   }
-  .role-row:hover,
+  .role-row + .role-row {
+    border-top: 1px solid var(--hairline);
+  }
+  @media (pointer: fine) {
+    .role-row:hover {
+      background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+    }
+  }
   .role-row:active {
     background: var(--bg-3);
+  }
+  .chev {
+    margin-left: auto;
+    display: grid;
+    color: var(--text-faint);
   }
   .role {
     flex: 1;
@@ -223,7 +253,7 @@
   }
   .role-name {
     font-size: var(--fs-ui);
-    font-weight: 600;
+    font-weight: 500;
   }
   .del {
     background: transparent;
@@ -249,12 +279,7 @@
     border-radius: var(--radius-sm);
   }
   .new {
-    margin-top: 10px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--fs-ui);
-    align-self: flex-start;
+    flex: none;
   }
   .editor {
     display: flex;

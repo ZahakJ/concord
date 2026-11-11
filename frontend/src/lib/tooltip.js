@@ -91,7 +91,7 @@ function show(node, opts) {
   const p = place({
     anchor: rectOf(node),
     ...sizeOf(el),
-    side: opts.side === "right" ? "right" : "bottom",
+    side: ["right", "top", "left"].includes(opts.side) ? opts.side : "bottom",
     align: "center",
     gap: GAP,
     pad: PAD,

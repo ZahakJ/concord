@@ -83,15 +83,14 @@
       <div class="way-text">
         <strong>Point it at a rendezvous first</strong>
         <span class="muted">
-          Yours, or one a friend runs. It's a tiny relay — see docs/RENDEZVOUS.md
-          for the twenty-minute version.
+          Yours, or one a friend runs — the person who set it up can give you its address.
         </span>
       </div>
     </div>
     <textarea
       class="code-box"
       rows="2"
-      placeholder="/dns4/relay.example.org/tcp/4001/p2p/12D3Koo…"
+      placeholder="Paste the rendezvous address"
       bind:value={addr}
     ></textarea>
     {#if lines.length && !ok}

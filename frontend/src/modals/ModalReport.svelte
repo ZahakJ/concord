@@ -108,8 +108,8 @@
   <p class="foot">
     If this guild has admins, they can delete the message and remove the member
     for everyone — ask them. And if the problem is Concord itself rather than a
-    person, that <em>is</em> something the maintainers can fix: see SECURITY.md
-    in the repository for how to reach them privately.
+    person, that <em>is</em> something the people who make Concord can fix — the
+    project's security page says how to reach them privately.
   </p>
 
   <div class="actions">

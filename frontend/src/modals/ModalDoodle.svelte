@@ -236,7 +236,7 @@
           role="radio"
           aria-checked={colour === i}
           aria-label={c.label}
-          use:tooltip
+          use:tooltip={{ side: "top" }}
           style:--ink={c.css}
           onclick={() => (colour = i)}
         ></button>
@@ -257,7 +257,7 @@
             role="radio"
             aria-checked={width === i}
             aria-label={["Thin", "Medium", "Thick"][i]}
-            use:tooltip
+            use:tooltip={{ side: "top" }}
             onclick={() => (width = i)}
           >
             <span class="stroke" style:--d="{Math.min(w + 2, 10)}px"></span>

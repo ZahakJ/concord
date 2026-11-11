@@ -647,9 +647,11 @@
       transform: translateY(-1px);
     }
   }
+  /* Selected is a 2px ring in the accent ink; the ground stays the ground
+     (an accent-tinted fill read as a filled button among plain ones). */
   .lay.on {
-    border-color: var(--accent);
-    background: var(--accent-soft);
+    border-color: transparent;
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
     color: var(--text);
   }
   .lay b {
@@ -705,8 +707,7 @@
     display: none;
   }
   .lay.on .dia i {
-    background: var(--accent);
-    opacity: 0.85;
+    background: var(--text-muted);
   }
 
   /* ---- art picker ------------------------------------------------------- */
@@ -735,8 +736,10 @@
       transform: translateY(-2px);
     }
   }
+  /* An outline: the art layer would paint over an inset ring. */
   .art.on {
-    border-color: var(--accent);
+    outline: 2px solid var(--accent-hover);
+    outline-offset: -2px;
   }
   .art :global(.bnr) {
     position: absolute;

@@ -97,7 +97,9 @@
 
 <svelte:window onpaste={onPaste} />
 
-<RailShell title="Guild settings" {onClose} wide>
+<!-- On the rail this is the Overview page, and the rail entry and the page
+     it lands on say the same word. -->
+<RailShell title={S.modal?.hub ? "Overview" : "Guild settings"} {onClose} wide>
   <!-- IDENTITY FIRST. The panel is called "Name, icon, banner & description"
        and used to put them in the reverse of that order: a 24-tile animated
        template gallery ate three hundred pixels and the guild's own NAME

@@ -441,7 +441,8 @@
     <!-- Save greys out without a name; this says why, and says the limit the
          field otherwise enforces by silently dropping the 33rd character. -->
     <span id="name-hint" class="hint" class:bad={!nameOk}>
-      {#if !nameOk}A name needs at least one visible character.{:else}{[...name].length}/32{/if}
+      <!-- The count appears near the limit (80%), not as a permanent "4/32". -->
+      {#if !nameOk}A name needs at least one visible character.{:else if [...name].length >= 26}{[...name].length}/32{/if}
     </span>
   </label>
   <div class="field">

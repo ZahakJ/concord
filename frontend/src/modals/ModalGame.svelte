@@ -135,9 +135,11 @@
     color: var(--text);
     cursor: pointer;
   }
+  /* Selected is a 2px ring in the accent ink; the ground stays the ground
+     (an accent-tinted fill read as a filled button among plain ones). */
   .pick.on {
-    border-color: var(--accent);
-    background: var(--accent-soft);
+    border-color: transparent;
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
   }
   .pname {
     font-size: var(--fs-ui);
@@ -172,8 +174,8 @@
     cursor: pointer;
   }
   .opp.on {
-    border-color: var(--accent);
-    background: var(--accent-soft);
+    border-color: transparent;
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
   }
   .oav {
     grid-row: 1 / span 2;

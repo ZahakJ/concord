@@ -16,7 +16,7 @@
     onSubmit,
     onClose,
     title = "Create a guild",
-    hint = "A guild is your own end-to-end-encrypted space with channels.",
+    hint = "A guild is your own end-to-end encrypted place: its people and its channels.",
     placeholder = "Guild name",
     // The same dialog renames a guild; its button and starting text follow.
     confirmLabel = "",
@@ -81,7 +81,7 @@
         <span class="cam" aria-hidden="true"><Icon name="image" size={13} /></span>
       </button>
       <span class="hero-text">
-        <span class="bubble-name" class:ph={!name.trim()}>{name.trim() || "Your new space"}</span>
+        <span class="bubble-name" class:ph={!name.trim()}>{name.trim() || "Your new guild"}</span>
         <span class="hero-sub">{hint}</span>
         {#if icon}
           <button type="button" class="linky" onclick={() => (icon = "")}>Remove icon</button>
@@ -91,10 +91,6 @@
         {/if}
       </span>
     </div>
-  {:else}
-    <div class="hero">
-      <span class="bubble static"><Icon name="spark" size={22} /></span>
-    </div>
   {/if}
 
   {#if !isGuild}
@@ -103,14 +99,17 @@
   <!-- Not on a phone: the soft keyboard opens while the sheet is still running
        its 0.28s slide-up, so the sheet's max-height recomputes mid-animation
        and the panel visibly jumps. The field is one tap away. -->
-  <input
-    {placeholder}
-    aria-label={placeholder}
-    bind:value={name}
-    autofocus={!S.isMobile}
-    maxlength={GUILD_NAME_MAX}
-    onkeydown={(e) => e.key === "Enter" && name.trim() && submit()}
-  />
+  <!-- A visible label above the field, like every other field: a
+       placeholder that is the only name vanishes the moment you type. -->
+  <label class="fld">
+    <span class="lbl">{placeholder}</span>
+    <input
+      bind:value={name}
+      autofocus={!S.isMobile}
+      maxlength={GUILD_NAME_MAX}
+      onkeydown={(e) => e.key === "Enter" && name.trim() && submit()}
+    />
+  </label>
 
   {#if isGuild}
     <label class="fld">
@@ -119,7 +118,7 @@
         bind:value={description}
         maxlength="200"
         rows="2"
-        placeholder="What's this space for?"
+        placeholder="What's this guild for?"
       ></textarea>
     </label>
 
@@ -234,9 +233,6 @@
       border-color var(--dur-calm) ease,
       box-shadow var(--dur-calm) ease;
   }
-  .bubble.static {
-    cursor: default;
-  }
   .bubble img {
     width: 100%;
     height: 100%;
@@ -266,9 +262,6 @@
     background: var(--bg-1);
     border: 1px solid var(--border);
     color: var(--text-muted);
-  }
-  .bubble.static .cam {
-    display: none;
   }
   .bubble:hover .cam {
     color: var(--text);
@@ -304,9 +297,9 @@
     gap: 6px;
   }
   .lbl {
-    font-size: var(--fs-small);
-    font-weight: 600;
-    color: var(--text-muted);
+    font-size: var(--fs-compact);
+    font-weight: 500;
+    color: var(--text);
   }
   .opt {
     font-weight: 500;
@@ -344,16 +337,28 @@
       box-shadow var(--dur-quick) ease,
       transform var(--dur-quick) var(--ease-out);
   }
-  .tpl:hover {
-    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-    transform: translateY(-1px);
+  @media (pointer: fine) {
+    .tpl:hover {
+      border-color: var(--border-strong);
+    }
   }
   /* Ring as a box-shadow, not a fatter border — a border that grows on
      selection re-lays the grid out and the tiles twitch. (Same reason
      ModalCreateChannel's type tiles do it.) */
+  /* Selected is a 2px ring in the accent ink and the tick — the ground
+     stays the ground. A tinted tile with a coloured title read as a filled
+     orange button among three grey ones. */
   .tpl.sel {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px var(--accent-soft);
+    border-color: transparent;
+  }
+  /* Over the miniature, which would otherwise paint across an inset ring. */
+  .tpl.sel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
+    pointer-events: none;
   }
   /* ---- the miniature sidebar ---------------------------------------------
      A fixed height, so the grid is a grid. Anything past it fades out rather
@@ -406,9 +411,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .tpl.sel .mini {
-    background: color-mix(in srgb, var(--accent) 7%, var(--bg-0));
-  }
   .tpl-foot {
     display: flex;
     flex-direction: column;
@@ -418,9 +420,6 @@
   .tpl-foot strong {
     font-size: var(--fs-ui);
     font-weight: 650;
-  }
-  .tpl.sel .tpl-foot strong {
-    color: var(--accent-hover);
   }
   .tpl-count {
     font-size: var(--fs-small);
