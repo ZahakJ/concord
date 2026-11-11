@@ -77,6 +77,20 @@ export function reconcile(items, liveIds) {
   return out;
 }
 
+// seedOrder is the order guilds the layout has never placed are appended in:
+// by name, then id. The guild list arrives from the core in no particular
+// order — it is read off a map, and differs from one call to the next — so
+// on a device with no stored layout yet (a fresh install, a new browser) the
+// first reconcile used to seed the rail, and with it the strip and the
+// switcher, in whatever order that one call happened to return, and save it.
+// One load in several came up with the open guild at the end and kept it.
+// Placed guilds keep their place; this only decides where new ones land.
+export function seedOrder(guilds) {
+  return [...guilds]
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((g) => g.id);
+}
+
 /** Remove a guild from wherever it sits; returns items without it. */
 function extractGuild(items, id) {
   const out = [];

@@ -10,6 +10,9 @@ import {
   setFolderColor,
   guildIdsInLayout,
   guildInitials,
+  seedOrder,
+  sharedOrder,
+  stripTiles,
 } from "./rail.js";
 
 let failures = 0;
@@ -241,4 +244,33 @@ console.log("rail.test.mjs: all passed");
   const again = guildMarks([...gs].reverse());
   for (const id of ["a", "b", "c", "d"]) if (JSON.stringify(again.get(id)) !== JSON.stringify(m.get(id))) fail(`stable for ${id}`);
   if (!process.exitCode) console.log("rail.test.mjs: guild marks ok");
+}
+
+// A device with no stored layout seeds the rail from the guild list, which the
+// core returns in a different order on every call (it is read off a map). The
+// seeded layout — and so the strip and the switcher — must be the same whatever
+// order that list arrived in, including the first load.
+{
+  const fail = (m) => {
+    console.error("FAIL " + m);
+    process.exitCode = 1;
+  };
+  const gs = [
+    { id: "g1", name: "Lantern Makers" },
+    { id: "g2", name: "Riverside Choir" },
+    { id: "g3", name: "Pixel Garden" },
+    { id: "g4", name: "pixel garden" },
+  ];
+  const perms = [[0, 1, 2, 3], [3, 2, 1, 0], [2, 0, 3, 1], [1, 3, 0, 2]];
+  const layouts = perms.map((p) => JSON.stringify(reconcile([], seedOrder(p.map((i) => gs[i])))));
+  if (new Set(layouts).size !== 1) fail("a fresh layout depends on the order the guild list arrived in");
+  const ids = guildIdsInLayout(JSON.parse(layouts[0]));
+  const strip = (cur) =>
+    stripTiles(ids, { pins: [], mentions: new Set(), unread: new Set(), opened: new Map() }, [], cur, 6).shown;
+  if (JSON.stringify(strip("g1")) !== JSON.stringify(sharedOrder(ids, []))) fail("the strip is laid out in the shared order on first load");
+  if (strip("g1").indexOf("g1") !== ids.indexOf("g1")) fail("the open guild sits at its place, not appended at the end");
+  // A guild that arrives later is appended; the placed ones do not move.
+  const later = reconcile(JSON.parse(layouts[0]), seedOrder([...gs, { id: "g5", name: "Aardvarks" }]));
+  if (guildIdsInLayout(later).join() !== [...ids, "g5"].join()) fail("a new guild is appended without moving the placed ones");
+  if (!process.exitCode) console.log("rail.test.mjs: first-load order ok");
 }

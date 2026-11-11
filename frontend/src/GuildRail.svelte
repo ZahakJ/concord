@@ -44,6 +44,7 @@
     guildIdsInLayout,
     stripFit,
     stripTiles,
+    seedOrder,
   } from "./lib/rail.js";
   import { guildMenu, folderMenu, renameFolderTo, stripPins, pinAt, noteOpened, openedTimes } from "./lib/guildmenu.js";
   import { openGuildSwitcher, GSW } from "./lib/guildswitch.svelte.js";
@@ -134,9 +135,11 @@
     S.guilds.filter((x) => x.kind === "dm" && !x.dmNotes && (guildUnread(x).count > 0 || x.id === S.activeGuildId)),
   );
 
-  // Keep the persisted layout in step with the live guild set.
+  // Keep the persisted layout in step with the live guild set. Guilds it has
+  // not placed yet are appended in seedOrder, never in the order the core
+  // happened to list them (lib/rail.js).
   $effect(() => {
-    const ids = allGuilds.map((s) => s.id);
+    const ids = seedOrder(allGuilds);
     const next = reconcile(S.rail, ids);
     if (JSON.stringify(next) !== JSON.stringify(S.rail)) commitRail(next);
   });
