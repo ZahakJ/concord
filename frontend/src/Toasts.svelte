@@ -57,6 +57,15 @@
     >
       <span class="t-icon"><Icon name={ICONS[t.kind] || "info"} size={16} /></span>
       <span class="t-text">{t.text}</span>
+      {#if t.action}
+        <button
+          class="t-action"
+          onclick={() => {
+            dismissToast(t.id);
+            t.action.run();
+          }}>{t.action.label}</button
+        >
+      {/if}
       <button class="t-close" onclick={() => dismissToast(t.id)} aria-label="Dismiss notification">
         <Icon name="close" size={12} />
       </button>
@@ -116,6 +125,23 @@
     flex: 1;
     min-width: 0;
     overflow-wrap: anywhere;
+  }
+  .t-action {
+    flex-shrink: 0;
+    align-self: center;
+    padding: var(--sp-1) var(--sp-2);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  @media (pointer: fine) {
+    .t-action:hover {
+      background: var(--bg-3);
+    }
   }
   .t-close {
     flex-shrink: 0;

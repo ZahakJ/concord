@@ -168,7 +168,8 @@
     // flush as this one, before the template has applied `.placed` — so the
     // panel is still hidden at this instant.
     const el = panel;
-    const raf = requestAnimationFrame(() => (el.querySelector(".menu-item.active:not(:disabled)") || el.querySelector(".menu-item:not(:disabled)"))?.focus({ preventScroll: true }));
+    // Never a destructive row (see ContextMenu): with no safe one, the panel.
+    const raf = requestAnimationFrame(() => (el.querySelector(".menu-item.active:not(:disabled)") || el.querySelector(".menu-item:not(:disabled, .danger)") || el).focus({ preventScroll: true }));
     return () => {
       cancelAnimationFrame(raf);
       // Only hand focus back if it is still ours to hand: an item that opened

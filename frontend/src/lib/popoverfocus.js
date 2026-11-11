@@ -8,9 +8,13 @@
 //
 //   <div role="dialog" use:popoverFocus={!openedByHover}>
 //
-// On open, focus goes to the first control (not a text field: on a phone that
-// would raise the keyboard over the card), or the popover itself. Tab and
-// Shift+Tab cycle inside it. Escape and the way back are the layer stack's
+// On open, focus goes to the popover itself, labelled by its aria-label, and
+// Tab walks forward from its top. It used to go to the first control, and on
+// a member's card that was the × of their first role: Enter opened the card
+// from the member list and the next Enter stripped the role. Whatever the
+// first control is (a role ×, the "Online" presence row) is a change, and a
+// card opened to be read must not be one keystroke from changing anything.
+// Tab and Shift+Tab cycle inside it. Escape and the way back are the layer stack's
 // (lib/navstack.svelte.js), which also returns focus to the trigger.
 
 import { tabbables } from "./menukeys.js";
@@ -33,12 +37,8 @@ export function popoverFocus(node, enabled = true) {
       return;
     }
     if (node.contains(document.activeElement)) return;
-    const first = tabbables(node).find((el) => el.tagName !== "INPUT" && el.tagName !== "TEXTAREA");
-    if (first) first.focus({ preventScroll: true });
-    else {
-      if (!node.hasAttribute("tabindex")) node.setAttribute("tabindex", "-1");
-      node.focus({ preventScroll: true });
-    }
+    if (!node.hasAttribute("tabindex")) node.setAttribute("tabindex", "-1");
+    node.focus({ preventScroll: true });
   }
   function onKey(e) {
     if (e.key !== "Tab" || e.altKey || e.ctrlKey || e.metaKey) return;

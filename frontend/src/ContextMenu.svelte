@@ -53,7 +53,11 @@
     const box = S.isMobile ? sheetEl : el;
     if (!S.contextMenu || !box) return;
     prevFocus = document.activeElement;
-    box.querySelector(".cm-item:not(:disabled), .as-item:not(:disabled)")?.focus();
+    // Never onto a destructive row: Shift+F10 then Enter is how the keyboard
+    // opens a row's menu and takes its first item, and that pair must not be
+    // a deletion. With nothing safe to land on, the menu itself holds focus.
+    const first = box.querySelector(".cm-item:not(:disabled, .danger), .as-item:not(:disabled, .danger)");
+    (first || box).focus();
     return () => {
       // Restore — but only if nobody else has claimed the caret in the meantime.
       //
@@ -263,7 +267,7 @@
   {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="cm-backdrop" onpointerdown={closeContextMenu} oncontextmenu={(e) => e.preventDefault()}></div>
-    <div class="cm" bind:this={el} style="left:{pos.x}px; top:{pos.y}px" role="menu" onkeydown={onMenuKey}>
+    <div class="cm" bind:this={el} style="left:{pos.x}px; top:{pos.y}px" role="menu" tabindex="-1" onkeydown={onMenuKey}>
       {#each S.contextMenu.items as item (item)}
         {#if item.sep}
           <div class="cm-sep"></div>
@@ -433,6 +437,10 @@
     position: fixed;
     inset: 0;
     z-index: 400;
+  }
+  /* Holds focus only when every row is destructive; a place, not a control. */
+  .cm:focus-visible {
+    outline: none;
   }
   .cm {
     position: fixed;

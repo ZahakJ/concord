@@ -223,14 +223,32 @@
     toggleAdminFor(mem);
   }
 
-  async function toggleRole(role) {
-    const hasRole = mem.roleIds?.includes(role.id);
+  // Taking a role away is one press of its ×, so it says what it did and
+  // offers it back: a slip of the keyboard or the thumb should cost an Undo,
+  // not a trip to the guild's settings to find out what was lost. The undo
+  // carries its own guild, person and role — the card may be closed or showing
+  // someone else by the time it is pressed.
+  async function assign(gid, fpr, role, on) {
     try {
-      await api.assignRole(S.activeGuildId, mem.fingerprint, role.id, !hasRole);
-      await refreshRightPanel();
+      await api.assignRole(gid, fpr, role.id, on);
+      if (gid === S.activeGuildId) await refreshRightPanel();
+      return true;
     } catch (err) {
       flash(err);
+      return false;
     }
+  }
+
+  async function toggleRole(role) {
+    const gid = S.activeGuildId;
+    const fpr = mem.fingerprint;
+    const name = mem.name || "this member";
+    const hasRole = mem.roleIds?.includes(role.id);
+    if (!(await assign(gid, fpr, role, !hasRole)) || !hasRole) return;
+    flash(`Removed ${role.name} from ${name}`, "info", {
+      label: "Undo",
+      run: () => assign(gid, fpr, role, true),
+    });
   }
 
   const canMute = $derived(canModerate && has(activeGuild()?.myPerms || 0, PERM.MUTE_MEMBERS));

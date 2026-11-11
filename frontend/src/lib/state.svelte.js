@@ -2006,13 +2006,16 @@ export function flashSlot(slot, msg, kind = "info") {
   return id;
 }
 
-export function flash(msg, kind = "info") {
+// `action` ({label, run}) puts one button on the toast, for an Undo: it runs
+// once, and the toast goes with it. A toast with a button stays a little
+// longer, since it now asks to be read and reached.
+export function flash(msg, kind = "info", action = null) {
   // Back-compat: flash(err) with an Error (or anything error-shaped) reads as
   // a failure without every existing call site having to opt in.
   if (kind === "info" && (msg instanceof Error || (typeof msg === "object" && msg?.message)))
     kind = "error";
   const id = ++toastSeq;
-  S.toasts.push({ id, kind, text: humanError(msg) });
+  S.toasts.push({ id, kind, text: humanError(msg), action });
   // Every failure and every confirmation in the app comes through here, which
   // is why the sound is wired here and not at a hundred call sites: one
   // decision, and the two of them arrive everywhere at once. "info" stays
@@ -2024,7 +2027,7 @@ export function flash(msg, kind = "info") {
   while (S.toasts.length > 8) dismissToast(S.toasts[0].id);
   toastTimers.set(
     id,
-    setTimeout(() => dismissToast(id), kind === "error" ? 5000 : 3000),
+    setTimeout(() => dismissToast(id), action ? 8000 : kind === "error" ? 5000 : 3000),
   );
   return id;
 }

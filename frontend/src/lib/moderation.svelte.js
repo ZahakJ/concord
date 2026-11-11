@@ -158,9 +158,20 @@ async function applyAdmin(mem, adminRole, grant) {
       role = adminRoleOf(S.roles);
     }
     if (!role) throw new Error("Couldn't create the Admin role.");
-    await api.assignRole(S.activeGuildId, mem.fingerprint, role.id, grant);
+    const gid = S.activeGuildId;
+    await api.assignRole(gid, mem.fingerprint, role.id, grant);
     await refreshRightPanel();
-    flash(grant ? `${mem.name || "Member"} is now an admin` : "Admin removed", "success");
+    if (grant) flash(`${mem.name || "Member"} is now an admin`, "success");
+    // Removing does not ask, so it can be taken back (see the card's role ×).
+    else
+      flash(`Removed ${role.name} from ${mem.name || "this member"}`, "info", {
+        label: "Undo",
+        run: () =>
+          api
+            .assignRole(gid, mem.fingerprint, role.id, true)
+            .then(() => gid === S.activeGuildId && refreshRightPanel())
+            .catch((err) => flash(err)),
+      });
   } catch (err) {
     flash(err);
   }
