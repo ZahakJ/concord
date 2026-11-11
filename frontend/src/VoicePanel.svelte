@@ -659,7 +659,9 @@
         decoration: S.identity.style?.dec || "",
         dc: S.identity.style?.dc || "",
         ...moodOf(S.identity.status),
-        speaking: S.voiceSpeaking.includes("self"),
+        // Not while nobody can hear you yet: a green "speaking" ring on your
+        // own tile under "still connecting" said the opposite of the truth.
+        speaking: health.live && S.voiceSpeaking.includes("self"),
         muted: S.muted,
         deafened: S.deafened,
         self: true,

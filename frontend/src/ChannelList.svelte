@@ -1026,7 +1026,9 @@
     <button class="jump" onclick={() => (S.quickSwitcher = true)} aria-keyshortcuts="Control+K">
       <Icon name="search" size={14} />
       <span class="jump-lbl">Jump to…</span>
-      {#if !S.isMobile}<Kbd>Ctrl K</Kbd>{/if}
+      <!-- The chip gives way before the label does: at 240px "Jump to…" was
+           cut to "Jump t…" to keep a shortcut hint. -->
+      {#if !S.isMobile && colW >= 260}<Kbd>Ctrl K</Kbd>{/if}
     </button>
     <!-- Inbox and Your calendar have their own buttons on the classic rail;
          here only when the strip stands in for it, so neither is drawn twice. -->

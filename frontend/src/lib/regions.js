@@ -42,6 +42,15 @@ export function cycleRegion(dir, { doc = document, focusFeed } = {}) {
   );
   const to = roots.find((r) => r.id === id);
   if (!to) return false;
+  // The sidebar lands on the place you are in — the selected channel or
+  // conversation — rather than on whatever was last focused there: F6 went to
+  // the Inbox bell because Tab had once passed through it, which is the one
+  // landing that says nothing about where you are.
+  const here = id === "sidebar" && to.el.querySelector(".channel-row.active .channel, .dm-item.active");
+  if (here && visible(here)) {
+    here.focus();
+    return true;
+  }
   const remembered = last.get(id);
   if (remembered && to.el.contains(remembered) && visible(remembered)) {
     remembered.focus();

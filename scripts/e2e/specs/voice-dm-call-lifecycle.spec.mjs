@@ -90,7 +90,7 @@ test("End call in a 1:1 ends it for both", async ({ world, assert, step, waitFor
   await startCall(a, "Bashir");
   await ringCard(b).waitFor({ timeout: 45000 });
   step("Bashir answers; audio flows both ways and Alice's clock starts");
-  await ringCard(b).getByRole("button", { name: "Join" }).click();
+  await ringCard(b).getByRole("button", { name: "Answer" }).click();
   await a.waitForMedia("audio");
   await b.waitForMedia("audio");
   await waitFor(async () => /Voice connected[\s\S]*\d:\d\d/.test(await bar(a).innerText()), {
@@ -123,7 +123,7 @@ async function answeredCall(world) {
   const b = await bashir.open({ viewport: "laptop", watchMedia: true });
   await startCall(a, "Bashir");
   await ringCard(b).waitFor({ timeout: 45000 });
-  await ringCard(b).getByRole("button", { name: "Join" }).click();
+  await ringCard(b).getByRole("button", { name: "Answer" }).click();
   await a.waitForMedia("audio");
   await b.waitForMedia("audio");
   return { alice, bashir, dm, a, b };

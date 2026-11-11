@@ -2090,12 +2090,14 @@
         <span class="muted">is calling you{call.group ? ` · ${call.name}` : ""}…</span>
         {#if S.voice && S.voice.channelId !== call.channelId}
           <!-- Answering moves you: say so before the click, not after it. -->
-          <span class="ring-note">Joining leaves {callLabel || "your current call"}</span>
+          <span class="ring-note">Answering leaves {callLabel || "your current call"}</span>
         {/if}
       </div>
       <div class="ring-actions">
         <button class="ring-btn decline" onclick={() => declineCall(call.channelId)}>Decline</button>
-        <button class="ring-btn accept" onclick={() => acceptCall(call.channelId)}>Join</button>
+        <!-- "Answer", the word for picking up a ring; "Join" is what you do to
+             a channel. In the accent, the one primary colour, not a green. -->
+        <button class="ring-btn accept" onclick={() => acceptCall(call.channelId)}>Answer</button>
       </div>
     </div>
   {/if}
@@ -3287,9 +3289,10 @@
       transform: none;
     }
   }
+  /* Below the header, so it never sits on the header's own controls. */
   .ring-card {
     position: fixed;
-    top: 20px;
+    top: calc(var(--header-h) + var(--sp-3));
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -3356,11 +3359,11 @@
     transform: scale(0.96);
   }
   .ring-btn.accept {
-    background: var(--ok);
-    color: var(--ok-fg);
+    background: var(--accent);
+    color: var(--accent-fg);
   }
   .ring-btn.accept:hover {
-    background: color-mix(in srgb, var(--ok) 86%, #fff);
+    background: var(--accent-hover);
   }
   .ring-btn.decline {
     background: transparent;

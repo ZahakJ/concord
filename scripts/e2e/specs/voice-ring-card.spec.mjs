@@ -19,7 +19,7 @@ test("answering a DM call from a guild call says it will leave the guild call", 
   await a.openDM("Bashir");
   await a.page.getByRole("button", { name: "Start a call" }).click();
 
-  await ringCard(b).getByText("Joining leaves Studio · Lounge").waitFor({ timeout: 45000 });
+  await ringCard(b).getByText("Answering leaves Studio · Lounge").waitFor({ timeout: 45000 });
 });
 
 test("a group DM's ring card names the caller, then the group", async ({ world, assert, step, waitFor, shot }) => {
