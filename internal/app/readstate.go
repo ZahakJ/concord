@@ -174,11 +174,10 @@ func (s *Service) flushReadMarkers() {
 		return
 	}
 	payload, _ := json.Marshal(guildMeta{Type: "read_marker", Markers: markers})
-	topic := domain.GuildMetaTopicID(notes.GroupID)
 	if ct, err := s.mls.Encrypt(s.ctx, notes.GroupID, payload); err == nil {
-		_ = s.ps.Publish(s.ctx, topic, ct)
+		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(notes.GroupID), ct)
 	}
-	s.pushReadMarksOffTopic(topic, markers)
+	s.pushReadMarksToDevices(markers)
 }
 
 // helloReadMarks bounds how many marks one hello carries: the newest ones,
@@ -248,19 +247,19 @@ func marshalHello(f helloFrame) ([]byte, error) {
 	}
 }
 
-// pushReadMarksOffTopic hands markers to every connected device of this
-// account that the Notes meta topic does not list yet. The publish reaches
-// only devices already listening there, and a device linked a moment ago
-// usually is not: its marker was simply lost, and nothing re-sent it until
-// the next mark (the occasional TestLinkedDevicesShareOneNotesGroup failure).
-// Devices that are listening, and single-device accounts, cost nothing here.
-func (s *Service) pushReadMarksOffTopic(topic string, markers map[string]int64) {
-	listening := map[peer.ID]bool{}
-	for _, p := range s.ps.TopicPeers(topic) {
-		listening[p] = true
-	}
+// pushReadMarksToDevices hands markers to every connected device of this
+// account over the hello stream as well as the publish. The publish on the
+// Notes meta topic is gossip with no catch-up, and it is least reliable exactly
+// when a second device is new: one linked a moment ago may not be listening
+// yet, and while the two settle their connections the topic can list a device
+// whose copy is then lost (in a traced failure the desktop listed the phone at
+// the publish and not a moment later, and the marker never arrived). A hello
+// is a stream to that one device, retried on open, and cheap: a few hundred
+// bytes per batch per device, and single-device accounts send nothing. Older
+// devices ignore the field and still get the publish.
+func (s *Service) pushReadMarksToDevices(markers map[string]int64) {
 	for _, p := range s.host.Peers() {
-		if listening[p] || !s.ownDevice(p) || s.revocationFor(p) != nil {
+		if !s.ownDevice(p) || s.revocationFor(p) != nil {
 			continue
 		}
 		go s.sayReadMarks(p, markers)
@@ -269,14 +268,38 @@ func (s *Service) pushReadMarksOffTopic(topic string, markers map[string]int64) 
 
 // sayReadMarks sends a hello carrying only our credential and the markers. The
 // receiver adopts them exactly as from any hello; an older build ignores them.
+//
+// Tried a few times. Two devices that dialled each other at once can be left
+// with a connection one side has already dropped and the other still writes
+// to; the first stream on it fails ("stateless reset", in the traced case),
+// and that failure is what retires it, so the next attempt finds a live one.
+// The same dead connection is what swallowed the publish.
 func (s *Service) sayReadMarks(p peer.ID, markers map[string]int64) {
 	req, err := marshalHello(helloFrame{Credential: s.myCredential, ReadMarks: markers})
 	if err != nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(s.ctx, helloTimeout)
-	defer cancel()
-	if resp, err := s.host.SayHello(ctx, p, req); err == nil {
-		s.ingestHello(p, resp)
+	for attempt, wait := 0, time.Second; attempt < sayReadMarksTries; attempt, wait = attempt+1, wait*2 {
+		if attempt > 0 {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+			if !s.ownDevice(p) {
+				return
+			}
+		}
+		ctx, cancel := context.WithTimeout(s.ctx, helloTimeout)
+		resp, err := s.host.SayHello(ctx, p, req)
+		cancel()
+		if err == nil {
+			s.ingestHello(p, resp)
+			return
+		}
 	}
 }
+
+// sayReadMarksTries bounds the attempts: 1 s and 2 s apart, then the marks
+// wait for the next batch or the next connection's hello.
+const sayReadMarksTries = 3
