@@ -43,6 +43,22 @@
 
   const g = $derived(activeGuild());
 
+  // The verified tick pops once, when somebody BECOMES verified while you are
+  // looking — not on every render of the list. Its keyframes used to run each
+  // time the panel re-rendered (opening the palette, a menu, the inspector),
+  // so a list of verified friends twitched for no reason. Ticks present when
+  // the panel first fills are simply there.
+  let verifiedSeen = null;
+  $effect(() => {
+    if (verifiedSeen || !S.members.length) return;
+    verifiedSeen = new Set(S.members.filter((m) => m.verified).map((m) => m.fingerprint));
+  });
+  function freshlyVerified(fpr) {
+    if (!verifiedSeen || verifiedSeen.has(fpr)) return false;
+    verifiedSeen.add(fpr);
+    return true;
+  }
+
   // Someone already in the call we're in doesn't need inviting.
   const inThisCall = (fpr) =>
     Object.values(S.voiceRosters[S.voice?.channelId] || {}).some((p) => p.fingerprint === fpr);
@@ -384,28 +400,17 @@
                  nothing. The panel groups by role — "OWNER — 1", "PRODUCERS —
                  1" — and then put OWNER and PRODUCERS on the rows inside those
                  groups, so with a one-member role (the common case) the word
-                 appeared twice within 40px. It earns its place only when it
-                 says something the header did not: a member's role inside the
-                 owner/heir group, or an "Owner & heir" group where the two rows
-                 differ. -->
+                 appeared twice within 40px. Roles are the sections now, and a
+                 member's roles are on their profile card; only ownership and
+                 heirship, which are not roles, are marked, and only where
+                 the section does not already say so. -->
             {#if mem.isOwner && !restates(grp, "owner")}
               <span class="role-badge owner" title="Guild owner">Owner</span>
             {:else if mem.isHeir && !restates(grp, "heir")}
               <span class="role-badge heir" title="Named heir — can take ownership at any time">Heir</span>
-            {:else if topRole(mem) && !restates(grp, topRole(mem).name)}
-              {@const r = topRole(mem)}
-              <!-- A role colour is picked to be seen, not to be read: painting
-                   it on a 22% tint of ITSELF leaves a pale role invisible. Same
-                   trick as --danger-text — blend the label toward --text, so
-                   whatever colour the guild chose still resolves as writing. -->
-              {@const rc = r.color || "var(--text-muted)"}
-              <span
-                class="role-badge"
-                style="background:color-mix(in srgb, {rc} 22%, transparent); color:color-mix(in srgb, {rc} 66%, var(--text))"
-                title={r.name}>{r.name}</span>
             {/if}
             {#if mem.verified && !mem.isSelf && !mem.pending}
-              <span class="v-badge" title="Identity verified"><Icon name="check" size={11} /></span>
+              <span class="v-badge" class:pop={freshlyVerified(mem.fingerprint)} title="Identity verified"><Icon name="check" size={11} /></span>
             {/if}
             {#if mem.pending}
               <span class="pending-badge" title="Added — they'll appear once they accept &amp; sync">Pending</span>
@@ -727,6 +732,8 @@
     color: var(--ok-text);
     display: inline-grid;
     place-items: center;
+  }
+  .v-badge.pop {
     animation: v-pop 0.3s var(--ease-spring) both;
   }
   @keyframes v-pop {

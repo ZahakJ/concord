@@ -5,9 +5,7 @@
   // applies via api.setProfile while preserving the rest of the profile.
   import { popoverFocus } from "./lib/popoverfocus.js";
   import Icon from "./Icon.svelte";
-  import GameShelf from "./GameShelf.svelte";
   import { S, flash, refreshRightPanel, patchProfile } from "./lib/state.svelte.js";
-  import { api } from "./lib/api.js";
   import { PRESENCE_OPTIONS, splitStatus, joinStatus } from "./lib/presence.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import { place as placeCard, rectOf, sizeOf } from "./lib/place.js";
@@ -78,14 +76,6 @@
     statusEmoji = "";
     statusText = "";
     await save({ status: "" });
-  }
-
-  // Game collection: editable right from your own card (same shelf as the
-  // profile popover). Saving re-announces the profile to every guild.
-  async function saveGames(next) {
-    await api.setGames(next);
-    S.identity = await api.identity();
-    await refreshRightPanel();
   }
 
   // Measure then place (see ProfilePopover): above the anchor if it fits,
@@ -168,7 +158,7 @@
   <div class="sec-label muted">Presence</div>
   {#each PRESENCE_OPTIONS as p (p.id)}
     <button class="presence" class:sel={myPresence === p.id} onclick={() => pickPresence(p.id)} disabled={busy}>
-      <span class="dot" style="--pc:{p.color};background:var(--pc)"></span>
+      <span class="dot p-{p.id}" style="--pc:{p.color}" aria-hidden="true"></span>
       <span class="p-text">
         <strong>{p.label}</strong>
         <span class="muted p-desc">{p.desc}</span>
@@ -211,9 +201,8 @@
       <Icon name="close" size={12} /> Clear status
     </button>
   {/if}
-
-  <div class="divider"></div>
-  <GameShelf games={S.identity.games || []} editable={true} onchange={saveGames} />
+  <!-- The game collection is part of your profile, edited on your own card
+       and in Edit profile; a "set your status" popover is not where it goes. -->
 </div>
 
 <style>
@@ -272,11 +261,7 @@
     .presence:hover {
       background: var(--bg-3);
     }
-    /* The dot answers the hover: grows and glows in its own presence color. */
-    .presence:hover .dot {
-      transform: scale(1.35);
-      box-shadow: 0 0 8px 1px color-mix(in srgb, var(--pc) 65%, transparent);
-    }
+
     .em:hover {
       background: var(--bg-3);
       transform: scale(1.18);
@@ -288,15 +273,35 @@
   .presence.sel {
     background: var(--accent-soft);
   }
+  /* The presence marks, shaped as Avatar.svelte draws them: a disc, a
+     crescent, a disc with a bar, a hollow ring. Colour alone told them apart. */
   .dot {
-    width: 10px;
-    height: 10px;
+    position: relative;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     flex-shrink: 0;
-    transition: transform var(--dur-standard) var(--ease-spring), box-shadow var(--dur-standard) ease;
+    background: var(--pc);
   }
-  .presence.sel .dot {
-    box-shadow: 0 0 6px 1px color-mix(in srgb, var(--pc) 55%, transparent);
+  /* Masked, not painted over: the row under it changes ground on hover and
+     when selected, and a painted bite would show as a patch. */
+  .dot.p-idle {
+    mask: radial-gradient(circle at 28% 28%, transparent 0 36%, #000 38%);
+  }
+  .dot.p-dnd::after {
+    content: "";
+    position: absolute;
+    left: 20%;
+    right: 20%;
+    top: 50%;
+    height: 2px;
+    margin-top: -1px;
+    border-radius: 1px;
+    background: var(--danger-fg);
+  }
+  .dot.p-invisible {
+    background: transparent;
+    box-shadow: inset 0 0 0 2px var(--pc);
   }
   .p-text {
     flex: 1;
@@ -351,7 +356,6 @@
   /* After the hover rules, not before them: this block used to sit above the
      transforms it was meant to cancel, at the same specificity, so it lost. */
   @media (prefers-reduced-motion: reduce) {
-    .presence:hover .dot,
     .em:hover,
     .em:active {
       transform: none;
@@ -416,8 +420,8 @@
     border-radius: var(--radius-sm);
   }
   .clear:hover {
-    color: var(--danger-text);
-    background: var(--danger-soft);
+    color: var(--text);
+    background: var(--bg-3);
   }
   .sp-scrim {
     position: fixed;

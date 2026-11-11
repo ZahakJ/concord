@@ -23,7 +23,10 @@
     callHealth,
     markRead,
     setPref,
+    setChannelNotifs,
+    guildNotifLevel,
   } from "./lib/state.svelte.js";
+  import { LEVELS, levelLabel } from "./lib/notifs.js";
   import { PERM, has } from "./lib/perms.js";
   import { callClock } from "./lib/calltimer.svelte.js";
   import { api } from "./lib/api.js";
@@ -369,8 +372,12 @@
           {callState.live ? `Return to call${clock ? ` · ${clock}` : ""}` : callState.label}
         </span>
       </button>
-    {:else if ch && !g?.dmNotes && !g?.evicted}
-      <!-- No colour. Green means one thing in this app — the call is live — and
+    {:else if ch && !g?.dmNotes && !g?.evicted && (g?.kind === "dm" || g?.kind === "meeting" || ch.type === "voice")}
+      <!-- A guild text channel shows no call button: a speaker glyph there
+           read as "join voice" and started a call in the text channel
+           instead. Starting one is still in ⋯.
+
+           No colour. Green means one thing in this app — the call is live — and
            this is the button that has not started one yet, in either place. It
            used to be success-green in a DM and neutral grey in a channel: the
            same button, the same label, the same icon, the same action, painted
@@ -439,8 +446,35 @@
             {S.prefs.memberPanel ? "Hide members, pins and files" : "Members, pins and files"}
           </button>
         {/if}
-        {#if packed}
+        <div class="menu-sep"></div>
+        {#if ch && !g.dmNotes}
+          <!-- First in ⋯, as the channel's own menu has it: the level in force
+               ticked, and "Use guild default" as its own answer. Flat, because
+               menus here have no fly-outs. -->
+          <div class="menu-head">Notifications</div>
+          {#if g.kind !== "dm"}
+            <button class="menu-item" class:active={!S.notifs.channels[ch.id]} onclick={() => setChannelNotifs(ch.id, null)}>
+              <Icon name="bell" size={14} /> Use guild default ({levelLabel(guildNotifLevel(g.id))})
+              {#if !S.notifs.channels[ch.id]}<span class="tick"><Icon name="check" size={13} /></span>{/if}
+            </button>
+          {/if}
+          {#each LEVELS as l (l.id)}
+            <button
+              class="menu-item"
+              class:active={S.notifs.channels[ch.id] === l.id}
+              onclick={() => setChannelNotifs(ch.id, g.kind === "dm" && l.id === "all" ? null : l.id)}
+            >
+              <Icon name={l.id === "none" ? "bellOff" : "bell"} size={14} />
+              {l.label}
+              {#if S.notifs.channels[ch.id] === l.id || (g.kind === "dm" && l.id === "all" && !S.notifs.channels[ch.id])}<span class="tick"><Icon name="check" size={13} /></span>{/if}
+            </button>
+          {/each}
           <div class="menu-sep"></div>
+        {/if}
+        {#if !packed && ch && !g.dmNotes && !g.evicted && g.kind !== "dm" && g.kind !== "meeting" && ch.type !== "voice" && !S.voice && !peerInCall}
+          <button class="menu-item" onclick={() => onJoinVoice()}>
+            <Icon name="speaker" size={14} /> Start a call in this channel
+          </button>
         {/if}
         {#if ch}
           <button class="menu-item" onclick={() => markRead(S.activeChannelId)}>
@@ -1039,5 +1073,16 @@
   }
   .tb-sep {
     color: var(--text-faint);
+  }
+  .menu-head {
+    padding: 6px 10px 2px;
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .tick {
+    margin-left: auto;
+    display: inline-flex;
+    color: var(--accent-hover);
   }
 </style>

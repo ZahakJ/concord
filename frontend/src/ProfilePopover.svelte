@@ -571,10 +571,11 @@
           >{mem.name || mem.fingerprint.slice(0, 9)}</strong
         >
         {#if mem.isSelf}<span class="tag">you</span>{/if}
+        <!-- Roles are named once, in the Roles row below; a "mod" tag here
+             was a third word for authority beside the role and the member
+             list's section. Ownership is not a role, so it stays. -->
         {#if mem.isOwner}
-          <span class="role-badge owner" title="Guild owner">owner</span>
-        {:else if mem.canManage}
-          <span class="role-badge mod" title="Can manage members">mod</span>
+          <span class="role-badge owner" title="Guild owner">Owner</span>
         {/if}
         {#if isBirthday}
           <span class="bday-chip" title="It's their birthday today">🎂</span>
@@ -769,7 +770,7 @@
             disabled={dmBusy}
           />
           <button type="submit" class="primary dm-send" disabled={dmBusy} aria-label="Send message">
-            <Icon name={dmBusy ? "spark" : "reply"} size={15} />
+            <Icon name={dmBusy ? "spark" : "send"} size={15} />
           </button>
         </form>
       {/if}
@@ -954,7 +955,8 @@
     inset: -13px -4px;
   }
   .pop.sheet .dm-send {
-    min-width: 48px;
+    width: 40px;
+    height: 40px;
   }
   .pop :global(.banner) {
     height: 112px;
@@ -1094,14 +1096,14 @@
     font-size: var(--fs-small);
     margin-top: 2px;
   }
+  /* Their status is something they said, shown as text: on a dark well it
+     looked like a field you could type into. */
   .status-box {
     display: flex;
     align-items: flex-start;
     gap: var(--sp-2);
     margin-top: var(--sp-1);
-    padding: 7px 10px;
-    background: var(--bg-0);
-    border-radius: var(--radius-sm);
+    color: var(--text-muted);
   }
   /* Now-playing card: art + track + a live progress bar. */
   .activity {
@@ -1238,10 +1240,6 @@
   .role-badge.owner {
     background: color-mix(in srgb, var(--accent) 22%, transparent);
     color: var(--accent-hover);
-  }
-  .role-badge.mod {
-    background: color-mix(in srgb, var(--ok) 20%, transparent);
-    color: var(--ok-text);
   }
   .role-pills {
     display: flex;
@@ -1391,7 +1389,11 @@
     border-radius: var(--radius-sm);
   }
   .dm-send {
-    padding: 0 12px;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 50%;
     display: grid;
     place-items: center;
   }

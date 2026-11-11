@@ -1046,6 +1046,16 @@
     barSrc = "focus";
   }
 
+  // Pins have one home off the phone: the inspector's Pins tab (docked, or
+  // over the feed on a narrower window). A request for "the pins" that used to
+  // raise a separate popover on a tablet opens that tab instead.
+  $effect(() => {
+    if (!S.showPins || S.isMobile) return;
+    S.showPins = false;
+    showInspectorTab("pins");
+    if (!S.prefs.memberPanel) setPref("memberPanel", true);
+  });
+
   // One action bar at a time. A row shows its bar while hovered AND while it
   // holds focus, so a focused row (Escape out of the composer lands on one)
   // plus the row under the pointer drew two bars at once. Whichever moved last
@@ -1405,7 +1415,7 @@
         />
         <span class="pin-body">
           <span class="pin-meta">
-            <strong style={nameColorFor(m.sender) ? `color:${nameColorFor(m.sender)}` : ""}
+            <strong style={S.prefs.roleNameColors && nameColorFor(m.sender) ? `color:${nameColorFor(m.sender)}` : ""}
               >{nameFor(m.sender, m.senderName)}</strong
             >
             <span class="muted tiny">{fmtTime(m.sent)}</span>
@@ -1439,29 +1449,12 @@
 
 {#if S.showPins}
   {#if S.isMobile}
-    <!-- Same rows, native presentation. The popover below is anchored to the
-         top-right corner: on a phone that covers the newest messages you were
-         just reading and puts its only dismissal at the far corner. A sheet
-         comes up under the thumb and closes by backdrop tap or swipe-down. -->
+    <!-- The phone's presentation of the pins (elsewhere they are the
+         inspector's Pins tab, see the effect above): a sheet under the thumb
+         that closes by backdrop tap or swipe-down. -->
     <BottomSheet title="Pinned messages" onClose={() => (S.showPins = false)}>
       <div class="pins-list sheet">{@render pinRows()}</div>
     </BottomSheet>
-  {:else}
-    <div class="pins-anchor">
-      <section class="pins-pop" aria-label="Pinned messages">
-        <header class="pins-head">
-          <span class="pins-title">
-            <Icon name="pin" size={13} />
-            Pinned messages
-            {#if pinned.length}<span class="pins-count">{pinned.length}</span>{/if}
-          </span>
-          <button class="mini" title="Close" aria-label="Close pinned messages" onclick={() => (S.showPins = false)}>
-            <Icon name="close" size={12} />
-          </button>
-        </header>
-        <div class="pins-list">{@render pinRows()}</div>
-      </section>
-    </div>
   {/if}
 {/if}
 
@@ -1971,61 +1964,6 @@
     gap: 6px;
     max-height: 200px;
     overflow-y: auto;
-  }
-  /* Pinned-messages popover: floats below the header's pin button, over the
-     feed, via a zero-height positioning anchor (the chat column clips it). */
-  .pins-anchor {
-    position: relative;
-    height: 0;
-    z-index: 25;
-  }
-  .pins-pop {
-    position: absolute;
-    top: 8px;
-    right: 14px;
-    width: min(380px, calc(100 * var(--vw) - 48px));
-    max-height: min(420px, 60 * var(--vh));
-    display: flex;
-    flex-direction: column;
-    background: var(--bg-elevated, var(--bg-1));
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-pop);
-    overflow: hidden;
-    animation: pins-in var(--dur-standard) var(--ease-out);
-    transform-origin: top right;
-  }
-  @keyframes pins-in {
-    from {
-      opacity: 0;
-      transform: translateY(-4px) scale(0.98);
-    }
-  }
-  .pins-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--sp-2);
-    padding: 9px 8px 9px 12px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-1);
-  }
-  .pins-title {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--fs-compact);
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: var(--text);
-  }
-  .pins-count {
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    padding: 1px 6px;
-    border-radius: 999px;
-    background: var(--accent-soft);
-    color: var(--accent-hover);
   }
   .pins-list {
     overflow-y: auto;
