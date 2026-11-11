@@ -12,12 +12,20 @@
   import { flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { statusLine, usable, fmtCost } from "../lib/offgrid.js";
+  import { Collector, decodePack, progressLine } from "../lib/qrseq.js";
+  import QRSequence from "./QRSequence.svelte";
+  import QRScanner from "../QRScanner.svelte";
 
   let { onClose } = $props();
 
   let view = $state({ links: [], offline: false, relay: true });
   let paying = $state(null); // link whose paid outbox awaits a yes
   let fileInput = $state();
+  let showing = $state(null); // { name, frames } on screen as a QR sequence
+  let scanning = $state(false);
+  let scanStatus = $state("");
+  let collector = null;
+  let scanGen = 0; // bumped per scanner opening, so a stale auto-close can't shut a new one
 
   async function refresh() {
     try {
@@ -54,6 +62,59 @@
       a.click();
       flash("Saved — carry the file to the other device and import it there", "success");
     });
+  }
+
+  // Peek, not export: the frames stay queued until the user says the
+  // sequence went across, so closing early or a render failure loses nothing.
+  async function showQR(l) {
+    await act(async () => {
+      const b64 = await api.peekLink(l.name);
+      if (b64) showing = { name: l.name, frames: decodePack(b64) };
+    });
+  }
+
+  function doneQR() {
+    const { name, frames } = showing;
+    showing = null;
+    act(() => api.discardLinkQueued(name, frames.length));
+  }
+
+  function startScan() {
+    collector = new Collector();
+    scanStatus = progressLine(collector.progress());
+    scanGen++;
+    scanning = true;
+  }
+
+  // Each new code goes in the moment it is read: a message whose frames are
+  // all here is delivered without waiting for the rest of the sequence. A code
+  // only counts once the import took it; a failed one is read again on the
+  // sequence's next loop.
+  async function onCode(text) {
+    const c = collector;
+    const gen = scanGen;
+    const r = c.add(text);
+    if (r.kind !== "new") {
+      scanStatus = progressLine(c.progress());
+      return;
+    }
+    try {
+      if ((await api.importLinkFrames("qr", [r.b64])) !== 1) throw new Error("That code was not a valid frame");
+    } catch (err) {
+      c.forget(r.set, r.i);
+      flash(err);
+    }
+    if (gen !== scanGen) return;
+    const p = c.progress();
+    scanStatus = progressLine(p);
+    if (p.done && c.has(r.set, r.i)) {
+      flash(`Scanned all ${p.total} codes`, "success");
+      setTimeout(() => {
+        if (gen !== scanGen) return;
+        scanning = false;
+        refresh();
+      }, 700);
+    }
   }
 
   async function importFile(e) {
@@ -103,6 +164,8 @@
       {#if l.enabled && l.queued > 0}
         {#if l.name === "file"}
           <SettingRow icon="download" title="Save {l.queued} queued as a file" onclick={() => saveFile(l)} />
+        {:else if l.name === "qr"}
+          <SettingRow icon="screen" title="Show {l.queued} queued as QR codes" sub="Another device scans them off this screen" onclick={() => showQR(l)} />
         {:else}
           <SettingRow
             icon="send"
@@ -112,6 +175,9 @@
           />
         {/if}
       {/if}
+      {#if l.name === "qr" && l.enabled}
+        <SettingRow icon="camera" title="Scan QR codes" sub="Read a sequence shown on another device" onclick={startScan} />
+      {/if}
       {#if l.name === "file" && l.enabled}
         <SettingRow icon="folder" title="Import a file" sub="Messages someone carried to you" onclick={() => fileInput.click()} />
       {/if}
@@ -119,6 +185,13 @@
   </SettingGroup>
   <input type="file" accept=".bundles" hidden bind:this={fileInput} onchange={importFile} />
 </RailShell>
+
+{#if showing}
+  <QRSequence frames={showing.frames} onDone={doneQR} onClose={() => ((showing = null), refresh())} />
+{/if}
+{#if scanning}
+  <QRScanner continuous status={scanStatus} onScan={onCode} onClose={() => ((scanning = false), scanGen++, refresh())} />
+{/if}
 
 {#if paying}
   <ConfirmDialog

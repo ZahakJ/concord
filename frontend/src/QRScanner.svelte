@@ -8,7 +8,9 @@
 
   import { openSystemSettings } from "./lib/notify.js";
   import { haptic } from "./lib/touch.js";
-  let { onScan, onClose } = $props();
+  // continuous: keep scanning after a hit, calling onScan once per distinct
+  // code (a QR sequence); status replaces the hint line while it runs.
+  let { onScan, onClose, continuous = false, status = "" } = $props();
   // Hardware-back / global overlay stack: closing this scanner is what back
   // should do, not exit the app.
   $effect(() => pushLayer("scanner", () => onClose?.()));
@@ -21,6 +23,7 @@
   let stream = null;
   let raf = 0;
   let done = false;
+  let last = "";
   // Bumped by every stop(). The camera open below awaits a permission prompt
   // and a device open; if the scanner closed (or Try again restarted it) during
   // that wait, the stream that finally arrives belongs to nobody and must be
@@ -58,7 +61,13 @@
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const hit = decode(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
-      if (hit?.data) {
+      if (hit?.data && continuous) {
+        if (hit.data !== last) {
+          last = hit.data;
+          haptic("light");
+          onScan?.(hit.data);
+        }
+      } else if (hit?.data) {
         done = true;
         stop();
         haptic("medium"); // the code is off-screen the instant it reads; confirm by feel
@@ -161,7 +170,7 @@
       <span class="c bl"></span><span class="c br"></span>
       <span class="sweep"></span>
     </div>
-    <p class="hint">Point at the QR code on your other device</p>
+    <p class="hint">{status || "Point at the QR code on your other device"}</p>
     {#if hasTorch}
       <button
         type="button"
