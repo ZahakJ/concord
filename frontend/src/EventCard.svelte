@@ -30,9 +30,9 @@
   } from "./lib/events.svelte.js";
   import { repeatSentence } from "./lib/recurrence.js";
 
-  // bubble: "date" (default) or "time" — in agenda contexts a day heading
-  // already owns the date, so the bubble shows the start time instead of
-  // printing the same fact twice. onJoinVoice is App's real voice lifecycle
+  // bubble: "date" (default) or "time" — "time" is an agenda under a day
+  // heading, which already owns the date and weekday, so the row drops its
+  // date tile and its weekday kicker and says the time once, on the meta line. onJoinVoice is App's real voice lifecycle
   // (mesh, knock, call view), threaded down so a voice-channel-located event's
   // Join can enter the call exactly like clicking the channel would.
   let { ev, g, showGuild = false, onEdit, onJoinVoice, bubble = "date", inFeed = false } = $props();
@@ -63,6 +63,10 @@
   });
 
   const phase = $derived(eventPhase(ev, now));
+  // Whether the kicker has a word of its own after the source tag: a phase,
+  // or the weekday when no day heading above already says it.
+  const kickerWord = $derived(phase === "live" || phase === "soon" || phase === "ended" || bubble !== "time");
+  const hasKicker = $derived(kickerWord || (showGuild && !!g));
   const past = $derived(isPast(ev, now));
 
   // ---- the flip to LIVE ----
@@ -109,12 +113,6 @@
   const dayN = $derived(new Date(ev.startUnix * 1000).getDate());
   const fmtT = (u) =>
     new Date(u * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", ...clockOpts() });
-  // The time bubble splits "6:00 PM" into a big number over a micro meridiem;
-  // 24h locales just show the number.
-  const bubbleTime = $derived.by(() => {
-    const parts = fmtT(ev.startUnix).split(" ");
-    return { t: parts[0], m: parts[1] || "" };
-  });
   const weekday = $derived(
     new Date(ev.startUnix * 1000).toLocaleDateString([], { weekday: "long" }),
   );
@@ -462,17 +460,22 @@
 </script>
 
 <article class="evcard" class:in-feed={inFeed} use:feedTouchMenu={inFeed && coarse} class:soon={phase === "soon"} class:live={phase === "live"} class:ended={phase === "ended"}>
-  <div class="date" aria-hidden="true">
-    {#if bubble === "time"}
-      <span class="bt">{bubbleTime.t}</span>
-      {#if bubbleTime.m}<span class="bm">{bubbleTime.m}</span>{/if}
-    {:else}
+  <!-- The time is said once, on the meta line. Under an agenda's day heading
+       the tile used to repeat the start time and the kicker the weekday and
+       time again — three times in one row — so there the row has no tile. -->
+  {#if bubble !== "time"}
+    <div class="date" aria-hidden="true">
       <span class="mon">{mon}</span>
       <span class="dayn">{dayN}</span>
-    {/if}
-  </div>
+    </div>
+  {/if}
   <div class="body">
     <header class="top">
+      {#if !hasKicker}
+        <!-- Nothing to say above the title, so the title is the header's
+             first line rather than a blank one. -->
+        <strong class="title">{ev.title}</strong>
+      {:else}
       <div class="kicker st" class:k-soon={phase === "soon"} class:k-live={phase === "live"}>
         {#if showGuild && g}
           <!-- The blend's source tag: a guild wears its rail badge, a DM wears
@@ -493,7 +496,7 @@
             <span class="gbadge" style={guildTint(g.id)}>{guildInitials(g.name)}</span>
             <span class="gname">{g.name}</span>
           {/if}
-          <span class="ksep" aria-hidden="true">·</span>
+          {#if kickerWord}<span class="ksep" aria-hidden="true">·</span>{/if}
         {/if}
         {#if phase === "live"}
           <span class="now-dot" bind:this={nowDot}></span><span>Happening now</span>
@@ -501,30 +504,19 @@
           <span>{fmtCountdown(ev.startUnix, now)}</span>
         {:else if phase === "ended"}
           <span>Ended · {fmtT(ev.endUnix || ev.startUnix + 3600)}</span>
-        {:else}
-          <span>{weekday} · {fmtT(ev.startUnix)}</span>
+        {:else if bubble !== "time"}
+          <!-- The weekday only: the meta line below carries the time. -->
+          <span>{weekday}</span>
         {/if}
       </div>
-      {#if canEdit}
-        <!-- Delete, surfaced: the ⋯ menu kept it too well hidden. Same
-             two-tap arming (shared `armed` state + timer, so the menu item
-             and this button arm each other), same api.deleteEvent — this is
-             a louder door to the SAME machinery, not a second path. -->
-        <button
-          class="del"
-          class:armed
-          aria-label={armed ? "Tap again — deletes for everyone" : "Delete event"}
-          title={armed ? "Tap again — deletes for everyone" : "Delete event"}
-          onclick={del}
-        >
-          {#if armed}<span class="del-txt">Tap again</span>{:else}<Icon name="trash" size={14} />{/if}
-        </button>
       {/if}
+      <!-- Delete lives in ⋯ with Edit, as it does on a message row: a bare
+           trash can on every row of an agenda was the loudest thing on it. -->
       <button class="dots" aria-label="Event options" title="Event options" onclick={openMenu}>
         <Icon name="dots" size={15} />
       </button>
     </header>
-    <strong class="title">{ev.title}</strong>
+    {#if hasKicker}<strong class="title">{ev.title}</strong>{/if}
     <div class="meta muted">
       <Icon name="clock" size={11} />
       <span>{fmtEventTime(ev)}</span>
@@ -571,7 +563,7 @@
              when somebody has answered AND the card is wide enough for it, so
              the counts themselves open it too. -->
         <button class="whobtn" onclick={showWho} aria-label="See who answered">
-          <Icon name="members" size={11} /> Who
+          <Icon name="members" size={11} /> <span class="who-l">Who</span>
         </button>
       {/if}
       <span class="spring"></span>
@@ -734,19 +726,6 @@
     }
   }
 
-  /* Time bubble (agenda contexts, where the day heading owns the date). */
-  .bt {
-    font-size: var(--fs-ui);
-    font-weight: 700;
-    line-height: 1.15;
-    font-variant-numeric: tabular-nums;
-  }
-  .bm {
-    font-size: var(--fs-micro);
-    font-weight: 600;
-    color: var(--text-muted);
-    line-height: 1.1;
-  }
   .body {
     flex: 1;
     min-width: 0;
@@ -865,54 +844,18 @@
   }
   /* In the feed: revealed by hover or focus, like a message's own actions (see
      feedTouchMenu). An armed delete stays put — it is mid-confirmation. */
-  .in-feed .dots,
-  .in-feed .del:not(.armed) {
+  .in-feed .dots {
     opacity: 0;
     transition: opacity var(--dur-quick) ease;
   }
   .in-feed:hover .dots,
-  .in-feed:hover .del,
-  .in-feed:focus-within .dots,
-  .in-feed:focus-within .del {
+  .in-feed:focus-within .dots {
     opacity: 1;
   }
   @media (pointer: coarse) {
-    .in-feed .dots,
-    .in-feed .del:not(.armed) {
+    .in-feed .dots {
       display: none;
     }
-  }
-  /* The surfaced delete: a ghost until touched, then an armed danger pill
-     whose label IS the confirmation — the two-tap safety stays intact. */
-  .del {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 28px;
-    height: 28px;
-    margin: -4px 0 0 0;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--text-faint);
-    transition: background var(--dur-quick) ease, color var(--dur-quick) ease;
-  }
-  .del:hover {
-    background: var(--danger-soft);
-    color: var(--danger-text);
-  }
-  .del.armed {
-    width: auto;
-    padding: 0 10px;
-    border-radius: 999px;
-    background: var(--danger-soft);
-    border: 1px solid var(--danger);
-    color: var(--danger-text);
-  }
-  .del-txt {
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    white-space: nowrap;
   }
   .title {
     font-size: var(--fs-ui);
@@ -922,6 +865,11 @@
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
+  }
+  .top > .title {
+    flex: 1;
+    min-width: 0;
+    padding-top: 3px;
   }
   .meta {
     display: flex;
@@ -939,7 +887,8 @@
      with no explicit shrink lock can be crushed to 0 width (this is what made
      the ⋯ menu button render as an invisible 28px square). */
   .dots :global(svg),
-  .del :global(svg),
+  .chip :global(svg),
+  .whobtn :global(svg),
   .srctag :global(svg) {
     flex-shrink: 0;
   }
@@ -1208,34 +1157,44 @@
   /* On a phone the answers are one control the width of the card, so Going,
      Maybe, No and Who share a row instead of wrapping one per line. */
   @media (max-width: 768px) {
+    /* Going, Maybe, No and Who on one row: the answers take the room and Who
+       sits at the end of it, rather than alone on a line of its own. */
+    .ctarow:not(:has(.gjoin, .gtag, .gend)) {
+      flex-wrap: nowrap;
+    }
     .rsvps {
       display: flex;
       flex-wrap: nowrap;
-      width: 100%;
+      flex: 1 1 auto;
+      min-width: 0;
       gap: var(--sp-1);
     }
+    /* The glyph alone on a phone (its label stays the accessible name), so
+       it fits beside the three answers even on a card beside a date tile. */
+    .whobtn {
+      flex: none;
+      min-height: 44px;
+      min-width: 44px;
+      justify-content: center;
+      padding: 0;
+    }
+    .who-l {
+      display: none;
+    }
     .rsvps > :global(*) {
-      flex: 1 1 0;
+      flex: 1 1 auto;
       min-width: 0;
       justify-content: center;
     }
     .chip {
       min-height: 44px;
-      padding: var(--sp-1) var(--sp-2);
+      padding: var(--sp-1) 6px;
       white-space: nowrap;
     }
     .dots {
       width: 40px;
       height: 40px;
       margin-top: -8px;
-    }
-    .del {
-      width: 40px;
-      height: 40px;
-      margin-top: -8px;
-    }
-    .del.armed {
-      width: auto;
     }
     .srctag {
       min-height: 24px; /* inline kicker chip; the row's 40px buttons carry the tap floor */
