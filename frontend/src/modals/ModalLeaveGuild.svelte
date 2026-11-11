@@ -42,8 +42,8 @@
     {#if g.isOwner}
       <!-- The owner-specific consequence, and the two things that answer it. -->
       <div class="consequence">
-        <p>
-          <Icon name="crown" size={14} />
+        <p class="warn-line">
+          <Icon name="alert" size={13} />
           <span>
             You own this guild.
             {#if heirNamed}
@@ -56,13 +56,10 @@
           </span>
         </p>
         <div class="doors">
-          <button class="ghost" onclick={() => switchPanel("ownership")}>
-            <Icon name="crown" size={13} />
+          <button class="link" onclick={() => switchPanel("ownership")}>
             {heirNamed ? "Change the heir" : "Name an heir first"}
           </button>
-          <button class="ghost" onclick={() => switchPanel("ownership")}>
-            <Icon name="members" size={13} /> Transfer ownership
-          </button>
+          <button class="link" onclick={() => switchPanel("ownership")}>Transfer ownership</button>
         </div>
       </div>
     {/if}
@@ -102,37 +99,20 @@
     margin: 0;
     line-height: 1.55;
   }
+  /* The owner's consequence: one warning line and the two ways to answer
+     it as links under it — not an amber box with buttons inside. */
   .consequence {
-    border: 1px solid color-mix(in srgb, var(--warn) 34%, transparent);
-    background: color-mix(in srgb, var(--warn) 10%, transparent);
-    border-radius: var(--radius-md);
-    padding: 12px 14px;
     display: flex;
     flex-direction: column;
-    gap: var(--sp-3);
-  }
-  .consequence p {
-    display: flex;
-    gap: var(--sp-2);
-    align-items: flex-start;
-    margin: 0;
-    line-height: 1.5;
-    font-size: var(--fs-small);
-    color: var(--warn-text);
-  }
-  .consequence p :global(svg) {
-    flex: none;
-    margin-top: 2px;
+    gap: var(--sp-1);
   }
   .doors {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--sp-2);
+    gap: var(--sp-4);
+    padding-left: 19px;
   }
   .doors button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
     font-size: var(--fs-small);
   }
   .facts {
@@ -144,14 +124,6 @@
     font-size: var(--fs-small);
     line-height: 1.5;
     color: var(--text-muted);
-  }
-  .linkish {
-    background: none;
-    border: 0;
-    padding: 0;
-    font: inherit;
-    color: var(--accent-hover);
-    text-decoration: underline;
   }
   .actions {
     display: flex;

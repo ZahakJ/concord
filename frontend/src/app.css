@@ -2167,6 +2167,69 @@ input[type="range"]:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
+/* A choice list: pick one of several durations or options. Rows 40px tall,
+   split by hairlines, the label in the UI size and the check on the
+   trailing side in the accent ink. Chosen is the check and the label at 600
+   — no filled ground and no ring, which is how two dialogs asking the same
+   "pick a duration" question came out at two sizes in two looks. Markup:
+   <div class="choices" role="radiogroup"><button class="choice" role="radio"
+   aria-checked>…label…<svg/></button></div>. */
+.choices {
+  display: flex;
+  flex-direction: column;
+}
+.choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: 40px;
+  padding: 6px var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-ui);
+  text-align: start;
+}
+.choice + .choice {
+  box-shadow: 0 -1px 0 var(--hairline);
+}
+@media (pointer: fine) {
+  .choice:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+  }
+}
+.choice:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.choice[aria-checked="true"] {
+  font-weight: 600;
+}
+.choice > svg {
+  flex: none;
+  color: var(--accent-hover);
+}
+
+/* A warning inside a pane or a dialog: one small line in the warning ink
+   behind an alert icon. Not a tinted box and not an amber paragraph — a
+   settings page that shouts in three colours has nothing left to say when
+   something is actually wrong. */
+.warn-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--fs-small);
+  line-height: 1.45;
+  color: var(--warn-text);
+}
+.warn-line > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
 /* A placeholder is the field's instructions ("Message #general…"), read on
    the field's own fill, where --text-faint fell to 3.4–3.5:1. */
 input::placeholder,

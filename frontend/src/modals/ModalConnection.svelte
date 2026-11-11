@@ -102,7 +102,7 @@
           <textarea
             class="code-box"
             rows="3"
-            placeholder="/dns4/relay.example.org/tcp/4001/p2p/12D3Koo…"
+            placeholder="Paste the rendezvous address"
             bind:value={draft}
           ></textarea>
           {#if ok}
@@ -270,7 +270,7 @@
     gap: 6px;
   }
   .port-box {
-    width: 92px;
+    width: 108px;
     font-family: var(--mono-font);
     font-size: var(--fs-compact);
     padding: 7px 10px;
@@ -296,10 +296,11 @@
   .note-line.warn {
     color: var(--danger-text);
   }
+  /* Unset: the sentence, then the action at the trailing edge at its own
+     size — not a full-width accent bar across the pane. */
   .addr-row.empty {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
+    justify-content: space-between;
+    gap: var(--sp-5);
   }
   .code-wrap {
     display: flex;
@@ -351,14 +352,10 @@
     min-width: 0;
   }
   .cancel {
-    padding: 7px 14px;
-    font-size: var(--fs-ui);
+    flex-shrink: 0;
   }
   .save {
     flex-shrink: 0;
-    padding: 7px 18px;
-    font-size: var(--fs-ui);
-    font-weight: 600;
   }
   /* SettingRow drops the control onto its own line at this width — spend that
      line, rather than clipping "e.g. 4001" to "e.g. 400" in a 92px box. */
@@ -381,6 +378,10 @@
     }
     .addr-row {
       gap: 10px;
+    }
+    .addr-row.empty {
+      flex-direction: column;
+      align-items: flex-start;
     }
   }
 </style>

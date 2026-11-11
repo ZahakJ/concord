@@ -24,10 +24,10 @@
     New messages you send in this conversation will erase themselves — on every
     device — once the timer runs out. Applies to messages you type from now on.
   </p>
-  <div class="opts" role="radiogroup" aria-label="Disappear timer">
+  <div class="choices" role="radiogroup" aria-label="Disappear timer">
     {#each TTL_OPTIONS as o (o.secs)}
       <button
-        class="opt"
+        class="choice"
         class:sel={current === o.secs}
         role="radio"
         aria-checked={current === o.secs}
@@ -45,37 +45,5 @@
     font-size: var(--fs-ui);
     line-height: 1.5;
     margin: 0 0 12px;
-  }
-  .opts {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .opt {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 11px 14px;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    color: var(--text);
-    font-size: var(--fs-ui);
-    text-align: left;
-    transition:
-      background var(--dur-quick) ease,
-      border-color var(--dur-quick) ease;
-  }
-  .opt:hover,
-  .opt:active {
-    background: var(--bg-3);
-    border-color: var(--accent);
-  }
-  .opt.sel {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-  }
-  .opt :global(svg) {
-    color: var(--accent-hover);
   }
 </style>

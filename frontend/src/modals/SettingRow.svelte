@@ -209,6 +209,12 @@
       flex-wrap: wrap;
       row-gap: var(--sp-2);
     }
+    /* The label keeps its place beside the icon; only the control drops. Left
+       at its content width the text wrapped onto its own line too, leaving the
+       icon alone on the first. */
+    .row:has(.slot) .text {
+      flex: 1 1 0;
+    }
     .row:has(.slot) .slot {
       flex: 1 0 100%;
       max-width: none;

@@ -828,14 +828,16 @@
 </RailShell>
 
 <style>
+  /* A group, not a card: the device's label over its controls, groups told
+     apart by air and a hairline (no boxed cards in a settings pane). */
   .dev {
     display: flex;
     flex-direction: column;
     gap: var(--sp-2);
-    padding: var(--sp-3);
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    padding: var(--sp-3) 0;
+  }
+  .dev + .dev {
+    border-top: 1px solid var(--hairline);
   }
   .dev-head {
     display: flex;
@@ -846,32 +848,33 @@
     display: none;
   }
   .dev-title {
-    font-size: var(--fs-small);
+    font-size: var(--fs-compact);
     font-weight: 600;
-    color: var(--text-faint);
+    color: var(--text);
     margin-right: auto;
   }
+  /* The sm quiet button. */
   .test {
+    min-height: 28px;
     background: var(--bg-3);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    color: var(--text-muted);
-    font-size: var(--fs-compact);
-    padding: 4px 14px;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: var(--fs-small);
+    padding: 0 10px;
     transition:
       color var(--dur-quick) ease,
       border-color var(--dur-quick) ease;
   }
   .test:hover:not(:disabled) {
-    color: var(--text);
-    border-color: var(--accent);
+    background: var(--border);
   }
   .test:disabled {
     opacity: 0.45;
   }
   .test.on {
     color: var(--accent-hover);
-    border-color: var(--accent);
+    background: var(--accent-soft);
   }
   /* The picker's face: what is chosen, why (when it's the system's choice), and
      a chevron. Same well, border and radius as every other field in the sheet,

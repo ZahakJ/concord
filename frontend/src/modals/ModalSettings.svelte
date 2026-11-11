@@ -302,7 +302,7 @@
     {#if S.isMobile}
       <span class="chev">›</span>
     {:else}
-      <button class="who-edit" onclick={() => openPanel("profile", "settings")}>Edit profile</button>
+      <button class="quiet who-edit" onclick={() => openPanel("profile", "settings")}>Edit profile</button>
     {/if}
   </svelte:element>
 
@@ -415,10 +415,7 @@
   <SettingGroup label="This install">
     <div class="upd">
       <div class="upd-head">
-        <span
-          class="chip"
-          class:spin-chip={upd.phase === "downloading" || upd.phase === "verifying"}
-        >
+        <span class="chip" class:spin-chip={upd.phase === "downloading" || upd.phase === "verifying"}>
           <Icon name="download" size={16} />
         </span>
         <span class="row-text">
@@ -440,7 +437,7 @@
               {peerInfo.latest} is available from
               {peerInfo.peers === 1 ? "a peer" : `${peerInfo.peers} peers`} on your network.
             {:else if updInfo}
-              You're on the latest version. ✨
+              You're on the latest version.
             {:else}
               Updates install in place — one click, no downloads to juggle.
             {/if}
@@ -498,14 +495,15 @@
   /* ---- who this account is ------------------------------------------------
      The one thing on this page that is not a control. It leads because every
      other row here is about protecting or replacing exactly this. */
+  /* A line, not a card (no boxed cards in a settings pane): the avatar, the
+     name and the status, with Edit profile on the trailing side. */
   .who {
     display: flex;
     align-items: center;
     gap: var(--sp-3);
-    padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-2);
-    border-radius: var(--radius-md);
-    background: var(--bg-1);
-    border: 1px solid var(--border);
+    padding: var(--sp-1) 0 var(--sp-3);
+    border-bottom: 1px solid var(--hairline);
+    background: transparent;
     flex: none;
   }
   .who-text {
@@ -517,7 +515,7 @@
   }
   .who-name {
     font-size: var(--fs-title);
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1.15;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -547,16 +545,6 @@
   }
   .who-edit {
     flex: none;
-    font-size: var(--fs-compact);
-    padding: 7px 14px;
-    border-radius: 999px;
-    background: var(--bg-3);
-    color: var(--text);
-    border: 1px solid var(--border);
-  }
-  .who-edit:hover {
-    background: var(--bg-2);
-    border-color: var(--accent);
   }
 
   /* The recovery row's trailing control. A chevron would promise another page;
@@ -635,7 +623,7 @@
   }
   .row-title {
     font-size: var(--fs-ui);
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1.3;
   }
   .small-btn {
@@ -649,26 +637,29 @@
   }
 
   /* ---- this install -------------------------------------------------------- */
+  /* The same line as a SettingRow: a muted 16px icon in the leading column,
+     the version and its state, the one action on the trailing side. It was a
+     card in the right half of a two-column grid, which squeezed "Updates
+     install in place" into a 70px column one word per line. */
   .upd {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 12px 14px;
+    gap: var(--sp-1);
+    padding: 10px 0 0;
   }
   .upd-head {
     display: flex;
     align-items: center;
-    gap: var(--sp-3);
+    gap: var(--sp-5);
+    min-height: 38px;
   }
   .chip {
     display: grid;
     place-items: center;
-    width: 34px;
-    height: 34px;
+    width: 16px;
     flex-shrink: 0;
-    border-radius: var(--radius-md);
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+    margin-right: calc(-1 * var(--sp-2));
+    color: var(--text-muted);
   }
   .spin-chip :global(svg) {
     animation: upd-bob 1.1s ease-in-out infinite;
@@ -687,11 +678,16 @@
       animation: none;
     }
   }
+  /* The md button: primary when there is an update to take, quiet to check. */
   .upd-btn {
     flex: none;
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
     font-size: var(--fs-compact);
-    padding: 7px 14px;
-    border-radius: 999px;
+    font-weight: 600;
+    padding: 0 14px;
+    border-radius: var(--radius-sm);
     border: none;
     background: var(--accent);
     color: var(--accent-fg);
@@ -707,12 +703,13 @@
     box-shadow: none;
   }
   .upd-btn.ghosted {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+    background: var(--bg-3);
+    color: var(--text);
+    font-weight: 500;
     box-shadow: none;
   }
   .upd-btn.ghosted:hover {
-    background: color-mix(in srgb, var(--accent) 26%, transparent);
+    background: var(--border);
   }
   .upd-btn.link {
     display: inline-flex;
@@ -739,16 +736,9 @@
     transition: width 0.3s ease;
   }
 
+  /* One column: the safety net, then this install, as groups of rows. */
   .desk-cols {
     display: contents;
-  }
-  @media (min-width: 769px) {
-    .desk-cols {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: var(--sp-3);
-      align-items: start;
-    }
   }
   .signout {
     display: inline-flex;
