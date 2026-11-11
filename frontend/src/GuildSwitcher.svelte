@@ -451,6 +451,10 @@
             {#if g.icon}<img src={g.icon} alt="" />{:else}<GuildMark {g} />{/if}
           </span>
           <span class="name" class:dim={m.muted}>{g.name}</span>
+          {#if g.isOwner}
+            <!-- Yours: the crown, the member list's owner mark. -->
+            <span class="own" role="img" aria-label="you own this guild" title="You own this guild"><Icon name="crown" size={13} /></span>
+          {/if}
           <span class="trail">
             {#if m.count}<Badge count={m.count} muted={m.muted} label={plural(m.count, "mention")} />
             {:else if m.dot}<Badge dot label="Unread" />{/if}
@@ -664,6 +668,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     unicode-bidi: plaintext;
+  }
+  .own {
+    flex: none;
+    display: grid;
+    place-items: center;
+    color: var(--text-muted);
   }
   .name.dim {
     color: var(--text-muted);

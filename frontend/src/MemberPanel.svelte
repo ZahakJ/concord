@@ -328,6 +328,10 @@
               class="mname"
               style={S.prefs.roleNameColors && roleColorFor(mem.fingerprint) ? `color:${nameInk(roleColorFor(mem.fingerprint))}` : ""}
             >{mem.name || mem.fingerprint.slice(0, 9)}</span>{mem.isSelf ? " (you)" : ""}
+            {#if mem.isOwner}
+              <!-- The same crown the owner's guilds wear on their tiles. -->
+              <span class="own-crown" role="img" aria-label="Guild owner" title="Guild owner"><Icon name="crown" size={12} /></span>
+            {/if}
             {#if birthdayToday(mem)}
               <span class="bday" title="Birthday today">🎂</span>
             {/if}
@@ -662,6 +666,13 @@
       animation: none;
       height: 60%;
     }
+  }
+  .own-crown {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    color: var(--text-muted);
+    vertical-align: -1px;
   }
   .v-badge {
     color: var(--ok-text);

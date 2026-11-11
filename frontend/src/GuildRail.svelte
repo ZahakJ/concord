@@ -185,6 +185,7 @@
     else if (m.dot) parts.push("unread");
     if (m.muted) parts.push("muted");
     if (MOM.unseen[gg.id]) parts.push("new moments");
+    if (gg.isOwner) parts.push("you own this guild");
     return parts.join(" · ");
   }
 
@@ -465,6 +466,7 @@
           class:gone={!!gg.evicted}
           class:hasicon={!!gg.icon}
           class:moments={MOM.unseen[gg.id] > 0}
+          class:owned={gg.isOwner}
           style={gg.icon ? undefined : faceStyle(gg)}
           use:tooltip={{ ...tip, text: tileLabel(gg) }}
           aria-label={gg.name}
@@ -614,6 +616,7 @@
             style={sv.icon ? undefined : faceStyle(sv)}
             use:tooltip={{ ...railTip, text: tileLabel(sv) }}
             aria-label={sv.name}
+            aria-description={sv.isOwner ? "you own this guild" : undefined}
             draggable="true"
             ondragstart={(e) => startDrag(e, { kind: "guild", id: sv.id })}
             ondragend={endDrag}
@@ -629,6 +632,7 @@
               <span class="face"><GuildMark g={sv} size={16} /></span>
             {/if}
           </button>
+          {#if sv.isOwner}<span class="t-own rail-own" aria-hidden="true"><Icon name="crown" size={10} /></span>{/if}
           {#if sv.id !== S.activeGuildId && m.count}
             <span class="p-badge"><Badge count={m.count} muted={m.muted} ring="var(--bg-1)" /></span>
           {:else if sv.id !== S.activeGuildId && m.dot}
@@ -867,9 +871,21 @@
       inset 0 0 0 1px var(--bg-1),
       inset 0 0 0 3px var(--text);
   }
-  /* Moments nobody here has watched yet: a thin ring in your accent just
-     outside the tile, on a 1px gap — outside, so it never meets the "you are
-     here" ring drawn inside it. */
+  /* A guild you own: a thin ring in the faint ink just outside the tile, on
+     a 1px gap. A crown was tried here and at 28px it read as a smudge; the
+     switcher row and the rail's larger tiles carry the crown itself. Outside
+     the tile, so it never meets the "you are here" ring drawn inside it. */
+  .tile.owned {
+    overflow: visible;
+    box-shadow:
+      0 0 0 1px var(--bg-1),
+      0 0 0 2px var(--text-faint);
+  }
+  .tile.owned .icon {
+    border-radius: inherit;
+  }
+  /* Moments nobody here has watched yet: the same place, in your accent and
+     a little heavier; it outranks the owner's ring while it is up. */
   .tile.moments {
     overflow: visible;
     box-shadow:
@@ -902,6 +918,22 @@
     right: -6px;
     pointer-events: none;
     display: flex;
+  }
+  /* A guild you own, on the rail's larger tiles: a small crown cut into the
+     bottom-left corner. The count has the top-right, the unread dot the left
+     edge and the event/failed mark the bottom-right, so none share a spot. */
+  .t-own {
+    position: absolute;
+    left: -4px;
+    bottom: -4px;
+    display: grid;
+    place-items: center;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--bg-1);
+    color: var(--text-muted);
+    pointer-events: none;
   }
   .t-dot {
     position: absolute;
@@ -955,6 +987,12 @@
   .strip.phone .t-badge {
     top: -4px;
     right: -6px;
+  }
+  .t-own.rail-own {
+    left: -3px;
+    bottom: -3px;
+    width: 16px;
+    height: 16px;
   }
   .strip.phone .t-dot {
     bottom: -7px;
