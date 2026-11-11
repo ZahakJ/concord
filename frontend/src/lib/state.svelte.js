@@ -754,6 +754,20 @@ export function openGuildHub() {
   S.modal = S.isMobile ? { kind: "guildHub" } : { kind: "guildSettings", hub: g.id };
 }
 
+// openGuildPage opens one page of a guild's settings from outside the hub —
+// the guild menu's Roles, Banned members, Guild emoji. On a desktop that is
+// the rail, lit on that page, so the next errand (Members after Bans) is one
+// click along it instead of close, reopen, drill in: the menu used to raise
+// each of these as its own small dialog at its own width. A phone keeps the
+// sheet it has always had.
+export function openGuildPage(kind, g = activeGuild()) {
+  if (!g) return;
+  modalNav.dir = 0;
+  modalNav.lateral = false;
+  S.modalStack = [];
+  S.modal = S.isMobile ? { kind } : { kind, hub: g.id };
+}
+
 // backPanel walks one step out, the way you came in.
 export function backPanel() {
   modalNav.dir = -1;
@@ -1213,10 +1227,10 @@ export function guildMenuItems(g) {
       onClick: () => setGuildNotifs(g.id, l.id),
     })),
     { sep: true },
-    { label: "Guild emoji", icon: "smile", onClick: () => (S.modal = { kind: "emoji" }) },
+    { label: "Guild emoji", icon: "smile", onClick: () => openGuildPage("emoji", g) },
     g.isOwner && { label: "Rename guild", icon: "edit", onClick: () => (S.modal = { kind: "rename" }) },
-    canRoles && { label: "Roles & permissions", icon: "spark", onClick: () => (S.modal = { kind: "roles" }) },
-    g.canManage && { label: "Banned members", icon: "door", onClick: () => (S.modal = { kind: "bans" }) },
+    canRoles && { label: "Roles & permissions", icon: "spark", onClick: () => openGuildPage("roles", g) },
+    g.canManage && { label: "Banned members", icon: "door", onClick: () => openGuildPage("bans", g) },
     { sep: true },
     {
       label: leaveGuildLabel(g),

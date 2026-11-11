@@ -459,6 +459,13 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     padding: 0 var(--dlg-pad) var(--dlg-pad);
+    /* ONE body size. A dialog used to inherit the document's 16px, so every
+       sentence and field nobody had sized explicitly came out at 16 while its
+       neighbours, which had, said 13 — side by side the family looked like it
+       came from four teams. Everything in a dialog starts at the UI size; a
+       panel that wants a bigger line asks for it. */
+    font-size: var(--fs-ui);
+    line-height: 1.5;
     display: flex;
     flex-direction: column;
     gap: var(--sp-3);
@@ -633,7 +640,20 @@
   .dialog.scrolls :global(.actions) {
     border-top-color: var(--hairline);
   }
-  /* Footer buttons are the md control: 32px, the same in every dialog. */
+  /* ONE button size per role. Every variant button in a dialog is the md
+     control — 32px, --fs-compact — unless it asked for sm or lg: the footers
+     had settled on that, but the buttons inside the body (a "Copy code", a
+     "Start the meeting", a "New role") were whatever the inherited 16px and
+     8px/14px padding made of them, so one dialog carried three heights. */
+  .dialog :global(:is(button.primary, button.quiet, button.ghost, button.danger):not(.sm, .lg)) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 14px;
+    font-size: var(--fs-compact);
+  }
   .dialog :global(.actions > button) {
     min-height: 32px;
     padding-top: 0;
@@ -777,7 +797,8 @@
       padding: 10px var(--dlg-pad) calc(10px + var(--safe-bottom));
       border-radius: 0;
     }
-    .dialog :global(.actions > button) {
+    .dialog :global(.actions > button),
+    .dialog :global(:is(button.primary, button.quiet, button.ghost, button.danger):not(.sm, .lg)) {
       min-height: var(--tap-min);
     }
     /* …with one exception: the ⓘ beside a setting is a 14px glyph sitting IN a
