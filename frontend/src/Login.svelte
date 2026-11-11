@@ -594,7 +594,7 @@
 </script>
 
 <div class="login" onfocusin={keepFieldInView}>
-  <form class="card" class:wide={!!backupPhrase} onsubmit={submit}>
+  <form class="card" onsubmit={submit}>
     <!-- The app's own mark on a tile of its own, so it reads on the dark
          ground as well as on paper. -->
     <div class="logo"><Icon name="concorde" size={28} /></div>
@@ -796,25 +796,30 @@
           <span class="word"><span class="wn">{i + 1}</span>{w}</span>
         {/each}
       </div>
-      <div class="phrase-actions">
-        <button type="button" class="quiet sm" onclick={toggleReveal}>
-          {showPhrase ? "Hide" : "Show phrase"}
-        </button>
-        <button type="button" class="quiet sm" disabled={!showPhrase} onclick={copyPhrase}>
-          {copiedPhrase ? "Copied ✓" : "Copy"}
-        </button>
-      </div>
-      <p class="muted tiny warn">
-        Anyone with these words can become you — never share them. You can view them again later in
-        Settings.
-      </p>
-      <!-- The big button is the next thing to do: first SHOW the words (the
-           small chip above was the real first step and the smallest thing on
-           the card), then confirm they are saved. -->
+      <!-- One control to show them: the primary. Once they have been seen,
+           Hide and Copy appear beside the grid and the primary moves on to the
+           next step. (There were two "show" controls, a chip and the button.) -->
       {#if revealedOnce}
-        <button class="primary" type="button" onclick={startVerify}>I've saved my recovery phrase</button>
+        <div class="phrase-actions">
+          <button type="button" class="quiet sm" onclick={toggleReveal}>
+            {showPhrase ? "Hide" : "Show"}
+          </button>
+          <button type="button" class="quiet sm" disabled={!showPhrase} onclick={copyPhrase}>
+            {copiedPhrase ? "Copied" : "Copy"}
+          </button>
+        </div>
+      {/if}
+      <p class="muted tiny note-line">
+        <Icon name="alert" size={13} />
+        <span>
+          Anyone with these words can become you — never share them. You can see them again later in
+          Settings.
+        </span>
+      </p>
+      {#if revealedOnce}
+        <button class="primary" type="button" onclick={startVerify}>I've written it down</button>
       {:else}
-        <button class="primary" type="button" onclick={toggleReveal}>Show my recovery phrase</button>
+        <button class="primary" type="button" onclick={toggleReveal}>Show the phrase</button>
       {/if}
     {:else if confirmingReset}
       <p class="muted">
@@ -855,6 +860,7 @@
              autocorrect and predictive text on, which mangles a code the
              backend then rejects with an opaque error — on the one screen
              where the user has no other way in. -->
+        <span class="field-lbl" aria-hidden="true">Link code</span>
         <textarea
           class="phrase-in"
           rows="3"
@@ -877,7 +883,9 @@
           anything is erased.
         </p>
       {/if}
+      <span class="field-lbl" aria-hidden="true">Passphrase for this device</span>
       <PassphraseField placeholder="Passphrase for this device" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
+      <span class="field-lbl" aria-hidden="true">Confirm passphrase</span>
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
       {#if busy}
@@ -908,19 +916,16 @@
         </p>
       {:else}
         <p class="muted">
-          Enter your 24-word recovery phrase and a new passphrase for this device.
-          The phrase restores your account key — you come back as the same person,
-          to anyone who has verified you. It is <strong>not</strong> a backup of
-          your data: this device starts with no name, no guilds and no history. If
-          another of your devices is still linked, go back and link to that one
-          instead and everything comes with it; otherwise ask someone in each guild
-          for a fresh invite.
+          Your 24 words bring back who you are, not your history: this device starts with no
+          guilds and no messages. If another of your devices still has the account, link to it
+          instead and everything comes with it.
         </p>
       {/if}
       <!-- Same reason as the link code, and worse here: the IME will happily
            "correct" uncommon BIP-39 words (gauge, nuclear, kernel) to
            dictionary neighbours as you type, and the phrase is the only way
            back into the account. -->
+      <span class="field-lbl" aria-hidden="true">Recovery phrase</span>
       <textarea
         class="phrase-in"
         rows="3"
@@ -933,7 +938,9 @@
         aria-invalid={errField === "phrase" ? "true" : undefined}
         bind:value={restorePhrase}
       ></textarea>
+      <span class="field-lbl" aria-hidden="true">New passphrase</span>
       <PassphraseField placeholder="New passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
+      <span class="field-lbl" aria-hidden="true">Confirm passphrase</span>
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
       <button class="primary" type="button" disabled={busy} onclick={doRestore}>
@@ -999,9 +1006,11 @@
       </p>
       <!-- Likewise: a brand-new user's very first frame should be the copy
            explaining what they're about to do, not a keyboard covering it. -->
+      <span class="field-lbl" aria-hidden="true">Your name</span>
       <input
         type="text"
-        placeholder="Your name (what people see)"
+        placeholder="What people see"
+        aria-label="Your name"
         maxlength="32"
         autocomplete="off"
         bind:value={displayName}
@@ -1011,7 +1020,9 @@
       {#if [...displayName].length >= 24}
         <span class="count">{[...displayName].length}/32</span>
       {/if}
+      <span class="field-lbl" aria-hidden="true">Passphrase</span>
       <PassphraseField placeholder="Choose a passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
+      <span class="field-lbl" aria-hidden="true">Confirm passphrase</span>
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
       <button class="primary" type="submit" disabled={!hasVisible(displayName) || !passphrase || !confirmPass || busy}>
@@ -1148,9 +1159,18 @@
     width: 100%;
     font-size: var(--fs-ui);
   }
+  /* The secondary is the same lg control as the primary: 40px, --fs-ui,
+     600. It was 36px at the inherited 16px beside a 40px primary at 13px,
+     so the less important button read as the bigger one. */
+  .card button.primary,
+  .card button.danger,
   .card button.ghost {
-    min-height: 36px;
+    font-weight: 600;
+  }
+  .card button.ghost {
+    min-height: 40px;
     width: 100%;
+    font-size: var(--fs-ui);
   }
   .links {
     display: flex;
@@ -1305,8 +1325,15 @@
     display: flex;
     gap: var(--sp-2);
   }
-  .warn {
-    color: var(--danger-text);
+  /* A caution, not an error: muted, with the alert glyph carrying it. */
+  .note-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .note-line :global(svg) {
+    flex: none;
+    margin-top: 2px;
   }
   .tiny {
     font-size: var(--fs-small);
