@@ -6,7 +6,8 @@
   //     many guild tiles as fit the sidebar's width, and an overflow tile that
   //     opens the guild switcher. Which guilds earn a tile is the stated rule in
   //     lib/rail.js (stripTiles): pinned, then mentions, then unread, then most
-  //     recently opened, never reordered under the pointer.
+  //     recently opened — laid out in the one order the switcher uses too
+  //     (pins, then the rail order), so a tile never moves because it was read.
   //   layout="rail"  — the classic slim column beside the channel list, every
   //     guild in the user's order with folders, kept whole as the alternative
   //     arrangement.
@@ -42,7 +43,6 @@
     guildIdsInLayout,
     stripFit,
     stripTiles,
-    noteEntries,
   } from "./lib/rail.js";
   import { guildMenu, folderMenu, renameFolderTo, stripPins, pinAt, noteOpened, openedTimes } from "./lib/guildmenu.js";
   import { openGuildSwitcher, GSW } from "./lib/guildswitch.svelte.js";
@@ -215,7 +215,7 @@
   // over it, or the switcher (the strip's inventory) is open. What changed
   // meanwhile applies when the pointer leaves.
   let hovering = $state(false);
-  let entries = {};
+  let lastShown = [];
   let tiles = $state({ shown: [], hidden: [] });
   const DMS_N = 3;
   $effect(() => {
@@ -235,8 +235,9 @@
     // still orders it, and the overflow tile is still last.
     const n = phone ? Math.max(DMS_N * 4, 12) : stripFit(width);
     if (hovering || GSW.open) return;
-    entries = noteEntries(entries, ids, ctx, Date.now());
-    tiles = stripTiles(ids, ctx, entries, cur, n);
+    const next = stripTiles(ids, ctx, lastShown, cur, n);
+    lastShown = next.shown;
+    tiles = next;
   });
   const shownGuilds = $derived(tiles.shown.map((id) => guildById.get(id)).filter(Boolean));
   // The overflow tile carries the hidden guilds' combined news: their mentions

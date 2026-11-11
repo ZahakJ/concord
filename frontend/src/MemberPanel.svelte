@@ -4,7 +4,6 @@
   // control is its own sibling button (no more button-in-button nesting).
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
-  import StoryTray from "./StoryTray.svelte";
   import Inspector from "./Inspector.svelte";
   import {
     S,
@@ -41,7 +40,6 @@
   // then the slot the member list has always had is where the inspector lives.
   let { embedded = false } = $props();
 
-  let showPeers = $state(false);
 
   const g = $derived(activeGuild());
 
@@ -299,9 +297,6 @@
       history below is your own copy and stays on this device.
     </p>
   {:else}
-  <!-- Moments tray rides the top of the roster. It hides itself for DMs and
-       owns all its data/refresh logic — this panel just gives it the slot. -->
-  <StoryTray />
   {#if soleAdminRisk}
     <div class="notice warn" role="note">
       <div class="notice-head">
@@ -470,32 +465,6 @@
     {/if}
   {/each}
 
-  <div class="section-head">
-    <span>Local peers</span>
-    <button class="mini" aria-label={showPeers ? "Collapse" : "Expand"} onclick={() => (showPeers = !showPeers)}>
-      <span class="chev" class:open={showPeers}><Icon name="chevron" size={11} /></span>
-    </button>
-  </div>
-  {#if showPeers}
-    <p class="muted small peers-info">
-      Every Concord node your device has ever connected to — including strangers on the same
-      Wi-Fi discovered automatically. They can't read anything (messages are end-to-end
-      encrypted); this is just a network log. To verify a <em>friend</em>, click them in the
-      Members list above.
-    </p>
-    <!-- Your own devices are not "nodes your device has connected to" in the
-         sense this log means, and they now get a proper section of their own in
-         Stats & diagnostics. Left in, your phone appeared here as your own
-         fingerprint, which reads as a stranger who has somehow got your key. -->
-    {#each S.contacts.filter((c) => c.fingerprint !== S.identity.fingerprint) as c (c.peerId)}
-      <div class="contact">
-        <span class="mono peer-fpr" title={c.peerId}>{c.fingerprint.slice(0, 19)}…</span>
-        {#if c.verified}<span class="badge verified">✓</span>{/if}
-      </div>
-    {:else}
-      <div class="muted small">No peers seen yet.</div>
-    {/each}
-  {/if}
   {/if}
 </aside>
 {/if}
@@ -942,68 +911,8 @@
       padding: 2px 6px;
     }
   }
-  .peers-info {
-    padding: var(--sp-1) var(--sp-2);
-    line-height: 1.45;
-    margin: 0;
-  }
-  .contact {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--sp-2);
-    padding: 6px 8px;
-    word-break: break-all;
-  }
-  .peer-fpr {
-    font-size: var(--fs-small);
-  }
-  .badge {
-    font-size: var(--fs-small);
-    padding: 2px 8px;
-    border-radius: var(--radius-md);
-  }
-  .badge.verified {
-    background: var(--ok-soft);
-    color: var(--ok-text);
-  }
   .small {
     font-size: var(--fs-compact);
     padding: 6px 8px;
-  }
-  .mini {
-    padding: 2px 6px;
-    background: transparent;
-    color: var(--text-muted);
-  }
-  .mini:hover,
-  .mini:active {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  /* Touch: invisible overlay pads the small expand/collapse toggle's tap area
-     out to the platform floor without growing the glyph. The glyph box is
-     23x18, so a single hardcoded inset can only be right on one axis — it was
-     -13px, which reached 44 across and 44 down by coincidence of those two
-     numbers and went stale the moment --tap-min moved to Android's 48. The
-     calc form measures from the element's own size on each axis, so it is
-     correct for both and stays correct if the glyph changes. */
-  @media (pointer: coarse), (max-width: 768px) {
-    .mini {
-      position: relative;
-    }
-    .mini::after {
-      content: "";
-      position: absolute;
-      inset: calc((var(--tap-min) - 100%) / -2);
-    }
-  }
-  .chev {
-    display: inline-grid;
-    place-items: center;
-    transition: transform var(--dur-standard) ease;
-  }
-  .chev.open {
-    transform: rotate(90deg);
   }
 </style>

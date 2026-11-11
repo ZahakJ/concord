@@ -42,6 +42,7 @@ import { isGameToken } from "./games.js";
 import { plainSnippet } from "./snippet.js";
 import { typistsAfter } from "./typing.js";
 import { landsOnWelcome } from "./firstrun.js";
+import { momentsPlaylist } from "./moments.js";
 import { insertBySent } from "./feedorder.js";
 import { isBlankText } from "./compose.js";
 import { isReading, readThrough, attention, addressedToYou } from "./readstate.js";
@@ -1165,6 +1166,19 @@ export async function patchProfile(patch) {
   S.identity = await api.identity();
 }
 
+// openMoments plays a guild's moments from the first unseen one, or opens the
+// composer when there are none to play.
+export async function openMoments(guildId) {
+  let stories = [];
+  try {
+    stories = (await api.guildStories(guildId)) || [];
+  } catch {
+    /* locked or transport down: offer to share instead of an error */
+  }
+  const { list, start } = momentsPlaylist(stories);
+  S.modal = list.length ? { kind: "storyViewer", stories: list, start } : { kind: "storyCompose" };
+}
+
 // guildMenuItems: everything you can do to a guild, in one list — so the rail's
 // right-click, the header's "More" menu and the mobile sheet can never drift
 // apart. Each entry is permission-gated the same way the backend gates the op:
@@ -1183,6 +1197,10 @@ export function guildMenuItems(g) {
       icon: "check",
       onClick: () => g.channels.forEach((c) => markRead(c.id)),
     },
+    // Moments used to be a tray squatting at the top of the member list; they
+    // belong to the guild, so they live in its menu. With nothing shared yet
+    // the entry goes straight to sharing one.
+    { label: "Moments", icon: "imagetext", onClick: () => openMoments(g.id) },
     { label: "Stats & diagnostics", icon: "poll", onClick: () => (S.modal = { kind: "stats", guildId: g.id }) },
     { sep: true },
     // The guild-wide default every channel falls back to. Flat, with a tick on

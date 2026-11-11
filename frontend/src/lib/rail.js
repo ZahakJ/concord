@@ -242,62 +242,56 @@ export function stripClass(id, { pins, mentions, unread, opened }) {
   return "";
 }
 
-// noteEntries records WHEN each guild entered the class it is in now — the
-// stability half of the rule. `prev` is the caller's map from the last pass
-// ({id: {cls, at}}); a guild whose class is unchanged keeps its old time, one
-// that moved gets `now`. Returns a new map; guilds in no class are dropped.
-export function noteEntries(prev, ids, ctx, now) {
-  const out = {};
-  for (const id of ids) {
-    const cls = stripClass(id, ctx);
-    if (!cls) continue;
-    const was = prev?.[id];
-    out[id] = was && was.cls === cls ? was : { cls, at: now };
-  }
-  return out;
+// sharedOrder is the ONE order every view of the guild inventory uses — the
+// strip, the switcher and the rail: the user's pins first, in the order they
+// pinned them, then everything else in the user's own rail order. Three views
+// of one inventory in three orders meant nobody could learn where anything was.
+export function sharedOrder(ids, pins) {
+  const live = new Set(ids);
+  const p = (pins || []).filter((id) => live.has(id));
+  const ps = new Set(p);
+  return [...p, ...ids.filter((id) => !ps.has(id))];
 }
 
-// stripTiles picks and orders the strip's guild tiles.
+// stripTiles picks the strip's guild tiles and lays them out.
 //
-//   ids      every guild id, in the switcher's order (the tie-break)
+//   ids      every guild id, in the user's rail order
 //   ctx      { pins: [ids in the user's order], mentions: Set, unread: Set,
 //             opened: Map id → last opened time }
-//   entries  noteEntries' map: when each guild entered its class
+//   prev     the tiles this session last showed ([] at start)
 //   current  the guild on screen ("" for none)
 //   n        how many tiles fit
 //
-// Pinned guilds come first in the user's order; then mentions, then unread,
-// then the most recently opened — each of those three ordered by when the
-// guild ENTERED the class, oldest first, so a newcomer joins at the right and
-// nothing to its left moves — then, while slots remain, the rest in the
-// switcher's order. The current guild is always on the strip: if the
-// rule did not pick it, it takes the last slot. Returns { shown, hidden }.
-export function stripTiles(ids, ctx, entries, current, n) {
-  const pos = new Map(ids.map((id, i) => [id, i]));
+// WHICH guilds: pinned ones always; then the current guild; then guilds with
+// something aimed at you; then whatever the strip showed last time, so a tile
+// never drops out because it was read; then unread, then the most recently
+// opened, then the rest. A guild already shown leaves only when the row
+// overflows, and then the least pressing goes first.
+//
+// WHERE: in sharedOrder, never by class. A tile used to be laid out by its
+// unread class, so reading a guild slid it sideways; now reading changes
+// nothing about where it sits. Returns { shown, hidden } (hidden in shared
+// order too).
+export function stripTiles(ids, ctx, prev, current, n) {
+  const order = sharedOrder(ids, ctx.pins);
+  const pos = new Map(order.map((id, i) => [id, i]));
   const live = (id) => pos.has(id);
-  const byEntry = (a, b) =>
-    (entries[a]?.at ?? 0) - (entries[b]?.at ?? 0) || pos.get(a) - pos.get(b);
-  const inClass = (cls) => ids.filter((id) => entries[id]?.cls === cls);
-  const pins = ctx.pins.filter(live);
-  const mention = inClass("mention").sort(byEntry);
-  const unread = inClass("unread").sort(byEntry);
-  // Recent is the only class with more members than slots as a rule, so the
-  // slots go to the most recently OPENED, and only then are they laid out by
-  // when they arrived.
-  const room = Math.max(0, n - pins.length - mention.length - unread.length);
-  const recent = inClass("recent")
-    .sort((a, b) => (ctx.opened.get(b) ?? 0) - (ctx.opened.get(a) ?? 0) || pos.get(a) - pos.get(b))
-    .slice(0, room)
-    .sort(byEntry);
-  // A device that has opened few guilds yet would leave the strip half empty:
-  // the slots still free go to the rest in the switcher's own order, which is
-  // the user's order and so does not move on its own either.
-  const picked = new Set([...pins, ...mention, ...unread, ...recent]);
-  const rest = ids.filter((id) => !picked.has(id));
-  let shown = [...pins, ...mention, ...unread, ...recent, ...rest].slice(0, Math.max(0, n));
-  if (current && live(current) && !shown.includes(current) && n > 0) {
-    shown = [...shown.slice(0, n - 1), current];
+  const byPos = (a, b) => pos.get(a) - pos.get(b);
+  const cls = (id) => stripClass(id, ctx);
+  const rankOf = { pin: 0, mention: 1, unread: 2, recent: 3, "": 4 };
+  const pins = order.filter((id) => cls(id) === "pin");
+  const mention = order.filter((id) => cls(id) === "mention");
+  const recency = (a, b) => (ctx.opened.get(b) ?? 0) - (ctx.opened.get(a) ?? 0);
+  const kept = (prev || []).filter(live).sort((a, b) => rankOf[cls(a)] - rankOf[cls(b)] || recency(a, b) || byPos(a, b));
+  const unread = order.filter((id) => cls(id) === "unread");
+  const recent = order
+    .filter((id) => cls(id) === "recent")
+    .sort((a, b) => recency(a, b) || byPos(a, b));
+  const cur = current && live(current) ? [current] : [];
+  const chosen = new Set();
+  for (const id of [...pins.slice(0, Math.max(0, n - cur.length)), ...cur, ...mention, ...kept, ...unread, ...recent, ...order]) {
+    if (chosen.size >= Math.max(0, n)) break;
+    chosen.add(id);
   }
-  const set = new Set(shown);
-  return { shown, hidden: ids.filter((id) => !set.has(id)) };
+  return { shown: order.filter((id) => chosen.has(id)), hidden: order.filter((id) => !chosen.has(id)) };
 }

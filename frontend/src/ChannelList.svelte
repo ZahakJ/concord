@@ -129,8 +129,38 @@
   const others = $derived(S.members.filter((m) => !m.isSelf));
   const reachable = $derived(others.filter((m) => m.online).length);
   const reachLabel = $derived(
-    reachable === 0 ? "Nobody else is reachable right now" : `${reachable} of ${others.length} members reachable right now`,
+    others.length === 0
+      ? "Nobody else has joined yet"
+      : reachable === 0
+        ? "Nobody else can be reached right now"
+        : `${reachable} of ${others.length} members can be reached right now`,
   );
+  // Local peers: every node this device has connected to. A network log, not
+  // a roster — it used to end the member list, where it read as a second list
+  // of people; it belongs with "who can this device reach".
+  const localPeers = $derived(S.contacts.filter((c) => c.fingerprint !== S.identity.fingerprint));
+  let showPeers = $state(false);
+
+  // The header's give-way order (§2.9): the words "N reachable" go first, then
+  // the glyph and number, and only then does the guild's name truncate. Tried
+  // widest-first on every resize, so the result never oscillates.
+  function reachFit(node) {
+    const fit = () => {
+      const name = node.querySelector(".ph-name");
+      if (!name) return;
+      for (const mode of ["full", "glyph", "none"]) {
+        node.dataset.reach = mode;
+        if (name.scrollWidth <= name.clientWidth + 0.5) return;
+      }
+    };
+    const ro = new ResizeObserver(fit);
+    ro.observe(node);
+    fit();
+    // The display face arrives after the first layout and widens the name
+    // without resizing the header, so measure again once it has.
+    document.fonts?.ready.then(fit);
+    return { update: () => requestAnimationFrame(fit), destroy: () => ro.disconnect() };
+  }
   let reachPop = $state(null);
   function toggleReach(e) {
     if (reachPop) {
@@ -883,6 +913,7 @@
       data-place-head
       style="--guild-accent:{tileColor(g)}"
       class:gone={!!g.evicted}
+      use:reachFit={[g.name, reachable, others.length, colW]}
     >
       <button
         class="ph-main"
@@ -899,19 +930,22 @@
         <span class="ph-name"><bdi>{g.name}</bdi></span>
         <span class="ph-chev" aria-hidden="true"><Icon name="chevron" size={14} /></span>
       </button>
-      {#if others.length && !g.evicted}
+      {#if !g.evicted}
         <button
           class="ph-reach"
-          class:glyph-only={colW < 300}
           aria-label={reachLabel}
           aria-haspopup="dialog"
           aria-expanded={!!reachPop}
           use:tooltip={{ text: reachLabel }}
           onclick={toggleReach}
         >
-          <span class="reach-glyph" class:none={reachable === 0} class:all={reachable === others.length} aria-hidden="true"></span>
-          <!-- Below 300px the words go and the number stays (§2.9). -->
-          <span class="reach-n">{reachable}<span class="reach-w">&nbsp;reachable</span></span>
+          <span class="reach-glyph" class:none={reachable === 0} class:all={others.length > 0 && reachable === others.length} aria-hidden="true"></span>
+          <!-- In words while there is room; then the glyph and number (reachFit). -->
+          {#if reachable === 0}
+            <span class="reach-w">Nobody reachable</span>
+          {:else}
+            <span class="reach-n">{reachable}<span class="reach-w">&nbsp;reachable</span></span>
+          {/if}
         </button>
       {/if}
       {#if g.canManage && !g.evicted}
@@ -1726,7 +1760,9 @@
     aria-label="Who this device can reach"
     style="left:{reachPop.x}px;top:{reachPop.y}px"
   >
-    {#if reachable === 0}
+    {#if others.length === 0}
+      <p>Nobody else has joined <bdi>{g?.name}</bdi> yet.</p>
+    {:else if reachable === 0}
       <p>
         Nobody else in <bdi>{g?.name}</bdi> is online. You can still write — messages wait on this device and go out
         when someone comes back.
@@ -1745,6 +1781,26 @@
         else if (!S.prefs.memberPanel) setPref("memberPanel", true);
       }}>See who</button
     >
+    <button class="peers-toggle" aria-expanded={showPeers} onclick={() => (showPeers = !showPeers)}>
+      <span>Local peers · {localPeers.length}</span>
+      <span class="chev" class:open={showPeers} aria-hidden="true"><Icon name="chevron" size={12} /></span>
+    </button>
+    {#if showPeers}
+      <p class="peers-note">
+        Every Concord node this device has connected to, strangers on the same network included. They can't read
+        anything — messages are end-to-end encrypted. To verify a friend, open their profile.
+      </p>
+      <ul class="peers-list">
+        {#each localPeers as c (c.peerId)}
+          <li>
+            <span class="mono" title={c.peerId}>{c.fingerprint.slice(0, 19)}…</span>
+            {#if c.verified}<span class="peer-ok">Verified</span>{/if}
+          </li>
+        {:else}
+          <li class="none">No peers seen yet.</li>
+        {/each}
+      </ul>
+    {/if}
   </div>
 {/if}
 
@@ -2621,8 +2677,7 @@
     rotate: 90deg;
   }
   .ph-reach {
-    flex: 0 1 auto;
-    min-width: 0;
+    flex: none;
     display: flex;
     align-items: center;
     gap: 5px;
@@ -2638,8 +2693,56 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .ph-reach.glyph-only .reach-w {
+  .place-head:global([data-reach="glyph"]) .reach-w {
     display: none;
+  }
+  .place-head:global([data-reach="none"]) .ph-reach {
+    display: none;
+  }
+  .peers-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: var(--sp-2);
+    padding: var(--sp-2) 0 0;
+    border-top: 1px solid var(--hairline);
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+  }
+  .peers-toggle .chev {
+    display: inline-flex;
+    transition: rotate var(--dur-quick) ease;
+  }
+  .peers-toggle .chev.open {
+    rotate: 90deg;
+  }
+  .peers-note {
+    margin: var(--sp-2) 0;
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+  }
+  .peers-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+  .peers-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sp-2);
+    padding: 4px 0;
+    font-size: var(--fs-small);
+  }
+  .peers-list li.none {
+    color: var(--text-muted);
+  }
+  .peer-ok {
+    color: var(--ok-text);
   }
   @media (pointer: fine) {
     .ph-reach:hover {

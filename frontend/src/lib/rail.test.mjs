@@ -152,7 +152,7 @@ console.log("rail.test.mjs: all passed");
 
 // ---- the shortcut strip ----
 {
-  const { stripFit, stripTiles, noteEntries } = await import("./rail.js");
+  const { stripFit, stripTiles, sharedOrder } = await import("./rail.js");
   const fail = (msg) => {
     console.error("  FAIL", msg);
     process.exitCode = 1;
@@ -164,49 +164,53 @@ console.log("rail.test.mjs: all passed");
   const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
   const ctx = (o = {}) => ({ pins: [], mentions: new Set(), unread: new Set(), opened: new Map(), ...o });
 
-  // Classes in order: pinned (user order), mentions, unread, recent.
+  // One order everywhere: pins first in pin order, then the rail order.
+  same(sharedOrder(ids, ["h", "gone", "b"]), ["h", "b", "a", "c", "d", "e", "f", "g"], "pins, then the rail order");
+
+  // Which guilds earn a tile: pins, mentions, unread, recent; laid out in the
+  // shared order, not by class.
   {
     const c = ctx({ pins: ["h", "b"], mentions: new Set(["e"]), unread: new Set(["c"]), opened: new Map([["a", 5], ["d", 9]]) });
-    const en = noteEntries({}, ids, c, 1);
-    same(stripTiles(ids, c, en, "", 6).shown, ["h", "b", "e", "c", "a", "d"], "pins, then mention, unread, recent");
+    same(stripTiles(ids, c, [], "", 6).shown, ["h", "b", "a", "c", "d", "e"], "the picked six, in the shared order");
+    same(stripTiles(ids, c, [], "", 4).shown, ["h", "b", "c", "e"], "pins and the most pressing when room is short");
   }
 
-  // A newcomer to a class joins at the right; nothing to its left moves, even
-  // when its count is bigger.
+  // Reading a guild never moves it or drops it: the tile stays where it was.
   {
-    let c = ctx({ mentions: new Set(["f"]) });
-    let en = noteEntries({}, ids, c, 1);
-    c = ctx({ mentions: new Set(["f", "b"]) });
-    en = noteEntries(en, ids, c, 2);
-    same(stripTiles(ids, c, en, "", 2).shown, ["f", "b"], "first-in stays left within a class");
+    const before = ctx({ mentions: new Set(["f"]), unread: new Set(["c"]), opened: new Map([["a", 1]]) });
+    const first = stripTiles(ids, before, [], "", 3).shown;
+    same(first, ["a", "c", "f"], "mention, unread, recent");
+    const read = ctx({ opened: new Map([["a", 1], ["f", 2], ["c", 3]]) });
+    same(stripTiles(ids, read, first, "", 3).shown, first, "reading them changes nothing");
   }
 
-  // Recent: the slots go to the most recently opened, laid out by arrival;
-  // re-opening a guild already on the strip does not move it.
+  // A shown tile leaves only when the row overflows, and the least pressing goes.
   {
-    let c = ctx({ opened: new Map([["a", 1], ["b", 2], ["c", 3]]) });
-    let en = noteEntries({}, ids, c, 1);
-    const first = stripTiles(ids, c, en, "", 2).shown;
-    same(first, ["b", "c"], "the two most recently opened");
-    same(stripTiles(ids, c, en, "", 5).shown, ["a", "b", "c", "d", "e"], "free slots go to the rest in switcher order");
-    c = ctx({ opened: new Map([["a", 1], ["b", 4], ["c", 3]]) });
-    en = noteEntries(en, ids, c, 2);
-    same(stripTiles(ids, c, en, "", 2).shown, ["b", "c"], "re-opening a shown guild keeps its slot");
+    const c0 = ctx({ opened: new Map([["a", 1], ["b", 2]]) });
+    const first = stripTiles(ids, c0, [], "", 2).shown;
+    same(first, ["a", "b"], "two recent");
+    const c1 = ctx({ mentions: new Set(["g"]), opened: new Map([["a", 1], ["b", 2]]) });
+    same(stripTiles(ids, c1, first, "", 2).shown, ["b", "g"], "a mention takes the slot of the oldest-opened");
   }
 
-  // The current guild is always present: it takes the last slot.
+  // Free slots go to the rest in the shared order.
+  {
+    const c = ctx({ opened: new Map([["c", 3]]) });
+    same(stripTiles(ids, c, [], "", 3).shown, ["a", "b", "c"], "free slots fill in order");
+  }
+
+  // The current guild is always present.
   {
     const c = ctx({ pins: ["a", "b", "c"] });
-    const en = noteEntries({}, ids, c, 1);
-    const r = stripTiles(ids, c, en, "g", 3);
+    const r = stripTiles(ids, c, [], "g", 3);
     same(r.shown, ["a", "b", "g"], "current guild takes the last slot");
-    same(r.hidden, ["c", "d", "e", "f", "h"], "the rest are hidden, in switcher order");
+    same(r.hidden, ["c", "d", "e", "f", "h"], "the rest are hidden, in the shared order");
   }
 
   // Ids that no longer exist are ignored, never shown.
   {
     const c = ctx({ pins: ["gone", "a"] });
-    same(stripTiles(ids, c, noteEntries({}, ids, c, 1), "", 2).shown, ["a", "b"], "a pin of a guild you left is skipped");
+    same(stripTiles(ids, c, ["gone"], "", 2).shown, ["a", "b"], "a guild you left is skipped");
   }
   if (!process.exitCode) console.log("rail.test.mjs: strip ok");
 }
