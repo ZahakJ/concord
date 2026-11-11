@@ -41,6 +41,8 @@
     archiveChannel,
     loadArchiveOlder,
     toggleMemberPanel,
+    postParentOf,
+    setPref,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
@@ -286,8 +288,8 @@
         icon: "smile",
         title: g.name || "New conversation",
         body: group
-          ? `This is the very start of ${g.name || "this group"}. Everything here is end-to-end encrypted. Say hi 👋`
-          : `This is the very beginning of your conversation with ${g.name || "your friend"}. It's end-to-end encrypted — just the two of you. Say hi 👋`,
+          ? `This is the start of ${g.name || "this group"}. Everything here is end-to-end encrypted.`
+          : `This is the start of your conversation with ${g.name || "your friend"}. It's end-to-end encrypted — just the two of you.`,
       };
     }
     const c = activeChannel();
@@ -297,15 +299,28 @@
     // ("Voice Lounge", not "voice-lounge"), so "#Voice Lounge" read as a typo.
     // The icon and the body already branched here; the title was the holdout.
     const voice = c?.type === "voice";
+    // One headline for an empty channel and for the top of a full one, the
+    // way the room is named everywhere else; no emoji in the app's own voice.
     return {
       icon: voice ? "speaker" : "hash",
-      title: voice ? `Welcome to ${name}` : `Welcome to #${name}`,
+      title: voice ? `This is the start of ${name}` : `This is the start of #${name}`,
       body: voice
-        ? `This is the chat alongside the ${name} voice channel. Drop a link or a note for whoever's on the call.`
-        : `This is the start of #${name}. Say hi 👋`,
+        ? `The chat alongside the ${name} voice channel. Drop a link or a note for whoever's on the call.`
+        : c?.topic || "Nothing has been said here yet.",
       voice,
       name,
     };
+  });
+  // The same block, compact, where a channel's history begins: it replaced a
+  // line of faint italic ("This is the beginning of the channel."), which was
+  // a second pattern beside the empty-channel one — and said "channel" about a
+  // forum post.
+  const startInfo = $derived.by(() => {
+    const g = activeGuild();
+    if (postParentOf(S.activeChannelId)) return { icon: "forum", title: "This is the start of the discussion", body: "" };
+    if (g?.dmNotes) return { icon: "edit", title: "This is the start of your notes", body: "" };
+    if (g?.kind === "dm") return { icon: "smile", title: "This is the start of your conversation", body: "" };
+    return { icon: emptyInfo.icon, title: emptyInfo.title, body: activeChannel()?.topic || "" };
   });
   // A channel you MADE never got the hero a fresh #general gets: CreateChannel
   // posts one "created this channel" system row, `rows.length` stops being 0,
@@ -1646,10 +1661,12 @@
         </button>
       </div>
     {:else if S.archiveReachedStart}
-      <div class="feed-start">This is the beginning of the archive.</div>
+      <div class="feed-start arc">This is the beginning of the archive.</div>
     {/if}
   {:else if S.feedReachedStart && S.messages.length > 0 && !S.feedLoading && !showHero}
-    <div class="feed-start">This is the beginning of {isDMView ? "the conversation" : "the channel"}.</div>
+    <div class="feed-start">
+      <EmptyState compact icon={startInfo.icon} headline={startInfo.title} sub={startInfo.body} />
+    </div>
   {/if}
   <!-- Everything between the two spacers is the window; the spacers hold the
        height of the rows on either side of it that are not rendered. -->
@@ -2167,7 +2184,7 @@
     flex: 1 1 0;
     min-height: 0;
   }
-  /* Centering only. The illustration itself — badge, dashed orbit, drifting
+  /* Placement only. The illustration itself — badge, dashed orbit, drifting
      satellite, entrance — was extracted into EmptyState.svelte for the other
      panels and then left duplicated here, which is how the two drifted: this
      copy's headline sat at a literal 18px while the shared one was on the type
@@ -2175,7 +2192,6 @@
   /* Rests on the rows below it (the push spacer above takes the slack), so
      the welcome reads straight into the day divider and the join notice. */
   .empty {
-    margin: 0 auto;
     padding-bottom: var(--sp-4);
   }
   /* The way in, at the size of a decision. */
@@ -2505,7 +2521,7 @@
     font-weight: 600;
   }
   .older-loading,
-  .feed-start {
+  .feed-start.arc {
     display: flex;
     align-items: center;
     justify-content: flex-start;
@@ -2523,7 +2539,10 @@
     animation: att-spin 0.7s linear infinite;
   }
   .feed-start {
-    font-style: italic;
+    padding-top: var(--sp-3);
+  }
+  .feed-start :global(.empty) {
+    padding-inline: 0;
   }
   /* The seam between imported history and this channel's own. A day divider
      wearing a different coat: same centred rule, but the pill is filled and
