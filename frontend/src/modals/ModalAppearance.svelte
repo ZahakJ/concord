@@ -336,8 +336,15 @@
       aria-label="Filter theme packs"
     />
 
-    {@render gallery("Flat", "Opaque palettes, no backdrop.", packsF)}
-    {@render gallery("Daylight", "Bright grounds, dark ink.", dayF)}
+    <!-- In Light the packs that have a light ground come first: eleven
+         "Dark only" cards above the fold answered the wrong question. -->
+    {#if shownLight}
+      {@render gallery("Daylight", "Bright grounds, dark ink.", dayF)}
+      {@render gallery("Flat", "Dark grounds — these bring their own.", packsF)}
+    {:else}
+      {@render gallery("Flat", "Opaque palettes, no backdrop.", packsF)}
+      {@render gallery("Daylight", "Bright grounds, dark ink.", dayF)}
+    {/if}
     {@render gallery("Animated", "A living backdrop moves behind the app.", liveF)}
     {#if liveF.length}
       <!-- Nested, because it changes the Animated packs and nothing else. -->

@@ -223,20 +223,16 @@
 </Modal>
 
 <style>
+  /* Each way is a group, told apart by a hairline — not a bordered card
+     with a tinted ground for the recommended one. */
   .way {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: var(--sp-3);
+    padding: var(--sp-3) 0;
     display: flex;
     flex-direction: column;
     gap: 9px;
   }
   .way + .way {
-    margin-top: 10px;
-  }
-  .primary-way {
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    border-top: 1px solid var(--hairline);
   }
   .way-head {
     display: flex;
@@ -246,16 +242,13 @@
   .chip {
     display: grid;
     place-items: center;
-    width: 30px;
-    height: 30px;
+    width: 16px;
+    height: 20px;
     flex: none;
-    border-radius: var(--radius-md);
-    background: var(--bg-3);
     color: var(--text-muted);
   }
   .chip.guest {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+    color: var(--text-muted);
   }
   .way-text {
     display: flex;

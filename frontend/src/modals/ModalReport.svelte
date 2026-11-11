@@ -75,7 +75,7 @@
 
   <div class="opts">
     <button class="opt" onclick={hide} disabled={busy}>
-      <span class="oi"><Icon name="eyeOff" size={17} /></span>
+      <span class="oi"><Icon name="eyeOff" size={16} /></span>
       <span class="ot">
         <strong>Hide this message</strong>
         <small>Stops it rendering for you. Reversible, and it stays in the record.</small>
@@ -83,7 +83,7 @@
     </button>
 
     <button class="opt" onclick={block} disabled={busy}>
-      <span class="oi"><Icon name="close" size={17} /></span>
+      <span class="oi"><Icon name="close" size={16} /></span>
       <span class="ot">
         <strong>Block {who}</strong>
         <small>
@@ -94,7 +94,7 @@
     </button>
 
     <button class="opt" onclick={exportEvidence} disabled={busy}>
-      <span class="oi"><Icon name="download" size={17} /></span>
+      <span class="oi"><Icon name="download" size={16} /></span>
       <span class="ot">
         <strong>Export evidence</strong>
         <small>
@@ -134,7 +134,6 @@
   .opts {
     display: flex;
     flex-direction: column;
-    gap: var(--sp-2);
     margin: 14px 0 0;
   }
   .opt {
@@ -143,16 +142,20 @@
     gap: var(--sp-3);
     width: 100%;
     text-align: start;
-    padding: var(--sp-3);
+    padding: var(--sp-3) var(--sp-2);
     min-height: var(--tap-min);
-    background: var(--bg-2);
+    background: transparent;
     color: var(--text);
-    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
   }
-  .opt:hover:not(:disabled) {
-    background: var(--bg-3);
-    border-color: var(--accent);
+  /* Rows split by hairlines, like every list of actions — not three cards. */
+  .opt + .opt {
+    box-shadow: 0 -1px 0 var(--hairline);
+  }
+  @media (pointer: fine) {
+    .opt:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+    }
   }
   .opt:disabled {
     opacity: 0.55;
@@ -161,10 +164,8 @@
     display: grid;
     place-items: center;
     flex-shrink: 0;
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    background: var(--bg-3);
+    width: 16px;
+    height: 20px;
     color: var(--text-muted);
   }
   .ot {

@@ -979,7 +979,12 @@
            it's actually wanted. -->
       <PassphraseField placeholder="Passphrase" bind:value={passphrase} invalid={errField === "pass"} autofocus={!S.isMobile} />
       <div class="error slot" role="alert">{error}</div>
-      <button class="primary" type="submit" disabled={!passphrase || busy}>
+      <button
+        class="primary"
+        type="submit"
+        disabled={!passphrase || busy}
+        title={!passphrase && !busy ? "Enter your passphrase first" : undefined}
+      >
         {busy ? "Unlocking…" : "Unlock"}
       </button>
       {#if bioOn}
