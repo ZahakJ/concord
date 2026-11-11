@@ -136,7 +136,7 @@
       ? "Nobody else has joined yet"
       : reachable === 0
         ? "Nobody else can be reached right now"
-        : `${reachable} of ${others.length} members can be reached right now`,
+        : `${reachable} of the ${plural(others.length, "other member")} can be reached right now`,
   );
   // Local peers: every node this device has connected to. A network log, not
   // a roster — it used to end the member list, where it read as a second list
@@ -144,25 +144,18 @@
   const localPeers = $derived(S.contacts.filter((c) => c.fingerprint !== S.identity.fingerprint));
   let showPeers = $state(false);
 
-  // The header's give-way order (§2.9): the words "N reachable" go first, then
-  // the glyph and number, and only then does the guild's name truncate. Tried
-  // widest-first on every resize, so the result never oscillates.
+  // "N reachable" is the second line of the place header, under the guild's
+  // name, so it no longer competes with the name for one line's width. It
+  // shared that line once and gave way first, which at the default 280px
+  // sidebar meant nobody ever saw the words — a lone "● 3", or a hollow ring
+  // at zero. Only a header narrower than the sidebar's own minimum (240px)
+  // folds it to the glyph and number.
   function reachFit(node) {
-    const fit = () => {
-      const name = node.querySelector(".ph-name");
-      if (!name) return;
-      for (const mode of ["full", "glyph", "none"]) {
-        node.dataset.reach = mode;
-        if (name.scrollWidth <= name.clientWidth + 0.5) return;
-      }
-    };
+    const fit = () => (node.dataset.reach = node.clientWidth < 240 ? "glyph" : "full");
     const ro = new ResizeObserver(fit);
     ro.observe(node);
     fit();
-    // The display face arrives after the first layout and widens the name
-    // without resizing the header, so measure again once it has.
-    document.fonts?.ready.then(fit);
-    return { update: () => requestAnimationFrame(fit), destroy: () => ro.disconnect() };
+    return { destroy: () => ro.disconnect() };
   }
   let reachPop = $state(null);
   function toggleReach(e) {
@@ -931,7 +924,7 @@
       data-place-head
       style="--guild-accent:{tileColor(g)}"
       class:gone={!!g.evicted}
-      use:reachFit={[g.name, reachable, others.length, colW]}
+      use:reachFit
     >
       <button
         class="ph-main"
@@ -958,7 +951,7 @@
           onclick={toggleReach}
         >
           <span class="reach-glyph" class:none={reachable === 0} class:all={others.length > 0 && reachable === others.length} aria-hidden="true"></span>
-          <!-- In words while there is room; then the glyph and number (reachFit). -->
+          <!-- In words; the glyph and number only below 240px (reachFit). -->
           {#if reachable === 0}
             <span class="reach-w">Nobody reachable</span>
           {:else}
@@ -1797,9 +1790,13 @@
         when someone comes back.
       </p>
     {:else}
+      <!-- One verb, the header's: reachable. "3 of 3 members are online" in a
+           four-member guild read as a miscount; you are the fourth, and
+           saying "other" says so. -->
       <p>
-        {reachable} of {others.length} members {reachable === 1 ? "is" : "are"} online now. Messages you send reach
-        them directly; everyone else gets them when they next come online.
+        {reachable} of the {plural(others.length, "other member")}
+        {reachable === 1 ? "is" : "are"} reachable now. Messages you send reach them directly; everyone
+        else gets them when they next come online.
       </p>
     {/if}
     <button
@@ -2639,10 +2636,14 @@
     border-right: 1px solid var(--hairline);
     overflow: hidden;
   }
+  /* Two lines in the header's 52px: the guild's name (the switcher), and
+     under it how many members this device can reach. Invite spans both. */
   .place-head {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-content: center;
     align-items: center;
-    gap: var(--sp-1);
+    column-gap: var(--sp-1);
     height: var(--header-h);
     flex: none;
     padding: 0 var(--sp-2) 0 var(--sp-3);
@@ -2650,12 +2651,14 @@
     min-width: 0;
   }
   .ph-main {
+    grid-column: 1;
+    grid-row: 1;
     display: flex;
     align-items: center;
     gap: var(--sp-2);
-    flex: 1 1 auto;
     min-width: 0;
-    height: 36px;
+    /* 32 + the 18px reach line = the 50px that fits the 52px header. */
+    height: 32px;
     margin-left: calc(-1 * var(--sp-1));
     padding: 0 var(--sp-1);
     border-radius: var(--radius-sm);
@@ -2713,11 +2716,17 @@
     rotate: 90deg;
   }
   .ph-reach {
-    flex: none;
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+    max-width: 100%;
     display: flex;
     align-items: center;
     gap: 5px;
-    height: 28px;
+    height: 18px;
+    /* Its words start under the name's first letter: past the 24px icon and
+       the gap, less this button's own inset. */
+    margin-left: calc(24px + var(--sp-2) - 6px);
     padding: 0 6px;
     border-radius: var(--radius-sm);
     color: var(--text-faint);
@@ -2730,9 +2739,6 @@
     text-overflow: ellipsis;
   }
   .place-head:global([data-reach="glyph"]) .reach-w {
-    display: none;
-  }
-  .place-head:global([data-reach="none"]) .ph-reach {
     display: none;
   }
   .peers-toggle {
@@ -2802,7 +2808,8 @@
     background: currentColor;
   }
   .ph-invite {
-    flex: none;
+    grid-column: 2;
+    grid-row: 1 / span 2;
   }
   .reach-pop {
     position: fixed;
