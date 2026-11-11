@@ -206,9 +206,9 @@ for (const [rel, raw] of FILES) {
 // rule is for, and pass.
 {
   const LAYOUT = /(?:^|[;{\s])(display|grid-template[\w-]*|flex-direction|width)\s*:\s*([^;}]*)/g;
-  // A target-size rule whose number is not the token: StoryTray's 58px tiles
-  // and the GIF picker's remove button, sized for a fingertip on a thumbnail.
-  const COARSE_EXEMPT = new Set(["StoryTray.svelte", "modals/ModalGifs.svelte"]);
+  // A target-size rule whose number is not the token: the GIF picker's remove
+  // button, sized for a fingertip on a thumbnail.
+  const COARSE_EXEMPT = new Set(["modals/ModalGifs.svelte"]);
   for (const [rel, raw] of FILES) {
     if (COARSE_EXEMPT.has(rel)) continue;
     const css = strip(raw);
