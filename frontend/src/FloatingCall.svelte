@@ -13,7 +13,17 @@
   // until its own Mute/Leave row was below the bottom of the screen.
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
-  import { S, memberByFpr, nameFor, callHealth, voiceMembersFor } from "./lib/state.svelte.js";
+  import {
+    S,
+    memberByFpr,
+    nameFor,
+    callHealth,
+    voiceMembersFor,
+    callMeetingGuild,
+    copyMeetingGuestLink,
+    openMeetingDetails,
+    openContextMenu,
+  } from "./lib/state.svelte.js";
   import { splitStatus } from "./lib/presence.js";
   import { haptic } from "./lib/touch.js";
   import { pointOf, viewport, rectOf } from "./lib/place.js";
@@ -39,6 +49,21 @@
   } = $props();
 
   const clock = $derived(callClock());
+
+  // In a meeting's call, the guest link and the meeting's dialog are one menu
+  // away here too: the dialog that first showed them is long closed.
+  const meetingG = $derived(callMeetingGuild());
+  function meetingMenu(e) {
+    if (!meetingG) return;
+    openContextMenu(
+      e,
+      [
+        { label: "Copy guest link", icon: "link", onClick: () => copyMeetingGuestLink(meetingG.id) },
+        { label: "Meeting details", icon: "calendar", onClick: () => openMeetingDetails(meetingG.id) },
+      ],
+      { title: "Meeting" },
+    );
+  }
 
   // Same test the CSS phone query makes, so the two never disagree about which
   // shape is on screen.
@@ -340,6 +365,18 @@
       <span class="live" class:held={!health.live}></span>
       <span class="lbl">{health.live ? label || "In call" : health.label}</span>
       {#if clock}<span class="clock" class:held={!health.live}>{clock}</span>{/if}
+      {#if meetingG}
+        <button
+          class="ico more"
+          title="Guest link and meeting details"
+          aria-label="Meeting"
+          aria-haspopup="menu"
+          onpointerdown={(e) => e.stopPropagation()}
+          onclick={meetingMenu}
+        >
+          <Icon name="dots" size={14} />
+        </button>
+      {/if}
       <button
         class="ico expand"
         title="Return to call"
@@ -674,6 +711,13 @@
   /* The dock's controls are .callbtn (app.css) at its base size — the stage
      bar's language, 34px instead of 44. What is left here is the one button
      that is not a call control: the chevron back into the call. */
+  .ico.more {
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+  }
   .ico.expand {
     width: 28px;
     height: 28px;

@@ -149,6 +149,11 @@ A test fails on the first thrown error, and after five minutes
   with the stored message), `sendRaw(channelId, text, replyTo?)` (the same
   without waiting for storage), `waitForMessage(channelId, textOrPredicate,
   {timeout, deleted})`, `guilds()`
+- `env` → extra environment variables for the process, used from the next
+  `start()` (so set it and `restart()` a running peer). The rendezvous's guest
+  gateway is on the port after the rendezvous's own, so
+  `peer.env.CONCORD_GUEST_BASE = "http://127.0.0.1:<that port>"` lets a peer
+  mint guest links.
 - `stop()` → the process exits, data kept: the person closed the app.
   `start()` brings it back locked; `unlock()` unlocks it. `restart()` is all
   three. Pages open on a stopped peer are closed.

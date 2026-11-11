@@ -607,7 +607,7 @@
         </button>
       {/if}
     </div>
-    {#if pile.length || buckets.no.length || ev.guestUrl}
+    {#if pile.length || buckets.no.length || ev.guestUrl || (canInviteGuests && !past)}
       <div class="footrow">
         {#if pile.length || buckets.no.length}
           <button class="faces" aria-label="See who's coming" onclick={showWho}>
@@ -627,8 +627,14 @@
         <span class="spring"></span>
         {#if ev.guestUrl && !past}
           <!-- The guest door, as a whisper — outsiders only; members use Join. -->
-          <button class="gcopy" aria-label="Copy the guest link" title="For people outside this {g?.kind === 'dm' ? 'chat' : 'guild'} — they join from a browser and knock" onclick={copyGuestLink}>
-            <Icon name="copy" size={11} /> Guest link
+          <button class="gcopy" aria-label="Copy guest link" title="For people outside this {g?.kind === 'dm' ? 'chat' : 'guild'} — they join from a browser and knock" onclick={copyGuestLink}>
+            <Icon name="copy" size={11} /> Copy guest link
+          </button>
+        {:else if canInviteGuests && !past}
+          <!-- The way to a guest link, where the eye is: it used to live only
+               in ⋯, which is where nobody looked for "invite someone outside". -->
+          <button class="gcopy" aria-haspopup="menu" onclick={inviteGuests}>
+            <Icon name="link" size={11} /> {locCh ? "Invite outside guests…" : "Open meeting room…"}
           </button>
         {/if}
       </div>

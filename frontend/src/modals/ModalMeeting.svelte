@@ -12,7 +12,10 @@
   import { S, flash } from "../lib/state.svelte.js";
   import { haptic } from "../lib/touch.js";
 
-  let { code, guestLink = "", guildId = "", expires = 0, onClose } = $props();
+  // reopened: brought back from the call's menu after the first dialog was
+  // closed — the same link, not a new one, and no lifetime is pre-chosen
+  // because what is left of it is whatever was picked back then.
+  let { code, guestLink = "", guildId = "", expires = 0, reopened = false, onClose } = $props();
 
   const DOWNLOAD = "https://github.com/ZahakJ/concord/releases/latest";
 
@@ -31,7 +34,7 @@
   let expiresAt = $state(expires);
   // A brand-new meeting is on the 24h default, so that chip starts selected —
   // the control reads as "this is what it is now", not as an unanswered question.
-  let picked = $state(24);
+  let picked = $state(reopened ? 0 : 24);
   let busy = $state(false);
 
   // Absolute date AND the human distance: "until Tue 3 Feb, 14:20" answers the
@@ -123,7 +126,7 @@
   }
 </script>
 
-<Modal title="Your meeting is live" wide {onClose}>
+<Modal title={reopened ? "Meeting details" : "Your meeting is live"} wide {onClose}>
   {#if link}
     <section class="way primary-way">
       <div class="way-head">

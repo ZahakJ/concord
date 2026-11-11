@@ -100,9 +100,11 @@ The relay runs over TCP. Its operator can see that you are in a call and with wh
 
 A meeting is a short-lived guild with one channel that is also its call room. People with only a link can join from a web browser, with nothing to install.
 
-1. In the guild rail, choose **+** (**Add a guild**), then **Instant meeting**.
+1. Choose **Instant meeting** from any of these: **+** (**Add a guild**) at the end of the guild shortcuts at the top of the sidebar (at the bottom of the guild column in the Rail layout); the calendar button beside the jump field; or the command palette (`Ctrl+K`).
 2. If you have no rendezvous set, Concord asks first. Choose **Start without guest links** to run the meeting for app users only, or **Point it at a rendezvous first**.
 3. The **Your meeting is live** dialog shows the **Guest link — no install**. Choose how long it **Works for**: 1 hour, 24 hours, 7 days or 30 days. Then **Copy link**, or **Copy link + a friendly note**. **Invite to the full app** gives an invite code for people who have Concord.
+
+To get the guest link back after closing that dialog, open the call's **Meeting** menu (the link button in the call's controls, or ⋯ on the floating call window) and choose **Copy guest link** or **Meeting details**; the command palette's **Copy guest link** does the same. It is the same link, with the same expiry: nothing new is minted.
 
 Guest links work only when your rendezvous has a DNS name and its operator has enabled the guest gateway. Otherwise Concord tells you that guest links need a rendezvous.
 

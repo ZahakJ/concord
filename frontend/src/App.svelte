@@ -2410,6 +2410,7 @@
         guestLink={S.modal.guestLink || ""}
         guildId={S.modal.guildId || ""}
         expires={S.modal.expires || 0}
+        reopened={!!S.modal.reopened}
         onClose={() => (S.modal = null)}
       />
     {:else if modalLoadedKind === "meetingReady"}

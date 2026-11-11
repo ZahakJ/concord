@@ -7,6 +7,9 @@
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
   import {
+    callMeetingGuild,
+    copyMeetingGuestLink,
+    openMeetingDetails,
     S,
     memberByFpr,
     nameFor,
@@ -876,6 +879,20 @@
 
   // The phone's "⋯" — everything the four-button bar doesn't carry, as the
   // same action sheet every other secondary action in this app opens into.
+  // A meeting's guest link is shown once, in the dialog that opens with the
+  // meeting; after that it was gone for good. The call keeps the way back.
+  const meetingG = $derived(callMeetingGuild());
+  const meetingItems = () =>
+    meetingG
+      ? [
+          { sep: true },
+          { label: "Copy guest link", icon: "link", onClick: () => copyMeetingGuestLink(meetingG.id) },
+          { label: "Meeting details", icon: "calendar", onClick: () => openMeetingDetails(meetingG.id) },
+        ]
+      : [];
+  function meetingMenu(e) {
+    openContextMenu(e, meetingItems().slice(1), { title: "Meeting" });
+  }
   function moreControls(e) {
     openContextMenu(e, [
       { label: "Call controls", header: true },
@@ -908,6 +925,7 @@
         active: locked,
         onClick: toggleCallLock,
       },
+      ...meetingItems(),
       { sep: true },
       {
         label: S.callStageChat ? "Hide the chat" : "Chat",
@@ -1485,6 +1503,17 @@
           onclick={withHaptic(toggleCallLock)}
         >
           <Icon name="lock" size={18} />
+        </button>
+      {/if}
+      {#if meetingG}
+        <button
+          class="ctl callbtn lg"
+          use:tooltip={"Guest link and meeting details"}
+          aria-label="Meeting"
+          aria-haspopup="menu"
+          onclick={meetingMenu}
+        >
+          <Icon name="link" size={18} />
         </button>
       {/if}
       <button

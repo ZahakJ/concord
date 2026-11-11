@@ -519,6 +519,23 @@
         </button>
       {/if}
     </span>
+    {#if allGuilds.length}
+      <!-- Add: the same three doors the classic rail's + has. Instant meeting
+           lived only inside the switcher's ⋯ in this arrangement, which is
+           three clicks and an unlabelled icon away from a thing people
+           start on a whim. -->
+      <span class="tile-wrap">
+        <button
+          class="tile more add"
+          use:tooltip={{ ...tip, text: "Add a guild or start a meeting" }}
+          aria-label="Add a guild"
+          aria-haspopup="menu"
+          onclick={addMenu}
+        >
+          <Icon name="plus" size={phone ? 18 : 14} />
+        </button>
+      </span>
+    {/if}
   </nav>
 {:else}
 <nav class="rail" aria-label="Guilds">

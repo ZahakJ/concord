@@ -14,7 +14,7 @@
   import EmptyState from "../EmptyState.svelte";
   import EventCard from "../EventCard.svelte";
   import { fly } from "svelte/transition";
-  import { S, clockOpts, flash, refreshGuilds } from "../lib/state.svelte.js";
+  import { S, clockOpts, flash, refreshGuilds, openContextMenu, startMeeting } from "../lib/state.svelte.js";
   import { api, on } from "../lib/api.js";
   import {
     EV,
@@ -225,6 +225,29 @@
   }
   const firstGuild = $derived(S.guilds.find((g) => g.kind !== "dm") || null);
 
+  // "New event" from here: where first, then the form. Every guild you can
+  // plan in, and your private calendar.
+  function newEventMenu(e) {
+    const where = S.guilds.filter((x) => x.kind !== "dm" && !x.evicted);
+    openContextMenu(
+      e,
+      [
+        ...where.map((x) => ({
+          label: x.name,
+          icon: x.kind === "meeting" ? "bolt" : "hash",
+          onClick: () => (S.modal = { kind: "events", guildId: x.id, compose: true }),
+        })),
+        where.length && { sep: true },
+        { label: "Private (only you)", icon: "lock", onClick: planPrivate },
+      ].filter(Boolean),
+      { title: "New event in…" },
+    );
+  }
+  function instantMeeting() {
+    S.modal = null;
+    startMeeting();
+  }
+
   // The private door: open (creating on first use) the Notes self-DM's
   // calendar. NotesDM() is idempotent, and a fresh Notes needs a guild
   // refresh or ModalEvents opens onto a guild id S.guilds can't resolve.
@@ -232,7 +255,7 @@
     try {
       const notes = await api.notesDM();
       if (!S.guilds.some((g) => g.id === notes.id)) await refreshGuilds();
-      S.modal = { kind: "events", guildId: notes.id };
+      S.modal = { kind: "events", guildId: notes.id, compose: true };
     } catch (err) {
       flash(err);
     }
@@ -255,6 +278,14 @@
       {:else if upcoming.length}
         <div class="mnext quiet">Nothing else today</div>
       {/if}
+    </div>
+    <div class="mact">
+      <button class="primary" aria-haspopup="menu" onclick={newEventMenu}>
+        <Icon name="plus" size={13} /> New event
+      </button>
+      <button class="ghost" onclick={instantMeeting}>
+        <Icon name="bolt" size={13} /> Instant meeting
+      </button>
     </div>
     <Segmented
       label="Calendar view"
@@ -402,13 +433,30 @@
      rides the right — no extra bar row stealing height from the river. */
   .mast {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--sp-2);
     padding: 2px 2px 6px;
     border-bottom: 1px solid var(--hairline);
   }
+  /* The two ways to put something on it, on their own line under the date,
+     so the masthead keeps its width. */
+  .mact {
+    order: 3;
+    flex: 1 0 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+  .mact button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+  }
   .mtxt {
+    flex: 1;
     display: flex;
     flex-direction: column;
     gap: 2px;

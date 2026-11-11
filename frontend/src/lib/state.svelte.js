@@ -2,6 +2,7 @@
 // that mutate it. Components import { S, ... } and read/mutate S's properties;
 // api.js stays the only transport layer underneath.
 import { tick } from "svelte";
+import { closeGuildSwitcher } from "./guildswitch.svelte.js";
 import { api, on, onTransportHealth, probeCore } from "./api.js";
 import { notify, wantsPermissionPrompt } from "./notify.js";
 import { draftIn, noteDraft } from "./drafts.svelte.js";
@@ -3105,6 +3106,9 @@ export async function startDM(fingerprint, text = "") {
 // after the guild, the channel and the call already exist, is the answer
 // arriving after the question stopped mattering. See ModalMeetingReady.
 export async function startMeeting() {
+  // Started from the switcher's menu, the switcher stayed open, dimmed,
+  // behind the meeting's dialog: a second, stale layer to get out of.
+  closeGuildSwitcher();
   let hasRendezvous = false;
   try {
     hasRendezvous = ((await api.getBootstrap()) || []).some((l) => l && l.trim());
@@ -3143,6 +3147,51 @@ async function openMeeting() {
   } catch (err) {
     flash(err);
   }
+}
+
+// The meeting's guest link again, after its dialog was closed. Asking the core
+// for a meeting's link with no lifetime returns the SAME url and leaves its
+// expiry alone, so this never mints a second link or shortens the first.
+export async function meetingGuestLink(guildId) {
+  return api.createGuestLink(guildId, 0);
+}
+// The meeting guild the call you are in belongs to, or null when the call is
+// not a meeting's.
+export function callMeetingGuild() {
+  const id = S.voice?.channelId;
+  if (!id) return null;
+  return S.guilds.find((g) => g.kind === "meeting" && (g.channels || []).some((c) => c.id === id)) || null;
+}
+export async function copyMeetingGuestLink(guildId) {
+  try {
+    const link = await meetingGuestLink(guildId);
+    await navigator.clipboard?.writeText(link);
+    flash("Guest link copied — anyone with it can join from a browser", "success");
+  } catch (err) {
+    flash(
+      /rendezvous|bootstrap/i.test(String(err?.message || err))
+        ? "Guest links need a rendezvous — add one in Settings → Connection"
+        : err,
+    );
+  }
+}
+export async function openMeetingDetails(guildId) {
+  let code = "";
+  let guestLink = "";
+  let expires = 0;
+  try {
+    code = await api.inviteCode(guildId);
+  } catch (err) {
+    flash(err);
+    return;
+  }
+  try {
+    guestLink = await meetingGuestLink(guildId);
+    expires = await api.meetingExpiry(guildId);
+  } catch {
+    /* no rendezvous: the dialog says so and offers the invite code */
+  }
+  S.modal = { kind: "meeting", code, guestLink, guildId, expires, reopened: true };
 }
 
 // Joining is App's lifecycle (it owns the mesh), so it registers the door and

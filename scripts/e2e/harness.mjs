@@ -178,6 +178,8 @@ export class Peer {
     this.child = null;
     this.fingerprint = null;
     this.apps = [];
+    // Extra environment for the process, applied at the next start().
+    this.env = {};
   }
 
   toString() {
@@ -201,6 +203,7 @@ export class Peer {
         CONCORD_DISABLE_MDNS: "1",
         CONCORD_BOOTSTRAP: this.world.bootstrap,
         CONCORD_API_TOKEN: this.token,
+        ...this.env,
       },
     });
     await waitFor(

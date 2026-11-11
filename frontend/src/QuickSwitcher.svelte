@@ -21,6 +21,11 @@
     guildUnread,
     startDM,
     flash,
+    startMeeting,
+    activeGuild,
+    openGuildHub,
+    callMeetingGuild,
+    copyMeetingGuestLink,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { parseQuery, buildDests, recentFirst, rank, inMode } from "./lib/switcher.js";
@@ -93,7 +98,36 @@
       { id: "appearance", label: "Open appearance", icon: "spark", run: () => (S.modal = { kind: "appearance" }) },
       { id: "status", label: "Set status", icon: "smile", run: () => (S.statusPopRequest = true) },
       { id: "read", label: "Mark all as read", icon: "check", sub: "Shift+Esc", run: () => markAllRead() },
+      { id: "meeting", label: "Instant meeting", icon: "bolt", sub: "a room with a guest link", run: () => startMeeting() },
     ];
+    const g = activeGuild();
+    const place = g && !g.evicted && (g.kind !== "dm" || g.dmNotes);
+    list.push({
+      id: "newevent",
+      label: "New event",
+      icon: "calendar",
+      sub: place ? (g.dmNotes ? "private" : `in ${g.name}`) : "pick where",
+      run: () => (S.modal = place ? { kind: "events", guildId: g.id, compose: true } : { kind: "myCalendar", pick: true }),
+    });
+    const meet = callMeetingGuild() || (g?.kind === "meeting" ? g : null);
+    if (meet) list.push({ id: "guestlink", label: "Copy guest link", icon: "link", sub: meet.name, run: () => copyMeetingGuestLink(meet.id) });
+    if (g && g.kind !== "dm") {
+      list.push({ id: "guildsettings", label: "Guild settings", icon: "gear", sub: g.name, run: () => openGuildHub() });
+      if (g.canManage && !g.evicted)
+        list.push({
+          id: "invite",
+          label: "Invite people",
+          icon: "personPlus",
+          sub: g.name,
+          run: async () => {
+            try {
+              S.modal = { kind: "invite", code: await api.inviteCode(g.id) };
+            } catch (err) {
+              flash(err);
+            }
+          },
+        });
+    }
     if (S.activeChannelId) {
       const id = S.activeChannelId;
       const muted = !!isMuted(id);

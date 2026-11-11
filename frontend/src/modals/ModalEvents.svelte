@@ -334,6 +334,8 @@
     showPicker = false;
     durMore = false;
   }
+  // Opened as "New event" (the palette, Your calendar): straight to the form.
+  if (S.modal?.compose) queueMicrotask(startCreate);
   function startEdit(ev) {
     editing = {
       id: ev.id,
