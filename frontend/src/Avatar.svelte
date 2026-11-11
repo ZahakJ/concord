@@ -84,8 +84,7 @@
   class="avatar"
   class:ringed={ringed}
   class:pictured={!!image && !imageFailed}
-  style="width:{size}px;height:{size}px;font-size:{Math.max(10, Math.round(size * 0.38))}px;{color &&
-  (!image || imageFailed)
+  style="width:{size}px;height:{size}px;font-size:{Math.max(10, Math.round(size * 0.38))}px;{color
     ? `background:${color};`
     : ''}"
 >
@@ -147,6 +146,11 @@
      PNG with transparency showed the accent through its gaps, which reads as the
      app colouring in someone's picture. A guild icon on an announcement is the
      obvious case: it should look like a profile picture, not a badge. */
+  /* …except the person's OWN colour, when they have one: a picture with a
+     transparent cut-out (a crescent moon cut from its tile) showed whatever
+     theme surface was behind it, so the same avatar was a moon in dark and an
+     empty ring in light. On their own colour it is the same picture in both
+     themes, and it is their colour, not the app's. */
   .avatar.pictured {
     background: transparent;
   }
