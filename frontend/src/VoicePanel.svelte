@@ -165,19 +165,24 @@
   // join is still in flight.
   const chId = $derived(S.voice?.channelId || S.joiningVoice || "");
   const joining = $derived(!S.voice && !!S.joiningVoice);
+  // The guild (or DM) the CALL is in, which is not always the one on screen:
+  // the stage stays up while you browse your DMs, and reading the open
+  // conversation instead told a guild room "Waiting for Tobin…" because Tobin's
+  // DM happened to be selected.
+  const callGuild = $derived(S.guilds.find((g) => g.channels?.some((c) => c.id === chId)) || activeGuild());
   // The padlock is HIDDEN, not disabled, for anyone who cannot use it. A
   // disabled control still advertises a power you do not have and invites the
   // question of why; and there was no check at all before this, so a member of
   // Warshat al-Layl holding a role with permissions ZERO locked the guild
   // owner's own room from the same eight-button bar he had.
-  const canLock = $derived(activeGuild()?.kind !== "dm" && canLockCall(chId));
+  const canLock = $derived(callGuild?.kind !== "dm" && canLockCall(chId));
   const locked = $derived(isCallLocked(chId));
   // Who shut it. The fingerprint comes off the authenticated sender of the lock
   // signal, so this is a claim the app can actually stand behind — the same way
   // a forum post says who locked IT.
   const lockedBy = $derived(callLockedBy(chId));
   const knockers = $derived(S.callKnocks[chId] || []);
-  const isDM = $derived(activeGuild()?.kind === "dm");
+  const isDM = $derived(callGuild?.kind === "dm");
 
   // A knocker's face for the door card. Members resolve to their real profile;
   // a browser guest has no member record, so Avatar falls back to initials of
@@ -225,8 +230,8 @@
   // one event, and the only cheerful one. An empty room is a fact about the
   // room; you cannot state it while you cannot reach the room.
   const dial = $derived(S.calls[chId]);
-  const dmGroup = $derived((activeGuild()?.dmMembers ?? 2) > 2);
-  const dmName = $derived(activeGuild()?.name || "them");
+  const dmGroup = $derived((callGuild?.dmMembers ?? 2) > 2);
+  const dmName = $derived(callGuild?.name || "them");
   const ringing = $derived(
     isDM && !joining && !S.offline && (dial?.phase === "ringing" || dial?.phase === "unreachable"),
   );
@@ -239,7 +244,7 @@
   // person knocking contradicts the card right above it.
   const waiting = $derived(solo && !ringing && !joining && health.live && !knockers.length);
   const waitText = $derived(
-    !isDM ? "Waiting for others to join…" : dmGroup ? "Everyone else left" : `Waiting for ${dmName}…`,
+    !isDM ? "Nobody else is here" : dmGroup ? "Everyone else left" : `Waiting for ${dmName}…`,
   );
 
   // Everything Avatar can paint, from a member record. The call stage is a
@@ -966,7 +971,9 @@
   <div class="stage-head">
     <span class="sh-live" class:held={!health.live} aria-hidden="true"></span>
     <span class="sh-room">{roomName || "Call"}</span>
-    <span class="sh-count">{roster.length} in call</span>
+    <!-- Not while it rings: "1 in call" over "Ringing Tobin…" counted a call
+         nobody had answered. -->
+    {#if !ringing}<span class="sh-count">{roster.length} in call</span>{/if}
     {#if locked}
       <span class="sh-lock">
         <Icon name="lock" size={11} />

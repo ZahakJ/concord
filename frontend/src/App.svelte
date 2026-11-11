@@ -1533,9 +1533,9 @@
     playVoiceJoin();
     publishVoiceState();
     haptic("medium"); // the phone is usually at the ear by now — say it connected
-    // Ringing somebody is not being in a call with them.
-    if (dmPhase === "ringing" || dmPhase === "unreachable") flash("Calling…", "info");
-    else flash("Joined voice", "success");
+    // No toast. The call dock (the call strip on a phone) appears in the same
+    // frame saying "Calling…" or "Voice connected", and a toast beside it was
+    // the same news twice. Failures still toast, above.
     joining = false;
   }
 
