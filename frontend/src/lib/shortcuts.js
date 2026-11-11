@@ -11,6 +11,7 @@ import { S, activeGuild, selectChannel, closePost, postParentOf, selectGuild, ju
 import { popLayer, topKind } from "./navstack.svelte.js";
 import { pressesBind, releasesBind, typesCharacter } from "./keybind.js";
 import { appCovered } from "./layers.js";
+import { cycleRegion } from "./regions.js";
 
 // ---- the registry ----
 //
@@ -30,6 +31,7 @@ export const SHORTCUTS = [
   { group: "Navigation", chords: [["Alt", "Shift", "↑"], ["Alt", "Shift", "↓"]], label: "Unread channel" },
   { group: "Navigation", chords: [["Ctrl", "Alt", "↑"], ["Ctrl", "Alt", "↓"]], label: "Previous / next guild" },
   { group: "Navigation", chords: [["Ctrl/⌘", "U"]], label: "Inspector (members, pins, files)" },
+  { group: "Navigation", chords: [["F6"], ["Shift", "F6"]], label: "Next / previous region" },
   { group: "Navigation", chords: [["Ctrl/⌘", "="], ["Ctrl/⌘", "-"], ["Ctrl/⌘", "0"]], label: "Zoom" },
   { group: "Navigation", chords: [["?"], ["Ctrl/⌘", "/"]], label: "This list" },
 
@@ -41,6 +43,7 @@ export const SHORTCUTS = [
   { group: "Reading", chords: [["P"]], label: "Pin (message focused)" },
   { group: "Reading", chords: [["S"]], label: "Save for later (message focused)" },
   { group: "Reading", chords: [["Delete"]], label: "Delete (message focused)" },
+  { group: "Reading", chords: [["Shift", "F10"]], label: "All actions (message focused)" },
 
   { group: "Voice", chords: [["Ctrl", "Shift", "M"]], label: "Mute" },
   { group: "Voice", chords: [["Ctrl", "Shift", "D"]], label: "Deafen" },
@@ -222,6 +225,9 @@ function globalWhileTyping(e, mod) {
   // not in a browser textarea on any platform Concord ships on — the caret
   // does not move — so the chord is free.
   if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) return true;
+  // F6 / Shift+F6 — the next region. A function key types nothing, and the
+  // composer is where focus rests, so the jump has to start from there.
+  if (e.key === "F6") return true;
   return false;
 }
 
@@ -332,6 +338,13 @@ export function installShortcuts() {
         // 130%, of which only the last was still true.
         flashSlot("zoom", `Zoom ${Math.round(next * 100)}%`, "info");
       }
+      return;
+    }
+    // F6 / Shift+F6: the next or previous region (lib/regions.js). Not under
+    // a dialog — a dialog is its own region and keeps the keyboard.
+    if (e.key === "F6" && !mod && !e.altKey && !S.isMobile && !appCovered(S.modal, topKind())) {
+      e.preventDefault();
+      cycleRegion(e.shiftKey ? -1 : 1, { focusFeed });
       return;
     }
     // Cheat sheet: ? (Shift+/) or Ctrl+/.

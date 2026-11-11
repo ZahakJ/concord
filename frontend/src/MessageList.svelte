@@ -1022,7 +1022,8 @@
     // Enter and the menu key open the same context menu a right-click does, at
     // the row's own corner. Synthesising the event rather than reaching into
     // Message.svelte keeps one definition of what that menu contains.
-    if ((e.key === "Enter" || e.key === "ContextMenu") && at >= 0) {
+    // Shift+F10 is the menu key's chord on keyboards that have no menu key.
+    if ((e.key === "Enter" || e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) && at >= 0) {
       const el = feedEl?.querySelector(`[data-msg-id="${CSS.escape(cur)}"]`);
       if (!el) return;
       e.preventDefault();

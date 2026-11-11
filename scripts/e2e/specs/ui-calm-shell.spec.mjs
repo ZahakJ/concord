@@ -132,3 +132,42 @@ test("the feed shows one message action bar: the focused row's or the hovered ro
   await a.page.keyboard.press("ArrowUp");
   await waitFor(async () => (await visibleBars()) === 1, { message: "still exactly one", timeout: 3000 });
 });
+
+test("F6 walks the regions, and Shift+F10 opens a focused message's menu", async ({ world, assert, step, waitFor }) => {
+  const [alice] = await world.peers(1);
+  const g = await world.guild({ name: "Regions", members: [alice] });
+  const ch = g.allChannels[0];
+  await alice.send(ch.id, "a row to open");
+  const a = await alice.open();
+  await a.openChannel(ch.name, "Regions");
+  await a.waitForMessage("a row to open");
+  const region = () =>
+    a.page.evaluate(() => {
+      const el = document.activeElement;
+      if (el?.closest('nav[aria-label="Guilds and channels"]')) return "sidebar";
+      if (el?.closest(".chat-head")) return "header";
+      if (el?.closest('[role="log"]')) return "feed";
+      if (el?.classList.contains("draft")) return "composer";
+      if (el?.closest('aside[aria-label="Inspector"]')) return "inspector";
+      return el?.tagName || "";
+    });
+
+  step("from the composer, F6 visits each region and comes back");
+  await a.composer().click();
+  const seen = [];
+  for (let i = 0; i < 6; i++) {
+    await a.page.keyboard.press("F6");
+    seen.push(await region());
+  }
+  for (const r of ["sidebar", "header", "feed", "composer"]) assert.ok(seen.includes(r), `F6 reached the ${r}: ${seen.join(" → ")}`);
+  const back = await region();
+  await a.page.keyboard.press("Shift+F6");
+  assert.notEqual(await region(), back, "Shift+F6 moves too");
+
+  step("Shift+F10 on a focused row opens its menu");
+  await a.composer().click();
+  await a.page.keyboard.press("Escape");
+  await waitFor(async () => (await region()) === "feed", { message: "a row has focus" });
+  await a.page.keyboard.press("Shift+F10");
+  await a.page.locator('[role="menu"]').waitFor({ state: "visible", timeout: 3000 });
+});
