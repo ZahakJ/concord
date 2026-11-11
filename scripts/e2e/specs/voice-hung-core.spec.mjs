@@ -5,7 +5,9 @@
 import { test } from "../harness.mjs";
 
 const room = (app, name) => app.page.locator(".channel", { hasText: name }).first();
-const bar = (app) => app.page.locator(".voice-bar");
+// The sidebar's call bar — whole in the call's own room, folded to one line
+// while the floating call window carries the call elsewhere.
+const bar = (app) => app.page.locator(".voice-bar, .voice-line");
 
 test("a hung core reads as Reconnecting, not as everyone leaving", async ({ world, step, waitFor, shot }) => {
   const [alice, bashir] = await world.peers(2);

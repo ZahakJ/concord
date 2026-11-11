@@ -13,10 +13,10 @@
   // until its own Mute/Leave row was below the bottom of the screen.
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
-  import { S, memberByFpr, nameFor, callHealth } from "./lib/state.svelte.js";
+  import { S, memberByFpr, nameFor, callHealth, voiceMembersFor } from "./lib/state.svelte.js";
   import { splitStatus } from "./lib/presence.js";
   import { haptic } from "./lib/touch.js";
-  import { pointOf, viewport } from "./lib/place.js";
+  import { pointOf, viewport, rectOf } from "./lib/place.js";
   import { callClock } from "./lib/calltimer.svelte.js";
   import { canShareScreen } from "./lib/devices.js";
   import { bindStream } from "./lib/bindstream.js";
@@ -63,7 +63,7 @@
   // Layout pixels, like every other length written into style.left/top —
   // lib/place.js explains why the viewport has to be asked for rather than
   // read off window.innerWidth once the UI scale leaves 100%.
-  let pos = $state(savedPos() || { x: Math.max(12, viewport().w - 300), y: 70 });
+  let pos = $state(savedPos() || { x: Math.max(12, viewport().w - 300), y: 70, corner: true });
   let dockEl = $state(null);
   let drag = null;
   let dragging = $state(false); // lifts the dock visually while it moves
@@ -72,13 +72,46 @@
   // constant let the bottom of the widget — the row holding Mute and Leave —
   // hang below the viewport, and the only recovery was dragging it back by a
   // header you could no longer see the point of.
-  function clamp(x, y) {
+  //
+  // The box it may sit in is the conversation, not the window: parked over
+  // the inspector it hid the member list, and parked over the composer it
+  // hid what you were typing — the two things you are doing while the call
+  // runs elsewhere. Each edge only narrows when the dock still fits.
+  function area(w, h) {
+    const vp = viewport();
+    const a = { l: 8, r: vp.w - 8, t: 8, b: vp.h - 12 };
+    const main = document.querySelector("main.chat");
+    if (main) {
+      const m = rectOf(main);
+      if (m.w >= w + 16) {
+        a.l = Math.max(a.l, m.x + 8);
+        a.r = Math.min(a.r, m.x + m.w - 8);
+      }
+    }
+    // An overlay inspector lies over the conversation rather than beside it.
+    const insp = document.querySelector(".insp-slot.overlay");
+    if (insp) {
+      const i = rectOf(insp);
+      if (i.w && i.x - 8 - a.l >= w) a.r = Math.min(a.r, i.x - 8);
+    }
+    const comp = document.querySelector("main.chat .composer-wrap");
+    if (comp) {
+      const c = rectOf(comp);
+      if (c.h && c.y - 8 - a.t >= h) a.b = Math.min(a.b, c.y - 8);
+    }
+    return a;
+  }
+  function clamp(x, y, corner = false) {
     const w = dockEl?.offsetWidth || 280;
     const h = dockEl?.offsetHeight || 180;
-    const vp = viewport();
+    const a = area(w, h);
+    // Never placed by hand: it belongs in the conversation's top-right corner,
+    // wherever that is now (the inspector opening moves the corner).
+    if (corner) x = a.r - w;
     return {
-      x: Math.max(8, Math.min(vp.w - w - 8, x)),
-      y: Math.max(8, Math.min(vp.h - h - 12, y)),
+      x: Math.max(a.l, Math.min(a.r - w, x)),
+      y: Math.max(a.t, Math.min(a.b - h, y)),
+      ...(corner ? { corner: true } : {}),
     };
   }
   // A pointer reports visual pixels; the dock lives in layout ones, so a drag
@@ -125,7 +158,7 @@
   }
   // Keep the dock on-screen when the window is resized smaller (or rotated).
   function onResize() {
-    pos = clamp(pos.x, pos.y);
+    pos = clamp(pos.x, pos.y, pos.corner);
   }
   // Clamp the REMEMBERED position against this window on the way in: a dock
   // parked at the right edge of a 2560px monitor is off-screen on a laptop.
@@ -133,10 +166,27 @@
   // call, and assigning one unconditionally in an effect that reads `pos` is an
   // effect that re-runs itself forever.
   $effect(() => {
-    if (phone || !dockEl) return;
+    if (phone || !dockEl || shelved) return;
     void share; // the preview widens the dock; re-clamp so it stays on screen
-    const c = clamp(pos.x, pos.y);
-    if (c.x !== pos.x || c.y !== pos.y) pos = c;
+    // What the box depends on: the inspector and the sidebar opening or
+    // closing, and the conversation changing under it.
+    void S.prefs.memberPanel;
+    void S.prefs.sidebarHidden;
+    void S.activeChannelId;
+    const fit = () => {
+      const c = clamp(pos.x, pos.y, pos.corner);
+      if (c.x !== pos.x || c.y !== pos.y) pos = c;
+    };
+    fit();
+    // The panes settle a frame later than the state that moved them.
+    const t = setTimeout(fit, 260);
+    const main = document.querySelector("main.chat");
+    const ro = main && typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : null;
+    if (ro) ro.observe(main);
+    return () => {
+      clearTimeout(t);
+      ro?.disconnect();
+    };
   });
 
   // The mobile drawers carry their own call bar and this would float over the
@@ -147,6 +197,16 @@
   const shelved = $derived(!away || (S.isMobile && (S.drawerOpen || S.membersOpen)));
 
   const roster = $derived(["self", ...S.voiceParticipants]);
+  // Who has their microphone or their ears off, by peer: the same gossip the
+  // sidebar's faces read.
+  const quiet = $derived.by(() => {
+    const out = {};
+    for (const vm of S.voice ? voiceMembersFor(S.voice.channelId) : []) {
+      out[vm.self ? "self" : vm.peerId] = vm.deafened ? "deafened" : vm.muted ? "muted" : "";
+    }
+    out.self = S.deafened ? "deafened" : S.muted ? "muted" : "";
+    return out;
+  });
   const share = $derived(watchedShare());
   const shareTitle = $derived.by(() => {
     if (!share) return "";
@@ -302,7 +362,8 @@
     <div class="faces">
       {#each roster as pid (pid)}
         {@const p = part(pid)}
-        <div class="face" class:speaking={p.speaking} title={p.name}>
+        {@const q = quiet[pid]}
+        <div class="face" class:speaking={p.speaking} title={q ? `${p.name} · ${q}` : p.name}>
           <Avatar
             name={p.name}
             emoji={p.emoji}
@@ -315,6 +376,11 @@
             moodTitle={p.moodTitle}
             size={36}
           />
+          {#if q}
+            <span class="face-mark" aria-label="{p.name} is {q}">
+              <Icon name={q === "deafened" ? "deafened" : "micOff"} size={10} />
+            </span>
+          {/if}
         </div>
       {/each}
     </div>
@@ -572,6 +638,22 @@
     max-height: 148px; /* ~3 rows of the 36px faces; a big call scrolls instead of growing off-screen */
     overflow-y: auto;
     overscroll-behavior: contain; /* don't hand the leftover flick to the feed */
+  }
+  .face {
+    position: relative;
+  }
+  .face-mark {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    box-shadow: 0 0 0 1px var(--border);
   }
   .face :global(.avatar) {
     border: 2px solid transparent;

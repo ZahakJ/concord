@@ -4,7 +4,9 @@
 import { test } from "../harness.mjs";
 
 const room = (app, name) => app.page.locator(".channel", { hasText: name }).first();
-const bar = (app) => app.page.locator(".voice-bar");
+// The sidebar's call bar — whole in the call's own room, folded to one line
+// while the floating call window carries the call elsewhere.
+const bar = (app) => app.page.locator(".voice-bar, .voice-line");
 
 test("a reload mid-call offers Rejoin, and Rejoin puts you back", async ({ world, step, shot }) => {
   const [alice, bashir] = await world.peers(2);

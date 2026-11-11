@@ -458,6 +458,16 @@
   // The dock is the call when the stage is not: you joined, you are still
   // reading #general, and the picture lives in a window you can put back.
   const callElsewhere = $derived(!!S.voice && !S.callStage && S.voice.channelId !== S.activeChannelId);
+  // When the floating call window is up. Away from the call's own room it
+  // always is — another channel, guild, DM or Settings, sidebar shown or not —
+  // because that is where the call stops being visible: the sidebar bar alone
+  // could not show a peer's shared screen, and the people who asked for the
+  // window back were looking for exactly that. With the sidebar hidden it also
+  // covers the call's own conversation, where nothing else carries the call.
+  // The sidebar bar folds to one line while this is up (one call surface).
+  const callFloats = $derived(
+    !!S.voice && !S.callStage && (S.isMobile ? callElsewhere : callElsewhere || sidebarHidden),
+  );
   const call = $derived(incomingCall());
   const ringingChannel = $derived(call?.channelId || "");
   // Friendly label for the floating call window: DM name, or "Guild · #ch".
@@ -1879,6 +1889,7 @@
     {:else}
       <ChannelList
         strip={!railModel}
+        callFloating={callFloats && !S.isMobile}
         onJoinVoice={joinVoice}
         onLeaveVoice={leaveVoice}
         onToggleMute={toggleMicMute}
@@ -2079,12 +2090,9 @@
     </div>
   {/if}
 
-  <!-- Ongoing call while the stage is put away: a draggable pinned window —
-       but only where there is no sidebar to hold the call dock (the sidebar
-       hidden, or a phone): one call surface at a time (§8.12). On a desktop
-       with the sidebar hidden it is THE call surface (the header carries
-       none), so it shows over the call's own conversation too. Mounted for the
-       whole call and merely hidden while the tiles are up —
+  <!-- Ongoing call while the stage is put away: a draggable pinned window,
+       shown whenever the call's room is not on screen (callFloats). Mounted
+       for the whole call and merely hidden while the tiles are up —
        remounting it threw away wherever it had been parked, which is the same
        reason the component already hides rather than unmounts behind the phone
        drawers. -->
@@ -2092,7 +2100,7 @@
     {@const FloatingCall = parkedCall.C}
     <FloatingCall
       label={callLabel}
-      away={S.isMobile ? !!callElsewhere : sidebarHidden && !S.callStage}
+      away={callFloats}
       onLeave={leaveVoice}
       onToggleMute={toggleMicMute}
       onToggleDeafen={toggleDeafen}

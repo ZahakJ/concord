@@ -23,7 +23,9 @@
     setPref,
     setChannelNotifs,
     guildNotifLevel,
+    callHealth,
   } from "./lib/state.svelte.js";
+  import { callClock } from "./lib/calltimer.svelte.js";
   import { LEVELS, levelLabel } from "./lib/notifs.js";
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
@@ -39,6 +41,9 @@
   import { fitText } from "./lib/fittext.js";
 
   let { onJoinVoice, onLeaveVoice } = $props();
+
+  const callState = $derived(callHealth());
+  const clock = $derived(callClock());
 
   // Handed to lib/search.js so a filter chip clicked in the results panel can
   // type its prefix here and put the caret back after it.
@@ -299,9 +304,24 @@
            phone shell already withheld it (`!g.dmNotes`) and the desktop header
            did not, which left a Call button whose only possible outcome was
            ringing an empty room. -->
+    {:else if S.voice && S.prefs.sidebarHidden}
+      <!-- In a call somewhere else with the sidebar put away: the bar that
+           names the call and takes you back is gone with it, so the way back
+           is said here too, beside the floating window. The dot and the clock
+           answer to the same state as the window's. -->
+      <button
+        class="ghost iconbtn return-call"
+        class:trouble={!callState.live}
+        use:tooltip={{ text: `Back to ${callLabel || "your call"}` }}
+        onclick={() => openCallStage()}
+      >
+        <span class="live-dot"></span>
+        <span class="n">{callState.live ? `Return to call${clock ? ` · ${clock}` : ""}` : callState.label}</span>
+      </button>
     {:else if S.voice}
-      <!-- In a call somewhere else: the dock says which and takes you back. A
-           "Start a call" here would mean leaving that one, so it waits. -->
+      <!-- In a call somewhere else: the sidebar's call line and the floating
+           window say which and take you back. A "Start a call" here would
+           mean leaving that one, so it waits. -->
     {:else if ch && !g?.dmNotes && !g?.evicted && (g?.kind === "dm" || g?.kind === "meeting" || ch.type === "voice")}
       <!-- A guild text channel shows no call button: a speaker glyph there
            read as "join voice" and started a call in the text channel
@@ -866,6 +886,29 @@
   }
   .iconbtn.live-join:hover {
     background: color-mix(in srgb, var(--danger) 20%, transparent);
+  }
+  /* Your OWN call, running elsewhere: green, the room you are already in,
+     not the red of somebody else's live room you could join. */
+  .iconbtn.return-call {
+    color: var(--ok-text);
+    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+    background: var(--ok-soft);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .iconbtn.return-call:hover {
+    background: color-mix(in srgb, var(--ok) 22%, transparent);
+  }
+  .iconbtn.return-call .live-dot {
+    background: var(--ok);
+    animation: none;
+  }
+  .iconbtn.return-call.trouble {
+    color: var(--warn-text);
+    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  }
+  .iconbtn.return-call.trouble .live-dot {
+    background: var(--warn);
   }
   .live-dot {
     width: 7px;

@@ -106,7 +106,10 @@
 
   // strip: draw the shortcut strip under the place header (the default
   // arrangement). Off when the classic rail stands beside the list instead.
-  let { strip = true, onJoinVoice, onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } =
+  // callFloating: the floating call window is on screen, carrying the faces
+  // and the controls — the bar here folds to one line so the call is not
+  // drawn twice.
+  let { strip = true, callFloating = false, onJoinVoice, onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } =
     $props();
 
   // The sidebar's own width decides how many strip tiles fit and when
@@ -1704,7 +1707,22 @@
        there is one call surface, not a floating window beside a bar. While the
        stage itself is on screen its own controls are right there, and the dock
        shrinks to the line that is still news. -->
-  {#if S.voice && !(S.callStage && !S.isMobile)}
+  {#if S.voice && callFloating}
+    <!-- The floating window is up and holds the faces and the controls: here
+         only the line that says a call is running and takes you back to it. -->
+    <button
+      class="voice-line"
+      class:trouble={!callState.live}
+      aria-label="Return to the call in {channelShort(S.voice.channelId) || 'the call'}"
+      onclick={() => openCallStage()}
+    >
+      <span class="vb-live" class:held={!callState.live} aria-hidden="true"></span>
+      <span class="vl-text">
+        {callState.live ? "In call" : callState.label} · <bdi>{channelShort(S.voice.channelId) || "Call"}</bdi>{#if clock}&nbsp;· <span class="vb-clock">{clock}</span>{/if}
+      </span>
+      <span class="vl-return">Return</span>
+    </button>
+  {:else if S.voice && !(S.callStage && !S.isMobile)}
     {@const roster = voiceMembersFor(S.voice.channelId)}
     <div class="voice-bar" class:trouble={!callState.live} role="group" aria-label="Call">
       <button class="vb-info" use:tooltip aria-label="Open the call" onclick={() => openCallStage()}>
@@ -3202,6 +3220,38 @@
     padding: var(--sp-2) 10px var(--sp-2) var(--sp-3);
     border-top: 1px solid var(--hairline);
     background: var(--bg-2);
+  }
+  .voice-line {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    width: 100%;
+    min-height: 36px;
+    padding: 0 var(--sp-3);
+    border-top: 1px solid var(--hairline);
+    background: var(--bg-2);
+    color: var(--ok-text);
+    font-size: var(--fs-small);
+    font-variant-numeric: tabular-nums;
+    text-align: start;
+  }
+  .voice-line:hover {
+    background: var(--bg-3);
+  }
+  .voice-line.trouble {
+    color: var(--text-muted);
+  }
+  .vl-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .vl-return {
+    flex: none;
+    font-weight: 600;
   }
   .vb-info {
     display: flex;

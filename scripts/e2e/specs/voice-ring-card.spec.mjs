@@ -15,7 +15,8 @@ test("answering a DM call from a guild call says it will leave the guild call", 
   step("Bashir sits in Lounge; Alice calls him from their DM");
   await b.openGuild("Studio");
   await b.page.locator(".channel", { hasText: "Lounge" }).first().click();
-  await b.page.locator(".voice-bar").waitFor({ timeout: 45000 });
+  // The sidebar's call bar: whole in the call's room, one line elsewhere.
+  await b.page.locator(".voice-bar, .voice-line").waitFor({ timeout: 45000 });
   await a.openDM("Bashir");
   await a.page.getByRole("button", { name: "Start a call" }).click();
 

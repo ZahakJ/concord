@@ -46,7 +46,7 @@ The keyboard shortcuts work only while you are in a call, and they work even whi
 
 On a phone, the less common controls are under **More call controls**. Each person's tile has a menu with **Mute** *name* **for me**, which silences them on your device only, and a volume slider that also affects only you.
 
-While you move around the app, a small floating window keeps the call's main controls in reach; **Return to the call** opens the full view again.
+While you look at anything other than the call's own room (another channel, another guild, a direct message, Settings), a small floating window keeps the call in reach: the room, how long the call has run, who is in it, and Mute, Deafen, Camera, Share screen and Leave. When someone shares their screen, the window widens to show it. Drag the window by its title to move it; it remembers where you put it. Click the title or the arrow to return to the call. The sidebar's call bar shrinks to one line, **In call · Room — Return**, while the window is up. With the sidebar hidden, the conversation header shows **Return to call** too.
 
 ![The call view with two participants, one with the camera on, and the call controls along the bottom](../media/manual/voice-call-stage.png)
 
