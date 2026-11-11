@@ -153,7 +153,9 @@
   // at zero. Only a header narrower than the sidebar's own minimum (240px)
   // folds it to the glyph and number.
   function reachFit(node) {
-    const fit = () => (node.dataset.reach = node.clientWidth < 240 ? "glyph" : "full");
+    // The header is the sidebar less its own hairline, so a 240px sidebar
+    // measures a little under 240 here; the fold is for anything narrower.
+    const fit = () => (node.dataset.reach = node.offsetWidth < 232 ? "glyph" : "full");
     const ro = new ResizeObserver(fit);
     ro.observe(node);
     fit();
