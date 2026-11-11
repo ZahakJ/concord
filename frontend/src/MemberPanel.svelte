@@ -24,6 +24,7 @@
   import { splitStatus } from "./lib/presence.js";
   import { gameHue } from "./GameShelf.svelte";
   import { moderationItems, confirmKick } from "./lib/moderation.svelte.js";
+  import { listNav } from "./lib/listnav.js";
   import {
     confirmTransferOwnership,
     confirmNameHeir,
@@ -70,6 +71,11 @@
   function memberMenu(e, mem) {
     openContextMenu(e, [
       { label: "View profile", icon: "spark", onClick: () => openProfilePopover(mem.fingerprint, e.target) },
+      // The row's own × for a pending invite is out of the Tab order, so the
+      // menu the keyboard reaches has to offer it too.
+      mem.pending &&
+        g?.canManage &&
+        !mem.isSelf && { label: "Cancel invite", icon: "close", danger: true, onClick: () => kick(mem) },
       // Only while you're actually in a call, and only for someone who isn't
       // already in it — otherwise it's an option that can't mean anything.
       !!S.voice &&
@@ -258,7 +264,10 @@
 {#if !embedded}
   <Inspector docked={true} onClose={toggleMemberPanel} />
 {:else}
-<aside class="panel">
+<!-- One Tab stop for the roster (lib/listnav.js): arrows and typeahead move
+     between members, and the menu key or Shift+F10 opens a member's menu,
+     which holds everything the row's "More" button does. -->
+<aside class="panel" use:listNav={{ rows: ".member", park: ".kick", name: ".mname" }}>
   {#if activeGuild()?.evicted}
     <!-- The roster a removed device holds is the one it had at the moment it was
          removed, frozen: it cannot apply the commit that took it out, so the list

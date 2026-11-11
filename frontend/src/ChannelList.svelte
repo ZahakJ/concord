@@ -86,6 +86,7 @@
   import { failedIn, failedBodyIn } from "./lib/outbox.svelte.js";
   import { clampToBytes, NAME_MAX_BYTES } from "./lib/postdraft.js";
   import { focusOnMount } from "./lib/focus.js";
+  import { listNav } from "./lib/listnav.js";
   import { callClock } from "./lib/calltimer.svelte.js";
 
   const clock = $derived(callClock());
@@ -1072,7 +1073,23 @@
   {#if offscreen.down}
     <button class="edge-pill down" onclick={() => jumpUnread(1)}>↓ {markLabel(offscreen.downM)}</button>
   {/if}
-  <div class="scroll" class:channels-touch={coarse} ondragleave={listDragLeave} onscroll={measureUnread} bind:this={scrollEl}>
+  <!-- One Tab stop for the whole list (lib/listnav.js): the open channel's
+       row holds it, arrows and typeahead move between rows, and a row's menu
+       (the menu key or Shift+F10) carries everything its chevron and bell do.
+       Those used to be two more stops on every row. -->
+  <div
+    class="scroll"
+    class:channels-touch={coarse}
+    ondragleave={listDragLeave}
+    onscroll={measureUnread}
+    bind:this={scrollEl}
+    use:listNav={{
+      rows: ".cat-toggle, .channel, .vc-member, .dm-item",
+      current: ".channel-row.active .channel, .dm-item.active",
+      park: ".ch-menu .trigger, .mute-btn, .join-btn, .cat-actions button, .cat-more",
+      name: ".cat-label, .ch-name, .vc-name, .dm-name",
+    }}
+  >
     <!-- The one nudge (§5.14): a queue, one at a time, at the top of the list
          and never over the feed. Security outranks setup, setup outranks tips.
          The setup checklist stays mounted while it is armed — it watches the

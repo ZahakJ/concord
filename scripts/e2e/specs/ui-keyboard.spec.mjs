@@ -143,3 +143,92 @@ test("the core loop works from the keyboard alone", async ({ world, assert, step
   }, { message: "focus is not dropped on the page body" });
   assert.equal(after.label, before.label, "focus returns to where it was before Settings opened");
 });
+
+// The channel list and the member list are one Tab stop each. Their rows used
+// to be three and two stops (the row, then hover-only chevron, bell and ⋯
+// buttons), with no arrow keys at all, so getting from the inspector to the
+// composer took about forty Tab presses.
+test("the channel and member lists are one Tab stop each, with arrows and the row menu", async ({ world, assert, step, waitFor }) => {
+  const [alice, bashir] = await world.peers(2);
+  const g = await world.guild({ name: "Lists", members: [alice, bashir], channels: ["random", "tools"] });
+  await bashir.send(g.channel("general"), "hello");
+  const a = await alice.open();
+  const page = a.page;
+  await a.openChannel("general", "Lists");
+
+  const where = () =>
+    page.evaluate(() => {
+      const el = document.activeElement;
+      return {
+        channel: el?.classList.contains("channel") ? el.querySelector(".ch-name")?.textContent.trim() : "",
+        member: el?.classList.contains("member") ? el.querySelector(".mname")?.textContent.trim() : "",
+        inChannels: !!el?.closest(".channel-row, .cat-head"),
+        inMembers: !!el?.closest(".member-row"),
+      };
+    });
+  // How many of a list's controls the Tab key can land on.
+  const stops = (sel) =>
+    page.evaluate((sel) => [...document.querySelectorAll(sel)].filter((el) => el.tabIndex >= 0 && el.offsetParent !== null).length, sel);
+
+  step("F6 to the sidebar lands on the open channel; the list is one stop");
+  for (let i = 0; i < 6 && (await where()).channel !== "general"; i++) await page.keyboard.press("F6");
+  assert.equal((await where()).channel, "general", "F6 lands on the open channel's row");
+  assert.equal(
+    await stops(".channel-row button, .channel-row .trigger, .cat-head button"),
+    1,
+    "one control in the channel list is in the Tab order",
+  );
+
+  step("↓ moves to the next channel without opening it; a letter jumps by name");
+  await page.keyboard.press("ArrowDown");
+  await waitFor(async () => (await where()).channel === "random", { message: "↓ moved to #random" });
+  assert.ok((await a.composer().getAttribute("placeholder"))?.includes("general"), "the arrow did not switch channels");
+  await page.keyboard.press("t");
+  await waitFor(async () => (await where()).channel === "tools", { message: "typing t jumped to #tools" });
+  await page.keyboard.press("Home");
+  await waitFor(async () => (await where()).channel === "general", { message: "Home went to the first row" });
+
+  step("Shift+F10 opens the row's menu; Escape closes it and focus stays on the row");
+  await page.keyboard.press("ArrowDown");
+  await waitFor(async () => (await where()).channel === "random", { message: "back on #random" });
+  await page.keyboard.press("Shift+F10");
+  const menu = page.locator('[role="menu"]').filter({ hasText: "Mark as read" });
+  await menu.first().waitFor({ state: "visible" });
+  assert.ok(await menu.getByText("Nothing", { exact: true }).count(), "the menu holds the mute level the bell used to toggle");
+  await page.keyboard.press("Escape");
+  await waitFor(async () => (await page.locator('[role="menu"]').count()) === 0, { message: "Escape closed the menu" });
+  await waitFor(async () => (await where()).channel === "random", { message: "focus came back to the row" });
+
+  step("one Tab leaves the channel list; Shift+Tab comes back to the row you were on");
+  await page.keyboard.press("Tab");
+  await waitFor(async () => !(await where()).inChannels, { message: "a single Tab left the channel list" });
+  await page.keyboard.press("Shift+Tab");
+  await waitFor(async () => (await where()).channel === "random", { message: "Shift+Tab returned to #random" });
+
+  step("the member list: one stop, arrows, and the row menu");
+  if (!(await page.locator(".member").count())) await page.keyboard.press("Control+u");
+  await page.locator(".member").first().waitFor({ state: "visible" });
+  for (let i = 0; i < 6 && !(await where()).inMembers; i++) {
+    await page.keyboard.press("F6");
+    if ((await where()).inMembers) break;
+    // F6 lands on the inspector's first control; the roster is the next stop.
+    for (let j = 0; j < 4 && !(await where()).inMembers; j++) {
+      if (!(await page.evaluate(() => !!document.activeElement?.closest('aside[aria-label="Inspector"]')))) break;
+      await page.keyboard.press("Tab");
+    }
+  }
+  assert.ok((await where()).inMembers, "Tab from the inspector's head reached the roster");
+  assert.equal(await stops(".member-row button"), 1, "one control in the member list is in the Tab order");
+  const first = (await where()).member;
+  await page.keyboard.press("ArrowDown");
+  await waitFor(async () => {
+    const w = await where();
+    return w.member && w.member !== first;
+  }, { message: "↓ moved to the next member" });
+  await page.keyboard.press("Shift+F10");
+  await page.locator('[role="menu"]').filter({ hasText: "View profile" }).first().waitFor({ state: "visible" });
+  await page.keyboard.press("Escape");
+  await waitFor(async () => (await page.locator('[role="menu"]').count()) === 0, { message: "Escape closed the member menu" });
+  await page.keyboard.press("Tab");
+  await waitFor(async () => !(await where()).inMembers, { message: "a single Tab left the member list" });
+});

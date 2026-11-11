@@ -32,6 +32,8 @@ export const SHORTCUTS = [
   { group: "Navigation", chords: [["Ctrl", "Alt", "↑"], ["Ctrl", "Alt", "↓"]], label: "Previous / next guild" },
   { group: "Navigation", chords: [["Ctrl/⌘", "U"]], label: "Inspector (members, pins, files)" },
   { group: "Navigation", chords: [["F6"], ["Shift", "F6"]], label: "Next / previous region" },
+  { group: "Navigation", chords: [["↑"], ["↓"], ["Home"], ["End"]], label: "Move along the channel or member list (or type a name)" },
+  { group: "Navigation", chords: [["Shift", "F10"], ["Menu"]], label: "Options for the focused channel or member" },
   { group: "Navigation", chords: [["Ctrl/⌘", "="], ["Ctrl/⌘", "-"], ["Ctrl/⌘", "0"]], label: "Zoom" },
   { group: "Navigation", chords: [["?"], ["Ctrl/⌘", "/"]], label: "This list" },
 
