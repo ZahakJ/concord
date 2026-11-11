@@ -80,10 +80,9 @@
       if (!out.length || out[out.length - 1].key !== k) out.push({ key: k, items: [] });
       out[out.length - 1].items.push(item);
     }
-    // The daily driver must answer "what's today?" even when the answer is
-    // nothing — Today always renders when the river has anything at all (the
-    // full empty state below owns the totally-clear case).
-    if (out.length && !out.some((grp) => grp.key === todayKey)) out.unshift({ key: todayKey, items: [] });
+    // No empty "Today" group: when today holds nothing the masthead already
+    // says "Nothing else today", and an agenda heading saying "Today — nothing
+    // scheduled" right under it was the same sentence twice.
     let off = 0;
     for (const grp of out) {
       grp.offset = off;
@@ -349,7 +348,7 @@
   <div class="list">
     {#each groups as grp (grp.key)}
       <div class="dayhead kicker">
-        {fmtDayHeading(grp.key)}{#if grp.key === todayKey && !grp.items.length}<span class="dh-none">&nbsp;— nothing scheduled</span>{/if}
+        {fmtDayHeading(grp.key)}
       </div>
       {#each grp.items as { ev, g }, i (ev.id)}
         {#if grp.key === todayKey && i === nowIdx}
@@ -673,10 +672,6 @@
     color: var(--text-faint);
     padding: 8px 0 4px;
     margin-top: var(--sp-2);
-  }
-  .dh-none {
-    font-weight: 600;
-    color: var(--text-faint);
   }
   .riser {
     animation: mycal-rise var(--dur-calm) var(--ease-calm) backwards;

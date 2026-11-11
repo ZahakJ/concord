@@ -218,10 +218,12 @@
   // drawn in that theme. Under Light it showed the dark ground while ringed as
   // current, which read as "this would make it dark".
   const DEFAULT_LIGHT = { bg: "#eaece6", hi: "#dcdfd9", ac: "#0e7c70", day: true };
-  const packsF = $derived(
-    sift(PACKS.map((p) => (p.id === "" && shownLight ? { ...p, ...DEFAULT_LIGHT } : p))),
+  // Under Light, Default is drawn light, so it is filed first among the
+  // light grounds rather than under "Dark grounds — these bring their own".
+  const packsF = $derived(sift(shownLight ? PACKS.filter((p) => p.id !== "") : PACKS));
+  const dayF = $derived(
+    sift(shownLight ? [{ ...PACKS.find((p) => p.id === ""), ...DEFAULT_LIGHT }, ...DAY_PACKS] : DAY_PACKS),
   );
-  const dayF = $derived(sift(DAY_PACKS));
   const liveF = $derived(sift(LIVE_PACKS));
   const textureF = $derived(sift(TEXTURE_PACKS));
   const pairF = $derived(sift(PAIR_PACKS));

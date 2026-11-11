@@ -319,6 +319,17 @@
   .head::-webkit-scrollbar {
     display: none;
   }
+  /* On a phone the row is wider than the sheet ("Events" and "Moderation"
+     sat past the edge with nothing to say so). It runs to the sheet's edges
+     and fades out at the end, so the cut reads as "there is more this way". */
+  @media (max-width: 768px) {
+    .head {
+      margin-inline: calc(-1 * var(--dlg-pad));
+      padding-inline: var(--dlg-pad);
+      -webkit-mask-image: linear-gradient(to right, #000 calc(100% - var(--sp-6)), transparent);
+      mask-image: linear-gradient(to right, #000 calc(100% - var(--sp-6)), transparent);
+    }
+  }
   .act {
     min-width: 0;
     flex: none;

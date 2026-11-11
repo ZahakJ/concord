@@ -179,7 +179,7 @@
   {#if tags.length || (curate && palette.length)}
     <div class="tags">
       {#each tags as t (t.id)}
-        <span class="tag" style="--tc:{t.color}">{t.emoji ? `${t.emoji} ` : ""}{t.name}</span>
+        <span class="tag" style="--tc:{t.color}">{t.name}</span>
       {/each}
       {#if curate && palette.length}
         <button class="tag edit" onclick={openTags}>
@@ -201,7 +201,7 @@
           onclick={() => toggleTag(t.id)}
         >
           {#if picking.includes(t.id)}<Icon name="check" size={10} />{/if}
-          {t.emoji ? `${t.emoji} ` : ""}{t.name}
+          {t.name}
         </button>
       {/each}
       <span class="spring"></span>
