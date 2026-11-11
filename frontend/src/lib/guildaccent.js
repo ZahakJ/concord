@@ -151,3 +151,70 @@ export function clampAccent(color, theme = "dark") {
   if (!accentHolds(at(hi), t)) return TEAL[t];
   return `rgb(${at(hi).join(", ")})`;
 }
+
+// ---- which colour is the accent ----
+//
+// The accent is the brand teal for everyone unless the user picks otherwise.
+// A profile colour is the colour of the PROFILE (avatar ring, card); it used
+// to become the whole app's accent by default, so a warm avatar colour turned
+// every badge, focus ring and mention row into something that read as an
+// alert. Following the profile colour is now an explicit choice (the
+// Appearance value "profile"), and even then a hue in the red–orange band is
+// toned down, because the signals that mean "you" must never be mistaken for
+// errors or warnings.
+export const ACCENT_PROFILE = "profile";
+
+function toHSL([r, g, b]) {
+  (r /= 255), (g /= 255), (b /= 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return [0, 0, l];
+  const s = d / (1 - Math.abs(2 * l - 1));
+  let h;
+  if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [(h * 60 + 360) % 360, s, l];
+}
+function fromHSL([h, s, l]) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return [r, g, b].map((v) => Math.round((v + m) * 255));
+}
+const hex = (rgb) => "#" + rgb.map((v) => v.toString(16).padStart(2, "0")).join("");
+
+// The band where a saturated hue reads as danger or warning on graphite and
+// on paper: magenta-red through amber.
+export function isAlertHue(h) {
+  return h >= 335 || h <= 55;
+}
+const ALERT_MAX_SAT = 0.32;
+
+// profileAccent(color) -> the profile colour fit to be an accent: unchanged
+// outside the alert band, desaturated (same hue and lightness) inside it.
+export function profileAccent(color) {
+  const rgb = parseRGB(color);
+  if (!rgb) return "";
+  const [h, s, l] = toHSL(rgb);
+  if (!isAlertHue(h) || s <= ALERT_MAX_SAT) return hex(rgb);
+  return hex(fromHSL([h, ALERT_MAX_SAT, l]));
+}
+
+// resolveAccent(pref, profileColor) -> the explicit accent colour to stamp, or
+// "" for "leave the stylesheet's accent alone" (the brand teal, or a theme
+// pack's own accent). pref "" is the default and means teal.
+export function resolveAccent(pref, profileColor) {
+  if (!pref) return "";
+  if (pref === ACCENT_PROFILE) return profileAccent(profileColor);
+  return pref;
+}
+
+// hueOf is exported for the tests.
+export function hueOf(color) {
+  const rgb = parseRGB(color);
+  return rgb ? toHSL(rgb) : null;
+}

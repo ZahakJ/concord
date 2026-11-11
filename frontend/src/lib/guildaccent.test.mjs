@@ -34,3 +34,22 @@ if (contrast([0, 0, 0], [255, 255, 255]) < 20.9) fail("contrast maths");
 if (tileColor({ id: "abc" }) !== tileColor({ id: "abc" })) fail("tile colour must be stable");
 if (/gradient/.test(tileColor({ id: "abc" }))) fail("tile colour must be solid");
 if (!process.exitCode) console.log("guildaccent.test.mjs: ok");
+
+// The accent is teal unless the user chose otherwise: a profile colour no
+// longer becomes the accent by itself, and following it is opt-in.
+{
+  const { resolveAccent, profileAccent, hueOf, isAlertHue, ACCENT_PROFILE } = await import("./guildaccent.js");
+  if (resolveAccent("", "#e8743b") !== "") fail("the default accent must ignore the profile colour");
+  if (resolveAccent(undefined, "#e8743b") !== "") fail("an unset accent must ignore the profile colour");
+  if (resolveAccent("#3d7dd6", "#e8743b") !== "#3d7dd6") fail("a chosen preset is kept");
+  if (resolveAccent(ACCENT_PROFILE, "#3d7dd6") !== "#3d7dd6") fail("a cool profile colour passes through when opted in");
+  // A warm profile colour, opted in, is toned so it cannot read as an alert.
+  for (const c of ["#e8743b", "#ff0000", "#e5636a", "#f5a524", "#d4145a"]) {
+    const out = resolveAccent(ACCENT_PROFILE, c);
+    const [h, s] = hueOf(out);
+    if (isAlertHue(h) && s > 0.33) fail(`${c} as accent is still a saturated alert hue (${out})`);
+    const [h0] = hueOf(c);
+    if (Math.abs(h - h0) > 3 && Math.abs(h - h0) < 357) fail(`${c}: toning must keep the hue (${out})`);
+  }
+  if (profileAccent("") !== "") fail("no profile colour gives no accent");
+}

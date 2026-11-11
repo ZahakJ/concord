@@ -6,7 +6,7 @@ import { api, on, onTransportHealth, probeCore } from "./api.js";
 import { notify, wantsPermissionPrompt } from "./notify.js";
 import { draftIn, noteDraft } from "./drafts.svelte.js";
 import { containsMention } from "./markdown.js";
-import { clampAccent } from "./guildaccent.js";
+import { clampAccent, resolveAccent } from "./guildaccent.js";
 import { matchedWord as matchedAlertWord, normalize as normalizeAlertWords } from "./alertwords.js";
 import { awayLongEnough, guildLastSeen, buildDigest, worthShowing } from "./digest.js";
 import {
@@ -2481,7 +2481,7 @@ const DENSITIES = new Set(["compact", "cozy", "comfortable"]);
 // ---- appearance (theme / accent preset / density) ----
 // Device-local prefs, stamped onto <html>: data-theme picks the palette in
 // app.css, data-density the message spacing, and a non-empty accent pref
-// overrides the profile color (--accent-hover/-soft derive from it in CSS).
+// overrides the brand teal (--accent-hover/-soft derive from it in CSS).
 
 const sysDark = window.matchMedia?.("(prefers-color-scheme: dark)");
 
@@ -2613,13 +2613,17 @@ export function applyAppearance() {
   if (cramped !== S.cramped) S.cramped = cramped;
   // The ground the name colours are measured against has just changed.
   readInkGround();
-  if (S.prefs.accent) applyAccent(S.prefs.accent);
-  else if (S.prefs.themePack) {
+  // The default ("" = teal) and a theme pack both leave the stylesheet's
+  // --accent alone; only an explicit preset, or the opt-in "match my profile
+  // colour", stamps one (lib/guildaccent.js resolveAccent).
+  const chosen = resolveAccent(S.prefs.accent, S.identity.color);
+  if (chosen) applyAccent(chosen);
+  else {
     document.documentElement.style.removeProperty("--accent");
     document.documentElement.style.removeProperty("--accent-fg");
-    // Let the pack's --accent apply, then derive a legible foreground from it.
+    // Let the theme's or pack's --accent apply, then derive a legible foreground from it.
     syncAccentFg();
-  } else applyAccent(S.identity.color);
+  }
   rememberBootPaint();
 }
 
@@ -2649,7 +2653,7 @@ applyAppearance();
 export async function onLogin() {
   S.identity = await api.identity();
   S.displayName = S.identity.displayName || "";
-  applyAppearance(); // profile color, unless an accent preset overrides it
+  applyAppearance(); // the profile colour matters only if the accent follows it
   await refreshGuilds();
   await refreshBlocked();
   await refreshRequests();

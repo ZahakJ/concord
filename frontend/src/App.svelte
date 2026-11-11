@@ -1751,7 +1751,7 @@
     );
     S.identity = await api.identity();
     S.displayName = S.identity.displayName || "";
-    applyAppearance(); // new profile color, unless an accent preset overrides it
+    applyAppearance(); // the accent may be set to follow the profile colour
     await refreshRightPanel();
     // Stays on the pane: Settings is a rail, and closing the whole dialog on
     // Save sent someone who meant to go on to Appearance back to the app, and

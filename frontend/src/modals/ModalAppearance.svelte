@@ -13,6 +13,7 @@
   import FxOverlay from "../FxOverlay.svelte";
   import { THEME_FX } from "../lib/themefx.js";
   import { S, setAppearance } from "../lib/state.svelte.js";
+  import { ACCENT_PROFILE, profileAccent } from "../lib/guildaccent.js";
   import { rangefill } from "../lib/rangefill.js";
 
   let { onClose } = $props();
@@ -38,10 +39,11 @@
         !window.matchMedia?.("(prefers-color-scheme: dark)")?.matches),
   );
 
-  // Six presets + "Profile" (accent pref "" = follow the custom color from
-  // Edit profile, which is the pre-Appearance behavior and the default).
+  // Teal (accent pref "" — the default, and the theme's own teal, so it stays
+  // legible in light), five presets, and the opt-in "match my profile colour"
+  // ("profile"; red–orange hues are toned there, lib/guildaccent.js).
   const ACCENTS = [
-    { name: "Concord teal", color: "#14a394" },
+    { name: "Concord teal", color: "" },
     { name: "Azure", color: "#3d7dd6" },
     { name: "Iris", color: "#7a6ff0" },
     { name: "Orchid", color: "#b45ecf" },
@@ -54,7 +56,7 @@
   const density = $derived(S.prefs.density || "cozy");
   const clock = $derived(S.prefs.clock || "system");
   const uiScale = $derived(Number(S.prefs.uiScale) || 1);
-  const profileColor = $derived(S.identity.color || "#14a394");
+  const profileColor = $derived(profileAccent(S.identity.color) || "#14a394");
   const themePack = $derived(S.prefs.themePack || "");
   // Picking a theme is asking for that ground, which a pack overrides; it used
   // to do nothing visible. Hand the ground back to the theme.
@@ -360,9 +362,9 @@
   </section>
 
   <SettingGroup label="Colour and type">
-    <SettingRow title="Accent" sub="Your colour for focus, selection, mentions of you and your reactions.">
+    <SettingRow title="Accent" sub="Your colour for focus, selection, mentions of you and your reactions. The ring follows your profile colour.">
       <div class="swatches" role="radiogroup" aria-label="Accent colour">
-        {#each ACCENTS as a (a.color)}
+        {#each ACCENTS as a (a.name)}
           <button
             class="swatch"
             class:sel={accent === a.color}
@@ -370,19 +372,19 @@
             aria-checked={accent === a.color}
             title={a.name}
             aria-label={a.name}
-            style="--sw:{a.color}"
+            style="--sw:{a.color || "#14a394"}"
             onclick={() => setAppearance("accent", a.color)}
           ></button>
         {/each}
         <button
           class="swatch profile"
-          class:sel={accent === ""}
+          class:sel={accent === ACCENT_PROFILE}
           role="radio"
-          aria-checked={accent === ""}
-          title="Your profile colour"
-          aria-label="Your profile colour"
+          aria-checked={accent === ACCENT_PROFILE}
+          title="Match my profile colour"
+          aria-label="Match my profile colour"
           style="--sw:{profileColor}"
-          onclick={() => setAppearance("accent", "")}
+          onclick={() => setAppearance("accent", ACCENT_PROFILE)}
         ></button>
       </div>
     </SettingRow>

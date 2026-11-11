@@ -53,7 +53,7 @@ Components read tokens and never repeat their values. A literal that is byte-ide
 
 ### Accent and status
 
-`--accent` is the user's own accent: the brand teal, `#14a394` in dark and `#0e7c70` in light (where it carries white text), or their profile colour or a preset they chose. Badges and counts wear it and are never red: red is for danger and errors, and the token test fails a count filled with `--danger`.
+`--accent` is the user's own accent: the brand teal, `#14a394` in dark and `#0e7c70` in light (where it carries white text), or a preset they chose. It does not follow the profile colour unless the user picks "Match my profile colour", and then a hue in the red–orange band is desaturated so a "you" signal never reads as an alert. Badges and counts wear it and are never red: red is for danger and errors, and the token test fails a count filled with `--danger`.
 
 `--danger`, `--ok` and `--warn` are fills with their own `-fg` inks; `--danger-text`, `--ok-text` and `--warn-text` are the same colours mixed toward `--text` for use as ink. `--mention-wash` is the tint for a message that mentions you, and is never drawn without an accent bar beside it.
 

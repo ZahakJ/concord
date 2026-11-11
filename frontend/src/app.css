@@ -26,10 +26,11 @@
      holds all four), and still a clear step below --text-muted. */
   --text-faint: #8f979d;
 
-  /* Concord teal — the brand accent. A member's profile color (or an accent
-     preset from Appearance) overrides --accent at runtime (applyAccent), so
-     treat it as a default, not a law. --accent-hover is derived so it tracks
-     whatever accent is active: lighter in dark mode, darker in light mode
+  /* Concord teal — the brand accent, and everyone's default. An accent preset
+     from Appearance (or its opt-in "match my profile colour") overrides
+     --accent at runtime (applyAccent), so treat it as a default, not a law.
+     --accent-hover is derived so it tracks whatever accent is active:
+     lighter in dark mode, darker in light mode
      (where it doubles as link/name text and needs the contrast). */
   --accent: #14a394;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
@@ -392,8 +393,8 @@
   --text-faint: #576064;
 
   /* The brand teal is too light to carry white (3.1:1) or to be ink on paper;
-     this is the same hue a step darker, 5.08:1 under white. A profile colour
-     or preset still replaces it at runtime (applyAccent). */
+     this is the same hue a step darker, 5.08:1 under white. An accent the
+     user chose in Appearance still replaces it at runtime (applyAccent). */
   --accent: #0e7c70;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, black);
   --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
