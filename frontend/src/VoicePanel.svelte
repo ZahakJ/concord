@@ -330,7 +330,10 @@
       return "Nobody can hear each other — these connections couldn't be made.";
     }
     if (health.state === "reconnecting") return "Reconnecting to the call…";
-    return "Nobody can hear each other yet — still connecting.";
+    // Still connecting is already said, once, on the tile of whoever is not
+    // through yet; a footer line saying it again made four "Connecting…" on
+    // one screen.
+    return "";
   });
 
   // The camera tile for a roster entry ("self" or a peerId), if they have one
@@ -971,7 +974,9 @@
     <span class="sh-spacer"></span>
     <!-- Until the call is live there is no duration to show: a running clock
          with a line through it read as a rendering fault, not as "not yet". -->
-    {#if !health.live}<span class="sh-wait" role="status">Connecting…</span>
+    <!-- Not yet live: no clock, and no second "Connecting…" beside the
+         tile's. The status stays for a screen reader, which has no tile. -->
+    {#if !health.live}<span class="sr-only" role="status">Connecting…</span>
     {:else if clock}<span class="sh-clock" aria-label="Call duration">{clock}</span>{/if}
     <button
       class="sh-swap"
@@ -1662,10 +1667,6 @@
     font-variant-numeric: tabular-nums;
     font-weight: 600;
     color: var(--text);
-  }
-  .sh-wait {
-    flex: none;
-    color: var(--text-muted);
   }
   .sh-swap {
     display: grid;

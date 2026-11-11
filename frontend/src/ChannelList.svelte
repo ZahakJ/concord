@@ -265,6 +265,21 @@
   }
   const markLabel = (m) => (m ? plural(m, "mention") : "Unread");
 
+  // The row drawn selected is the one the main column shows. While the call
+  // stage is up that is the call's room, not the text channel still open
+  // behind it: two selected-looking rows (the text channel's fill and bar,
+  // and the joined voice room's tint) made it impossible to tell where you
+  // were.
+  const mainColumnId = $derived(
+    S.callStage && !S.isMobile ? S.voice?.channelId || S.joiningVoice || "" : S.activeChannelId,
+  );
+
+  const hangupLabel = $derived.by(() => {
+    const id = S.voice?.channelId;
+    const cg = id && S.guilds.find((x) => x.channels.some((c) => c.id === id));
+    return cg?.kind === "dm" && (cg.dmMembers ?? 2) <= 2 ? "End call" : "Leave call";
+  });
+
   // The call's guild, for the dock's second line.
   const callGuildName = $derived.by(() => {
     const id = S.voice?.channelId;
@@ -1276,7 +1291,7 @@
         {/if}
         {#each collapsed(grp.id) ? grp.channels.filter((c) => keepVisible(c)) : grp.channels as c (c.id)}
           {@const u = channelUnread(c)}
-          {@const active = c.id === S.activeChannelId}
+          {@const active = c.id === mainColumnId}
           {@const inVoice = S.voice && S.voice.channelId === c.id}
           {@const joiningHere = S.joiningVoice === c.id}
           {@const occupied = c.type === "voice" && voiceMembersFor(c.id).length > 0}
@@ -1288,7 +1303,6 @@
             class:active
             class:unread={!!u && !isMuted(c.id, g?.id)}
             class:mentioned={!!u?.mentions && !isMuted(c.id, g?.id)}
-            class:voice-active={inVoice}
             class:voice-joining={joiningHere}
             class:vdrop={vDropId === c.id}
             ondragleave={() => (vDropId === c.id ? (vDropId = "") : null)}
@@ -1613,10 +1627,9 @@
        there is one call surface, not a floating window beside a bar. While the
        stage itself is on screen its own controls are right there, and the dock
        shrinks to the line that is still news. -->
-  {#if S.voice}
-    {@const compact = !!S.callStage && !S.isMobile}
+  {#if S.voice && !(S.callStage && !S.isMobile)}
     {@const roster = voiceMembersFor(S.voice.channelId)}
-    <div class="voice-bar" class:trouble={!callState.live} class:compact role="group" aria-label="Call">
+    <div class="voice-bar" class:trouble={!callState.live} role="group" aria-label="Call">
       <button class="vb-info" use:tooltip aria-label="Open the call" onclick={() => openCallStage()}>
         <span class="vb-text">
           <span class="vb-title">
@@ -1629,11 +1642,6 @@
           </span>
         </span>
       </button>
-      {#if compact}
-        <button class="callbtn sm hang" use:tooltip aria-label="Disconnect" onclick={onLeaveVoice}>
-          <Icon name="door" size={14} />
-        </button>
-      {:else}
         {#if roster.length}
           <div class="vb-faces" aria-label="{roster.length} in this call" role="img">
             {#each roster.slice(0, 5) as vm (vm.peerId)}
@@ -1695,11 +1703,14 @@
               <Icon name={S.sharing ? "screenOff" : "screen"} size={14} />
             </button>
           {/if}
-          <button class="callbtn sm hang" use:tooltip aria-label="Disconnect" onclick={onLeaveVoice}>
+          <!-- One word for one thing (lib/callflow.js): hanging up a 1:1
+               ends the call for both of you, so it says End; anywhere else
+               the others carry on, so it says Leave. The dock is the one
+               hang-up on screen, so it has to say which. -->
+          <button class="callbtn sm hang" use:tooltip aria-label={hangupLabel} onclick={onLeaveVoice}>
             <Icon name="door" size={14} />
           </button>
         </span>
-      {/if}
     </div>
   {/if}
 
@@ -1957,13 +1968,13 @@
   .cat-add:hover {
     color: var(--text);
   }
-  .voice-active {
-    background: var(--accent-soft) !important;
-  }
-  /* Pressed while the join is in flight: the same lit background as being IN
-     the call, pulsing, so the row is obviously doing something. */
+  /* Being in a room is not a selection: the row says so in words ("2 in
+     call", in the ok ink) and the roster under it lists you. It used to be
+     an accent fill, a third kind of highlight beside selection and hover.
+     Pressed while the join is in flight: the hover fill, pulsing, so the row
+     is obviously doing something. */
   .voice-joining {
-    background: var(--accent-soft) !important;
+    background: color-mix(in srgb, var(--bg-3) 60%, transparent);
     animation: ch-joining 1.4s ease-in-out infinite;
   }
   @keyframes ch-joining {
@@ -3087,15 +3098,11 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin: 0 var(--sp-2) var(--sp-2);
-    padding: var(--sp-2) 10px;
-    border: 1px solid var(--hairline);
-    border-radius: var(--radius-md);
+    /* Part of the sidebar, not a card laid on it: flush, a hairline above,
+       no frame and no shadow (only floating things cast one). */
+    padding: var(--sp-2) 10px var(--sp-2) var(--sp-3);
+    border-top: 1px solid var(--hairline);
     background: var(--bg-2);
-  }
-  .voice-bar.compact {
-    flex-direction: row;
-    align-items: center;
   }
   .vb-info {
     display: flex;

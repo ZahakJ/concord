@@ -1920,14 +1920,7 @@
             </button>
           </div>
         {:else if !S.callStage}
-          <ChatHeader
-            onJoinVoice={joinVoice}
-            onLeaveVoice={leaveVoice}
-            onToggleMute={toggleMicMute}
-            onToggleDeafen={toggleDeafen}
-            onToggleShare={toggleScreenShare}
-            onToggleCamera={toggleCamera}
-          />
+          <ChatHeader onJoinVoice={joinVoice} onLeaveVoice={leaveVoice} />
         {/if}
         <!-- Search results TAKE the pane, for every channel type. They used to
              be mounted inside MessageList, which a forum channel never renders —
@@ -2067,7 +2060,9 @@
 
   <!-- Ongoing call while the stage is put away: a draggable pinned window —
        but only where there is no sidebar to hold the call dock (the sidebar
-       hidden, or a phone): one call surface at a time (§8.12). Mounted for the
+       hidden, or a phone): one call surface at a time (§8.12). On a desktop
+       with the sidebar hidden it is THE call surface (the header carries
+       none), so it shows over the call's own conversation too. Mounted for the
        whole call and merely hidden while the tiles are up —
        remounting it threw away wherever it had been parked, which is the same
        reason the component already hides rather than unmounts behind the phone
@@ -2076,7 +2071,7 @@
     {@const FloatingCall = parkedCall.C}
     <FloatingCall
       label={callLabel}
-      away={!!callElsewhere && (S.isMobile || sidebarHidden)}
+      away={S.isMobile ? !!callElsewhere : sidebarHidden && !S.callStage}
       onLeave={leaveVoice}
       onToggleMute={toggleMicMute}
       onToggleDeafen={toggleDeafen}

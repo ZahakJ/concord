@@ -19,8 +19,6 @@
     openGuildHub,
     openCallStage,
     channelShort,
-    callRoster,
-    callHealth,
     markRead,
     setPref,
     setChannelNotifs,
@@ -28,7 +26,6 @@
   } from "./lib/state.svelte.js";
   import { LEVELS, levelLabel } from "./lib/notifs.js";
   import { PERM, has } from "./lib/perms.js";
-  import { callClock } from "./lib/calltimer.svelte.js";
   import { api } from "./lib/api.js";
   import { saveText } from "./lib/savefile.js";
   // Operator parsing (from:/in:/has:/before:/after:) + the backend call live
@@ -41,8 +38,7 @@
   import { tooltip } from "./lib/tooltip.js";
   import { fitText } from "./lib/fittext.js";
 
-  let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } =
-    $props();
+  let { onJoinVoice, onLeaveVoice } = $props();
 
   // Handed to lib/search.js so a filter chip clicked in the results panel can
   // type its prefix here and put the caret back after it.
@@ -140,10 +136,7 @@
   const narrow = $derived(headW <= 640);
   const stub = $derived(headW <= 460);
   const packed = $derived(headW <= 380);
-  const clock = $derived(callClock());
   const callLabel = $derived(S.voice ? channelShort(S.voice.channelId) : "");
-  // One state machine for the call — see callHealth in state.svelte.js.
-  const callState = $derived(callHealth());
 
   async function showInvite() {
     S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) };
@@ -289,58 +282,13 @@
          name wins. -->
     {#if packed}
       <!-- nothing: see the ⋯ menu -->
-    {:else if S.voice && S.voice.channelId === S.activeChannelId && (g?.kind === "dm" || g?.kind === "meeting")}
-      <!-- In a DM the conversation stays; the tiles are a layer you open. -->
-      <button class="ghost iconbtn" use:tooltip aria-label="Open the call" onclick={() => openCallStage()}>
-        <Icon name="screen" /> <span class="n">Open the call</span>
-      </button>
-      <!-- One word for one thing: in a 1:1 hanging up ends the call for both of
-           you (lib/callflow.js), so it says End; in a group or a meeting the
-           others carry on, so it says Leave. Text and tooltip used to disagree
-           about which of the two this was. -->
-      {@const hangup = g?.kind === "dm" && (g.dmMembers ?? 2) <= 2 ? "End call" : "Leave call"}
-      <button class="ghost iconbtn endcall" use:tooltip aria-label={hangup} onclick={onLeaveVoice}>
-        <Icon name="door" /> <span class="n">{hangup}</span>
-      </button>
     {:else if S.voice && S.voice.channelId === S.activeChannelId}
-      <!-- Active voice collapses to one pill with mute + leave inside it. -->
-      <span class="voice-pill" class:trouble={!callState.live}>
-        <!-- callRoster, not a second count: this is the same list the stage
-             draws its tiles from, so the number and the picture cannot drift
-             apart while somebody is arriving or leaving. -->
-        <button
-          type="button"
-          class="pill-label"
-          title="Open the call"
-          aria-label="Open the call"
-          onclick={() => openCallStage()}
-        >
-          <Icon name="speaker" size={12} />
-          {callRoster().length}
-        </button>
-        <span class="pill-sep"></span>
-        <!-- The same controls, the same two colours, on every surface that
-             carries them: mic and deafen light DANGER when they are stopping
-             something, camera and screen light OK when they are sending
-             something. This pill used to have no lit state for the mic at all —
-             the glyph swapped and nothing else did — while the sidebar bar lit
-             the SAME state green, which is this row's colour for "on the air". -->
-        <button class="callbtn xs cut" class:on={S.muted} title={S.muted ? "Unmute mic" : "Mute mic"} aria-label={S.muted ? "Unmute mic" : "Mute mic"} aria-pressed={S.muted} onclick={onToggleMute}>
-          <Icon name={S.muted ? "micOff" : "mic"} size={15} />
-        </button>
-        <button class="callbtn xs cut" class:on={S.deafened} title={S.deafened ? "Undeafen" : "Deafen"} aria-label={S.deafened ? "Undeafen" : "Deafen"} aria-pressed={S.deafened} onclick={onToggleDeafen}>
-          <Icon name={S.deafened ? "deafened" : "speaker"} size={15} />
-        </button>
-        <button class="callbtn xs" class:on={S.cameraOn} title={S.cameraOn ? "Turn off camera" : "Turn on camera"} aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"} aria-pressed={S.cameraOn} onclick={onToggleCamera}>
-          <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={15} />
-        </button>
-        <button class="callbtn xs" class:on={S.sharing} title={S.sharing ? "Stop sharing" : "Share screen"} aria-label={S.sharing ? "Stop sharing" : "Share screen"} aria-pressed={S.sharing} onclick={onToggleShare}>
-          <Icon name={S.sharing ? "screenOff" : "screen"} size={15} />
-        </button>
-        <button class="callbtn xs hang" title="Leave voice" aria-label="Leave voice" onclick={onLeaveVoice}>
-          <Icon name="door" size={15} />
-        </button>
-      </span>
+      <!-- Nothing: you are in this conversation's call, and the call has one
+           surface (§8, one of each). The sidebar's dock carries the room, the
+           clock, the five controls and the hang-up; with the sidebar hidden
+           the small floating dock does. This header used to carry a third
+           copy — a pill with its own timer and hang-up, or "Open the call"
+           beside "End call" — so a call showed two timers and two hang-ups. -->
     {:else if ch && peerInCall}
       <!-- The other side is already on a call — make it obvious and one-click. -->
       <button class="ghost iconbtn live-join" use:tooltip={"Join the call"} onclick={() => onJoinVoice()}>
@@ -352,26 +300,8 @@
            did not, which left a Call button whose only possible outcome was
            ringing an empty room. -->
     {:else if S.voice}
-      <!-- You are already in a call, somewhere else. This button used to read
-           "Voice" here — the same word as the button that STARTS one, two
-           channels away — and clicking it took you back to the call you were
-           in with no explanation. Same label, two meanings. The clock says
-           which of the two this is without needing the sentence. -->
-      <button
-        class="ghost iconbtn return-call"
-        class:trouble={!callState.live}
-        use:tooltip={{ text: `Back to ${callLabel || "your call"}` }}
-        onclick={() => openCallStage()}
-      >
-        <span class="live-dot"></span>
-        <!-- The dot and the clock are the same claim the sidebar bar and the
-             dock make, so they answer to the same state — a green dot beside a
-             running number over a call that is not carrying is the whole of the
-             bug this button used to share with them. -->
-        <span class="n">
-          {callState.live ? `Return to call${clock ? ` · ${clock}` : ""}` : callState.label}
-        </span>
-      </button>
+      <!-- In a call somewhere else: the dock says which and takes you back. A
+           "Start a call" here would mean leaving that one, so it waits. -->
     {:else if ch && !g?.dmNotes && !g?.evicted && (g?.kind === "dm" || g?.kind === "meeting" || ch.type === "voice")}
       <!-- A guild text channel shows no call button: a speaker glyph there
            read as "join voice" and started a call in the text channel
@@ -912,71 +842,11 @@
   .insp-toggle .count {
     font-weight: 600;
   }
-  .voice-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: var(--fs-compact);
-    font-weight: 600;
-    color: var(--ok-text);
-    padding: 3px 4px 3px 9px;
-    background: var(--ok-soft);
-    border-radius: var(--radius-lg);
-    white-space: nowrap;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 25%, transparent);
-    /* One quiet breath while the call is live (the pill only exists then). */
-    animation: pill-breathe 3.6s ease-in-out infinite;
-  }
-  @keyframes pill-breathe {
-    0%,
-    100% {
-      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 25%, transparent);
-    }
-    50% {
-      box-shadow:
-        inset 0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent),
-        0 0 10px color-mix(in srgb, var(--ok) 30%, transparent);
-    }
-  }
-  /* Green is the claim that the call is carrying. It stops making it. */
-  .voice-pill.trouble {
-    color: var(--warn-text);
-    background: var(--warn-soft);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 35%, transparent);
-    animation: none;
-  }
-  .voice-pill.trouble .pill-sep {
-    background: color-mix(in srgb, var(--warn) 35%, transparent);
-  }
   @media (prefers-reduced-motion: reduce) {
-    .voice-pill {
-      animation: none;
-    }
     .iconbtn:hover {
       transform: none;
     }
   }
-  .pill-label {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--sp-1);
-    line-height: 1;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-  }
-  .pill-sep {
-    width: 1px;
-    align-self: stretch;
-    margin: 2px 2px;
-    background: color-mix(in srgb, var(--ok) 35%, transparent);
-  }
-  /* The buttons are .callbtn (app.css) at their smallest size — the same
-     controls, in the same order, with the same on/cut/hang colours as the
-     stage bar, the sidebar bar and the dock. */
   /* Same type and box as "Start a call" beside it: it used to inherit the
      body's 16px and stand a size larger and a few pixels taller than every
      other button on the bar. */
@@ -996,30 +866,6 @@
   }
   .iconbtn.live-join:hover {
     background: color-mix(in srgb, var(--danger) 20%, transparent);
-  }
-  /* Your OWN call, running elsewhere. Green rather than the red of "somebody
-     else is live in here": one is a room you could join, the other is the room
-     you are already in. */
-  .iconbtn.return-call {
-    color: var(--ok-text);
-    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
-    background: var(--ok-soft);
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .iconbtn.return-call:hover {
-    background: color-mix(in srgb, var(--ok) 22%, transparent);
-  }
-  .iconbtn.return-call .live-dot {
-    background: var(--ok);
-  }
-  .iconbtn.return-call.trouble {
-    color: var(--warn-text);
-    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
-  }
-  .iconbtn.return-call.trouble .live-dot {
-    background: var(--warn);
-    animation: none;
   }
   .live-dot {
     width: 7px;
@@ -1041,13 +887,6 @@
     .live-dot {
       animation: none;
     }
-  }
-  .iconbtn.endcall {
-    color: var(--danger-text);
-    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
-  }
-  .iconbtn.endcall:hover {
-    background: var(--danger-soft);
   }
   /* The board's name is a breadcrumb, and a breadcrumb that line-breaks mid-word
      ("help-" / "desk") reads as a rendering fault. It wraps as a unit or it
