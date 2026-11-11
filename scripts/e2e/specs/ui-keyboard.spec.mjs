@@ -208,13 +208,19 @@ test("the channel and member lists are one Tab stop each, with arrows and the ro
   step("the member list: one stop, arrows, and the row menu");
   if (!(await page.locator(".member").count())) await page.keyboard.press("Control+u");
   await page.locator(".member").first().waitFor({ state: "visible" });
+  // Focus moves a frame after the key, so each press is given that frame
+  // before the next one is decided on: pressing ahead of it walked past the
+  // roster on a loaded machine.
+  const settle = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   for (let i = 0; i < 6 && !(await where()).inMembers; i++) {
     await page.keyboard.press("F6");
+    await settle();
     if ((await where()).inMembers) break;
     // F6 lands on the inspector's first control; the roster is the next stop.
     for (let j = 0; j < 4 && !(await where()).inMembers; j++) {
       if (!(await page.evaluate(() => !!document.activeElement?.closest('aside[aria-label="Inspector"]')))) break;
       await page.keyboard.press("Tab");
+      await settle();
     }
   }
   assert.ok((await where()).inMembers, "Tab from the inspector's head reached the roster");
