@@ -20,6 +20,7 @@ require (
 	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
+	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.60.0
 )
 
@@ -145,7 +146,6 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.50.0 // indirect
 	gonum.org/v1/gonum v0.17.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
 	modernc.org/libc v1.77.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
