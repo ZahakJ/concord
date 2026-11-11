@@ -188,10 +188,14 @@ func TestUnlinkedDeviceErasesItselfWhenItReturnsAtOnce(t *testing.T) {
 	}
 	// What the desktop looks like when the phone's old connection has not been
 	// reaped yet: the claim taken when it answered the phone's last hello is
-	// still held. (Taken here once the real one is released, so the test does
-	// not depend on how fast the desktop notices.)
-	waitUntil(t, 30*time.Second, func() bool { return desk.answered.claim(phoneID) },
-		"the desktop never released its claim on the phone")
+	// still held. Taken here if the desktop has already released it, and left
+	// as it is if not. This used to wait for the release, which is not
+	// guaranteed in any useful time: when the two devices dial each other at
+	// once, the desktop can be left holding a connection the phone never
+	// finished accepting before it closed, and that one ends only at the
+	// transport's idle timeout, about thirty seconds, the test's whole wait.
+	// That lingering connection is this test's very case, not a fault in it.
+	desk.answered.claim(phoneID)
 
 	phone2 := startServiceOn(t, ctx, phoneDir, boot)
 	_ = phone2.host.Connect(ctx, desk.host.AddrInfo())
@@ -199,4 +203,26 @@ func TestUnlinkedDeviceErasesItselfWhenItReturnsAtOnce(t *testing.T) {
 		_, err := os.Stat(keystorePathIn(phoneDir))
 		return os.IsNotExist(err)
 	}, "the unlinked device did not erase itself after coming back online")
+}
+
+// TestAHelloAnsweredAfterItsConnectionDroppedHoldsNoClaim is the race behind
+// the occasional failure of the test above. The hello claim is per connection
+// and released when the connection ends; a hello still being handled when
+// that release ran took the claim afterwards and kept it with no connection
+// left to release it, so the redialling device only ever got the short
+// answer. Here the hello comes from a peer with no connection at all.
+func TestAHelloAnsweredAfterItsConnectionDroppedHoldsNoClaim(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startServiceInDir(t, ctx, t.TempDir())
+	gone := startServiceInDir(t, ctx, t.TempDir()).host.PeerID()
+	if s.host.HasConnection(gone) {
+		t.Fatal("the two services are connected; the case under test did not arise")
+	}
+	if _, err := s.handleHello(ctx, gone, []byte("{}")); err != nil {
+		t.Fatalf("handleHello: %v", err)
+	}
+	if !s.answered.claim(gone) {
+		t.Fatal("a hello from a peer with no connection left its claim held")
+	}
 }

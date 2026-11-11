@@ -241,6 +241,15 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 		// with the account's keys until it happened to reconnect again.
 		return json.Marshal(helloFrame{Revoked: s.revocationFor(from)})
 	}
+	// The claim is per connection, and the connection's end is what releases
+	// it. A hello read just before its connection dropped is still being
+	// handled when that release runs, and its claim then outlived the
+	// connection it belonged to, for good: every later connection from that
+	// peer got the short answer. Checked after claiming, so a drop either came
+	// first and is seen here, or comes later and releases the claim itself.
+	if !s.host.HasConnection(from) {
+		s.answered.release(from)
+	}
 
 	// Answer only someone we can place — which, thanks to the request we just
 	// ingested, now includes the linked device that could not be placed a
