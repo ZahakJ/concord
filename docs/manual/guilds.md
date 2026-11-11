@@ -59,7 +59,7 @@ The person who made the code must be online and reachable while you join. If the
 
 ## Guild settings
 
-Click the guild's name at the top of the channel list, or choose **Guild settings** from the menu in the chat header. On a desktop the settings open as one window with every section listed on the left; on a phone they are a list you drill into. You see only the sections you can use.
+Click the gear beside the guild's name at the top of the sidebar, right-click the guild's name, or choose **Guild settings** from the ⋯ menu in the chat header. In the Rail layout, clicking the guild's name opens them too. If you cannot change the guild, the gear opens a short menu instead: notifications, **Mark as read**, **Invite people** (where you may) and **Leave guild**. On a desktop the settings open as one window with every section listed on the left; on a phone they are a list you drill into. You see only the sections you can use.
 
 | Group | Sections |
 |---|---|

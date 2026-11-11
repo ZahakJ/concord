@@ -68,6 +68,9 @@
     dismissNotifyAsk,
     dismissUpdate,
     openGuildPage,
+    openGuildHub,
+    leaveGuildLabel,
+    confirmLeaveGuild,
   } from "./lib/state.svelte.js";
   import { confirmClaimOwnership } from "./lib/ownership.svelte.js";
   import { requestPermission } from "./lib/notify.js";
@@ -119,6 +122,38 @@
   // ---- the place header ----
   function placeMenu(e) {
     if (g && g.kind !== "dm") guildMenu(e, g);
+  }
+  // Who gets the settings gear rather than the short menu: anyone who can
+  // change something in the guild's settings.
+  const canManageGuild = $derived(
+    !!g &&
+      !g.evicted &&
+      (g.isOwner ||
+        g.canManage ||
+        has(g.myPerms || 0, PERM.MANAGE_GUILD) ||
+        has(g.myPerms || 0, PERM.MANAGE_ROLES) ||
+        has(g.myPerms || 0, PERM.MANAGE_CHANNELS)),
+  );
+  function memberGuildMenu(e) {
+    if (!g) return;
+    openContextMenu(
+      e,
+      [
+        { label: "Notifications", header: true },
+        ...LEVELS.map((l) => ({
+          label: l.label,
+          icon: l.id === "none" ? "bellOff" : "bell",
+          active: guildNotifLevel(g.id) === l.id,
+          onClick: () => setGuildNotifs(g.id, l.id),
+        })),
+        { sep: true },
+        { label: "Mark as read", icon: "check", onClick: () => g.channels.forEach((c) => markRead(c.id)) },
+        !g.evicted && g.canManage && { label: "Invite people", icon: "personPlus", onClick: invitePeople },
+        { sep: true },
+        { label: leaveGuildLabel(g), icon: g.isOwner ? "trash" : "door", danger: true, onClick: () => confirmLeaveGuild(g) },
+      ].filter(Boolean),
+      { title: g.name },
+    );
   }
   async function invitePeople() {
     try {
@@ -1003,11 +1038,27 @@
           {/if}
         </button>
       {/if}
-      {#if g.canManage && !g.evicted}
-        <button class="iconbtn ph-invite" aria-label="Invite people" use:tooltip onclick={invitePeople}>
-          <Icon name="personPlus" size={16} />
-        </button>
-      {/if}
+      <span class="ph-acts">
+        {#if g.canManage && !g.evicted}
+          <button class="iconbtn ph-invite" aria-label="Invite people" use:tooltip onclick={invitePeople}>
+            <Icon name="personPlus" size={16} />
+          </button>
+        {/if}
+        <!-- The guild's settings, in sight. The name used to open them; it
+             opens the switcher now, which left settings behind a right-click
+             nobody tries and a ⋯ row below the menu's fold. Someone who can
+             change the guild gets its settings; anyone else gets the few
+             things that are theirs to change about it. -->
+        {#if canManageGuild}
+          <button class="iconbtn ph-gear" aria-label="Guild settings" use:tooltip onclick={() => openGuildHub()}>
+            <Icon name="gear" size={16} />
+          </button>
+        {:else}
+          <button class="iconbtn ph-gear" aria-label="Guild options" aria-haspopup="menu" use:tooltip onclick={memberGuildMenu}>
+            <Icon name="gear" size={16} />
+          </button>
+        {/if}
+      </span>
     </header>
   {:else if g?.kind === "dm"}
     <header class="place-head dm-head" data-place-head>
@@ -2908,7 +2959,7 @@
   .reach-glyph.all {
     background: currentColor;
   }
-  .ph-invite {
+  .ph-acts {
     grid-column: 2;
     grid-row: 1 / span 2;
   }
@@ -3441,7 +3492,8 @@
     .place-head {
       padding-right: var(--sp-1);
     }
-    .ph-invite {
+    .ph-invite,
+    .ph-gear {
       width: 44px;
       height: 44px;
     }

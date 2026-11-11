@@ -90,8 +90,17 @@
   // Tall enough for the composer's + menu (a dozen rows) to show whole: at
   // 340 its last row sat half-cut at the panel's edge, which read as the menu
   // running off the screen rather than as a list that scrolls. Option lists
-  // longer than this still scroll.
-  const MAX_H = 440;
+  // longer than this still scroll. 440 was too short for the chat header's ⋯,
+  // whose Guild settings row sat below the cut at every window size with
+  // nothing to say the list went on; 640 shows it whole down to a 720px-tall
+  // window, and anything that still scrolls fades at the edge it continues
+  // past (`more`).
+  const MAX_H = 640;
+  let more = $state(false);
+  function measureMore() {
+    if (!panel) return;
+    more = panel.scrollHeight - panel.clientHeight - panel.scrollTop > 2;
+  }
   function place() {
     if (!open || S.isMobile || !panel || !root) return;
     const t = rectOf(root);
@@ -112,8 +121,21 @@
     // The z-index is read once per opening (untracked: place() runs inside an
     // effect, and reading `pos` there would make it re-run on its own write).
     const z = untrack(() => pos?.z) ?? zAbove(root);
-    pos = { left, top, up: wantUp, width: wide ? t.w : 0, z };
+    // The height goes into `pos` too: the style attribute below is rewritten
+    // from `pos`, which wiped the maxHeight set above and left the panel at the
+    // stylesheet's 70% of the window.
+    pos = { left, top, up: wantUp, width: wide ? t.w : 0, z, maxH: Math.min(MAX_H, room) };
   }
+
+  // Whether rows run past the edge is asked again whenever the panel's box
+  // changes: measured once at placement, it saw the stylesheet's height
+  // before the measured one landed and faded a menu that fits.
+  $effect(() => {
+    if (!open || S.isMobile || !panel || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measureMore);
+    ro.observe(panel);
+    return () => ro.disconnect();
+  });
 
   // Re-place on anything that can move the trigger. `scroll` is captured
   // because the movers are inner scrollers (the channel list, a settings
@@ -261,12 +283,14 @@
         class="menu {align}"
         class:up={pos ? pos.up : up}
         class:placed={!!pos}
+        class:more
         role="menu"
         tabindex="-1"
         bind:this={panel}
+        onscroll={measureMore}
         use:portal
         style={pos
-          ? `left:${pos.left}px;top:${pos.top}px;z-index:${pos.z};${pos.width ? `width:${pos.width}px;min-width:0;` : ""}`
+          ? `left:${pos.left}px;top:${pos.top}px;z-index:${pos.z};max-height:${pos.maxH}px;${pos.width ? `width:${pos.width}px;min-width:0;` : ""}`
           : ""}
         onclick={() => (open = false)}
         onkeydown={onMenuKey}
@@ -345,7 +369,7 @@
     /* A menu used to hold a handful of verbs. Select.svelte hands it option
        lists — thirty-one days, twelve months — which without a ceiling grow a
        thousand-pixel panel that runs off both ends of the window. */
-    max-height: min(440px, 70 * var(--vh));
+    max-height: min(640px, 70 * var(--vh));
     overflow-y: auto;
     /* Floating chrome is opaque — a menu of verbs over a wall of text is
        unreadable at the 0.7 alpha most packs give --bg-1. ContextMenu and the
@@ -367,6 +391,11 @@
   }
   .menu.placed {
     visibility: visible;
+  }
+  /* More rows below the edge: the last visible ones fade out, so the list
+     reads as continuing rather than ending. */
+  .menu.more {
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
   }
   /* Opacity and 4px toward the anchor; no scale, nothing overshoots. */
   @keyframes menu-in {
