@@ -42,10 +42,15 @@
 </div>
 
 <style>
+  /* In a 280px sidebar the sentence and a full action button do not fit
+     on one line: the sentence was squeezed into a column a word or two wide.
+     The action wraps under the sentence instead, and × stays on the first
+     line beside it. */
   .nudge {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
+    gap: 6px 10px;
     min-height: 40px;
     padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3);
     border-radius: var(--radius-md);
@@ -68,14 +73,17 @@
     color: var(--warn-text);
   }
   .txt {
-    flex: 1;
+    flex: 1 1 150px;
     min-width: 0;
     line-height: 1.35;
   }
   .act {
     flex: none;
+    order: 3;
+    margin-left: auto;
   }
   .x {
+    order: 2;
     flex: none;
     width: 28px;
     height: 28px;

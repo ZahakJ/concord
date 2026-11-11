@@ -28,7 +28,6 @@
     confirmTransferOwnership,
     confirmNameHeir,
     revokeHeir,
-    confirmClaimOwnership,
   } from "./lib/ownership.svelte.js";
 
   // Touch: long-press opens the member menu (iOS never synthesizes contextmenu
@@ -114,48 +113,6 @@
     ]);
   }
 
-  // "Name an heir" from the nudge: reuse the context-menu idiom as a picker —
-  // same surface the member row's own menu uses, anchored at the button.
-  function pickHeir(e) {
-    const eligible = S.members.filter((m) => !m.isSelf && !m.pending);
-    openContextMenu(
-      e,
-      eligible.map((m) => ({
-        label: m.name || m.fingerprint.slice(0, 9),
-        icon: "crown",
-        onClick: () => confirmNameHeir(m),
-      })),
-    );
-  }
-
-  // ---- sole-admin freeze warning ----
-  // The owner is the guild's permission ROOT. If they vanish while nobody
-  // else holds manage-members, no one can ever add or remove a member again —
-  // the guild freezes. Another admin OR a named heir defuses that, so the
-  // nudge only shows while NEITHER exists (and there's actually someone to
-  // promote). Dismissal is per guild and purely local.
-  let heirNudgeDismissed = $state(
-    JSON.parse(localStorage.getItem("heirNudgeDismissed") || "{}"),
-  );
-  function dismissNudge() {
-    heirNudgeDismissed[S.activeGuildId] = true;
-    localStorage.setItem("heirNudgeDismissed", JSON.stringify(heirNudgeDismissed));
-  }
-  const soleAdminRisk = $derived(
-    !!g &&
-      g.kind !== "dm" &&
-      g.isOwner &&
-      !g.heir &&
-      !heirNudgeDismissed[g.id] &&
-      S.members.some((m) => !m.isSelf && !m.pending) &&
-      !S.members.some((m) => !m.isSelf && !m.pending && m.canManage),
-  );
-
-  // The heir's own affordance: visible only to the named heir, who may not
-  // otherwise know (or remember) they hold the break-glass.
-  const iAmHeir = $derived(
-    !!g && g.kind !== "dm" && !g.isOwner && g.heir === S.identity.fingerprint,
-  );
 
   // "🎮 <name>" is the GameShelf's now-playing convention (its Play button
   // writes it as a plain custom status, so old builds render it fine as-is).
@@ -313,37 +270,6 @@
       history below is your own copy and stays on this device.
     </p>
   {:else}
-  {#if soleAdminRisk}
-    <div class="notice warn" role="note">
-      <div class="notice-head">
-        <Icon name="crown" size={13} />
-        <strong>You're this guild's only admin</strong>
-        <button class="notice-x" aria-label="Dismiss warning" onclick={dismissNudge}>
-          <Icon name="close" size={11} />
-        </button>
-      </div>
-      <p>
-        If you lose this account, nobody will be able to add or remove members again. Give
-        someone a role with “manage members”, or name an heir who can take over.
-      </p>
-      <div class="notice-actions">
-        <button class="notice-btn" onclick={() => (S.modal = { kind: "roles" })}>Open roles</button>
-        <button class="notice-btn" onclick={pickHeir}>Name an heir…</button>
-      </div>
-    </div>
-  {/if}
-  {#if iAmHeir}
-    <div class="notice accent" role="note">
-      <div class="notice-head">
-        <Icon name="crown" size={13} />
-        <strong>You're the named heir</strong>
-      </div>
-      <p>The owner authorized you to take over this guild — for when they're gone, or ask you to.</p>
-      <div class="notice-actions">
-        <button class="notice-btn" onclick={confirmClaimOwnership}>Take ownership…</button>
-      </div>
-    </div>
-  {/if}
   {#if showFilter}
     <div class="filter-wrap">
       <input
@@ -784,92 +710,6 @@
   .role-badge.heir {
     background: color-mix(in srgb, var(--warn) 20%, transparent);
     color: color-mix(in srgb, var(--warn) 50%, var(--text));
-  }
-  /* Inline notices (sole-admin freeze warning, heir's claim card). Calm
-     tinted cards, not toasts: they describe a standing state of the guild.
-     Tokens only, so they hold in dark/light and every pack; full-width and
-     wrap-friendly so they sit fine in the 393px right drawer. */
-  .notice {
-    margin: var(--sp-1) var(--sp-1) var(--sp-2);
-    padding: 10px;
-    border-radius: var(--radius-md);
-    font-size: var(--fs-small);
-    line-height: 1.45;
-  }
-  .notice.warn {
-    background: color-mix(in srgb, var(--warn) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
-    color: var(--text);
-  }
-  .notice.warn .notice-head {
-    color: var(--warn-text);
-  }
-  .notice.accent {
-    background: var(--accent-soft);
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-    color: var(--text);
-  }
-  .notice.accent .notice-head {
-    color: color-mix(in srgb, var(--accent) 50%, var(--text));
-  }
-  .notice-head {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--fs-ui);
-    margin-bottom: var(--sp-1);
-  }
-  .notice-head strong {
-    flex: 1;
-    min-width: 0;
-  }
-  .notice p {
-    margin: 0 0 8px;
-    color: var(--text-muted);
-  }
-  .notice-x {
-    background: transparent;
-    color: inherit;
-    padding: 2px 4px;
-    opacity: 0.7;
-    flex-shrink: 0;
-  }
-  .notice-x:hover {
-    opacity: 1;
-    background: transparent;
-  }
-  /* Touch: pad the dismiss X's tap area out without growing the glyph. */
-  @media (pointer: coarse) {
-    .notice-x {
-      position: relative;
-    }
-    .notice-x::after {
-      content: "";
-      position: absolute;
-      inset: -10px;
-    }
-  }
-  .notice-actions {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-  .notice-btn {
-    padding: 6px 10px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-3);
-    color: var(--text);
-    font-size: var(--fs-ui);
-    font-weight: 600;
-  }
-  .notice-btn:hover,
-  .notice-btn:active {
-    background: var(--bg-4, var(--bg-3));
-  }
-  @media (pointer: coarse) {
-    .notice-btn {
-      min-height: 38px;
-    }
   }
   .role-badge.owner {
     background: color-mix(in srgb, var(--accent) 22%, transparent);

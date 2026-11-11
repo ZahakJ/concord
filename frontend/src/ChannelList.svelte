@@ -67,7 +67,9 @@
     openDMs,
     dismissNotifyAsk,
     dismissUpdate,
+    openGuildPage,
   } from "./lib/state.svelte.js";
+  import { confirmClaimOwnership } from "./lib/ownership.svelte.js";
   import { requestPermission } from "./lib/notify.js";
   import { plural } from "./lib/plural.js";
   import { tileColor } from "./lib/guildaccent.js";
@@ -182,16 +184,52 @@
   // is the one full-width bar (App.svelte). "Later" on the phrase quiets it for
   // this session only — it keeps coming back until the words are verified.
   let setupWants = $state(false);
+
+  // The guild's succession, as an owner-setup nudge. The owner is the guild's
+  // permission root: if they vanish while nobody else can manage members and
+  // no heir is named, nobody can ever add or remove a member again. This was
+  // an amber card at the top of the Members tab — the loudest thing on the
+  // main screen, in the one place that is meant to be only the roster. It is a
+  // nudge row now, in its turn. Dismissal is per guild and local (the same key
+  // the card used, so a dismissal made there still holds).
+  let heirNudgeDismissed = $state(JSON.parse(localStorage.getItem("heirNudgeDismissed") || "{}"));
+  function dismissHeirNudge() {
+    heirNudgeDismissed = { ...heirNudgeDismissed, [S.activeGuildId]: true };
+    localStorage.setItem("heirNudgeDismissed", JSON.stringify(heirNudgeDismissed));
+  }
+  const soleAdmin = $derived(
+    !!g &&
+      g.kind !== "dm" &&
+      !g.evicted &&
+      g.isOwner &&
+      !g.heir &&
+      !heirNudgeDismissed[g.id] &&
+      S.members.some((m) => !m.isSelf && !m.pending) &&
+      !S.members.some((m) => !m.isSelf && !m.pending && m.canManage),
+  );
+  // The heir's side of it: whoever was named may not know, or remember.
+  const namedHeir = $derived(
+    !!g &&
+      g.kind !== "dm" &&
+      !g.evicted &&
+      !g.isOwner &&
+      g.heir === S.identity.fingerprint &&
+      !heirNudgeDismissed[`heir:${g.id}`],
+  );
   const nudgeNow = $derived(
     S.prefs.backupPending && !phraseLater.on
       ? "phrase"
       : setupWants
         ? "setup"
-        : S.notifyAsk
+        : soleAdmin
+          ? "heir"
+          : namedHeir
+            ? "isheir"
+            : S.notifyAsk
           ? "notify"
-          : S.update
-            ? "update"
-            : "",
+            : S.update
+              ? "update"
+              : "",
   );
 
   // ---- unread messages ----
@@ -1047,6 +1085,31 @@
           onDismiss={() => (phraseLater.on = true)}
         >
           <strong>Write down your recovery phrase.</strong> It is the only way back into this account.
+        </Nudge>
+      </div>
+    {:else if nudgeNow === "heir"}
+      <div class="nudge-row">
+        <Nudge
+          icon="crown"
+          action="Name an heir"
+          onAction={() => openGuildPage("ownership")}
+          onDismiss={dismissHeirNudge}
+        >
+          <strong>Only you can manage members.</strong>
+        </Nudge>
+      </div>
+    {:else if nudgeNow === "isheir"}
+      <div class="nudge-row">
+        <Nudge
+          icon="crown"
+          action="Take over…"
+          onAction={() => confirmClaimOwnership()}
+          onDismiss={() => {
+            heirNudgeDismissed = { ...heirNudgeDismissed, [`heir:${S.activeGuildId}`]: true };
+            localStorage.setItem("heirNudgeDismissed", JSON.stringify(heirNudgeDismissed));
+          }}
+        >
+          <strong>You're this guild's heir.</strong>
         </Nudge>
       </div>
     {:else if nudgeNow === "notify"}
