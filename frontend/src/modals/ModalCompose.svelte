@@ -37,7 +37,7 @@
 
   let body = $state(seedBody);
   let pending = $state([]);
-  let mode = $state("split");
+  let mode = $state("write");
   // Focus mode is the editor's, but this dialog has to answer to it: see the
   // embed panel below.
   let zen = $state(false);
@@ -272,8 +272,7 @@
       minHeight={embedOn && !zen ? 150 : 200}
       attachments={!editId}
       placeholder="Write your message…"
-      hint="Select text and use the toolbar, or type markdown directly: **bold**, *italic*, ||spoiler||, `code`, > quote, - list, ## heading. :shortcodes: and @mentions autocomplete."
-      hintKey="compose-md"
+      hint="Select text to format it, or type markdown: **bold**, *italic*, ||spoiler||, `code`, > quote, - list, ## heading. Every mark is also under Aa; :shortcodes: and @mentions autocomplete."
       previewExtraFilled={!!previewEmbed}
       onSubmit={post}
       onInput={persist}

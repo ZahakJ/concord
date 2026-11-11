@@ -26,7 +26,7 @@
   let title = $state("");
   let body = $state("");
   let pending = $state([]);
-  let mode = $state("split");
+  let mode = $state("write");
   let tags = $state([]); // selected tag ids
   let busy = $state(false);
   let step = $state(""); // what the submit is doing right now
@@ -261,10 +261,7 @@
       previewTitle={title.trim()}
       attachNote="Files post into the thread right after your opening message."
       placeholder="Start the discussion…"
-      hint={S.isMobile
-        ? "The toolbar and markdown both work: **bold**, > quote, - list, ## heading."
-        : "The toolbar and markdown both work: **bold**, > quote, - list, ## heading, ```code```, ||spoiler||. Paste or drop an image to attach it."}
-      hintKey="newpost-md"
+      hint="Select text to format it, or type markdown: **bold**, *italic*, > quote, - list, ## heading, `code`, ||spoiler||. Every mark is also under Aa. Paste or drop an image to attach it."
       onSubmit={create}
       onInput={persist}
       submitHint={S.isMobile ? "" : "⌘/Ctrl + ↵ to post"} />

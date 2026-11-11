@@ -32,6 +32,9 @@
   import Avatar from "../Avatar.svelte";
   import EmojiPicker from "../EmojiPicker.svelte";
   import BottomSheet from "../BottomSheet.svelte";
+  import FormatBar from "../FormatBar.svelte";
+  import InfoDot from "./InfoDot.svelte";
+  import { applyFormat as formatField } from "../lib/mdformat.js";
   import { syncLayer } from "../lib/navstack.svelte.js";
   import { tooltip } from "../lib/tooltip.js";
   import { renderMarkdown, COLOR_NAMES } from "../lib/markdown.js";
@@ -64,20 +67,19 @@
     // origName, desc }.
     pending = $bindable([]),
     // "write" | "split" | "preview". Bindable so the parent can remember it.
-    mode = $bindable("split"),
+    // The surface offers Write and Preview (one quiet toggle); a stored
+    // "split" from an older build still renders, it is just not offered.
+    mode = $bindable("write"),
     // Distraction-free. Bindable so the HOST can also stand down: the advanced
     // composer hides its embed builder in focus mode, because "everything but
     // the text" cannot mean "everything but the text and this six-field form".
     zen = $bindable(false),
     placeholder = "Write…",
-    // A line of teaching shown above the editor until it is dismissed. It used
-    // to be crammed into the placeholder, which is the one place a hint cannot
-    // survive: the instant you type the first character of what you came here
-    // to write, the instructions for writing it vanish. It also could not be
-    // read back, could not be selected, and was announced as the field's own
-    // name. `hintKey` is what remembers the dismissal between sessions.
+    // How formatting works, behind an ⓘ beside Preview. Not the placeholder
+    // (it vanishes at the first character typed, and is announced as the
+    // field's name) and no longer a tinted banner over the field (chrome on
+    // every open until dismissed).
     hint = "",
-    hintKey = "",
     attachments = true,
     autofocus = false,
     minHeight = 200,
@@ -98,28 +100,6 @@
 
   let ta = $state(null);
 
-  // Dismissed hints stay dismissed. Told once is the contract — a tip that
-  // comes back every time you open the composer is not a tip, it is chrome.
-  const HINT_STORE = "concord.hintsSeen";
-  function seenHints() {
-    try {
-      return JSON.parse(localStorage.getItem(HINT_STORE) || "[]");
-    } catch {
-      return [];
-    }
-  }
-  let hintDismissed = $state(false);
-  const hintGone = $derived(hintDismissed || (!!hintKey && seenHints().includes(hintKey)));
-  function dismissHint() {
-    hintDismissed = true;
-    if (!hintKey) return;
-    try {
-      localStorage.setItem(HINT_STORE, JSON.stringify([...new Set([...seenHints(), hintKey])]));
-    } catch {
-      /* storage refused (private window, locked-down policy): dismissed for
-         this session only, which is still better than not dismissible. */
-    }
-  }
   let fileInput = $state(null);
   let reading = $state(0); // files being decoded into the tray
   let pop = $state(""); // "" | "color" | "more" | "lang" | "head"
@@ -160,7 +140,33 @@
   // sheet holding EVERY mark this editor can emit (including the five that were
   // behind the ⋯, which was itself only reachable after expanding). The toolbar
   // on a phone stays two rows and every mark is one tap and a readable label.
-  const showFmt = $derived(wideView);
+  //
+  // And on a desktop too, now. The dialog used to carry the whole bar — bold,
+  // italic, strike, spoiler, heading, quote, list, code, link, colour, emoji,
+  // attach, ⋯, then Write/Split/Preview/Focus — a permanent formatting bar on
+  // the two heaviest surfaces in the app, while the composer has none. Here as
+  // there: select text and the selection toolbar rises; every mark is in "Aa";
+  // the chords work everywhere.
+  const showFmt = false;
+
+  // The selection toolbar, the composer's own (FormatBar `selection`): raised
+  // while the field holds a selection, on a pointer device.
+  let hasSel = $state(false);
+  function trackSel() {
+    const el = ta;
+    hasSel = !!el && document.activeElement === el && el.selectionEnd > el.selectionStart;
+  }
+  function selFormat(kind) {
+    const el = ta;
+    if (!el) return;
+    formatField(el, kind, (next, s0, s1) => {
+      body = next;
+      requestAnimationFrame(() => el.setSelectionRange(s0, s1));
+    });
+    body = el.value;
+    onInput?.();
+    trackSel();
+  }
 
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
   const MOD = isMac ? "⌘" : "Ctrl+";
@@ -872,28 +878,40 @@
           {/if}
         </div>
       {/if}
-      {#if !wideView}
+      <div class="split">
         <button
           type="button"
           class="tb aa popbtn"
-          class:on={pop === "fmt"}
+          class:on={pop === "fmt" || pop === "lang"}
           aria-expanded={pop === "fmt"}
           aria-label="Formatting marks"
           use:tooltip={"Bold, italic, headings, lists…"}
           onmousedown={noSteal}
           onclick={() => (pop = pop === "fmt" ? "" : "fmt")}>Aa</button>
-      {/if}
+        {#if pop === "fmt" && !S.isMobile}
+          <div class="pop menu" role="menu">{@render fmtItems()}</div>
+        {:else if pop === "lang" && !S.isMobile}
+          <div class="pop menu narrow" role="menu">{@render langItems()}</div>
+        {/if}
+      </div>
     </div>
 
     <!-- The view switcher. Three states, not a pile of toggles: what you see is
          one choice. Split collapses out below 760px, where two columns is a
          lie. -->
     <div class="grp right" role="group" aria-label="View">
-      <div class="seg" role="group" aria-label="View mode">
-        <button type="button" class="segb" class:on={view === "write" && !zen} aria-pressed={view === "write"} onclick={() => ((mode = "write"), (zen = false))}>Write</button>
-        <button type="button" class="segb wide-only" class:on={view === "split" && !zen} aria-pressed={view === "split"} onclick={() => ((mode = "split"), (zen = false))}>Split</button>
-        <button type="button" class="segb" class:on={view === "preview" && !zen} aria-pressed={view === "preview"} onclick={() => ((mode = "preview"), (zen = false))}>Preview</button>
-      </div>
+      <!-- The markdown note, one gesture away instead of a tinted banner
+           over the field. -->
+      {#if hint}<InfoDot text={hint} label="Formatting help" />{/if}
+      <!-- One quiet toggle: you write, and when you want to see it as everyone
+           will, you look. A side-by-side live preview by default made this the
+           heaviest surface in the app. -->
+      <button
+        type="button"
+        class="segb solo"
+        class:on={view !== "write" && !zen}
+        aria-pressed={view !== "write" && !zen}
+        onclick={() => ((mode = view === "write" ? "preview" : "write"), (zen = false))}>Preview</button>
       <!-- A word, not a glyph: the spoiler tool is already an eye-with-a-slash,
            and two eyes on one toolbar meaning different things is a puzzle. -->
       <button
@@ -987,16 +1005,17 @@
     {/if}
   {/if}
 
-  {#if hint && !hintGone && !zen}
-    <p class="edit-hint">
-      <Icon name="spark" size={12} />
-      <span>{hint}</span>
-      <button type="button" class="hint-x" aria-label="Dismiss this hint" onclick={dismissHint}>
-        <Icon name="close" size={11} />
-      </button>
-    </p>
-  {/if}
 
+  <!-- A zero-height anchor above the field: the selection toolbar floats
+       up from it, over the row of insert tools, never inside the field (whose
+       pane clips) and never over the text being formatted. -->
+  <div class="sel-anchor">
+    {#if hasSel && !S.isMobile}
+      <div class="sel-pop">
+        <FormatBar selection label="Format the selection" onFormat={selFormat} />
+      </div>
+    {/if}
+  </div>
   <div class="work" class:split={showPreview && showEditor}>
     {#if showEditor}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1022,11 +1041,16 @@
           oninput={handleInput}
           onkeydown={onKeydown}
           onpaste={onPaste}
+          onselect={trackSel}
+          onkeyup={trackSel}
+          onmouseup={trackSel}
           onfocus={() => (focused = true)}
           onblur={() => {
             focused = false;
+            hasSel = false;
             setTimeout(() => (suggest = null), 150);
           }}></textarea>
+
         {#if suggest}
           <div class="suggest">
             <div class="s-head">{SUGGEST_HEADS[suggest.kind]}</div>
@@ -1246,13 +1270,7 @@
     box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.25);
   }
 
-  /* Segmented view switcher. */
-  .seg {
-    display: flex;
-    padding: 2px;
-    background: var(--bg-3);
-    border-radius: var(--radius-sm);
-  }
+  /* The Preview and Focus toggles. */
   .segb {
     padding: 4px 10px;
     font-size: var(--fs-small);
@@ -1735,6 +1753,17 @@
     min-height: 0;
     align-self: stretch;
   }
+  .sel-anchor {
+    position: relative;
+    height: 0;
+    flex: none;
+  }
+  .sel-pop {
+    position: absolute;
+    bottom: 4px;
+    left: var(--sp-2);
+    z-index: 20;
+  }
   .edit {
     position: relative;
     /* Clip, because the textarea inside is the thing that must scroll. Without
@@ -2104,63 +2133,22 @@
     color: var(--text-faint);
     white-space: nowrap;
   }
-  /* A line of prose above the field, not a ghost inside it. It stays put while
-     you type, and it has a way out. */
-  .edit-hint {
-    display: flex;
-    align-items: flex-start;
-    gap: 7px;
-    margin: 0 0 6px;
-    padding: 7px 8px 7px 10px;
-    border-radius: var(--radius-sm);
-    background: var(--accent-soft);
-    border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-    color: var(--text-muted);
-    font-size: var(--fs-small);
-    line-height: 1.5;
-  }
-  .edit-hint > :global(svg) {
-    flex: none;
-    margin-top: 2px;
-    color: var(--accent-hover);
-  }
-  .edit-hint span {
-    flex: 1;
-    min-width: 0;
-  }
-  .hint-x {
-    flex: none;
-    display: grid;
-    place-items: center;
-    padding: 3px;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--text-faint);
-  }
-  .hint-x:hover,
-  .hint-x:focus-visible {
-    background: color-mix(in srgb, var(--accent) 18%, transparent);
-    color: var(--text);
-  }
 
   /* ---- phone ------------------------------------------------------------ */
   @media (max-width: 768px) {
-    /* Two columns at 390px is a lie: the switcher drops to Write/Preview and
-       the panes stack, sized by their content so the sheet scrolls instead of
-       the panes fighting over a fixed height. */
-    .wide-only {
-      display: none;
-    }
+    /* Two columns at 390px is a lie: a stored "split" stacks its panes, sized
+       by their content so the sheet scrolls instead of the panes fighting
+       over a fixed height. */
     .work.split {
       grid-template-columns: 1fr;
     }
     .bar {
       gap: var(--sp-1);
     }
+    /* One row: the insert tools, then ⓘ, Preview and Focus at its end. It
+       used to be a full-width second row for the three-way view switcher. */
     .grp.right {
-      margin-left: 0;
-      width: 100%;
-      justify-content: space-between;
+      margin-left: auto;
     }
     /* Modal's sheet floor makes every button 44px tall on touch. That floor is
        right — these are thumb targets — so the toolbar does NOT fight it; it
