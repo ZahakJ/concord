@@ -28,7 +28,6 @@
   import { tooltip } from "./lib/tooltip.js";
   import Avatar from "./Avatar.svelte";
   import EmptyState from "./EmptyState.svelte";
-  import Banner from "./Banner.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import { syncLayer } from "./lib/navstack.svelte.js";
   import { api, on } from "./lib/api.js";
@@ -47,7 +46,6 @@
   import { loadAttachment } from "./lib/attachments.js";
   import {
     SORTS,
-    LAYOUTS,
     TAG_LIMITS,
     arrangePosts,
     boardStats,
@@ -452,19 +450,11 @@
         active: prefs.sort === s.id,
         onClick: () => savePrefs({ sort: s.id }),
       })),
-      { header: true, label: "Layout" },
-      ...LAYOUTS.map((l) => ({
-        label: l.label,
-        icon: layoutIcon(l.id),
-        active: prefs.layout === l.id,
-        onClick: () => savePrefs({ layout: l.id }),
-      })),
       { sep: true },
       { label: "Board settings…", icon: "gear", onClick: () => (S.modal = { kind: "forumSettings", forum }) },
     ]);
   }
 
-  const layoutIcon = (id) => (id === "list" ? "list" : id === "gallery" ? "imagetext" : "screen");
 
   // ---- per-post tag picker -----------------------------------------------
   // A popover, not a dialog: choosing two chips is not a task that deserves a
@@ -494,11 +484,6 @@
     }
   }
 
-  // ---- header art ---------------------------------------------------------
-  // A chosen banner is the only art — read from the CHANNEL record, not from the board
-  // prefs: the art moved onto the channel when it became shared (SetForumBanner),
-  // and the settings dialog stopped writing prefs.banner, so a hero that kept
-  // reading the prefs showed every pick as doing nothing.
   // The accent this board is actually being drawn under — the guild's tint when
   // "use guild colours" is on, the user's preset otherwise. Read off the live
   // element rather than from a pref, because that is where the cascade has
@@ -513,7 +498,16 @@
     const el = root || document.querySelector(".app") || document.documentElement;
     return hueOfCss(getComputedStyle(el).getPropertyValue("--accent"));
   });
-  const art = $derived(forum.banner || "");
+  // The board is one list of rows with a plain header. Gallery and Cover
+  // layouts and header art are no longer offered (ModalForumSettings); a
+  // forum's stored banner and a device's stored layout stay in their records,
+  // readable by any build that wants them, and are simply not drawn here.
+  //
+  // The toolbar folds its sort into one "Sort" menu wherever the row is too
+  // narrow for the three-way control beside a usable search field: at tablet
+  // width it used to crush the field to a single visible letter.
+  let barW = $state(0);
+  const foldSort = $derived(S.isMobile || barW < 560);
 
   // The FAB opens a modal ~200ms later; without the tap confirmation the press
   // feels dropped.
@@ -531,17 +525,13 @@
        place — instead of an icon, an h2 and a grey rule. -->
   <!-- A banner, if the board has one, behind a scrim; otherwise a plain
        header on the canvas — no generated gradient standing in for art. -->
-  <header class="hero" class:plain={!art}>
-    {#if art}
-      <Banner banner={art} scale={0.7} />
-    {/if}
+  <header class="hero plain">
     <!-- Two layers over the art, in this order. The sheen lights one corner so a
          plain gradient reads as a designed surface; the scrim on top of it is the
          CONTRAST GUARANTEE, not decoration — white ink over SCRIM_FLOOR clears
          4.5:1 even if the art underneath is pure white, which forum.test.mjs
          composites and asserts. All hero text sits below the 38% stop, where the
          gradient has reached that floor. -->
-    {#if art}<span class="hero-scrim" aria-hidden="true"></span>{/if}
     <div class="hero-in">
       <div class="hero-title">
         <span class="hero-glyph"><Icon name="forum" size={18} /></span>
@@ -600,7 +590,7 @@
   <!-- TOOLBAR. Sticky, because a board is a place you scroll and losing the
        search box at post nine is the moment it stops being interactive. -->
   <div class="bar">
-    <div class="bar-row">
+    <div class="bar-row" bind:clientWidth={barW}>
       <div class="find">
         <Icon name="search" size={14} />
         <input
@@ -618,12 +608,12 @@
         {/if}
       </div>
 
-      {#if S.isMobile}
-        <!-- One control instead of six: on a 390px screen the knobs live behind
-             a menu that presents as a bottom sheet. -->
-        <button class="pill" onclick={(e) => boardMenu(e.currentTarget)}>
-          <Icon name={layoutIcon(prefs.layout)} size={14} />
-          <span>View</span>
+      {#if foldSort}
+        <!-- One control instead of three where the row is narrow; on a phone
+             the menu presents as a bottom sheet. -->
+        <button class="pill" aria-label="Sort posts" onclick={(e) => boardMenu(e.currentTarget)}>
+          <Icon name={SORTS.find((x) => x.id === prefs.sort)?.icon || "bolt"} size={14} />
+          <span>Sort</span>
         </button>
       {:else}
         <div class="seg" role="group" aria-label="Sort posts">
@@ -637,24 +627,6 @@
             >
               <Icon name={s.icon} size={13} />
               <span>{s.short}</span>
-            </button>
-          {/each}
-        </div>
-        <div class="seg" role="group" aria-label="Card layout">
-          {#each LAYOUTS as l (l.id)}
-            <!-- The sort chips next door carry their word; these three carried
-                 only a glyph and a native title, which arrives a second late in
-                 the OS's own theme. The shared tooltip reads the aria-label, so
-                 the name and the tip cannot drift apart. -->
-            <button
-              class="seg-b icon"
-              class:on={prefs.layout === l.id}
-              aria-pressed={prefs.layout === l.id}
-              aria-label={`${l.label} layout`}
-              use:tooltip={{ text: `${l.label} — ${l.hint}`, side: "bottom" }}
-              onclick={() => savePrefs({ layout: l.id })}
-            >
-              <Icon name={layoutIcon(l.id)} size={14} />
             </button>
           {/each}
         </div>
@@ -693,6 +665,7 @@
             class="chip tag"
             class:on={tagFilter.includes(t.id)}
             aria-pressed={tagFilter.includes(t.id)}
+            class:has-em={!!t.emoji}
             style="--tc:{t.color}"
             onclick={() => toggleTag(t.id)}
           >
@@ -763,7 +736,7 @@
       </EmptyState>
     </div>
   {:else}
-    <ul class="posts {prefs.layout}">
+    <ul class="posts list">
       {#each visible as p, i (p.id)}
         {@const pv = postPreview(p.excerpt)}
         {@const tok = firstImage(p)}
@@ -821,7 +794,7 @@
                     image={author?.avatar || ""}
                     emoji={author?.emoji || ""}
                     color={author?.color || ""}
-                    size={prefs.layout === "list" ? 30 : 48}
+                    size={30}
                   />
                 </span>
               {:else}
@@ -906,7 +879,7 @@
                 {#if tags.length}
                   <span class="tags">
                     {#each tags as t (t.id)}
-                      <span class="chip tag sm" style="--tc:{t.color}">
+                      <span class="chip tag sm" class:has-em={!!t.emoji} style="--tc:{t.color}">
                         {#if t.emoji}<span class="chip-em">{t.emoji}</span>{/if}{t.name}
                       </span>
                     {/each}
@@ -1101,17 +1074,6 @@
     position: absolute;
     inset: 0;
     z-index: 0;
-  }
-  .hero-scrim {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    pointer-events: none;
-    /* 0.62 by 38% of the height — the floor forum.test.mjs proves. Every word in
-       the hero sits below that stop. */
-    background:
-      linear-gradient(180deg, rgba(0, 0, 0, 0.18) 0%, rgba(0, 0, 0, 0.62) 38%, rgba(0, 0, 0, 0.8) 100%),
-      linear-gradient(90deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0) 62%);
   }
   .hero-in {
     position: relative;
@@ -1309,7 +1271,7 @@
     align-items: center;
     gap: 7px;
     flex: 1;
-    min-width: 0;
+    min-width: 160px;
     max-width: 320px;
     padding: 0 10px;
     height: 32px;
@@ -1387,9 +1349,6 @@
       background var(--dur-standard) ease,
       color var(--dur-standard) ease;
   }
-  .seg-b.icon {
-    padding: 0 8px;
-  }
   .seg-b:hover {
     color: var(--text);
   }
@@ -1451,6 +1410,12 @@
      kept as a 6px dot, which is enough to tell "Beginner" from "Advanced" at a
      glance without a row of green, orange and blue pills competing with the
      titles. */
+  /* One marker per tag: its colour as the dot, or, where whoever made the
+     tag chose an emoji, the emoji in the dot's place. Both side by side was
+     two badges for one word. */
+  .chip.tag.has-em::before {
+    display: none;
+  }
   .chip.tag::before {
     content: "";
     flex: none;
@@ -1489,12 +1454,6 @@
   }
   .posts.list {
     grid-template-columns: 1fr;
-  }
-  .posts.gallery {
-    grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
-  }
-  .posts.cover {
-    grid-template-columns: repeat(auto-fill, minmax(264px, 1fr));
   }
 
   .card {
@@ -1912,110 +1871,7 @@
     margin-top: 10px;
   }
 
-  /* ---- layout: gallery ------------------------------------------------- */
-  .posts.gallery .card,
-  .posts.cover .card {
-    grid-template-columns: 1fr auto;
-    grid-template-rows: auto 1fr;
-  }
-  .posts.gallery .media {
-    /* Row 1 EXPLICITLY: .more owns row 1 / column 2, and a spanning item can't
-       auto-place into a row that is already partly taken — it silently fell to
-       row 2 and left a dead band across the top of every card. */
-    grid-area: 1 / 1 / 2 / -1;
-    aspect-ratio: 16 / 10;
-    width: 100%;
-  }
-  .posts.gallery .body {
-    grid-area: 2 / 1 / 3 / -1;
-    padding: 11px 12px 12px;
-  }
-  .posts.gallery .wname,
-  .posts.cover .wname {
-    max-width: 84px;
-  }
-  .posts.gallery .more,
-  .posts.cover .more {
-    grid-column: 2;
-    grid-row: 1;
-    margin: 8px 8px 0 0;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.42);
-    opacity: 0;
-  }
 
-  /* ---- layout: cover --------------------------------------------------- */
-  /* The brief's "background images … so we have boxes". The art fills the card
-     and the words sit on it — which is only safe because the same measured scrim
-     as the hero goes between them. */
-  .posts.cover .card {
-    min-height: 188px;
-    grid-template-rows: 1fr;
-  }
-  .posts.cover .media {
-    grid-area: 1 / 1 / 2 / 3;
-    width: 100%;
-    height: 100%;
-  }
-  .posts.cover .media::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      180deg,
-      rgba(0, 0, 0, 0.1) 0%,
-      rgba(0, 0, 0, 0.62) 46%,
-      rgba(0, 0, 0, 0.82) 100%
-    );
-  }
-  .posts.cover .tile {
-    position: absolute;
-    right: -4px;
-    top: 46%;
-    transform: translateY(-50%);
-    font-size: 104px;
-    line-height: 0.8;
-    /* Faint enough to be a watermark: at 0.5 it fought the title it sits behind,
-       which is the one thing a cover card cannot afford. */
-    color: rgba(255, 255, 255, 0.16);
-  }
-  .posts.cover .body {
-    grid-area: 1 / 1 / 2 / 3;
-    z-index: 2;
-    align-self: end;
-    padding: 12px 14px 13px;
-    /* The text has to sit ABOVE the art, which puts it above the full-bleed hit
-       button too — so it must not swallow the click. Nothing inside .body is
-       interactive, so this costs nothing and keeps the whole card clickable. */
-    pointer-events: none;
-  }
-  .posts.cover .title,
-  .posts.cover .excerpt,
-  .posts.cover .meta,
-  .posts.cover .wname,
-  .posts.cover .dot {
-    color: #fff;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-  }
-  .posts.cover .excerpt {
-    color: rgba(255, 255, 255, 0.9);
-  }
-  .posts.cover .excerpt.faint {
-    color: rgba(255, 255, 255, 0.72);
-  }
-  .posts.cover .chip.sm {
-    background: rgba(0, 0, 0, 0.44);
-    color: #fff;
-    border: 1px solid color-mix(in srgb, var(--tc) 70%, transparent);
-  }
-  .posts.cover .flag.ok,
-  .posts.cover .flag.pin {
-    background: rgba(0, 0, 0, 0.5);
-    color: #fff;
-  }
-  .posts.cover .card.unread::after {
-    z-index: 3;
-  }
 
   /* ---- skeletons + empty/error states ---------------------------------- */
   .card.skel {
@@ -2210,9 +2066,7 @@
        those two layouts stayed at opacity 0 on a phone while remaining fully
        hit-testable, which is worse than hidden: an invisible control sitting on
        the corner of every card. */
-    .more,
-    .posts.gallery .more,
-    .posts.cover .more {
+    .more {
       opacity: 1;
     }
     .more {

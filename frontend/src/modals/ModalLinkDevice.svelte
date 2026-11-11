@@ -234,7 +234,4 @@
   .copy {
     align-self: center;
   }
-  .tiny {
-    font-size: var(--fs-compact);
-  }
 </style>
