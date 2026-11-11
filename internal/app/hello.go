@@ -94,6 +94,14 @@ type helloFrame struct {
 	// read neither, and behave as before: leaving stays per device.
 	Left    map[string]int64 `json:"left,omitempty"`
 	Arrived map[string]int64 `json:"arrived,omitempty"`
+	// ReadMarks is the account's read state (channel → read through,
+	// UnixMilli), ONLY to and from a proven device of our own account; read
+	// receipts never leave the account. Markers otherwise travel only as a live
+	// publish on the Notes meta topic, which has no catch-up, so a mark set
+	// before a device was linked, or before it was listening there, never
+	// reached it. Merged like any remote marker (max, capped by readSkew).
+	// Older builds neither send nor read it.
+	ReadMarks map[string]int64 `json:"readMarks,omitempty"`
 }
 
 // helloTimeout bounds one exchange. A hello is an optimization, not a step in
@@ -158,7 +166,7 @@ func (s *Service) greet(p peer.ID) {
 		s.greeted.release(p)
 		return
 	}
-	req, err := json.Marshal(helloFrame{
+	req, err := marshalHello(helloFrame{
 		Credential:   s.myCredential,
 		Name:         s.deviceLabel(),
 		AppVersion:   version.Version,
@@ -166,6 +174,7 @@ func (s *Service) greet(p peer.ID) {
 		Profile:      s.profileForDevice(p),
 		Left:         s.leftGuildsFor(p),
 		Arrived:      s.arrivalsFor(p),
+		ReadMarks:    s.readMarksFor(p),
 	})
 	if err != nil {
 		return
@@ -249,11 +258,12 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	out.Profile = s.profileForDevice(from)
 	out.Left = s.leftGuildsFor(from)
 	out.Arrived = s.arrivalsFor(from)
+	out.ReadMarks = s.readMarksFor(from)
 	if out.Revoked == nil && s.canPlace(from) {
 		out.Credential, out.Name = s.myCredential, s.deviceLabel()
 		out.AppVersion = version.Version
 	}
-	return json.Marshal(out)
+	return marshalHello(out)
 }
 
 // ingestHello verifies and applies one side of the exchange.
@@ -383,6 +393,7 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 			s.redeemOfferedInvites(from, f.GuildInvites, f.Arrived)
 		}()
 		go s.adoptOfferedProfile(from, f.Profile)
+		go s.adoptOfferedReadMarks(from, f.ReadMarks)
 	}()
 	// A revocation naming THIS device is the one thing we act on before anything
 	// else, since acting on it means we stop existing.

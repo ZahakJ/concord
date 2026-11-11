@@ -1,8 +1,12 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"sort"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/store"
@@ -170,7 +174,109 @@ func (s *Service) flushReadMarkers() {
 		return
 	}
 	payload, _ := json.Marshal(guildMeta{Type: "read_marker", Markers: markers})
+	topic := domain.GuildMetaTopicID(notes.GroupID)
 	if ct, err := s.mls.Encrypt(s.ctx, notes.GroupID, payload); err == nil {
-		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(notes.GroupID), ct)
+		_ = s.ps.Publish(s.ctx, topic, ct)
+	}
+	s.pushReadMarksOffTopic(topic, markers)
+}
+
+// helloReadMarks bounds how many marks one hello carries: the newest ones,
+// which are the channels anyone is still reading. Older marks still converge
+// the moment either device marks those channels again.
+const helloReadMarks = 512
+
+// helloFrameBudget keeps a hello under the 64 KiB frame every build's hello
+// stream accepts (net.maxHelloFrame), with room to spare. Past it the whole
+// frame is dropped by the reader, invites and profile included, so read marks
+// are what gives way.
+const helloFrameBudget = 60 << 10
+
+// readMarksFor returns the account's read marks to offer a peer, or nil for
+// anyone who has not proven itself a current device of THIS account. Which
+// channels someone has read, and when, is nobody else's business.
+func (s *Service) readMarksFor(p peer.ID) map[string]int64 {
+	if !s.ownDevice(p) || s.revocationFor(p) != nil {
+		return nil
+	}
+	rs, err := s.store.ReadState()
+	if err != nil || len(rs) == 0 {
+		return nil
+	}
+	return newestMarks(rs, helloReadMarks)
+}
+
+// adoptOfferedReadMarks folds in marks that rode in on a hello, from a proven
+// device of this account only, by the same max-and-cap rule as a live marker.
+func (s *Service) adoptOfferedReadMarks(from peer.ID, marks map[string]int64) {
+	if len(marks) == 0 || !s.ownDevice(from) || s.revocationFor(from) != nil {
+		return
+	}
+	for ch, at := range marks {
+		if ch != "" && at > 0 {
+			s.applyRemoteReadMarker(ch, at)
+		}
+	}
+}
+
+// newestMarks keeps the n most recent marks.
+func newestMarks(rs map[string]int64, n int) map[string]int64 {
+	if len(rs) <= n {
+		return rs
+	}
+	chans := make([]string, 0, len(rs))
+	for ch := range rs {
+		chans = append(chans, ch)
+	}
+	sort.Slice(chans, func(i, j int) bool { return rs[chans[i]] > rs[chans[j]] })
+	out := make(map[string]int64, n)
+	for _, ch := range chans[:n] {
+		out[ch] = rs[ch]
+	}
+	return out
+}
+
+// marshalHello encodes a hello frame, halving the read marks it carries
+// until the frame fits helloFrameBudget.
+func marshalHello(f helloFrame) ([]byte, error) {
+	for {
+		b, err := json.Marshal(f)
+		if err != nil || len(b) <= helloFrameBudget || len(f.ReadMarks) == 0 {
+			return b, err
+		}
+		f.ReadMarks = newestMarks(f.ReadMarks, len(f.ReadMarks)/2)
+	}
+}
+
+// pushReadMarksOffTopic hands markers to every connected device of this
+// account that the Notes meta topic does not list yet. The publish reaches
+// only devices already listening there, and a device linked a moment ago
+// usually is not: its marker was simply lost, and nothing re-sent it until
+// the next mark (the occasional TestLinkedDevicesShareOneNotesGroup failure).
+// Devices that are listening, and single-device accounts, cost nothing here.
+func (s *Service) pushReadMarksOffTopic(topic string, markers map[string]int64) {
+	listening := map[peer.ID]bool{}
+	for _, p := range s.ps.TopicPeers(topic) {
+		listening[p] = true
+	}
+	for _, p := range s.host.Peers() {
+		if listening[p] || !s.ownDevice(p) || s.revocationFor(p) != nil {
+			continue
+		}
+		go s.sayReadMarks(p, markers)
+	}
+}
+
+// sayReadMarks sends a hello carrying only our credential and the markers. The
+// receiver adopts them exactly as from any hello; an older build ignores them.
+func (s *Service) sayReadMarks(p peer.ID, markers map[string]int64) {
+	req, err := marshalHello(helloFrame{Credential: s.myCredential, ReadMarks: markers})
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, helloTimeout)
+	defer cancel()
+	if resp, err := s.host.SayHello(ctx, p, req); err == nil {
+		s.ingestHello(p, resp)
 	}
 }

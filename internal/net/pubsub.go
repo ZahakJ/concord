@@ -218,6 +218,19 @@ func (p *PubSub) Subscribed(topic string) bool {
 	return ok
 }
 
+// TopicPeers lists the peers this node has heard announce a subscription to a
+// topic: the peers a publish there can reach right now. A peer missing from it
+// may still be connected, just not (yet) listening.
+func (p *PubSub) TopicPeers(topic string) []peer.ID {
+	p.mu.Lock()
+	t, ok := p.topics[topic]
+	p.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	return t.ListPeers()
+}
+
 // Unsubscribe stops delivery for a topic: the subscription is cancelled and the
 // reader goroutine exits on its next Next.
 //
