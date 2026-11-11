@@ -45,7 +45,7 @@
   import { radialBurst } from "./lib/burst.js";
   import { playTick } from "./lib/sounds.js";
   import { saved, isSaved, toggleSaved, refreshSaved } from "./lib/saved.svelte.js";
-  import { sealedAt, stripTimestamp, sealShort, sealFull, sealAgo } from "./lib/timestamp.js";
+  import { sealedAt, stripTimestamp, sealShort, sealFull, sealAgo, shortWhen } from "./lib/timestamp.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
   import { untrack, tick } from "svelte";
@@ -921,8 +921,17 @@
   // What the sheet calls this message. On a phone it is also the only way to
   // read the send time of a GROUPED message: the compact row's gutter clock is
   // hover-revealed, and hover does not exist here.
+  // "Mira · 07:15", the way the rest of the app writes a moment: the
+  // locale's full date-and-seconds stamp ("10/11/2026, 07:15:04") read as a
+  // log line in the sheet's peek.
+  function saveAndClose() {
+    commitEdit();
+    S.editing = null;
+    focusComposer();
+  }
+
   const menuTitle = $derived(
-    `${guest ? guestName : announce ? announceGuild?.name || "Guild" : nameFor(m.sender, m.senderName)} · ${new Date(m.sent).toLocaleString()}`,
+    `${guest ? guestName : announce ? announceGuild?.name || "Guild" : nameFor(m.sender, m.senderName)} · ${shortWhen(Date.parse(m.sent), clockOpts())}`,
   );
 
   // Start a thread from this message: a forum post IS a thread channel under
@@ -1462,28 +1471,20 @@
            published a half-finished edit to everyone — the opposite of what a
            box that says "escape to cancel" promises. The window pins the row
            being edited, so scrolling away cannot unmount it either. -->
+      <!-- One quiet line on a desktop: the two words in it are the buttons,
+           so the pointer path stays and the box is not trailed by a Cancel /
+           Save pair heavier than the message. A phone has no Escape key, so
+           there they are buttons at full tap size. -->
       <div class="edit-actions">
-        <button
-          type="button"
-          class="edit-btn"
-          onmousedown={(e) => e.preventDefault()}
-          onclick={cancelEdit}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          class="edit-btn save"
-          onmousedown={(e) => e.preventDefault()}
-          onclick={() => {
-            commitEdit();
-            S.editing = null;
-            focusComposer();
-          }}
-        >
-          Save
-        </button>
-        <span class="edit-hint">Esc to cancel · Enter to save</span>
+        {#if S.isMobile}
+          <button type="button" class="edit-btn" onmousedown={(e) => e.preventDefault()} onclick={cancelEdit}>Cancel</button>
+          <button type="button" class="edit-btn save" onmousedown={(e) => e.preventDefault()} onclick={saveAndClose}>Save</button>
+        {:else}
+          <span class="edit-hint"
+            >Esc to <button type="button" class="link edit-link" onmousedown={(e) => e.preventDefault()} onclick={cancelEdit}>cancel</button>
+            · Enter to <button type="button" class="link edit-link" onmousedown={(e) => e.preventDefault()} onclick={saveAndClose}>save</button></span
+          >
+        {/if}
       </div>
     {:else if eventTok}
       <EventPost token={eventTok} />
@@ -2387,13 +2388,14 @@
   .edit-btn.save:hover {
     background: var(--accent-hover);
   }
-  .edit-btn:focus-visible {
-    border-color: var(--accent);
-  }
   .edit-hint {
-    font-size: var(--fs-tiny);
+    font-size: var(--fs-small);
     color: var(--text-faint);
     margin-top: 0;
+  }
+  .edit-link {
+    padding: 0;
+    font-size: inherit;
   }
   /* The shortcut hint is the redundant half once there are buttons — keep it
      where there is room, drop it on a phone where the row would wrap. (There is

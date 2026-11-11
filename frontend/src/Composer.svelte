@@ -84,8 +84,8 @@
     // thing that knew, and the refusal arrived afterwards from the core.
     if (slowLeft > 0) return `Slow mode — you can send in ${slowLeft}s`;
     const g = activeGuild();
-    if (g?.dmNotes) return "Write a note to yourself…";
-    if (g?.kind === "dm") return `Message ${g.name || "your friend"}…`;
+    if (g?.dmNotes) return "Write a note to yourself";
+    if (g?.kind === "dm") return `Message ${g.name || "your friend"}`;
     // A post is not a channel you message: "Message #Weekly meetup logistics
     // thread…" put a channel sigil on a sentence and then truncated it. What
     // you are doing in a post is replying to it — and in a thread started from
@@ -93,9 +93,9 @@
     // rather than a question somebody asked.
     if (ch.parent) {
       const parent = (g?.channels || []).find((c) => c.id === ch.parent);
-      return parent?.type === "forum" ? "Reply to this post…" : "Reply in this thread…";
+      return parent?.type === "forum" ? "Reply to this post" : "Reply in this thread";
     }
-    return `Message #${ch.name}…`;
+    return `Message #${ch.name}`;
   });
 
   const ch = $derived(activeChannel());
@@ -1561,6 +1561,39 @@
     moreOpen = false;
     run();
   }
+
+  // Everything + offers, ONCE: the desktop menu and the phone's sheet both
+  // read this list. They used to be two hand-written lists that had drifted
+  // into two vocabularies ("Upload a file" here, "Photo or file" there;
+  // "Start a thread" / "Thread"; seal and voice only on one of them).
+  // `glyph` is a text tile for the sheet; `pressed` marks a switch.
+  function toggleSeal() {
+    sealNext = !sealNext;
+    if (sealNext) haptic("light");
+    composerEl?.focus();
+  }
+  const addItems = $derived(
+    [
+      { id: "file", label: "Photo or file", icon: "attach", title: "Up to 5 MB images, 25 MB files", disabled: !ch || uploading > 0, run: () => fileInput.click() },
+      // coarse, not mobile: the sheet also shows in a narrowed desktop window,
+      // where "take a photo" would open a file picker and shrug.
+      coarse && { id: "camera", label: "Camera", icon: "camera", title: "Straight from the camera", disabled: !ch, run: () => cameraInput.click() },
+      // No vendor named: which service the Search tab reaches is the
+      // rendezvous operator's choice, and the picker reports it.
+      { id: "gif", label: "GIF", icon: "image", glyph: "GIF", title: "This guild's pack, or a search via your rendezvous", disabled: !ch, run: () => (S.modal = { kind: "gifs" }) },
+      // The phone records from the bar's own mic button.
+      canRecord && !mobile && { id: "voice", label: "Voice message", icon: "mic", disabled: !ch, run: startRecording },
+      { id: "poll", label: "Poll", icon: "poll", disabled: !ch, run: () => (S.modal = { kind: "poll" }) },
+      canStartThread && { id: "thread", label: "Thread", icon: "forum", title: "A side conversation with its own unread count", run: () => (S.modal = { kind: "newPost", forum: ch }) },
+      { id: "doodle", label: "Doodle", icon: "edit", title: "Draw — sent as strokes, not a picture", disabled: !ch, run: () => (S.modal = { kind: "doodle" }) },
+      { id: "sound", label: "Sound", icon: "speaker", title: "A recipe, not a file — a few dozen bytes each", disabled: !ch, run: () => (S.modal = { kind: "soundboard" }) },
+      { id: "game", label: "Game", icon: "die", title: "Play in the channel — the board is folded from the messages", disabled: !ch, run: () => (S.modal = { kind: "game" }) },
+      { id: "later", label: draft.trim() ? "Send later" : "Scheduled", icon: "clock", title: draft.trim() ? "Pick a time for this message" : "See what's queued", disabled: !ch, run: scheduleSend },
+      { id: "seal", label: "Prove when it was sent", icon: "stamp", title: "Seal the send time onto the next message", pressed: sealNext, disabled: !ch, run: toggleSeal },
+      { id: "fmt", label: "Formatting", icon: "bold", glyph: "Aa", title: "Bold, italics, code, quotes, links", pressed: showFmt, disabled: !ch, run: () => { showFmt = !showFmt; composerEl?.focus(); } },
+      { id: "advanced", label: "Advanced", icon: "docpen", title: "Colours, rich embeds, preview", disabled: !ch, run: openAdvanced },
+    ].filter(Boolean),
+  );
   // Hardware back closes the sheet before it reaches the drawers or exits.
   $effect(() => {
     if (moreOpen) return pushLayer("sheet", () => (moreOpen = false));
@@ -2111,53 +2144,20 @@
              message moved into + with the rest; the chords and drag-and-drop
              still attach directly. -->
         <Menu label="Add to your message" icon="plus" align="left" up>
-          <button type="button" class="menu-item" disabled={!ch || uploading > 0} onclick={() => fileInput.click()}>
-            <Icon name="attach" size={14} /> Upload a file
-          </button>
-          <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "gifs" })}>
-            <Icon name="image" size={14} /> GIF
-          </button>
-          {#if canRecord}
-            <button type="button" class="menu-item" disabled={!ch} onclick={startRecording}>
-              <Icon name="mic" size={14} /> Voice message
+          {#each addItems as it (it.id)}
+            <button
+              type="button"
+              class="menu-item"
+              disabled={it.disabled}
+              aria-pressed={it.pressed ?? undefined}
+              title={it.title}
+              onclick={it.run}
+            >
+              <Icon name={it.icon} size={14} />
+              {it.label}
+              {#if it.pressed}<span class="add-on"><Icon name="check" size={14} /></span>{/if}
             </button>
-          {/if}
-          <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "poll" })}>
-            <Icon name="poll" size={14} /> Poll
-          </button>
-          <button type="button" class="menu-item" disabled={!ch} onclick={scheduleSend}>
-            <Icon name="clock" size={14} />
-            {draft.trim() ? "Schedule this message" : "Scheduled messages"}
-          </button>
-          {#if canStartThread}
-            <button type="button" class="menu-item" onclick={() => (S.modal = { kind: "newPost", forum: ch })}>
-              <Icon name="forum" size={14} /> Start a thread
-            </button>
-          {/if}
-          <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "doodle" })}>
-            <Icon name="edit" size={14} /> Doodle
-          </button>
-          <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "soundboard" })}>
-            <Icon name="speaker" size={14} /> Sound
-          </button>
-          <button type="button" class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "game" })}>
-            <Icon name="die" size={14} /> Game
-          </button>
-          <button
-            type="button"
-            class="menu-item"
-            disabled={!ch}
-            onclick={() => { sealNext = !sealNext; if (sealNext) haptic("light"); composerEl?.focus(); }}
-          >
-            <Icon name="stamp" size={14} />
-            {sealNext ? "Don't seal the send time" : "Seal the send time"}
-          </button>
-          <button type="button" class="menu-item" aria-pressed={showFmt} disabled={!ch} onclick={() => { showFmt = !showFmt; composerEl?.focus(); }}>
-            <Icon name="bold" size={14} /> {showFmt ? "Hide formatting" : "Formatting"}
-          </button>
-          <button type="button" class="menu-item" disabled={!ch} onclick={openAdvanced}>
-            <Icon name="docpen" size={14} /> Advanced composer
-          </button>
+          {/each}
         </Menu>
         {@render draftBox()}
         <!-- One tab stop, not several: ←/→ walk the cluster, Tab leaves it. -->
@@ -2238,58 +2238,24 @@
        for anybody who long-presses to ask. -->
   <BottomSheet title="Add to your message" onClose={() => (moreOpen = false)} maxHeight="calc(76 * var(--vh))">
     <div class="sheet-grid">
-      <button type="button" class="tile" title="Up to 5 MB images, 25 MB files" onclick={() => fromSheet(() => fileInput.click())}>
-        <span class="tile-ic"><Icon name="attach" size={22} /></span>
-        <span class="tile-lbl">Photo or file</span>
-      </button>
-      {#if coarse}
-        <!-- coarse, not mobile: the sheet also shows in a narrowed desktop
-             window, where "take a photo" would open a file picker and shrug. -->
-        <button type="button" class="tile" title="Straight from the camera" onclick={() => fromSheet(() => cameraInput.click())}>
-          <span class="tile-ic"><Icon name="camera" size={22} /></span>
-          <span class="tile-lbl">Camera</span>
+      {#each addItems as it (it.id)}
+        <button
+          type="button"
+          class="tile"
+          class:on={it.pressed}
+          aria-pressed={it.pressed ?? undefined}
+          disabled={it.disabled}
+          title={it.title}
+          onclick={() => fromSheet(it.run)}
+        >
+          {#if it.glyph}
+            <span class="tile-ic" class:tile-gif={it.glyph === "GIF"} class:tile-aa={it.glyph === "Aa"}>{it.glyph}</span>
+          {:else}
+            <span class="tile-ic"><Icon name={it.icon} size={22} /></span>
+          {/if}
+          <span class="tile-lbl">{it.label}</span>
         </button>
-      {/if}
-      <!-- No vendor named: which service the Search tab reaches is the
-           rendezvous operator's choice, and the picker reports it. -->
-      <button type="button" class="tile" title="This guild's pack, or a search via your rendezvous" onclick={() => fromSheet(() => (S.modal = { kind: "gifs" }))}>
-        <span class="tile-ic tile-gif">GIF</span>
-        <span class="tile-lbl">GIF</span>
-      </button>
-      <button type="button" class="tile" onclick={() => fromSheet(() => (S.modal = { kind: "poll" }))}>
-        <span class="tile-ic"><Icon name="poll" size={22} /></span>
-        <span class="tile-lbl">Poll</span>
-      </button>
-      {#if canStartThread}
-        <button type="button" class="tile" title="A side conversation with its own unread count" onclick={() => fromSheet(() => (S.modal = { kind: "newPost", forum: ch }))}>
-          <span class="tile-ic"><Icon name="forum" size={22} /></span>
-          <span class="tile-lbl">Thread</span>
-        </button>
-      {/if}
-      <button type="button" class="tile" title="Draw with a finger — sent as strokes, not a picture" onclick={() => fromSheet(() => (S.modal = { kind: "doodle" }))}>
-        <span class="tile-ic"><Icon name="edit" size={22} /></span>
-        <span class="tile-lbl">Doodle</span>
-      </button>
-      <button type="button" class="tile" title="A recipe, not a file — a few dozen bytes each" onclick={() => fromSheet(() => (S.modal = { kind: "soundboard" }))}>
-        <span class="tile-ic"><Icon name="speaker" size={22} /></span>
-        <span class="tile-lbl">Sound</span>
-      </button>
-      <button type="button" class="tile" title="Play in the channel — the board is folded from the messages" onclick={() => fromSheet(() => (S.modal = { kind: "game" }))}>
-        <span class="tile-ic"><Icon name="die" size={22} /></span>
-        <span class="tile-lbl">Game</span>
-      </button>
-      <button type="button" class="tile" class:on={showFmt} aria-pressed={showFmt} title="Bold, italics, code, quotes, links" onclick={() => fromSheet(() => (showFmt = !showFmt))}>
-        <span class="tile-ic tile-aa">Aa</span>
-        <span class="tile-lbl">Formatting</span>
-      </button>
-      <button type="button" class="tile" title="Colours, rich embeds, preview" onclick={() => fromSheet(openAdvanced)}>
-        <span class="tile-ic"><Icon name="docpen" size={22} /></span>
-        <span class="tile-lbl">Advanced</span>
-      </button>
-      <button type="button" class="tile" title={draft.trim() ? "Pick a time for this message" : "See what's queued"} onclick={() => fromSheet(scheduleSend)}>
-        <span class="tile-ic"><Icon name="clock" size={22} /></span>
-        <span class="tile-lbl">{draft.trim() ? "Send later" : "Scheduled"}</span>
-      </button>
+      {/each}
     </div>
   </BottomSheet>
 {/if}
@@ -3203,6 +3169,18 @@
     box-sizing: border-box;
     width: auto;
   }
+  /* An empty box is one line whatever the placeholder says: "Message
+     #brainstorm" wrapped to two lines in the phone's pill and made the bar
+     taller than the text it was waiting for. It ends in an ellipsis instead. */
+  .draft:placeholder-shown {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .draft::placeholder {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
   /* Where the engine supports it, the box grows to fit its own value and JS is
      left holding only the cap — see AUTOFIT in autosize(). `auto` rather than
      the `hidden` above because the height is no longer a rounded number of ours
@@ -3509,6 +3487,13 @@
   }
 
   /* ---- the "+" sheet: a tray of tiles ---- */
+  /* A switch in the + menu (seal, formatting) says it is on with a tick at
+     the row's end, the menu's own idiom for a toggled item. */
+  .add-on {
+    margin-left: auto;
+    display: inline-flex;
+    color: var(--accent-hover);
+  }
   .sheet-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);

@@ -87,6 +87,11 @@
   // through lib/place.js, which divides out the UI-scale zoom. Mixing the two
   // spaces put every dropdown opened low in a zoomed window off the bottom of
   // the screen; see the coordinate-space note in that file.
+  // Tall enough for the composer's + menu (a dozen rows) to show whole: at
+  // 340 its last row sat half-cut at the panel's edge, which read as the menu
+  // running off the screen rather than as a list that scrolls. Option lists
+  // longer than this still scroll.
+  const MAX_H = 440;
   function place() {
     if (!open || S.isMobile || !panel || !root) return;
     const t = rectOf(root);
@@ -95,11 +100,11 @@
     const above = t.y - GAP - EDGE;
     // Honour `up` while there is room for it; otherwise take whichever side has
     // more, so a trigger with 40px under it does not open into 40px.
-    const wantUp = up ? above > 120 || above >= below : below < Math.min(panel.scrollHeight, 340) && above > below;
+    const wantUp = up ? above > 120 || above >= below : below < Math.min(panel.scrollHeight, MAX_H) && above > below;
     const room = Math.max(120, wantUp ? above : below);
     // Measure at the height it will actually get, or a panel that is currently
     // taller than the room reports a width shrunk by its own scrollbar.
-    panel.style.maxHeight = `${Math.min(340, room)}px`;
+    panel.style.maxHeight = `${Math.min(MAX_H, room)}px`;
     const { w, h } = sizeOf(panel);
     let left = align === "left" ? t.x : t.x + t.w - w;
     left = Math.max(EDGE, Math.min(left, vp.w - w - EDGE));
@@ -339,7 +344,7 @@
     /* A menu used to hold a handful of verbs. Select.svelte hands it option
        lists — thirty-one days, twelve months — which without a ceiling grow a
        thousand-pixel panel that runs off both ends of the window. */
-    max-height: min(340px, 62 * var(--vh));
+    max-height: min(440px, 70 * var(--vh));
     overflow-y: auto;
     /* Floating chrome is opaque — a menu of verbs over a wall of text is
        unreadable at the 0.7 alpha most packs give --bg-1. ContextMenu and the

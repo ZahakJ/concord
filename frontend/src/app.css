@@ -1919,6 +1919,13 @@ button:disabled {
      own radius, so forcing one squared off circular/pill controls (call buttons,
      reaction pills, avatars) on focus. Let each control keep its shape. */
 }
+/* A text field has its own focus: the accent edge and halo below. The ring
+   on top of that drew a thick double outline round every field reached from
+   the keyboard (the inline message editor most of all). */
+input:not([type="checkbox"], [type="radio"], [type="range"]):focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
 /* No ring until the person moves through the app with the keyboard: focus
    that script moves on a pointer-opened dialog or pane is not something they
    navigated to, and a lone accent outline on its Cancel button read as an
