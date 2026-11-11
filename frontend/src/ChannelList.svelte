@@ -1233,7 +1233,8 @@
                      there is no hover to hide them behind, and a trash can
                      beside every heading is a lot of ink for something done once
                      in a guild's life. This opens the same menu a long-press on
-                     the heading does. -->
+                     the heading does, and shows only while the heading has
+                     focus. -->
                 <button
                   class="cat-add cat-more"
                   aria-label="Options for {grp.name}"
@@ -2523,8 +2524,17 @@
       padding: var(--sp-2);
       position: relative;
     }
+    /* A ⋮ on every heading was permanent ink on a phone. The long-press on
+       the heading is the way in; the button stays for keyboards and screen
+       readers, shown only while the heading has focus. */
     .cat-more {
       padding: var(--sp-1) var(--sp-2);
+      opacity: 0;
+      pointer-events: none;
+    }
+    .cat-head:focus-within .cat-more {
+      opacity: 1;
+      pointer-events: auto;
     }
     .cat-add::after {
       content: "";

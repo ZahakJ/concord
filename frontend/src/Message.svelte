@@ -1923,6 +1923,11 @@
   :global(:root[data-density="compact"]) .msg .gutter-time {
     display: none;
   }
+  /* With no face at its start a compact row's text began at the row's edge,
+     where the inset focus ring drew straight through the first letter. */
+  :global(:root[data-density="compact"]) .msg {
+    padding-inline: var(--sp-2);
+  }
   .msg-main {
     min-width: 0;
     flex: 1;
