@@ -1623,9 +1623,15 @@ export const countsAsChat = (m) => (m.kind === "" || m.kind === "guest") && !isG
 // scroll-up pagination cursor (kept separate from S.messages so live inserts
 // can't move it).
 let feedOldest = "";
+// Which filling of the feed a history fetch is for. The channel id alone is
+// not enough: leave a channel and come back while its first page is still in
+// flight, and the old answer matches the id again and lands on the new feed,
+// with the cursor and the landing of a visit that is already over.
+let feedSeq = 0;
 
 // clearFeed empties everything scoped to "the channel currently on screen".
 export function clearFeed() {
+  feedSeq++;
   S.messages = [];
   feedOldest = "";
   clearArchive();
@@ -2840,10 +2846,11 @@ export function isBlocked(fingerprint) {
 // call against local SQLite.
 async function repaintAfterBlockChange() {
   const ch = S.activeChannelId;
+  const seq = feedSeq;
   if (ch) {
     try {
       const msgs = (await api.messages(ch)) || [];
-      if (S.activeChannelId === ch) S.messages = msgs;
+      if (S.activeChannelId === ch && seq === feedSeq) S.messages = msgs;
     } catch {
       /* channel unreadable right now — the next open will be correct */
     }
@@ -3295,6 +3302,8 @@ export async function selectChannel(id) {
   // Clear the outgoing channel's rows right away — they must not linger under
   // the new channel's header while history loads.
   clearFeed();
+  const seq = feedSeq;
+  const current = () => seq === feedSeq && S.activeChannelId === id;
   S.feedLoading = true;
   S.loadingOlder = false;
   S.feedReachedStart = false;
@@ -3303,7 +3312,7 @@ export async function selectChannel(id) {
   try {
     msgs = (await api.messages(id)) || [];
   } catch (err) {
-    if (S.activeChannelId === id) {
+    if (current()) {
       S.feedLoading = false;
       S.historyError = { msg: humanError(err), older: false };
     }
@@ -3311,7 +3320,7 @@ export async function selectChannel(id) {
   }
   // Guard against a stale fetch: if the user switched channels while this was in
   // flight, don't overwrite the now-active channel's messages/read-cursor.
-  if (S.activeChannelId !== id) return;
+  if (!current()) return;
   S.messages = msgs;
   feedOldest = msgs.length ? msgs[0].sent : "";
   S.feedLoading = false;
@@ -3356,6 +3365,7 @@ export async function loadOlder() {
   const id = S.activeChannelId;
   if (!id || S.loadingOlder || S.feedReachedStart || S.historyError) return 0;
   if (!feedOldest) return 0;
+  const seq = feedSeq;
   S.loadingOlder = true;
   let prepended = 0;
   for (let attempt = 0; attempt < OLDER_PAGE_TRIES && !prepended; attempt++) {
@@ -3365,11 +3375,13 @@ export async function loadOlder() {
     } catch (err) {
       // Said in the feed with a retry, and it stops the scroll handler asking
       // again on every frame until the reader does.
-      if (S.activeChannelId === id) S.historyError = { msg: humanError(err), older: true };
+      if (S.activeChannelId !== id || seq !== feedSeq) return prepended;
+      S.historyError = { msg: humanError(err), older: true };
       break;
     }
-    // Bail if the channel changed while the fetch was in flight.
-    if (S.activeChannelId !== id) break;
+    // Bail if the feed was refilled while the fetch was in flight (another
+    // channel, or this one opened afresh: its loading flag is no longer ours).
+    if (S.activeChannelId !== id || seq !== feedSeq) return prepended;
     if (older.length === 0) {
       S.feedReachedStart = true;
       break;
@@ -3555,11 +3567,18 @@ export function scheduleRefresh({ guilds = false, panel = false } = {}) {
 export async function jumpToChannel(channelId) {
   for (const g of S.guilds) {
     if (g.channels.some((c) => c.id === channelId)) {
-      if (S.activeGuildId !== g.id) {
-        S.activeGuildId = g.id;
-        await refreshRightPanel();
-      }
-      await selectChannel(channelId);
+      // Guild and channel move in the same breath. Switching the guild and
+      // then waiting on its member list before selecting the channel left a
+      // gap as long as that fetch: the header and sidebar on the new guild
+      // while the old channel (a forum post, say) stayed active with its rows
+      // in the feed, and a composer that found no such channel in this guild
+      // and read "Select a channel". selectChannel moves the channel and
+      // empties the feed before its first await.
+      const moved = S.activeGuildId !== g.id;
+      S.activeGuildId = g.id;
+      const opened = selectChannel(channelId);
+      if (moved) await refreshRightPanel();
+      await opened;
       return true;
     }
   }
