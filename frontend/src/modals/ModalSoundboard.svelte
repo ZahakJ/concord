@@ -8,6 +8,7 @@
   import { onDestroy } from "svelte";
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import Menu from "../Menu.svelte";
   import EmptyState from "../EmptyState.svelte";
   import { S, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
@@ -173,16 +174,27 @@
               <span class="cname">{s.recipe.name}</span>
               <span class="clen">{soundLength(s.recipe)}</span>
             </button>
+            <!-- One action in words, the rest in ⋯ — the pattern of a message
+                 row. Three bare glyphs on each of twelve cards was thirty-six
+                 icons in one dialog. The face itself still plays a preview. -->
             <div class="cacts">
-              <button type="button" class="mini" onclick={() => pick(s.payload, s.recipe)} disabled={busy} aria-label={onPick ? "Play for the room" : "Send to this channel"} use:tooltip>
-                <Icon name={onPick ? "megaphone" : "send"} size={13} />
+              <button
+                type="button"
+                class="send"
+                onclick={() => pick(s.payload, s.recipe)}
+                disabled={busy}
+                aria-label={onPick ? `Play "${s.recipe.name}" for the room` : `Send "${s.recipe.name}" to this channel`}
+              >
+                {onPick ? "Play" : "Send"}
               </button>
-              <button type="button" class="mini" onclick={() => loadOntoBench(s.recipe)} aria-label="Open in the editor" use:tooltip>
-                <Icon name="edit" size={13} />
-              </button>
-              <button type="button" class="mini" onclick={() => dropSound(s.payload)} aria-label="Remove from the shelf" use:tooltip>
-                <Icon name="trash" size={13} />
-              </button>
+              <Menu label="More for {s.recipe.name}" icon="dots" align="right" compact>
+                <button class="menu-item" onclick={() => loadOntoBench(s.recipe)}>
+                  <Icon name="edit" size={13} /> Open in the editor
+                </button>
+                <button class="menu-item danger" onclick={() => dropSound(s.payload)}>
+                  <Icon name="trash" size={13} /> Remove from the shelf
+                </button>
+              </Menu>
             </div>
           </div>
         {/each}
@@ -378,27 +390,36 @@
     font-size: var(--fs-tiny);
     color: var(--text-faint);
   }
+  /* Shown on a card's hover or focus with a pointer, always on touch, where
+     nothing hovers. */
   .cacts {
     display: flex;
-    border-top: 1px solid var(--border);
+    align-items: center;
+    gap: var(--sp-1);
+    padding: 0 var(--sp-1) var(--sp-1);
   }
-  .mini {
+  @media (pointer: fine) {
+    .cacts {
+      opacity: 0;
+      transition: opacity var(--dur-quick) ease;
+    }
+    .card:hover .cacts,
+    .card:focus-within .cacts {
+      opacity: 1;
+    }
+  }
+  .send {
     flex: 1;
-    display: grid;
-    place-items: center;
-    padding: var(--sp-1) 0;
     min-height: var(--tap-min);
     border: none;
-    background: var(--bg-2);
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-  .mini:hover:not(:disabled) {
-    color: var(--text);
+    border-radius: var(--radius-sm);
     background: var(--bg-3);
+    color: var(--text);
+    font-size: var(--fs-compact);
+    font-weight: 600;
   }
-  .mini:disabled {
-    opacity: 0.4;
+  .send:disabled {
+    opacity: 0.45;
   }
 
   .mute {
