@@ -31,6 +31,17 @@
   $effect(() => pushLayer("panel", () => (S.quickSwitcher = false)));
 
   let query = $state("");
+  // A typed scope prefix ("#", "@", "!", "*", ">") becomes a chip in front of
+  // the field instead of staying a literal character in it; Backspace in an
+  // empty field removes the chip. The search reads chip + text as before.
+  let scopeChar = $state("");
+  const full = $derived(scopeChar + query);
+  function onInput() {
+    if (!scopeChar && SCOPE_CHARS.has(query[0])) {
+      scopeChar = query[0];
+      query = query.slice(1).trimStart();
+    }
+  }
   let sel = $state(0);
   let inputEl = $state(null);
   let listEl = $state(null);
@@ -111,7 +122,7 @@
   // query: ONE ranked list, no headers — the leading glyph says what each row
   // is, and unread is a boost in the ranking rather than a section of its own.
   const sections = $derived.by(() => {
-    const { mode, q } = parseQuery(query);
+    const { mode, q } = parseQuery(full);
     const actionOnly = mode === "actions";
     const dests = actionOnly ? [] : buildDests(S.guilds, people, S.identity?.fingerprint);
     if (!q) {
@@ -143,8 +154,8 @@
   });
   const flat = $derived(sections.flatMap((sec) => sec.items));
   const offsets = $derived(sections.map((_, i) => sections.slice(0, i).reduce((n, sec) => n + sec.items.length, 0)));
-  const scope = $derived(parseQuery(query).mode);
-  const empty = $derived(!parseQuery(query).q);
+  const scope = $derived(parseQuery(full).mode);
+  const empty = $derived(!parseQuery(full).q);
   const SCOPES = [
     ["#", "Channels"],
     ["@", "People"],
@@ -153,9 +164,11 @@
     [">", "Actions"],
     ["?", "Help"],
   ];
+  const SCOPE_CHARS = new Set(["#", "@", "!", "*", ">"]);
+  const SCOPE_NAME = Object.fromEntries(SCOPES);
 
   $effect(() => {
-    query;
+    full;
     sel = 0;
   });
 
@@ -204,6 +217,11 @@
   }
 
   function onKeydown(e) {
+    if (e.key === "Backspace" && !query && scopeChar) {
+      e.preventDefault();
+      scopeChar = "";
+      return;
+    }
     if (e.key === "ArrowDown") {
       e.preventDefault();
       sel = (sel + 1) % Math.max(flat.length, 1);
@@ -272,6 +290,14 @@
          arrow (aria-activedescendant) while the caret stays in the field. -->
     <div class="qs-input">
       <Icon name="search" size={20} />
+      {#if scopeChar}
+        <span class="qs-chip">
+          {SCOPE_NAME[scopeChar]}
+          <button type="button" class="qs-chip-x" aria-label="Remove the {SCOPE_NAME[scopeChar]} filter" onclick={() => ((scopeChar = ""), inputEl?.focus())}>
+            <Icon name="close" size={10} />
+          </button>
+        </span>
+      {/if}
       <input
         role="combobox"
         aria-expanded="true"
@@ -280,7 +306,8 @@
         aria-activedescendant={flat[sel] ? optId(sel) : undefined}
         bind:this={inputEl}
         bind:value={query}
-        placeholder="Jump to a conversation, person or action"
+        oninput={onInput}
+        placeholder={scopeChar ? `Search ${SCOPE_NAME[scopeChar].toLowerCase()}` : "Jump to a conversation, person or action"}
         aria-label="Jump to a conversation, person or action"
         onkeydown={onKeydown}
       />
@@ -292,14 +319,15 @@
           <button
             type="button"
             class="scope"
-            class:on={scope !== "all" && query.trimStart()[0] === p}
+            class:on={scopeChar === p}
             onclick={() => {
               if (p === "?") {
                 S.quickSwitcher = false;
                 S.modal = { kind: "shortcuts" };
                 return;
               }
-              query = p;
+              scopeChar = p;
+              query = "";
               inputEl?.focus();
             }}><span class="scope-p">{p}</span> {name}</button
           >
@@ -368,6 +396,29 @@
     .switcher {
       animation: none;
     }
+  }
+  .qs-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    flex: none;
+    padding: 2px 4px 2px 9px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+    font-size: var(--fs-small);
+    font-weight: 600;
+  }
+  .qs-chip-x {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-muted);
   }
   .qs-input {
     display: flex;
