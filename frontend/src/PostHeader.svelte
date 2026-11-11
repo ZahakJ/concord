@@ -217,7 +217,7 @@
     flex-direction: column;
     gap: 6px;
     padding: var(--sp-3) var(--sp-4) 10px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--hairline);
     background: var(--bg-1);
   }
   .crumbs {
@@ -227,19 +227,21 @@
     font-size: var(--fs-small);
     color: var(--text-faint);
   }
+  /* A link back to the board, not a chip. */
   .back {
     display: inline-flex;
     align-items: center;
     gap: var(--sp-1);
-    padding: 2px 7px;
-    background: var(--bg-3);
+    padding: 2px 4px;
+    margin-left: -4px;
+    background: transparent;
     border-radius: var(--radius-sm);
     color: var(--text-muted);
     font-size: var(--fs-small);
   }
   .back:hover {
     color: var(--text);
-    background: var(--bg-2);
+    background: var(--bg-3);
   }
   .spring {
     flex: 1;
@@ -260,6 +262,7 @@
   .title {
     margin: 0;
     font-size: var(--fs-title);
+    font-weight: 600;
     line-height: 1.25;
     /* The board's own title wraps; so does this one. Truncating the thing the
        whole panel is about was the header's original sin. */
@@ -281,24 +284,17 @@
   .dotsep {
     color: var(--text-faint);
   }
+  /* States are words on the meta line, the way the board's rows say them. */
   .chip {
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    padding: 1px 7px;
-    border-radius: 999px;
-    background: var(--bg-3);
-    color: var(--text-muted);
+    color: var(--text-faint);
     font-size: var(--fs-small);
-    font-weight: 600;
+    font-weight: 500;
   }
   .chip.ok {
-    background: color-mix(in srgb, var(--ok) 20%, transparent);
-    color: var(--ok);
-  }
-  .chip.closed {
-    background: color-mix(in srgb, var(--warn) 20%, transparent);
-    color: var(--warn-text);
+    color: var(--ok-text);
   }
   .tags,
   .picker {
@@ -307,37 +303,43 @@
     flex-wrap: wrap;
     gap: 5px;
   }
+  /* The board's quiet tag: a grey chip in muted ink, the tag's colour kept
+     as a 6px dot. */
   .tag {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    padding: 2px 8px;
+    gap: 5px;
+    height: 22px;
+    padding: 0 8px;
     border-radius: 999px;
     font-size: var(--fs-small);
-    color: var(--tc, var(--text-muted));
-    border: 1px solid color-mix(in srgb, var(--tc, var(--border)) 55%, transparent);
-    background: color-mix(in srgb, var(--tc, var(--bg-3)) 14%, transparent);
+    color: var(--text-muted);
+    background: var(--bg-3);
+  }
+  .tag:not(.edit)::before {
+    content: "";
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--tc, var(--text-faint));
   }
   .tag.edit {
-    color: var(--text-faint);
-    border-style: dashed;
-    border-color: var(--border);
+    color: var(--text-muted);
     background: transparent;
   }
   .tag.edit:hover {
     color: var(--text);
-    border-color: var(--accent);
-  }
-  .tag.pick {
-    opacity: 0.55;
+    background: var(--bg-3);
   }
   .tag.pick.on {
-    opacity: 1;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
     font-weight: 600;
   }
   .picker {
-    padding-top: var(--sp-1);
-    border-top: 1px dashed var(--border);
+    padding-top: var(--sp-2);
+    border-top: 1px solid var(--hairline);
   }
   .mini {
     padding: 4px 10px;

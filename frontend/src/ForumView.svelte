@@ -592,11 +592,6 @@
           >
             <Icon name="gear" size={15} />
           </button>
-          {#if !S.isMobile}
-            <button class="primary cta" onclick={newPost}>
-              <Icon name="plus" size={14} /> <span>New post</span>
-            </button>
-          {/if}
         </div>
       </div>
     </div>
@@ -664,6 +659,14 @@
           {/each}
         </div>
       {/if}
+      <!-- Starting a post is the board's one main action, so it is the one
+           primary, at the end of the toolbar — on a phone too. It used to be a
+           pill in the header on a desktop and a floating accent disc on a
+           phone, two looks for one verb, and the disc sat over the last row. -->
+      <button class="primary new-post" aria-label="New post" onclick={newPost}>
+        <Icon name="plus" size={14} />
+        <span class="np-label">{S.isMobile ? "Post" : "New post"}</span>
+      </button>
     </div>
 
     {#if palette.length || filtering || stats.unanswered}
@@ -729,10 +732,11 @@
     </div>
   {:else if phase === "error"}
     <div class="state">
-      <div class="state-badge bad"><Icon name="alert" size={26} /></div>
-      <h3>This board didn't load</h3>
-      <p class="muted">{errMsg}</p>
-      <button class="primary" onclick={() => refresh()}>Try again</button>
+      <EmptyState icon="alert" headline="This board didn't load" sub={errMsg}>
+        {#snippet actions()}
+          <button class="quiet" onclick={() => refresh()}>Try again</button>
+        {/snippet}
+      </EmptyState>
     </div>
   {:else if !posts.length}
     <div class="state">
@@ -740,18 +744,23 @@
         icon="forum"
         headline="Nothing here yet"
         sub="Start the first post — it becomes its own thread, with its own unread badge."
-      />
-      <button class="primary cta solid" onclick={newPost}><Icon name="plus" size={14} /> New post</button>
+      >
+        {#snippet actions()}
+          <button class="primary" onclick={newPost}>New post</button>
+        {/snippet}
+      </EmptyState>
     </div>
   {:else if !visible.length}
     <div class="state">
-      <div class="state-badge"><Icon name="search" size={24} /></div>
-      <h3>No posts match</h3>
-      <p class="muted">
-        {#if query}Nothing matches “{query}”{:else}No post carries those filters{/if}
-        — {posts.length} {posts.length === 1 ? "post is" : "posts are"} hidden.
-      </p>
-      <button class="primary" onclick={clearFilters}>Clear filters</button>
+      <EmptyState
+        icon="search"
+        headline="No posts match"
+        sub={`${query ? `Nothing matches “${query}”` : "No post carries those filters"} — ${posts.length} ${posts.length === 1 ? "post is" : "posts are"} hidden.`}
+      >
+        {#snippet actions()}
+          <button class="quiet" onclick={clearFilters}>Clear filters</button>
+        {/snippet}
+      </EmptyState>
     </div>
   {:else}
     <ul class="posts {prefs.layout}">
@@ -832,13 +841,12 @@
 
           <div class="body">
             <div class="head">
-              <h3 class="title">{p.title}</h3>
+              <h3 class="title">
+                {#if p.pinned}<span class="pin-mark" title="Pinned to the top of this board" aria-label="Pinned"
+                    ><Icon name="pin" size={12} /></span
+                  >{/if}{p.title}
+              </h3>
               <span class="flags">
-                {#if p.pinned}
-                  <span class="flag pin" title="Pinned to the top of this board">
-                    <Icon name="pin" size={10} /> Pinned
-                  </span>
-                {/if}
                 {#if p.solved}
                   <span class="flag ok" title="Marked answered">
                     <Icon name="check" size={10} /> Answered
@@ -878,16 +886,6 @@
                 <p class="excerpt faint">No preview available</p>
               {/if}
 
-              {#if tags.length}
-                <div class="tags">
-                  {#each tags as t (t.id)}
-                    <span class="chip tag sm" style="--tc:{t.color}">
-                      {#if t.emoji}<span class="chip-em">{t.emoji}</span>{/if}{t.name}
-                    </span>
-                  {/each}
-                </div>
-              {/if}
-
               <div class="meta">
                 <span class="who">
                   <Avatar
@@ -905,6 +903,15 @@
                 </span>
                 <span class="dot" aria-hidden="true">·</span>
                 <span class="mi" title={absTime(p.lastActivity)}>{relTime(p.lastActivity)}</span>
+                {#if tags.length}
+                  <span class="tags">
+                    {#each tags as t (t.id)}
+                      <span class="chip tag sm" style="--tc:{t.color}">
+                        {#if t.emoji}<span class="chip-em">{t.emoji}</span>{/if}{t.name}
+                      </span>
+                    {/each}
+                  </span>
+                {/if}
               </div>
             {/if}
           </div>
@@ -928,9 +935,7 @@
 <!-- …but not while a post is open over it. The board stays MOUNTED behind the
      post panel, which is what keeps its scroll position — so its own floating
      controls have to know they are behind something. -->
-{#if S.isMobile && S.activeChannelId === forum.id}
-  <button class="primary fab" aria-label="New post" onclick={newPost}><Icon name="plus" size={20} /></button>
-{/if}
+
 
 {#snippet pickBody()}
   <p class="pick-sub muted">{tagPick.post.title}</p>
@@ -985,6 +990,17 @@
 
 <style>
   /* ---- shell ------------------------------------------------------------ */
+  /* An open post sits beside the board only when the board and the post have
+     the room between them. With the inspector docked as well, 1440px held the
+     sidebar, a 290px board whose toolbar clipped and whose titles wrapped per
+     word, the post, and the members: four columns, none readable. Then the
+     post takes the conversation column, and the board waits behind it with its
+     scroll kept (the panel is still a layer over a mounted board). */
+  :global(.app:has(.insp-slot:not(.overlay)) .pane-body .feedwrap.aspanel.overboard.beside) {
+    left: 0;
+    border-left: none;
+    box-shadow: none;
+  }
   .board {
     flex: 1;
     overflow-y: auto;
@@ -1003,16 +1019,59 @@
     padding-bottom: 28px;
   }
 
-  /* No banner: the hero is a quiet header in ink, like a channel's. */
+  /* No banner: no box at all. The conversation header above already names
+     the board and says its topic, so what is left is one quiet line — the
+     board's numbers and its settings — on the canvas. A second boxed copy of
+     the name and topic was the "card on a card" this board was built of. */
   .hero.plain {
     min-height: 0;
-    background: var(--bg-1);
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+  }
+  .hero.plain .hero-title {
+    display: none;
+  }
+  .hero.plain .hero-in {
+    padding: var(--sp-2) var(--pad) 0;
+  }
+  .hero.plain .stat {
+    padding: 0;
+    border: none;
+    background: transparent;
+    font-size: var(--fs-small);
+  }
+  .hero.plain .stat + .stat::before {
+    content: "·";
+    margin-right: var(--sp-1);
+    color: var(--text-faint);
+  }
+  .hero.plain .stat b {
+    font-weight: 600;
+  }
+  .hero.plain button.stat.on {
+    background: transparent;
+    color: var(--accent-hover);
+  }
+  .hero.plain .hero-foot {
+    align-items: center;
+  }
+  .hero.plain .glass {
+    border: none;
+    background: transparent;
+  }
+  @media (pointer: fine) {
+    .hero.plain .glass:hover {
+      background: var(--bg-3);
+      color: var(--text);
+      transform: none;
+    }
   }
   .hero.plain .hero-glyph,
   .hero.plain .stat,
   .hero.plain .glass {
     color: var(--text-muted);
-    background: var(--bg-3);
   }
   .hero.plain h1,
   .hero.plain .stat b {
@@ -1024,13 +1083,15 @@
     text-shadow: none;
   }
   /* ---- hero ------------------------------------------------------------- */
+  /* With a banner: a 96px strip at the head of the board, the description
+     over the scrim (spec: no gradient hero, no art per card). */
   .hero {
     position: relative;
     isolation: isolate;
     margin: var(--pad) var(--pad) 0;
     border-radius: var(--radius-lg);
     overflow: hidden;
-    min-height: 172px;
+    min-height: 96px;
     display: flex;
     align-items: flex-end;
     border: 1px solid var(--border);
@@ -1222,7 +1283,16 @@
     padding: 10px var(--pad);
     /* Opaque: it slides over cards. Matches the chat column's own surface. */
     background: var(--bg-2);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .new-post {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    min-height: 32px;
+    padding: 0 14px;
+    font-size: var(--fs-compact);
   }
   .bar-row {
     display: flex;
@@ -1240,19 +1310,19 @@
     gap: 7px;
     flex: 1;
     min-width: 0;
+    max-width: 320px;
     padding: 0 10px;
-    height: 34px;
-    border-radius: 999px;
-    background: var(--bg-3);
-    border: 1px solid transparent;
+    height: 32px;
+    border-radius: var(--radius-md);
+    background: var(--bg-input);
+    border: 1px solid var(--border);
     color: var(--text-muted);
     transition:
       border-color var(--dur-standard) ease,
       background var(--dur-standard) ease;
   }
   .find:focus-within {
-    border-color: var(--accent);
-    background: var(--bg-1);
+    border-color: var(--accent-hover);
   }
   .find input {
     flex: 1;
@@ -1292,30 +1362,33 @@
   .clear:hover {
     color: var(--text);
   }
+  /* The shared segmented control's look (Segmented.svelte): a 32px track,
+     the chosen segment lighter than the track with a ring, never the accent. */
   .seg {
     display: flex;
     flex: none;
+    height: 32px;
     padding: 2px;
     gap: 2px;
-    border-radius: 999px;
+    border-radius: calc(var(--radius-sm) + 2px);
     background: var(--bg-3);
   }
   .seg-b {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 5px 10px;
-    border-radius: 999px;
+    padding: 0 10px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--text-muted);
     font-size: var(--fs-compact);
-    font-weight: 600;
+    font-weight: 500;
     transition:
       background var(--dur-standard) ease,
       color var(--dur-standard) ease;
   }
   .seg-b.icon {
-    padding: 5px 8px;
+    padding: 0 8px;
   }
   .seg-b:hover {
     color: var(--text);
@@ -1325,22 +1398,26 @@
      most packs and none at all on the flat ones, which left a row of three
      unlabelled glyphs with no visible answer to "which of these am I on". */
   .seg-b.on {
-    background: var(--accent-soft);
+    background: color-mix(in srgb, var(--bg-3), white 8%);
     color: var(--text);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+  }
+  :global(:root[data-theme="light"]:not([data-theme-pack])) .seg-b.on {
+    background: #fff;
   }
   .pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     flex: none;
-    padding: 0 13px;
-    height: 34px;
-    border-radius: 999px;
+    padding: 0 12px;
+    height: 32px;
+    border-radius: var(--radius-sm);
     background: var(--bg-3);
     color: var(--text);
-    font-size: var(--fs-ui);
-    font-weight: 600;
+    font-size: var(--fs-compact);
+    font-weight: 500;
   }
   /* ---- chips ----------------------------------------------------------- */
   /* A tag's colour IDENTIFIES the chip; the theme's ink READS it. A member picks
@@ -1351,10 +1428,11 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 4px 10px;
+    height: 28px;
+    padding: 0 10px;
     border-radius: 999px;
-    font-size: var(--fs-compact);
-    font-weight: 600;
+    font-size: var(--fs-small);
+    font-weight: 500;
     background: var(--bg-3);
     color: var(--text-muted);
     border: 1px solid transparent;
@@ -1366,36 +1444,35 @@
   @media (pointer: fine) {
     button.chip:hover {
       color: var(--text);
-      transform: translateY(-1px);
+      background: var(--border);
     }
   }
-  .chip.tag {
-    background: color-mix(in srgb, var(--tc) 16%, var(--bg-2));
-    color: var(--text);
-  }
-  .chip.tag.on {
-    background: color-mix(in srgb, var(--tc) 22%, var(--bg-2));
-    border-color: color-mix(in srgb, var(--tc) 60%, transparent);
-  }
-  @media (pointer: fine) {
-    button.chip.tag:hover {
-      background: color-mix(in srgb, var(--tc) 22%, var(--bg-2));
-      border-color: color-mix(in srgb, var(--tc) 60%, transparent);
-    }
+  /* Quiet: every tag the same grey chip in muted ink. A tag's own colour is
+     kept as a 6px dot, which is enough to tell "Beginner" from "Advanced" at a
+     glance without a row of green, orange and blue pills competing with the
+     titles. */
+  .chip.tag::before {
+    content: "";
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--tc);
   }
   .chip.on {
     background: var(--accent-soft);
-    color: var(--text);
-    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    color: var(--accent-hover);
+    border-color: transparent;
   }
   .chip.ghost {
     background: transparent;
     border-color: var(--border);
   }
   .chip.sm {
-    padding: 2px 8px;
-    font-size: var(--fs-small);
-    background: color-mix(in srgb, var(--tc) 20%, var(--bg-elevated));
+    height: 20px;
+    padding: 0 7px;
+    gap: var(--sp-1);
+    font-size: var(--fs-tiny);
   }
   .chip-em {
     font-size: var(--fs-small);
@@ -1647,21 +1724,27 @@
     letter-spacing: 0.02em;
     white-space: nowrap;
   }
-  .flag.pin {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+  /* Flags are words, not pills: "2 new" in accent ink (it is aimed at you),
+     answered in the ok ink, closed in faint ink with its lock. */
+  .flag {
+    padding: 0;
+    font-weight: 600;
+    letter-spacing: 0;
   }
   .flag.ok {
-    background: var(--ok-soft);
     color: var(--ok-text);
   }
   .flag.new {
-    background: var(--accent);
-    color: var(--accent-fg);
+    color: var(--accent-hover);
   }
   .flag.closed {
-    background: var(--warn-soft);
-    color: var(--warn-text);
+    color: var(--text-faint);
+  }
+  .pin-mark {
+    display: inline-flex;
+    vertical-align: -1px;
+    margin-right: 6px;
+    color: var(--text-faint);
   }
   /* A closed post is still readable and still worth finding, so this is a
      quieter card, not a greyed-out one: the title stays at full contrast and
@@ -1687,9 +1770,10 @@
     color: var(--text-faint);
   }
   .tags {
-    display: flex;
+    display: inline-flex;
     flex-wrap: wrap;
     gap: var(--sp-1);
+    margin-left: var(--sp-1);
   }
   .meta {
     display: flex;
@@ -1748,35 +1832,84 @@
   }
 
   /* ---- layout: list ---------------------------------------------------- */
+  /* Rows, not boxes: the list is the board's face, so it reads like every
+     other list in the app — 72–88px rows split by hairlines, the title, one
+     line of excerpt, one meta line. A picture earns a small thumbnail; a post
+     without one gets no side art at all (the author is already in the meta
+     line). Unread is a heavier title and "2 new", not an accent edge bar. */
+  .posts.list {
+    gap: 0;
+    padding-top: var(--sp-1);
+  }
   .posts.list .card {
-    grid-template-columns: 92px 1fr auto;
-    align-items: stretch;
-  }
-  .posts.list .media {
-    /* A fixed column, so twenty titles start on the same vertical line. */
-    width: 92px;
-    align-self: stretch;
-    min-height: 84px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    min-height: 72px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--hairline);
     border-radius: 0;
+    animation: none;
   }
-  /* Without a picture the column holds only the author's face, and at 92px
-     with a 48px avatar it outweighed the 13px title beside it — the widest,
-     loudest thing on every card was a repeat of the name in the meta row. A
-     thumbnail earns 92px; a face gets a strip sized to the card's type. */
-  .posts.list .card:not(.has-shot) {
-    grid-template-columns: 52px 1fr auto;
+  .posts.list .card:last-child {
+    border-bottom: none;
   }
   .posts.list .card:not(.has-shot) .media {
-    width: 52px;
-    min-height: 0;
+    display: none;
+  }
+  .posts.list .card.has-shot {
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+  }
+  .posts.list .card.has-shot .media {
+    width: 64px;
+    height: 48px;
+    margin: 12px 0 0 var(--sp-2);
+    border-radius: var(--radius-sm);
   }
   .posts.list .body {
-    /* The card is a grid with NO column gap and the media column is a
-       full-bleed image, so a zero left padding put the title literally against
-       the edge of the artwork. It reads as a rendering fault rather than a
-       layout — most visible on a narrow window, where the text column is
-       tightest, but it was wrong at every width. */
-    padding: 11px var(--sp-2) 11px var(--sp-3);
+    gap: var(--sp-1);
+    padding: 12px var(--sp-2);
+  }
+  .posts.list .title {
+    font-size: calc(var(--fs-ui) + 1px);
+    font-weight: 500;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+  .posts.list .card.unread .title {
+    font-weight: 650;
+  }
+  .posts.list .excerpt {
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+  .posts.list .card.unread::after {
+    display: none;
+  }
+  .posts.list .card.pinned {
+    border-color: var(--hairline);
+  }
+  /* The post that is open: the selected-row ground every list uses. */
+  .posts.list .card.open {
+    background: var(--bg-3);
+    border-color: var(--hairline);
+  }
+  @media (pointer: fine) {
+    .posts.list .card:hover {
+      transform: none;
+      border-color: var(--hairline);
+      background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+    }
+    .posts.list .card.open:hover {
+      background: var(--bg-3);
+    }
+  }
+  .posts.list .card:focus-within {
+    border-color: var(--hairline);
+    outline-offset: -2px;
+  }
+  .posts.list .more {
+    margin-top: 10px;
   }
 
   /* ---- layout: gallery ------------------------------------------------- */
@@ -1920,48 +2053,9 @@
     animation-delay: 0.3s;
   }
 
+  /* The one empty state, top-anchored in the board's column. */
   .state {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--sp-2);
-    text-align: center;
-    padding: 32px 24px 48px;
-  }
-  .state h3 {
-    margin: 4px 0 0;
-    font-size: var(--fs-title);
-  }
-  .state p {
-    margin: 0;
-    max-width: 42ch;
-    font-size: var(--fs-ui);
-    line-height: 1.55;
-  }
-  .state button {
-    margin-top: 6px;
-  }
-  .state .cta.solid {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 9px 18px;
-    border-radius: 999px;
-  }
-  .state-badge {
-    display: grid;
-    place-items: center;
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-  }
-  .state-badge.bad {
-    background: var(--danger-soft);
-    color: var(--danger-text);
+    padding: var(--sp-2) var(--pad) var(--sp-6);
   }
   /* ---- tag picker ------------------------------------------------------- */
   .pick-wrap {
@@ -2062,24 +2156,6 @@
   }
 
   /* ---- mobile ---------------------------------------------------------- */
-  .fab {
-    position: fixed;
-    right: 16px;
-    bottom: calc(18px + var(--safe-bottom));
-    z-index: 40;
-    display: grid;
-    place-items: center;
-    width: 54px;
-    height: 54px;
-    padding: 0;
-    border-radius: 50%;
-    box-shadow: var(--shadow-pop);
-    transition: transform var(--dur-standard) var(--ease-spring);
-  }
-  .fab:active {
-    transform: scale(0.94);
-  }
-
   /* THE phone query — the same condition S.isMobile uses, so the FAB is never
      drawn under a layout that hasn't made room for it. It previously rendered
      from 768px down while its clearance lived at 620px, which left every
@@ -2090,7 +2166,7 @@
       /* The FAB's own offset is 18px + the home indicator, and it is 54px tall,
          so a flat 88px left it sitting ~18px over the last card on any
          gesture-nav phone. Reserve what the FAB actually occupies. */
-      padding-bottom: calc(88px + var(--safe-bottom));
+      padding-bottom: calc(28px + var(--safe-bottom));
     }
     .hero {
       min-height: 148px;
@@ -2111,12 +2187,12 @@
       -webkit-line-clamp: 1;
       line-clamp: 1;
     }
-    .posts.list .card {
-      grid-template-columns: 72px 1fr auto;
+    .posts.list .card.has-shot {
+      grid-template-columns: 56px minmax(0, 1fr) auto;
     }
-    .posts.list .media {
-      width: 72px;
-      min-height: 76px;
+    .posts.list .card.has-shot .media {
+      width: 56px;
+      height: 42px;
     }
     .wname {
       max-width: 110px;
@@ -2156,9 +2232,6 @@
        inside a sticky bar. The row is one flickable line now, so the targets can
        be the real size — and the bar's height stops growing as you add filters,
        which is what actually cost the board space. */
-    .chip {
-      min-height: var(--tap-min);
-    }
     .pick-row {
       min-height: var(--tap-min);
     }
@@ -2215,17 +2288,37 @@
     .card:active {
       transform: scale(0.985);
     }
+    .posts.list .card:active {
+      transform: none;
+      background: var(--bg-3);
+    }
+    /* The toolbar on a phone: field, View, Post on one line; the chips are a
+       flickable row of their own at the 32px chip height, not 44px pills. */
+    .bar-row .chip {
+      min-height: 32px;
+    }
+    /* One meta line: the author, replies and time hold their width and the
+       tags give way (clipped) rather than wrapping the row to three lines. */
+    .who,
+    .mi,
+    .meta > .dot {
+      flex: none;
+    }
+    .tags {
+      flex-wrap: nowrap;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .tags .chip {
+      flex: none;
+    }
+    .new-post {
+      min-height: var(--tap-min);
+    }
   }
   /* The genuine narrow floor: at 360px a 72px thumbnail leaves ~200px for a
      title, two lines of excerpt and a metadata row. */
-  @media (max-width: 400px) {
-    .posts.list .card {
-      grid-template-columns: 64px 1fr auto;
-    }
-    .posts.list .media {
-      width: 64px;
-    }
-  }
+
 
   @media (prefers-reduced-motion: reduce) {
     .card,
@@ -2245,8 +2338,7 @@
     .cta,
     .glass,
     button.stat,
-    .chip,
-    .fab {
+    .chip {
       transition: none;
     }
     .card:hover,
