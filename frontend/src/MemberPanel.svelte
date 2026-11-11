@@ -621,7 +621,7 @@
   .member.offline :global(.avatar) {
     opacity: 0.55;
   }
-  :global(:root[data-theme="light"]) .member.offline :global(.avatar) {
+  :global(:root[data-theme="light"]:where(:not([data-theme-pack]), [data-theme-pack="paper"], [data-theme-pack="solarized"], [data-theme-pack="meadow"], [data-theme-pack="porcelain"], [data-theme-pack="daybreak"], [data-theme-pack="atrium"])) .member.offline :global(.avatar) {
     opacity: 0.65;
   }
   .member.offline .mname {

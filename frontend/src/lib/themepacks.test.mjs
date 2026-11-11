@@ -14,6 +14,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { contrast, colorsIn, over } from "./contrast.mjs";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const app = fs.readFileSync(path.join(SRC, "app.css"), "utf8");
@@ -178,6 +179,163 @@ const tail = (sel) => sel.replace(/^:root(:root)?(\[[^\]]*\])*/, "").trim();
     if (dist < 30 && !neutral.has(pack))
       fail(`${pack}: accent ${v.accent} is ${Math.round(dist)}° from danger — set --badge-bg so counts don't read as alarms`);
   }
+}
+
+// 5. A pack's text fields are legible under BOTH base themes.
+//
+// The base theme and the pack are two separate choices, and the light theme's
+// block used to apply under every pack. It sets --bg-input to white and no dark
+// pack sets its own, so Light + Midnight drew every field — composer, palette,
+// dialog inputs — white, with Midnight's near-white ink typed into it at about
+// 1.1:1. Measuring the packs on their own could never see that: it only exists
+// in the cascade of the two stylesheets together. So this resolves the tokens
+// the way the browser does, for every pack under each base theme, and measures
+// what a field actually shows: typed text (--text) and its placeholder
+// (--text-muted) on --bg-input, composited over the dialog surface it sits on.
+{
+  const STATE = fs.readFileSync(path.join(SRC, "lib/state.svelte.js"), "utf8");
+  const setOf = (name) => {
+    const m = STATE.match(new RegExp(`${name} = new Set\\(\\[([\\s\\S]*?)\\]\\)`));
+    if (!m) throw new Error(`themepacks: cannot read ${name} from state.svelte.js`);
+    return new Set([...m[1].matchAll(/"([\w-]+)"/g)].map((x) => x[1]));
+  };
+  const ANIMATED = setOf("ANIMATED_PACKS");
+  const TEXTURED = setOf("TEXTURED_PACKS");
+
+  // Split at top-level commas.
+  const commaSplit = (s) => {
+    const out = [];
+    let d = 0;
+    let st = 0;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === "(") d++;
+      else if (s[i] === ")") d--;
+      else if (s[i] === "," && d === 0) {
+        out.push(s.slice(st, i).trim());
+        st = i + 1;
+      }
+    }
+    out.push(s.slice(st).trim());
+    return out;
+  };
+  // Does a compound selector made only of :root, [attr], [attr="v"], :not(),
+  // :is() and :where() match a root carrying `attrs`? Returns { ok, spec }, or
+  // null when the selector says anything else (a descendant, a class) — such a
+  // rule does not set the root's tokens.
+  const evalSel = (sel, attrs) => {
+    let i = 0;
+    let ok = true;
+    let spec = 0;
+    const s = sel.trim();
+    while (i < s.length) {
+      if (s.startsWith(":root", i)) {
+        spec++;
+        i += 5;
+        continue;
+      }
+      if (s[i] === "[") {
+        const end = s.indexOf("]", i);
+        const m = /^\[([\w-]+)(?:="([^"]*)")?\]$/.exec(s.slice(i, end + 1));
+        if (!m) return null;
+        const v = attrs[m[1]];
+        if (v === undefined || (m[2] !== undefined && v !== m[2])) ok = false;
+        spec++;
+        i = end + 1;
+        continue;
+      }
+      const fn = /^:(not|is|where)\(/.exec(s.slice(i));
+      if (fn) {
+        let d = 1;
+        let j = i + fn[0].length;
+        while (j < s.length && d) {
+          if (s[j] === "(") d++;
+          else if (s[j] === ")") d--;
+          j++;
+        }
+        const args = commaSplit(s.slice(i + fn[0].length, j - 1)).map((a) => evalSel(a, attrs));
+        if (args.some((a) => a === null)) return null;
+        const any = args.some((a) => a.ok);
+        if (fn[1] === "not" ? any : !any) ok = false;
+        if (fn[1] !== "where") spec += Math.max(...args.map((a) => a.spec));
+        i = j;
+        continue;
+      }
+      return null;
+    }
+    return { ok, spec };
+  };
+  const decls = (body) =>
+    [...body.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(?:^|[;{])\s*(--[\w-]+)\s*:\s*([^;}]*)/g)].map((m) => [
+      m[1],
+      m[2].trim(),
+    ]);
+  const sheet = [...rules(app), ...rules(packs)].filter((r) => !r.head.startsWith("@"));
+
+  const tokensFor = (attrs) => {
+    const hits = [];
+    sheet.forEach((r, order) => {
+      let best = null;
+      for (const sel of selectors(r.head)) {
+        const e = evalSel(sel, attrs);
+        if (e && e.ok && (best === null || e.spec > best)) best = e.spec;
+      }
+      if (best !== null) hits.push({ spec: best, order, body: r.body });
+    });
+    hits.sort((a, b) => a.spec - b.spec || a.order - b.order);
+    const tok = new Map();
+    for (const h of hits) for (const [k, v] of decls(h.body)) tok.set(k, v);
+    return tok;
+  };
+  // A token's colour as [r,g,b,a], following var() and the one color-mix
+  // shape the token sheets use.
+  const colour = (raw, tok, depth = 0) => {
+    if (!raw || depth > 8) return null;
+    raw = raw.trim();
+    const ref = /^var\((--[\w-]+)(?:,\s*(.+))?\)$/.exec(raw);
+    if (ref) return colour(tok.get(ref[1]) ?? ref[2], tok, depth + 1);
+    const mix = /^color-mix\(in srgb,\s*(.+?)\s+([\d.]+)%,\s*(.+)\)$/.exec(raw);
+    if (mix) {
+      const a = colour(mix[1], tok, depth + 1);
+      const b = colour(mix[3], tok, depth + 1);
+      if (!a || !b) return null;
+      const p = +mix[2] / 100;
+      const al = a[3] * p + b[3] * (1 - p);
+      if (!al) return [0, 0, 0, 0];
+      return [0, 1, 2].map((k) => (a[k] * a[3] * p + b[k] * b[3] * (1 - p)) / al).concat(al);
+    }
+    return colorsIn(raw)[0] || null;
+  };
+
+  const packNames = new Set([...packs.matchAll(/data-theme-pack="([\w-]+)"/g)].map((m) => m[1]));
+  let measured = 0;
+  for (const pack of ["", ...packNames]) {
+    for (const theme of ["dark", "light"]) {
+      const attrs = { "data-theme": theme };
+      if (pack) {
+        attrs["data-theme-pack"] = pack;
+        if (ANIMATED.has(pack)) attrs["data-anim-bg"] = "1";
+        if (TEXTURED.has(pack)) attrs["data-textured"] = "1";
+      }
+      const tok = tokensFor(attrs);
+      const get = (n) => colour(tok.get(n), tok);
+      const where = `${pack || "no pack"} under the ${theme} theme`;
+      const elevated = get("--bg-elevated");
+      const input = get("--bg-input");
+      const text = get("--text");
+      const muted = get("--text-muted");
+      if (!elevated || !input || !text || !muted) {
+        fail(`fields: cannot resolve the field tokens for ${where}`);
+        continue;
+      }
+      measured++;
+      const ground = over(input, over(elevated, [0, 0, 0]));
+      const t = contrast(over(text, ground), ground);
+      const p = contrast(over(muted, ground), ground);
+      if (t < 4.5) fail(`fields: typed text (--text on --bg-input) is ${t.toFixed(2)}:1 for ${where}`);
+      if (p < 4.5) fail(`fields: placeholder (--text-muted on --bg-input) is ${p.toFixed(2)}:1 for ${where}`);
+    }
+  }
+  if (measured < 80) fail(`fields: only ${measured} pack/theme pairs measured — the selectors have changed shape`);
 }
 
 if (failures) {

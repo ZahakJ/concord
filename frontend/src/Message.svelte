@@ -2995,7 +2995,7 @@
     margin: 4px 0;
     max-width: min(var(--measure), 600px);
   }
-  :global(:root[data-theme="light"]) .body :global(pre) {
+  :global(:root[data-theme="light"]:where(:not([data-theme-pack]), [data-theme-pack="paper"], [data-theme-pack="solarized"], [data-theme-pack="meadow"], [data-theme-pack="porcelain"], [data-theme-pack="daybreak"], [data-theme-pack="atrium"])) .body :global(pre) {
     background: var(--bg-1);
   }
   .body :global(pre code) {

@@ -376,8 +376,25 @@
    inverted: bg-2 is the page, bg-1 the sidebar a visible step darker, and
    bg-3 — hover/selected/field — darker still so the same hover rules read in
    both themes. Lifted surfaces are white; so are fields, which are wells with
-   a strong edge rather than a grey fill. */
-:root[data-theme="light"] {
+   a strong edge rather than a grey fill.
+
+   Scoped to no pack or a Daylight pack. A dark pack is a whole dark palette
+   that sets only the tokens it has an opinion on, so under the light theme
+   everything it leaves alone used to fall through to THIS block: white
+   fields with the pack's near-white ink typed into them at 1.1:1. A dark pack
+   under Light now draws exactly what it draws under Dark — its own grounds,
+   its own fields. :where() keeps the specificity this block always had, so a
+   Daylight pack's own palette still wins over it as before.
+   themepacks.test.mjs measures every field in every pack under both themes. */
+:root[data-theme="light"]:where(
+    :not([data-theme-pack]),
+    [data-theme-pack="paper"],
+    [data-theme-pack="solarized"],
+    [data-theme-pack="meadow"],
+    [data-theme-pack="porcelain"],
+    [data-theme-pack="daybreak"],
+    [data-theme-pack="atrium"]
+  ) {
   --bg-0: #e4e6e1;
   --bg-1: #eaece6;
   --bg-2: #fcfcfb;
@@ -1790,7 +1807,9 @@ button.iconbtn {
 :is(button.primary, button.quiet, button.ghost, button.danger, button.iconbtn):active:not(:disabled) {
   filter: brightness(1.12);
 }
-:root[data-theme="light"] :is(button.primary, button.quiet, button.ghost, button.danger, button.iconbtn):active:not(:disabled) {
+/* Same scope as the light palette: a dark pack under Light presses like dark. */
+:root[data-theme="light"]:where(:not([data-theme-pack]), [data-theme-pack="paper"], [data-theme-pack="solarized"], [data-theme-pack="meadow"], [data-theme-pack="porcelain"], [data-theme-pack="daybreak"], [data-theme-pack="atrium"])
+  :is(button.primary, button.quiet, button.ghost, button.danger, button.iconbtn):active:not(:disabled) {
   filter: brightness(0.94);
 }
 /* Disabled says so and does nothing on hover; the reason belongs next to it

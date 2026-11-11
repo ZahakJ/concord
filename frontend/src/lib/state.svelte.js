@@ -2503,7 +2503,10 @@ export function applyAccent(color) {
   if (!color) return syncAccentFg();
   // Held legible in the theme on screen: a weak colour would make the badges
   // that mean "this needs you" vanish into the sidebar (lib/guildaccent.js).
-  const held = clampAccent(color, document.documentElement.dataset.theme);
+  // Measured against the ground actually painted (readInkGround), not the
+  // theme attribute: a dark pack under the light theme is a dark ground.
+  if (inkGroundL == null) readInkGround();
+  const held = clampAccent(color, inkGroundDark ? "dark" : "light");
   document.documentElement.style.setProperty("--accent", held);
   document.documentElement.style.setProperty("--accent-fg", accentForeground(held));
 }

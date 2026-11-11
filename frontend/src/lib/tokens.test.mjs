@@ -277,11 +277,15 @@ for (const [rel, raw] of FILES) {
 // override. Read out of the stylesheet so retuning a token retunes the rules
 // that police it. Shared by rules 8 and 10.
 const themeBlock = (sel) => {
-  const at = APP.indexOf(sel + " {");
+  const at = APP.indexOf(sel);
+  if (at < 0) fail(`tokens gate: no "${sel}" block in app.css — the theme rules would measure nothing`);
   return at < 0 ? "" : APP.slice(at, APP.indexOf("\n}", at));
 };
-const ROOT = themeBlock(":root");
-const LIGHT = themeBlock(':root[data-theme="light"]');
+// The light palette is scoped (no pack, or a Daylight pack), so its selector
+// opens with this and continues with the :where() list.
+const LIGHT_SEL = ':root[data-theme="light"]:where(';
+const ROOT = themeBlock(":root {");
+const LIGHT = themeBlock(LIGHT_SEL);
 const THEMES = [["dark", ROOT], ["light", LIGHT]];
 const value = (name, block) => {
   const re = new RegExp(`^\\s*${name}:\\s*([^;]+);`, "m");
@@ -663,15 +667,15 @@ const value = (name, block) => {
 // on its own --bg-3. Placeholders still use --text-muted.
 {
   const block = (sel) => {
-    const at = APP.indexOf(sel + " {");
+    const at = APP.indexOf(sel);
     return at < 0 ? "" : APP.slice(at, APP.indexOf("}", at));
   };
   const tok = (body, name) => {
     const m = body.match(new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`));
     return m ? colorsIn(m[1])[0] : null;
   };
-  const dark = block(":root");
-  const light = block(':root[data-theme="light"]');
+  const dark = block(":root {");
+  const light = block(LIGHT_SEL);
   const themes = [
     ["dark", dark, ["bg-0", "bg-1", "bg-2", "bg-3"]],
     ["light", light, ["bg-0", "bg-1", "bg-2", "bg-3", "bg-elevated"]],
