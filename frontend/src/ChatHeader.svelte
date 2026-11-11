@@ -39,6 +39,7 @@
   // tip's text unless the tip needs richer wording than the label.
   import { tooltip } from "./lib/tooltip.js";
   import { fitText } from "./lib/fittext.js";
+  import { insp } from "./lib/inspector.svelte.js";
 
   let { onJoinVoice, onLeaveVoice } = $props();
 
@@ -141,6 +142,15 @@
   const narrow = $derived(headW <= 640);
   const stub = $derived(headW <= 460);
   const packed = $derived(headW <= 380);
+
+  // Pins, one click from the header again, while the window is wide enough
+  // for it to be the fifth control at most; below that it is a row in ⋯.
+  let winW = $state(window.innerWidth);
+  const showPins = $derived(winW >= 1024 && !packed);
+  function openPins() {
+    insp.tab = "pins";
+    if (!S.prefs.memberPanel) setPref("memberPanel", true);
+  }
   const callLabel = $derived(S.voice ? channelShort(S.voice.channelId) : "");
 
   async function showInvite() {
@@ -167,6 +177,8 @@
   }
 
 </script>
+
+<svelte:window bind:innerWidth={winW} />
 
 <header
   class="chat-head"
@@ -347,6 +359,17 @@
       </button>
     {/if}
 
+    {#if ch && g?.kind !== "dm" && showPins}
+      <button
+        class="ghost iconbtn"
+        class:pin-active={S.prefs.memberPanel && insp.tab === "pins"}
+        use:tooltip={{ text: "Pinned messages" }}
+        aria-label="Pinned messages"
+        onclick={openPins}
+      >
+        <Icon name="pin" />
+      </button>
+    {/if}
     {#if ch && g?.kind !== "dm" && !packed}
       <!-- The inspector: members, pins, files and threads beside the
            conversation. People glyph + the member count; Ctrl+U as before. -->
@@ -424,6 +447,11 @@
         {#if !packed && ch && !g.dmNotes && !g.evicted && g.kind !== "dm" && g.kind !== "meeting" && ch.type !== "voice" && !S.voice && !peerInCall}
           <button class="menu-item" onclick={() => onJoinVoice()}>
             <Icon name="speaker" size={14} /> Start a call in this channel
+          </button>
+        {/if}
+        {#if ch && g.kind !== "dm" && !showPins}
+          <button class="menu-item" onclick={openPins}>
+            <Icon name="pin" size={14} /> Pinned messages
           </button>
         {/if}
         {#if ch}
