@@ -13,6 +13,7 @@
     memberByFpr,
     flash,
     clockOpts,
+    setPref,
   } from "./lib/state.svelte.js";
   import { removeChip, closeSearch, insertFilter, FILTERS } from "./lib/search.js";
   import { plainSnippet } from "./lib/snippet.js";
@@ -22,6 +23,31 @@
   // Results cover the whole feed; back closes them rather than the app.
   syncLayer("panel", () => open, closeSearch);
   const results = $derived(S.searchResults ?? []);
+  // Results grouped by the conversation they are in, in the order each
+  // conversation first appears: a flat list made the reader re-read the
+  // "#channel · guild" tag on every row to see where they were.
+  const groups = $derived.by(() => {
+    const by = new Map();
+    for (const m of results) {
+      if (!by.has(m.channelId)) by.set(m.channelId, []);
+      by.get(m.channelId).push(m);
+    }
+    return [...by.entries()].map(([channelId, hits]) => ({ channelId, where: whereFor(channelId), hits }));
+  });
+
+  // While results own the column, a docked inspector beside them is a third
+  // column about a conversation nobody is looking at: it steps aside and comes
+  // back when search closes.
+  let hidInspector = false;
+  $effect(() => {
+    if (open && !hidInspector && S.prefs.memberPanel && !S.isMobile) {
+      hidInspector = true;
+      setPref("memberPanel", false);
+    } else if (!open && hidInspector) {
+      hidInspector = false;
+      setPref("memberPanel", true);
+    }
+  });
   // The archive pass. It is a separate store with separate coverage, so it gets
   // its own section and its own sentence about what it actually looked at —
   // see SearchChronicle. Absent when the guild has no archive at all.
@@ -181,9 +207,6 @@
       >
         {arc ? "conversations + archive" : "all conversations"}
       </span>
-      <button class="sp-close" aria-label="Close search" title="Close search" onclick={() => closeSearch()}>
-        <Icon name="close" size={11} />
-      </button>
     </div>
 
     <!-- The operator vocabulary, clickable. It used to live in a native title=
@@ -193,9 +216,7 @@
     <div class="sp-syntax">
       <span class="sp-syntax-lead">Narrow it</span>
       {#each FILTERS as f (f.prefix)}
-        <button class="sp-add" onclick={() => insertFilter(f.prefix)}>
-          <code>{f.prefix}</code><span class="sp-add-hint">{f.hint}</span>
-        </button>
+        <button class="sp-add" title="Types {f.prefix}" onclick={() => insertFilter(f.prefix)}>{f.label}</button>
       {/each}
     </div>
 
@@ -227,9 +248,10 @@
           </div>
         {/each}
       {:else}
-        {#each results as m (m.id)}
+        {#each groups as grp (grp.channelId)}
+          <div class="sp-group"><Icon name={grp.where.icon} size={13} /><span>{grp.where.label}</span></div>
+          {#each grp.hits as m (m.id)}
           {@const mem = memberByFpr(m.sender)}
-          {@const where = whereFor(m.channelId)}
           <button class="sp-hit" onclick={() => openResult(m)} title="Jump to message">
             <Avatar
               name={m.senderName || m.sender.slice(0, 2)}
@@ -241,7 +263,6 @@
             <span class="sp-body">
               <span class="sp-meta">
                 <strong>{m.senderName || m.sender.slice(0, 9)}</strong>
-                <span class="sp-where"><Icon name={where.icon} size={10} />{where.label}</span>
                 <span class="sp-time">{fmtTime(m.sent)}</span>
               </span>
               <span class="sp-text">
@@ -249,6 +270,7 @@
               </span>
             </span>
           </button>
+          {/each}
         {:else}
           {#if !arcHits.length}
             <div class="sp-empty">
@@ -360,18 +382,8 @@
     letter-spacing: 0.03em;
     white-space: nowrap;
   }
-  .sp-close {
-    padding: 3px 6px;
-    background: transparent;
-    color: var(--text-muted);
-    display: grid;
-    place-items: center;
-    border-radius: var(--radius-sm);
-  }
-  .sp-close:hover {
-    background: var(--bg-3);
-    color: var(--text);
-  }
+
+
   .sp-chips {
     display: flex;
     flex-wrap: wrap;
@@ -407,23 +419,28 @@
       border-color var(--dur-quick) ease,
       color var(--dur-quick) ease;
   }
-  .sp-add code {
-    font-family: ui-monospace, monospace;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .sp-add-hint {
-    font-size: var(--fs-tiny);
-    color: var(--text-faint);
-  }
   .sp-add:hover,
   .sp-add:focus-visible {
     border-color: var(--text-faint);
     color: var(--text);
   }
-  .sp-add:hover code,
-  .sp-add:focus-visible code {
-    color: var(--accent-hover);
+  /* A conversation's results sit under one header, 32px, like the inbox. */
+  .sp-group {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    height: 32px;
+    padding: 0 var(--sp-3);
+    margin-top: var(--sp-2);
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .sp-group span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .sp-chip {
     display: inline-flex;
@@ -662,10 +679,6 @@
   @media (max-width: 768px) {
     .sp-hit {
       padding: 10px 8px;
-      min-height: var(--tap-min);
-    }
-    .sp-close {
-      min-width: var(--tap-min);
       min-height: var(--tap-min);
     }
     .sp-scope {

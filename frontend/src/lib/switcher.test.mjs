@@ -63,5 +63,24 @@ assert(JSON.stringify(fuzzy("Lantern Makers", "ma").idx) === "[8,9]", "a word st
 assert(JSON.stringify(fuzzy("brainstorm", "bstm").idx) === "[0,5,6,9]", "scattered letters still match");
 assert(fuzzy("general", "general").score < fuzzy("general-chat", "general").score, "the whole name ranks first");
 assert(fuzzy("help-desk", "desk").score < fuzzy("deskside", "desk").score + 1000, "word start found after a hyphen");
+// Scattered letters stay in a word or jump to word starts — never mid-word elsewhere.
+assert(fuzzy("Join with an invite code", "wo") === null, "wo must not match w(ith) + (c)o(de)");
+assert(fuzzy("Can people reach me?", "app") === null, "app must not match across mid-word letters");
+assert(JSON.stringify(fuzzy("Your calendar", "yc").idx) === "[0,5]", "initials across word starts match");
+// A run beats scatter: with a run on offer, scattered matches are not listed.
+{
+  const r = rank([{ label: "workshop" }, { label: "wobbly-pots" }, { label: "wide orbit" }], "wo", 8).map((x) => x.label);
+  assert(r.includes("workshop") && r.includes("wobbly-pots") && !r.includes("wide orbit"), `runs only when there are runs: ${r}`);
+}
 assert(fuzzy("abc", "x") === null, "no match is null");
 console.log("switcher highlight ok");
+
+// A forum post is listed as a post, with the forum glyph, not as a "#" channel.
+{
+  const ds = buildDests([{ id: "g1", name: "G", channels: [{ id: "f", name: "ideas", type: "forum" }, { id: "p", name: "Seven-point star", type: "text", parent: "f" }] }]);
+  const post = ds.find((d) => d.channelId === "p");
+  if (post.icon !== "forum" || !/^post in ideas/.test(post.sub)) {
+    console.error("FAIL: a post is typed as a post", post.icon, post.sub);
+    process.exitCode = 1;
+  }
+}

@@ -32,13 +32,19 @@ export function buildDests(guilds, people = [], self = "") {
   for (const g of guilds || []) {
     if (g.kind === "dm") {
       if (g.dmPeer) dmWith.add(g.dmPeer);
-      out.push({ kind: "dm", key: `dm:${g.id}`, label: g.name, sub: "direct message", g, channelId: g.channels?.[0]?.id || "", icon: "edit" });
+      out.push({ kind: "dm", key: `dm:${g.id}`, label: g.name, sub: g.dmNotes ? "only you" : (g.dmMembers ?? 2) > 2 ? "group" : "direct message", g, channelId: g.channels?.[0]?.id || "", icon: g.dmNotes ? "edit" : "user" });
       continue;
     }
     out.push({ kind: "guild", key: `g:${g.id}`, label: g.name, sub: "guild", g, icon: "diamond" });
+    const byId = new Map((g.channels || []).map((c) => [c.id, c]));
     for (const c of g.channels || []) {
-      const icon = c.type === "voice" ? "speaker" : c.type === "announcement" ? "megaphone" : "hash";
-      out.push({ kind: "channel", key: `c:${c.id}`, label: c.name, sub: g.name, c, g, channelId: c.id, icon });
+      // A forum post is a channel under its forum: it wears the forum glyph and
+      // says where it lives, not a "#" that reads as a channel of its own.
+      const parent = c.parent ? byId.get(c.parent) : null;
+      const post = parent?.type === "forum";
+      const icon = post ? "forum" : c.type === "voice" ? "speaker" : c.type === "announcement" ? "megaphone" : c.type === "forum" ? "forum" : "hash";
+      const sub = post ? `post in ${parent.name} · ${g.name}` : parent ? `thread in #${parent.name} · ${g.name}` : g.name;
+      out.push({ kind: "channel", key: `c:${c.id}`, label: c.name, sub, c, g, channelId: c.id, icon });
     }
   }
   // People you have no one-to-one DM with yet: picking one opens (creates) it.
@@ -47,7 +53,7 @@ export function buildDests(guilds, people = [], self = "") {
     const fpr = p?.fingerprint;
     if (!fpr || fpr === self || dmWith.has(fpr) || seen.has(fpr) || !p.name) continue;
     seen.add(fpr);
-    out.push({ kind: "person", key: `p:${fpr}`, label: p.name, sub: "start a direct message", fpr, icon: "user" });
+    out.push({ kind: "person", key: `p:${fpr}`, label: p.name, sub: "start a direct message", fpr, icon: "user", avatar: p.avatar || "", color: p.color || "", emoji: p.emoji || "" });
   }
   return out;
 }
@@ -98,11 +104,26 @@ export function fuzzy(text, q) {
   }
   const at = lower.indexOf(q);
   if (at >= 0) return { score: -200 + at * 0.5 + tail, idx: run(at) };
+  // Scattered letters start at the start of a word and may stay inside it, or
+  // jump to the START of a later word — never land mid-way through another. Without that, "wo"
+  // matched "Join With an invite cOde" and "app" lit three letters across
+  // "Can people reach me?", ranking nonsense and highlighting it.
+  const isStart = (i) => i === 0 || WORD_EDGE.test(lower[i - 1]);
+  const sameWord = (a, b) => {
+    for (let i = a + 1; i <= b; i++) if (WORD_EDGE.test(lower[i])) return false;
+    return true;
+  };
   let ti = 0;
   let score = 0;
   const idx = [];
   for (const c of q) {
-    const found = lower.indexOf(c, ti);
+    let found = -1;
+    for (let i = lower.indexOf(c, ti); i >= 0; i = lower.indexOf(c, i + 1)) {
+      if (!idx.length ? isStart(i) : sameWord(idx[idx.length - 1], i) || isStart(i)) {
+        found = i;
+        break;
+      }
+    }
     if (found < 0) return null;
     score += found - ti;
     idx.push(found);
@@ -112,10 +133,14 @@ export function fuzzy(text, q) {
   return { score: score + (idx[0] || 0) * 0.5 + tail, idx };
 }
 
+// When anything matches the query as a run (whole name, a word start, or a
+// run inside a word), scattered-letter matches are noise beside it and are
+// dropped; they only fill a list that has nothing better.
 export function rank(list, q, cap) {
-  return list
-    .map((i) => ({ i, m: fuzzy(i.label, q) }))
-    .filter((x) => x.m)
+  const hits = list.map((i) => ({ i, m: fuzzy(i.label, q) })).filter((x) => x.m);
+  const anyRun = hits.some((x) => x.m.score < -100);
+  return hits
+    .filter((x) => !anyRun || x.m.score < -100)
     .sort((a, b) => a.m.score - b.m.score)
     .slice(0, cap)
     .map((x) => ({ ...x.i, idx: x.m.idx, score: x.m.score }));

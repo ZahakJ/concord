@@ -77,12 +77,13 @@ export function matchFilters(m, f) {
 // attribute. The panel renders one chip per entry and clicking it types the
 // prefix for you — which is the only form of this documentation a phone user
 // has ever been able to reach, native tooltips having no touch equivalent.
+// `label` is what the chip says, in words; the prefix it types is the tooltip.
 export const FILTERS = [
-  { prefix: "from:", hint: "a person" },
-  { prefix: "in:#", hint: "a channel" },
-  { prefix: "has:", hint: "link, image, file" },
-  { prefix: "before:", hint: "YYYY-MM-DD" },
-  { prefix: "after:", hint: "YYYY-MM-DD" },
+  { prefix: "from:", label: "From a person", hint: "a person" },
+  { prefix: "in:#", label: "In a channel", hint: "a channel" },
+  { prefix: "has:", label: "Has a link or file", hint: "link, image, file" },
+  { prefix: "before:", label: "Before a date", hint: "YYYY-MM-DD" },
+  { prefix: "after:", label: "After a date", hint: "YYYY-MM-DD" },
 ];
 
 // The live input, so a chip click can put the caret back where the typing is.

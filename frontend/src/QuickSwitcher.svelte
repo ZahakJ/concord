@@ -5,6 +5,8 @@
   import Icon from "./Icon.svelte";
   import Kbd from "./Kbd.svelte";
   import Badge from "./Badge.svelte";
+  import Avatar from "./Avatar.svelte";
+  import GroupAvatar from "./GroupAvatar.svelte";
   import {
     S,
     jumpToChannel,
@@ -43,7 +45,7 @@
     .catch(() => {});
   const people = $derived([
     ...contacts,
-    ...S.members.map((m) => ({ fingerprint: m.fingerprint, name: m.name })),
+    ...S.members.map((m) => ({ fingerprint: m.fingerprint, name: m.name, avatar: m.avatar, color: m.color, emoji: m.emoji })),
   ]);
 
   // Stable ids for aria-activedescendant.
@@ -225,8 +227,19 @@
     tabindex="-1"
     onclick={() => go(item)}
   >
+    <!-- The leading slot says what the row IS: a face for a person or a
+         conversation with one, a group's faces for a group, a glyph for
+         places and actions. A pencil on a person read as "edit". -->
     <span class="hit-icon">
-      <Icon name={item.icon} size={16} />
+      {#if item.kind === "dm" && (item.g.dmMembers ?? 2) > 2}
+        <GroupAvatar faces={item.g.dmFaces || []} size={20} />
+      {:else if item.kind === "dm" && !item.g.dmNotes}
+        <Avatar name={item.label} image={item.g.dmPeerAvatar || item.g.dmFaces?.[0]?.avatar || item.g.icon} size={20} />
+      {:else if item.kind === "person"}
+        <Avatar name={item.label} image={item.avatar || ""} color={item.color || ""} emoji={item.emoji || ""} size={20} />
+      {:else}
+        <Icon name={item.icon} size={16} />
+      {/if}
     </span>
     <span class="hit-label">
       {#if item.parts}
