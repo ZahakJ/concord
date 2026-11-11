@@ -348,7 +348,9 @@
   .search-panel {
     position: absolute;
     inset: 0;
-    z-index: 4;
+    /* Over the covered view, which the shells isolate into one stacking
+       context (.pane-view) so nothing inside it can outbid this. */
+    z-index: var(--z-raised);
     border-bottom: 1px solid var(--border);
     /* Opaque, which is the whole point of the paragraph above — and --bg-1 is
        not, on the packs that let a live backdrop through. */
@@ -690,10 +692,24 @@
     .sp-chips {
       gap: var(--sp-2);
     }
+    /* One row that scrolls sideways: five thumb-height pills wrapped onto two
+       rows took a fifth of the screen before the first result. */
+    .sp-syntax {
+      flex: none;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .sp-syntax-lead {
+      flex: none;
+    }
     .sp-add {
+      flex: none;
+      align-items: center;
       min-height: var(--tap-min);
       padding: 0 12px;
       font-size: var(--fs-ui);
+      white-space: nowrap;
     }
     .sp-chip {
       min-height: 40px;

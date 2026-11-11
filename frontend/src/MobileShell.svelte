@@ -105,6 +105,9 @@
   // The panel presentation, mirroring App.svelte: a post slides in over the
   // board, which stays mounted behind it.
   const postObj = $derived(activeChannelObj?.parent ? activeChannelObj : null);
+  // The search results are covering the conversation column (SearchPanel draws
+  // whenever any of these is set).
+  const searchCovers = $derived(!!searchTakeover.C && (S.searchResults !== null || S.searchLoading || !!S.searchHint));
   const boardObj = $derived(
     activeChannelObj?.type === "forum"
       ? activeChannelObj
@@ -869,6 +872,9 @@
             </div>
           {/if}
           <div class="pane-body">
+            <!-- The covered view in its own stacking context, under the search
+                 results: see the desktop shell. -->
+            <div class="pane-view" inert={searchCovers}>
             {#if boardObj && forumBoard.C}
               {@const ForumView = forumBoard.C}
               <ForumView forum={boardObj} />
@@ -888,6 +894,7 @@
                 <Composer bind:this={composer} />
               </div>
             {/if}
+            </div>
             {#if searchTakeover.C}
               {@const SearchPanel = searchTakeover.C}
               <SearchPanel />
@@ -1314,6 +1321,14 @@
     flex: 1;
     min-height: 0;
   }
+  .pane-view {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
   .feedwrap {
     display: flex;
     flex-direction: column;
@@ -1327,8 +1342,8 @@
     inset: 0;
     /* Above everything the board paints, including its own sticky toolbar and
        floating controls — a panel that a search field shows through is not a
-       panel. The pane isolates so this number stays local. */
-    z-index: 60;
+       panel. .pane-view isolates so this stays local. */
+    z-index: var(--z-raised);
     background: var(--bg-1);
     animation: post-in 0.32s var(--ease-spring) both;
   }

@@ -296,6 +296,9 @@
   // slides in over the board, which stays mounted behind it as the thing the
   // channel actually is.
   const postObj = $derived(activeChannelObj?.parent ? activeChannelObj : null);
+  // The search results are covering the conversation column (SearchPanel draws
+  // whenever any of these is set).
+  const searchCovers = $derived(!!searchTakeover.C && (S.searchResults !== null || S.searchLoading || !!S.searchHint));
   // The face to leave behind the panel. Only a FORUM has one: a thread started
   // from a message in a text channel has a parent that is itself a feed, and
   // there is exactly one MessageList — so that case gets the panel's chrome
@@ -1935,6 +1938,15 @@
              the feed keeps its scroll position because it is still mounted and
              still laid out — merely behind. -->
         <div class="pane-body">
+          <!-- The covered view is a stacking context of its own, under the
+               results. Without it every layer the view draws for itself — a
+               forum board's sticky toolbar, a post's panel over its board —
+               competed with the results panel number for number, and the
+               toolbar won: the filters and the first results were painted
+               underneath it, visible and out of reach. Inert for the same
+               reason as the feed below it used to be: Tab must not walk into
+               a page nobody can see. -->
+          <div class="pane-view" inert={searchCovers}>
           {#if boardObj && forumBoard.C}
             {@const ForumView = forumBoard.C}
             <ForumView forum={boardObj} />
@@ -1945,13 +1957,12 @@
                  its scroll position and its state because it is still mounted,
                  which is the whole reason the post is a layer over it rather
                  than a navigation away from it. -->
-            <!-- Inert while the search results cover it: still mounted (see
-                 above), but Tab used to walk from the search box into the
-                 hidden feed, popping a message toolbar over the results and
-                 putting Enter on a message nobody could see. -->
+            <!-- Inert while the search results cover it (on .pane-view): still
+                 mounted (see above), but Tab used to walk from the search box
+                 into the hidden feed, popping a message toolbar over the
+                 results and putting Enter on a message nobody could see. -->
             <div
               class="feedwrap"
-              inert={!!searchTakeover.C && (S.searchResults !== null || S.searchLoading || !!S.searchHint)}
               class:aspanel={!!postObj}
               class:overboard={!!boardObj}
               class:beside={!!boardObj && !S.narrow && !S.isMobile}
@@ -1964,6 +1975,7 @@
               <Composer bind:this={composer} />
             </div>
           {/if}
+          </div>
           {#if searchTakeover.C}
             {@const SearchPanel = searchTakeover.C}
             <SearchPanel />
@@ -3009,6 +3021,17 @@
     min-width: 0;
     overflow-y: auto;
   }
+  /* Everything the search results cover, in one stacking context below them
+     (see the markup). Positioned, so a post's panel still covers exactly this
+     box. */
+  .pane-view {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
   /* The feed's own column. In the ordinary case it is simply the pane. */
   .feedwrap {
     display: flex;
@@ -3024,8 +3047,8 @@
     inset: 0;
     /* Above everything the board paints, including its own sticky toolbar and
        floating controls — a panel that a search field shows through is not a
-       panel. The pane isolates so this number stays local. */
-    z-index: 60;
+       panel. .pane-view isolates so this stays local. */
+    z-index: var(--z-raised);
     background: var(--bg-1);
     animation: post-in 0.34s var(--ease-spring) both;
   }
