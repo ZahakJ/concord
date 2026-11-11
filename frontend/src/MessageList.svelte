@@ -1028,6 +1028,16 @@
   function onFeedFocusIn(e) {
     const el = e.target?.closest?.("[data-msg-id]");
     if (el) focusKey = el.dataset.msgId;
+    barSrc = "focus";
+  }
+
+  // One action bar at a time. A row shows its bar while hovered AND while it
+  // holds focus, so a focused row (Escape out of the composer lands on one)
+  // plus the row under the pointer drew two bars at once. Whichever moved last
+  // — the pointer or the focus — owns the bar; Message.svelte hides the other.
+  let barSrc = $state("hover");
+  function onFeedPointerOver(e) {
+    if (e.pointerType !== "touch") barSrc = "hover";
   }
 
   // The tab stop is chosen from the RENDERED rows, not from the whole thread,
@@ -1455,6 +1465,8 @@
   use:feedTabs
   onkeydown={onFeedKeydown}
   onfocusin={onFeedFocusIn}
+  onpointerover={onFeedPointerOver}
+  data-bar-src={barSrc}
   ondragenter={onDragEnter}
   ondragleave={onDragLeave}
   ondragover={(e) => e.preventDefault()}

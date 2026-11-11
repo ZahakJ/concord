@@ -374,9 +374,19 @@ export function installShortcuts() {
       // focus always is. Leaving the box now falls through to them, and it
       // leaves to the message feed's own tab stop rather than to <body>, which
       // put the next Tab back at the top of the document.
+      //
+      // But not on the press that marks the channel read: that one is about
+      // the channel, and moving focus into the feed with it parked a ring and
+      // a second action bar on the last row. With unread messages the first
+      // Escape marks them read and leaves the caret where it was; the next one
+      // (nothing left to mark) steps out.
       const el = document.activeElement;
       if (el?.classList?.contains("draft") && !el.value) {
         e.preventDefault();
+        if (!e.shiftKey && S.activeChannelId && S.unread[S.activeChannelId]) {
+          markRead(S.activeChannelId);
+          return;
+        }
         if (!focusFeed()) el.blur();
       } else if (inputFocused()) return;
       // A forum post is a PLACE, not a layer — navstack is explicit that a

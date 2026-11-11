@@ -1889,8 +1889,12 @@
        row's text under the text of the row that names its author, so it cannot
        simply grow. The 12-hour clock used to wrap its meridiem onto a second
        line inside it and make the row taller on hover; dropping the leading
-       zero (see fmtClock) is what makes "7:28 PM" fit, and nowrap is what makes
-       any remaining overhang hang into the feed's own gutter instead. */
+       zero (see fmtClock) is what makes "7:28 PM" fit. "12:49 PM" still does
+       not, and right-aligned text that overflows spills to the RIGHT — into
+       the message's first word. A flex box packed to its end overflows at its
+       start instead, so the overhang goes left into the feed's own gutter. */
+    display: flex;
+    justify-content: flex-end;
     width: var(--av);
     font-size: var(--fs-tiny);
     color: var(--text-faint);
@@ -2745,6 +2749,13 @@
     opacity: 1;
     visibility: visible;
     transition: none;
+  }
+  /* …but only one of them: the pointer's row or the focused row, whichever
+     moved last (MessageList's data-bar-src). An open menu keeps its row's bar. */
+  :global(.feed[data-bar-src="hover"]) .msg:focus-within:not(:hover):not(:global([data-menu-target])) .msg-actions,
+  :global(.feed[data-bar-src="focus"]) .msg:hover:not(:focus-within):not(:global([data-menu-target])) .msg-actions {
+    opacity: 0;
+    visibility: hidden;
   }
   .msg-actions .shift-only {
     display: none;
