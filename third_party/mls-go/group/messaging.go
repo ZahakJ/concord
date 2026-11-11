@@ -306,3 +306,22 @@ func (g *Group) ReceiveApplicationMessage(pm *framing.PrivateMessage) (plaintext
 	}
 	return data, ac.Content.AuthenticatedData, senderLeafIdx, nil
 }
+
+// Concord addition. TakePastSecrets moves the current epoch's out-of-order decryption window out
+// of the group, for a caller about to discard this in-memory copy. See
+// secrettree.PastSecrets.
+func (g *Group) TakePastSecrets(dropConsumed bool) *secrettree.PastSecrets {
+	if g == nil || g.secretTree == nil {
+		return nil
+	}
+	return g.secretTree.TakePastSecrets(dropConsumed)
+}
+
+// AdoptPastSecrets restores a window taken from an earlier copy of this group.
+// A window from another epoch is ignored.
+func (g *Group) AdoptPastSecrets(p *secrettree.PastSecrets) {
+	if g == nil || g.secretTree == nil {
+		return
+	}
+	g.secretTree.AdoptPastSecrets(p)
+}
