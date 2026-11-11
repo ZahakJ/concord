@@ -574,11 +574,36 @@ func (n *Host) registerConnEvents() {
 		},
 		DisconnectedF: func(net network.Network, c network.Conn) {
 			p := c.RemotePeer()
-			if len(net.ConnsToPeer(p)) == 0 && n.markDisconnected(p) {
+			if n.connClosed(p, func() int { return len(net.ConnsToPeer(p)) }) {
 				n.fire(n.disconnectedCallbacks(), p)
 			}
 		},
 	})
+}
+
+// connClosed handles one connection to p going away, reporting whether it was
+// the last one and the peer had been announced — i.e. whether upper layers
+// should hear that p disconnected.
+//
+// The count of remaining connections is read under the same lock that
+// markConnectedFor takes. It used to be read before taking it, which left a
+// window: a new connection could land between the count ("none left") and the
+// forget, find the peer still marked, and go unannounced, and the forget then
+// erased the mark while that connection was up. Upper layers were told the
+// peer had gone while it was connected, and when that connection did close
+// they were told nothing, because the peer was no longer marked. Whatever they
+// keep per connection (the hello claims, presence) stayed stuck until some
+// later connection came and went: an unlinked phone that redialled at once was
+// never told it had been unlinked.
+func (n *Host) connClosed(p peer.ID, conns func() int) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if conns() > 0 {
+		return false
+	}
+	was := n.connected[p]
+	delete(n.connected, p)
+	return was
 }
 
 // markConnected records p as connected, reporting whether this is the first
@@ -601,16 +626,6 @@ func (n *Host) markConnectedFor(p peer.ID) (bool, []func(peer.ID)) {
 	}
 	n.connected[p] = true
 	return true, append([]func(peer.ID){}, n.onConnected...)
-}
-
-// markDisconnected forgets p, reporting whether it had been announced — a
-// disconnect for a peer nobody heard connect must stay silent.
-func (n *Host) markDisconnected(p peer.ID) bool {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	was := n.connected[p]
-	delete(n.connected, p)
-	return was
 }
 
 // Connect dials a peer by its address info. Used by discovery and by
@@ -766,6 +781,11 @@ func (n *Host) LimitedOnly(p peer.ID) bool {
 		}
 	}
 	return true
+}
+
+// HasConnection reports whether any connection to p is open right now.
+func (n *Host) HasConnection(p peer.ID) bool {
+	return len(n.h.Network().ConnsToPeer(p)) > 0
 }
 
 // Host exposes the underlying libp2p host for sibling layers (pubsub, media
