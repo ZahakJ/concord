@@ -10,7 +10,7 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import { S, memberByFpr } from "./lib/state.svelte.js";
-  import { renderMarkdown } from "./lib/markdown.js";
+  import { renderMarkdown, emojiOnly } from "./lib/markdown.js";
   import { previewText } from "./lib/attachments.js";
   import { stripEphemeral } from "./lib/ephemeral.svelte.js";
   import { stripTimestamp } from "./lib/timestamp.js";
@@ -47,6 +47,9 @@
   // Deliberately no mention table and no link previews: a row that is not a
   // message yet must not ping anybody or fetch anything on its behalf.
   const html = $derived(bodyText ? renderMarkdown(bodyText, [], null, null) : "");
+  // The feed draws an emoji-only message jumbo; so does this row, or the
+  // emoji would jump in size the moment the message is stored.
+  const jumbo = $derived(!!bodyText && emojiOnly(bodyText));
 </script>
 
 <div class="pmsg" class:compact={!first} class:failed role="article" aria-busy={!failed} style:--av="{avSize}px">
@@ -90,7 +93,7 @@
       </div>
     {:else if html}
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-      <div class="pbody">{@html html}</div>
+      <div class="pbody" class:jumbo>{@html html}</div>
     {:else}
       <div class="pbody muted">{previewText(entry.body || "")}</div>
     {/if}
@@ -179,6 +182,19 @@
   .pbody {
     word-break: break-word;
     white-space: pre-wrap;
+  }
+  /* Message.svelte's sizes, so promotion to a stored row changes nothing. */
+  .pbody :global(img.emoji) {
+    margin: 0 0.5px;
+  }
+  .pbody.jumbo :global(img.emoji) {
+    width: 3em;
+    height: 3em;
+    vertical-align: bottom;
+    margin: 0 1.5px;
+  }
+  .pbody.jumbo :global(img.cemoji) {
+    height: 2.6em;
   }
   .patt img {
     max-width: 220px;

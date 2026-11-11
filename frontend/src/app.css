@@ -907,6 +907,26 @@
    component's own (0,3,0) `.msg:hover` / `.avatar` rules deterministically,
    whichever order the bundler emits the stylesheets in. */
 
+/* Every emoji the markdown renderer draws is an <img> of a twemoji SVG, which
+   carries a viewBox and no size of its own. Wherever no component sized it,
+   the browser stretched it to the width of its container: the pending row a
+   message sits in for a frame or two between Send and the core storing it
+   painted a single 😀 1080px wide over the feed. A line-height-sized emoji is
+   the floor everywhere; components that want another size still win (zero
+   specificity). */
+:where(img.emoji) {
+  width: 1.375em;
+  height: 1.375em;
+  vertical-align: -0.3em;
+  object-fit: contain;
+}
+:where(img.cemoji) {
+  width: auto;
+  height: 1.375em;
+  vertical-align: -0.2em;
+  object-fit: contain;
+}
+
 /* Avatar silhouette. Ringed avatars keep their circle — ring art is drawn as a
    disc, and a disc around a square reads as a rendering bug. Avatar.svelte sets
    .ringed for a gradient ring (lib/rings.js) and for a worn decoration that
