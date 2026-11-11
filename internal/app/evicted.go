@@ -209,6 +209,14 @@ func (s *Service) noteEvictionRefusal(guildID, refusal string) {
 	}
 }
 
+// isEvictionRefusal reports whether a refusal is one of the two that
+// noteEvictionRefusal records: a verdict about us rather than about the peer
+// we asked.
+func isEvictionRefusal(refusal string) bool {
+	r := strings.TrimSpace(refusal)
+	return r == bannedRefusal || r == removedRefusal
+}
+
 // commitEvictsUs reports whether a commit we are about to fail to apply is the
 // commit that threw us out — read from its own Remove proposals against the
 // roster we still hold. Every one of our leaves counts: a linked device is a

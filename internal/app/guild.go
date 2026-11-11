@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -59,6 +60,14 @@ type inviteRequest struct {
 	// RE-added, and an account the guild never added has nothing to be re-added
 	// to. Older committers ignore the field and answer as they always did.
 	Heal bool `json:"heal,omitempty"`
+	// Probe marks a code pasted by a device that believes it is already a
+	// seated member. It is a question ("am I still in?"), not a request to be
+	// added: a committer that finds the sender's leaf live in its tree answers
+	// Member and commits nothing. It must still carry a real KeyPackage, because
+	// an older committer ignores the field and serves the probe as the join it
+	// looks like, removing the live leaf and re-adding it; without a key package
+	// that re-add would fail after the removal and leave the sender out.
+	Probe bool `json:"probe,omitempty"`
 }
 
 // inviteResponse is returned by the owner over the invite stream. Profiles is
@@ -69,6 +78,10 @@ type inviteResponse struct {
 	Guild    domain.Guild       `json:"guild"`
 	Profiles map[string]Profile `json:"profiles,omitempty"`
 	Error    string             `json:"error,omitempty"`
+	// Member answers a Probe whose sender's leaf is live: nothing was
+	// committed and there is no Welcome. Only ever sent in reply to a Probe,
+	// which older joiners never send.
+	Member bool `json:"member,omitempty"`
 }
 
 // The two refusals that mean "you are not a member and asking again will not
@@ -892,12 +905,15 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	// declines the redundant case entirely.
 	release := s.claimJoin(ic.GuildID)
 	defer release()
-	// Already a healthy member: there is nothing for the owner to judge, and
-	// asking anyway removed our live leaf, re-added it, and posted a second
-	// "has joined the guild" to everyone. Kicked, banned or stranded members
-	// still go through, because those are the cases the owner does judge.
+	// Believing we are a healthy member is not knowing it: a ban or kick lands
+	// on our device only when its commit or op arrives, and a code pasted in
+	// between used to be told "joined" while the guild had already put us out.
+	// So we still ask, but as a probe: a committer that holds our leaf answers
+	// "already a member" without a commit (asking as a plain join removed our
+	// live leaf, re-added it, and posted a second "has joined the guild"), and
+	// one that has us banned or removed says so.
 	if g, ok := s.healthyMembership(ic.GuildID); ok {
-		return g, nil
+		return s.redeemInvite(ic, &g)
 	}
 	return s.joinViaInviteLocked(ic)
 }
@@ -1030,6 +1046,16 @@ func (s *Service) JoinLinkedInvite(code string) {
 // joinViaInviteLocked is the join proper; the caller holds the guild's join
 // lock (claimJoin).
 func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
+	return s.redeemInvite(ic, nil)
+}
+
+// redeemInvite asks the code's inviter to admit us. held is the guild when
+// this device believes it is already a healthy member: the request then goes
+// as a Probe, and every answer that is not a verdict about us (unreachable,
+// "catching up", "not authorized", unknown guild) leaves us holding what we
+// held. Caller holds the guild's join lock.
+func (s *Service) redeemInvite(ic inviteCode, held *domain.Guild) (domain.Guild, error) {
+	probe := held != nil
 	// Adopt any rendezvous nodes carried by the invite: persist them for future
 	// restarts (DHT bootstrap) and connect to them right now so relayed dials
 	// to a NAT'd owner can resolve during this session.
@@ -1048,7 +1074,7 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	}
 	reqBytes, _ := json.Marshal(inviteRequest{
 		GuildID: ic.GuildID, KeyPackage: kp, Credential: s.myCredential,
-		Profile: s.selfWireProfile(),
+		Profile: s.selfWireProfile(), Probe: probe,
 	})
 
 	// Generous timeout: a relayed/hole-punched dial to a NAT'd owner can take a
@@ -1057,18 +1083,44 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	defer cancel()
 	respBytes, err := s.host.RequestInvite(dialCtx, owner, reqBytes)
 	if err != nil {
+		if probe {
+			return *held, nil
+		}
 		return domain.Guild{}, err
 	}
 	var resp inviteResponse
 	if err := json.Unmarshal(respBytes, &resp); err != nil {
+		if probe {
+			return *held, nil
+		}
 		return domain.Guild{}, fmt.Errorf("app: bad invite response: %w", err)
 	}
+	if probe && resp.Member && resp.Error == "" {
+		return *held, nil
+	}
 	if resp.Error != "" {
+		verdict := isEvictionRefusal(resp.Error)
+		if probe && !verdict {
+			return *held, nil
+		}
 		// A refusal that names moderation is also the guild telling us where we
 		// stand, so record it: pasting the code again is exactly what someone
 		// does when the app has not said why nothing works.
 		s.noteEvictionRefusal(ic.GuildID, resp.Error)
 		return domain.Guild{}, fmt.Errorf("app: invite rejected: %s", resp.Error)
+	}
+	if probe && len(resp.Welcome) == 0 {
+		return *held, nil
+	}
+	if probe {
+		// A Welcome in reply to a probe means the committer re-seated us: an
+		// older build that does not know the probe (it has already removed our
+		// leaf and re-added it, two commits nothing can take back now), or one
+		// whose tree did not hold our leaf. Either way our old leaf may be gone,
+		// so the Welcome must be joined exactly as a join's would be; all that
+		// is spared is the second "has joined the guild", since we were in the
+		// guild as far as we knew a moment ago.
+		log.Printf("concord/app: guild %s: the inviter re-seated us in reply to a membership probe", ic.GuildID)
 	}
 
 	if _, err := s.mls.Join(s.ctx, resp.Welcome); err != nil {
@@ -1111,7 +1163,7 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	// When this is an additional DEVICE of an account already in the guild (device
 	// linking), the account has another leaf here already, so stay quiet rather
 	// than posting a bogus "joined the guild" for a member who never left.
-	if len(g.Channels) > 0 && s.accountLeafCount(g.GroupID) <= 1 {
+	if !probe && len(g.Channels) > 0 && s.accountLeafCount(g.GroupID) <= 1 {
 		if line := joinSystemLine(g); line != "" {
 			s.sendSystem(g.Channels[0].ID, line)
 		}
@@ -1236,6 +1288,13 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	if req.Heal && len(req.Credential) > 0 && !s.guildHasMember(req.GuildID, accountFingerprintOf(req.Credential)) {
 		return json.Marshal(inviteResponse{Error: unseatedRefusal})
 	}
+	// A probe from a device whose leaf our tree still holds, past every refusal
+	// above: it is in, and saying so is the whole answer. Serving it as a join
+	// would find the key package refused (the leaf is already there), remove
+	// the live leaf, re-add it, and have the device announce a second arrival.
+	if req.Probe && !ignoreProbes.Load() && len(req.Credential) > 0 && s.leafIsLive(g.GroupID, req.Credential) {
+		return json.Marshal(inviteResponse{Guild: *g, Member: true})
+	}
 
 	// Queue behind whatever admission is in flight and ride its successor's
 	// commit. One joiner at an idle guild is committed immediately; a wave
@@ -1248,6 +1307,26 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	return json.Marshal(inviteResponse{
 		Welcome: welcome, Guild: *g, Profiles: s.joinRoster(req.GuildID),
 	})
+}
+
+// ignoreProbes makes this build's committers answer a Probe the way builds
+// before it do, as a plain join, so a test can meet an older committer.
+// Nothing in the product ever sets it.
+var ignoreProbes atomic.Bool
+
+// leafIsLive reports whether this exact leaf credential (a device, not just
+// its account) is in the group's current tree.
+func (s *Service) leafIsLive(groupID, cred []byte) bool {
+	creds, err := s.mls.Members(s.ctx, groupID)
+	if err != nil {
+		return false
+	}
+	for _, c := range creds {
+		if bytes.Equal(c, cred) {
+			return true
+		}
+	}
+	return false
 }
 
 // joinRoster is the member roster handed to a brand-new joiner: everyone's
