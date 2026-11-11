@@ -33,10 +33,10 @@
   import EmojiPicker from "../EmojiPicker.svelte";
   import BottomSheet from "../BottomSheet.svelte";
   import FormatBar from "../FormatBar.svelte";
-  import InfoDot from "./InfoDot.svelte";
   import { applyFormat as formatField } from "../lib/mdformat.js";
   import { syncLayer } from "../lib/navstack.svelte.js";
   import { tooltip } from "../lib/tooltip.js";
+  import { roving } from "../lib/roving.js";
   import { renderMarkdown, COLOR_NAMES } from "../lib/markdown.js";
   import { highlightCode } from "../lib/highlight.js";
   import { activeShortcode, searchEmoji, replaceShortcodes } from "../lib/emoji.js";
@@ -58,6 +58,7 @@
     prettyBytes,
     IMAGE_MAX_BYTES,
     FILE_MAX_BYTES,
+    BODY_SOFT_MAX,
   } from "../lib/postdraft.js";
 
   let {
@@ -75,10 +76,10 @@
     // the text" cannot mean "everything but the text and this six-field form".
     zen = $bindable(false),
     placeholder = "Write…",
-    // How formatting works, behind an ⓘ beside Preview. Not the placeholder
-    // (it vanishes at the first character typed, and is announced as the
-    // field's name) and no longer a tinted banner over the field (chrome on
-    // every open until dismissed).
+    // How formatting works, as the last line of the "Aa" menu. Not the
+    // placeholder (it vanishes at the first character typed, and is announced
+    // as the field's name), not a tinted banner over the field (chrome on every
+    // open until dismissed) and no longer an ⓘ on a toolbar of its own.
     hint = "",
     attachments = true,
     autofocus = false,
@@ -116,6 +117,9 @@
   const refs = $derived(mentionRefs());
   const me = $derived(selfMember());
   const stats = $derived(bodyStats(body));
+  // The length only speaks up in the last fifth before the point where people
+  // start to skim (BODY_SOFT_MAX); before that a running count is noise.
+  const nearLimit = $derived(stats.chars >= BODY_SOFT_MAX * 0.8);
   const hasBody = $derived(!!body.trim());
   // Split is only offered where two columns are honest. Below that the mode
   // BEHAVES as "write" without being rewritten, so widening the window brings
@@ -131,23 +135,15 @@
   const showPreview = $derived(!zen && (view === "preview" || view === "split"));
   const showEditor = $derived(zen || view !== "preview");
 
-  // Narrow screens: the emphasis/structure marks live behind the "Aa" button.
-  //
-  // They used to EXPAND the toolbar in place, which was the wrong half of the
-  // idea: every .grp wraps as a unit, so opening them turned a 2-row bar into a
-  // 4-row one — ~200px of a 393×852 sheet — and the marks were still icon-only
-  // 40px squares with a tooltip you cannot hover. "Aa" now opens one labelled
-  // sheet holding EVERY mark this editor can emit (including the five that were
-  // behind the ⋯, which was itself only reachable after expanding). The toolbar
-  // on a phone stays two rows and every mark is one tap and a readable label.
-  //
-  // And on a desktop too, now. The dialog used to carry the whole bar — bold,
-  // italic, strike, spoiler, heading, quote, list, code, link, colour, emoji,
-  // attach, ⋯, then Write/Split/Preview/Focus — a permanent formatting bar on
-  // the two heaviest surfaces in the app, while the composer has none. Here as
-  // there: select text and the selection toolbar rises; every mark is in "Aa";
-  // the chords work everywhere.
-  const showFmt = false;
+  // There is no permanent formatting bar. The dialog used to carry one —
+  // first every mark, then link, colour, emoji, attach, Aa, ⓘ, Preview and
+  // Focus — on the two heaviest surfaces in the app, while the composer has
+  // none; on a phone it wrapped onto two rows. Here as there: select text and
+  // the selection toolbar rises; every mark (and link and colour) is in "Aa",
+  // which trails inside the field beside emoji and attach; the chords work
+  // everywhere. On touch "Aa" opens one labelled sheet, because a selection
+  // toolbar cannot be hovered and the platform's own selection menu owns that
+  // gesture.
 
   // The selection toolbar, the composer's own (FormatBar `selection`): raised
   // while the field holds a selection, on a pointer device.
@@ -659,44 +655,56 @@
 
 {#snippet fmtItems()}
   {#each EMPHASIS as t (t.id)}
-    <button type="button" class="mi" role="menuitem" onclick={() => apply(t.run)}>
+    <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply(t.run)}>
       <Icon name={t.icon} size={15} /><span class="mi-l">{t.label}</span>
+      {#if t.key && !S.isMobile}<kbd>{MOD}{t.key}</kbd>{/if}
     </button>
   {/each}
-  <button type="button" class="mi" role="menuitem" onclick={() => apply((t, s, e) => wrap(t, s, e, "__", "__", "underline"))}>
+  <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply((t, s, e) => wrap(t, s, e, "__", "__", "underline"))}>
     <Icon name="underline" size={15} /><span class="mi-l">Underline</span>
+    {#if !S.isMobile}<kbd>{MOD}U</kbd>{/if}
   </button>
-  <button type="button" class="mi" role="menuitem" onclick={() => apply((t, s, e) => wrap(t, s, e, "`", "`", "code"))}>
+  <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply((t, s, e) => wrap(t, s, e, "`", "`", "code"))}>
     <Icon name="code" size={15} /><span class="mi-l">Inline code</span>
+    {#if !S.isMobile}<kbd>{MOD}E</kbd>{/if}
   </button>
   <div class="mi-sep" role="separator"></div>
   {@render headItems()}
   <div class="mi-sep" role="separator"></div>
   {#each STRUCTURE as t (t.id)}
-    <button type="button" class="mi" role="menuitem" onclick={() => apply(t.run)}>
+    <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply(t.run)}>
       <Icon name={t.icon} size={15} /><span class="mi-l">{t.label}</span>
     </button>
   {/each}
-  <button type="button" class="mi" role="menuitem" onclick={() => apply(orderedList)}>
+  <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply(orderedList)}>
     <Icon name="list" size={15} /><span class="mi-l">Numbered list</span>
   </button>
-  <button type="button" class="mi" role="menuitem" onclick={() => apply((t, s, e) => linePrefix(t, s, e, ">>> "))}>
+  <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply((t, s, e) => linePrefix(t, s, e, ">>> "))}>
     <Icon name="quote" size={15} /><span class="mi-l">Block quote (rest of the message)</span>
   </button>
   <div class="mi-sep" role="separator"></div>
-  <button type="button" class="mi" role="menuitem" onclick={() => apply((t, s, e) => fence(t, s, e, ""))}>
+  <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply((t, s, e) => fence(t, s, e, ""))}>
     <Icon name="codeblock" size={15} /><span class="mi-l">Code block</span>
   </button>
   <!-- Straight to the language list, because the ▾ that opens it on a desktop
        toolbar is a 22px caret that does not exist on this bar. -->
-  <button type="button" class="mi" role="menuitem" onclick={() => (pop = "lang")}>
+  <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => (pop = "lang")}>
     <Icon name="codeblock" size={15} /><span class="mi-l">Code block in a language…</span>
     <Icon name="chevron" size={12} />
   </button>
   <div class="mi-sep" role="separator"></div>
-  <button type="button" class="mi" role="menuitem" onclick={() => apply(clearFormatting)}>
+  <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply(mdLink)}>
+    <Icon name="link" size={15} /><span class="mi-l">Link</span>
+    {#if !S.isMobile}<kbd>{MOD}K</kbd>{/if}
+  </button>
+  <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => (pop = "color")}>
+    <Icon name="textcolor" size={15} /><span class="mi-l">Text colour…</span>
+    <Icon name="chevron" size={12} />
+  </button>
+  <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply(clearFormatting)}>
     <Icon name="close" size={15} /><span class="mi-l">Clear formatting</span>
   </button>
+  {#if hint}<p class="mi-note">{hint}</p>{/if}
 {/snippet}
 
 {#snippet colorItems()}
@@ -729,202 +737,6 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="rx" class:zen style="--work-min:{minHeight}px" onpointerdown={onPointerDown}>
-  <div class="bar" role="toolbar" aria-label="Formatting">
-    {#if showFmt}
-    <div class="grp" role="group" aria-label="Emphasis">
-      {#each EMPHASIS as t (t.id)}
-        <button
-          type="button"
-          class="tb"
-          use:tooltip={{ text: t.key ? `${t.label} (${MOD}${t.key})` : t.label }}
-          aria-label={t.label}
-          onmousedown={noSteal}
-          onclick={() => apply(t.run)}><Icon name={t.icon} size={15} /></button>
-      {/each}
-    </div>
-    <span class="sep" aria-hidden="true"></span>
-    <div class="grp" role="group" aria-label="Structure">
-      <!-- Heading is a split button: press it for H2 (the one you want 90% of
-           the time), open the ▾ for the three levels. -->
-      <div class="split">
-        <button
-          type="button"
-          class="tb"
-          use:tooltip={{ text: `Heading (${MOD}Alt+2)` }}
-          aria-label="Heading"
-          onmousedown={noSteal}
-          onclick={() => apply((t, s, e) => heading(t, s, e, 2))}><Icon name="heading" size={15} /></button>
-        <button
-          type="button"
-          class="caret popbtn"
-          class:on={pop === "head"}
-          aria-label="Heading level"
-          aria-expanded={pop === "head"}
-          use:tooltip
-          onmousedown={noSteal}
-          onclick={() => (pop = pop === "head" ? "" : "head")}><Icon name="chevron" size={9} /></button>
-        {#if pop === "head" && !S.isMobile}
-          <div class="pop menu" role="menu">{@render headItems()}</div>
-        {/if}
-      </div>
-      {#each STRUCTURE as t (t.id)}
-        <button
-          type="button"
-          class="tb"
-          use:tooltip={{ text: t.key ? `${t.label} (${MOD}${t.key})` : t.label }}
-          aria-label={t.label}
-          onmousedown={noSteal}
-          onclick={() => apply(t.run)}><Icon name={t.icon} size={15} /></button>
-      {/each}
-      <div class="split">
-        <button
-          type="button"
-          class="tb"
-          use:tooltip
-          aria-label="Code block"
-          onmousedown={noSteal}
-          onclick={() => apply((t, s, e) => fence(t, s, e, ""))}><Icon name="codeblock" size={15} /></button>
-        <button
-          type="button"
-          class="caret popbtn"
-          class:on={pop === "lang"}
-          aria-label="Code block language"
-          aria-expanded={pop === "lang"}
-          use:tooltip={"Language"}
-          onmousedown={noSteal}
-          onclick={() => (pop = pop === "lang" ? "" : "lang")}><Icon name="chevron" size={9} /></button>
-        {#if pop === "lang" && !S.isMobile}
-          <div class="pop menu narrow" role="menu">{@render langItems()}</div>
-        {/if}
-      </div>
-    </div>
-    <span class="sep" aria-hidden="true"></span>
-    {/if}
-    <div class="grp" role="group" aria-label="Insert">
-      <button
-        type="button"
-        class="tb"
-        use:tooltip={{ text: `Link (${MOD}K)` }}
-        aria-label="Link"
-        onmousedown={noSteal}
-        onclick={() => apply(mdLink)}
-      >
-        <Icon name="link" size={15} />
-      </button>
-      <div class="split">
-        <button
-          type="button"
-          class="tb popbtn swatchbtn"
-          class:on={pop === "color"}
-          aria-label="Text colour"
-          aria-expanded={pop === "color"}
-          use:tooltip
-          onmousedown={noSteal}
-          onclick={() => (pop = pop === "color" ? "" : "color")}>
-          <Icon name="textcolor" size={15} />
-          <span class="swatch-bar" style="--sw:{customColor}" aria-hidden="true"></span>
-        </button>
-        {#if pop === "color" && !S.isMobile}
-          <div class="pop colors" role="menu" aria-label="Text colour">{@render colorItems()}</div>
-        {/if}
-      </div>
-      <div class="split">
-        <button
-          type="button"
-          class="tb"
-          class:on={emojiOpen}
-          aria-label="Emoji"
-          aria-expanded={emojiOpen}
-          use:tooltip
-          onmousedown={noSteal}
-          onclick={() => (emojiOpen = !emojiOpen)}><Icon name="smile" size={15} /></button>
-        {#if emojiOpen}
-          <!-- EmojiPicker positions itself against the nearest positioned
-               ancestor; .split is that ancestor, and the override below drops it
-               BELOW the toolbar instead of above it (its default is anchored to
-               a composer that sits at the bottom of the screen). -->
-          <div class="epwrap">
-            <EmojiPicker onPick={pickEmoji} onClose={() => (emojiOpen = false)} />
-          </div>
-        {/if}
-      </div>
-      {#if attachments}
-        <button
-          type="button"
-          class="tb"
-          use:tooltip={"Attach an image or file (or paste / drop one)"}
-          aria-label="Attach a file"
-          disabled={reading > 0}
-          onmousedown={noSteal}
-          onclick={() => fileInput?.click()}><Icon name="attach" size={15} /></button>
-      {/if}
-      {@render toolbarExtra?.()}
-      {#if showFmt}
-        <!-- The overflow menu rides with the insert tools rather than sitting in
-             its own group: on a phone each group is its own row, and a row
-             holding one button is a row wasted. -->
-        <div class="split">
-          <button
-            type="button"
-            class="tb popbtn"
-            class:on={pop === "more"}
-            aria-label="More formatting"
-            aria-expanded={pop === "more"}
-            use:tooltip
-            onmousedown={noSteal}
-            onclick={() => (pop = pop === "more" ? "" : "more")}><Icon name="dots" size={15} /></button>
-          {#if pop === "more" && !S.isMobile}
-            <div class="pop menu" role="menu">{@render moreItems()}</div>
-          {/if}
-        </div>
-      {/if}
-      <div class="split">
-        <button
-          type="button"
-          class="tb aa popbtn"
-          class:on={pop === "fmt" || pop === "lang"}
-          aria-expanded={pop === "fmt"}
-          aria-label="Formatting marks"
-          use:tooltip={"Bold, italic, headings, lists…"}
-          onmousedown={noSteal}
-          onclick={() => (pop = pop === "fmt" ? "" : "fmt")}>Aa</button>
-        {#if pop === "fmt" && !S.isMobile}
-          <div class="pop menu" role="menu">{@render fmtItems()}</div>
-        {:else if pop === "lang" && !S.isMobile}
-          <div class="pop menu narrow" role="menu">{@render langItems()}</div>
-        {/if}
-      </div>
-    </div>
-
-    <!-- The view switcher. Three states, not a pile of toggles: what you see is
-         one choice. Split collapses out below 760px, where two columns is a
-         lie. -->
-    <div class="grp right" role="group" aria-label="View">
-      <!-- The markdown note, one gesture away instead of a tinted banner
-           over the field. -->
-      {#if hint}<InfoDot text={hint} label="Formatting help" />{/if}
-      <!-- One quiet toggle: you write, and when you want to see it as everyone
-           will, you look. A side-by-side live preview by default made this the
-           heaviest surface in the app. -->
-      <button
-        type="button"
-        class="segb solo"
-        class:on={view !== "write" && !zen}
-        aria-pressed={view !== "write" && !zen}
-        onclick={() => ((mode = view === "write" ? "preview" : "write"), (zen = false))}>Preview</button>
-      <!-- A word, not a glyph: the spoiler tool is already an eye-with-a-slash,
-           and two eyes on one toolbar meaning different things is a puzzle. -->
-      <button
-        type="button"
-        class="segb solo"
-        class:on={zen}
-        aria-pressed={zen}
-        use:tooltip={{ text: zen ? "Leave focus mode (Esc)" : "Focus mode — hide everything but the text" }}
-        aria-label="Focus mode"
-        onclick={() => (zen = !zen)}>Focus</button>
-    </div>
-  </div>
-
   {#if attachments}
     <input
       type="file"
@@ -1005,10 +817,9 @@
     {/if}
   {/if}
 
-
-  <!-- A zero-height anchor above the field: the selection toolbar floats
-       up from it, over the row of insert tools, never inside the field (whose
-       pane clips) and never over the text being formatted. -->
+  <!-- A zero-height anchor above the field: the selection toolbar floats up
+       from it, never inside the field (whose pane clips) and never over the
+       text being formatted. -->
   <div class="sel-anchor">
     {#if hasSel && !S.isMobile}
       <div class="sel-pop">
@@ -1018,58 +829,118 @@
   </div>
   <div class="work" class:split={showPreview && showEditor}>
     {#if showEditor}
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="pane edit"
-        class:focused
-        class:dropping
-        ondragover={(e) => {
-          if (attachments) {
-            e.preventDefault();
-            dropping = true;
-          }
-        }}
-        ondragleave={() => (dropping = false)}
-        ondrop={onDrop}>
-        <!-- svelte-ignore a11y_autofocus -->
-        <textarea
-          bind:this={ta}
-          bind:value={body}
-          class="draft"
-          {placeholder}
-          autofocus={autofocus && !S.isMobile}
-          oninput={handleInput}
-          onkeydown={onKeydown}
-          onpaste={onPaste}
-          onselect={trackSel}
-          onkeyup={trackSel}
-          onmouseup={trackSel}
-          onfocus={() => (focused = true)}
-          onblur={() => {
-            focused = false;
-            hasSel = false;
-            setTimeout(() => (suggest = null), 150);
-          }}></textarea>
+      <div class="editwrap">
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="pane edit"
+          class:focused
+          class:dropping
+          ondragover={(e) => {
+            if (attachments) {
+              e.preventDefault();
+              dropping = true;
+            }
+          }}
+          ondragleave={() => (dropping = false)}
+          ondrop={onDrop}>
+          <!-- svelte-ignore a11y_autofocus -->
+          <textarea
+            bind:this={ta}
+            bind:value={body}
+            class="draft"
+            {placeholder}
+            autofocus={autofocus && !S.isMobile}
+            oninput={handleInput}
+            onkeydown={onKeydown}
+            onpaste={onPaste}
+            onselect={trackSel}
+            onkeyup={trackSel}
+            onmouseup={trackSel}
+            onfocus={() => (focused = true)}
+            onblur={() => {
+              focused = false;
+              hasSel = false;
+              setTimeout(() => (suggest = null), 150);
+            }}></textarea>
 
-        {#if suggest}
-          <div class="suggest">
-            <div class="s-head">{SUGGEST_HEADS[suggest.kind]}</div>
-            {#each suggest.items as item, i (suggest.kind === "emoji" ? item[0] : item.key)}
-              <button type="button" class="s-item" class:sel={i === suggest.sel} onmousedown={noSteal} onclick={() => accept(i)}>
-                {#if suggest.kind === "emoji"}
-                  <span class="s-glyph">{item[1]}</span> :{item[0]}:
-                {:else if suggest.kind === "channel"}
-                  <span class="s-glyph">#</span>{item.name}
-                {:else}
-                  <span class="s-glyph">@</span><span style={roleTint(item)}>{item.name}</span>
-                  {#if item.kind === "role"}<span class="s-note">role</span>{/if}
-                {/if}
-                <kbd class="s-enter" aria-hidden="true">↵</kbd>
-              </button>
-            {/each}
+          {#if suggest}
+            <div class="suggest">
+              <div class="s-head">{SUGGEST_HEADS[suggest.kind]}</div>
+              {#each suggest.items as item, i (suggest.kind === "emoji" ? item[0] : item.key)}
+                <button type="button" class="s-item" class:sel={i === suggest.sel} onmousedown={noSteal} onclick={() => accept(i)}>
+                  {#if suggest.kind === "emoji"}
+                    <span class="s-glyph">{item[1]}</span> :{item[0]}:
+                  {:else if suggest.kind === "channel"}
+                    <span class="s-glyph">#</span>{item.name}
+                  {:else}
+                    <span class="s-glyph">@</span><span style={roleTint(item)}>{item.name}</span>
+                    {#if item.kind === "role"}<span class="s-note">role</span>{/if}
+                  {/if}
+                  <kbd class="s-enter" aria-hidden="true">↵</kbd>
+                </button>
+              {/each}
+            </div>
+          {/if}
+          {#if dropping}<div class="dropnote"><Icon name="attach" size={18} /> Drop to attach</div>{/if}
+        </div>
+
+        <!-- The field's own quiet tools, trailing inside its bottom edge the way
+             the composer carries its icons: every mark under "Aa" (and on the
+             selection toolbar and the chords), emoji, attach. There used to be
+             a permanent formatting bar above the field — link, colour, emoji,
+             attach, Aa, ⓘ, Preview, Focus — that wrapped onto two rows on a
+             phone and made these the only two editors in the app that looked
+             like a form. Outside .edit, which clips, so the menus can rise
+             over it. -->
+        <div class="trail" role="toolbar" aria-label="Formatting" use:roving>
+          <div class="split">
+            <button
+              type="button"
+              class="tb aa popbtn"
+              class:on={pop === "fmt" || pop === "lang" || pop === "color"}
+              aria-expanded={pop === "fmt"}
+              aria-label="Formatting marks"
+              use:tooltip={"Bold, italic, headings, lists, links, colour…"}
+              onmousedown={noSteal}
+              onclick={() => (pop = pop === "fmt" ? "" : "fmt")}>Aa</button>
+            {#if pop === "fmt" && !S.isMobile}
+              <div class="pop menu tall" role="menu">{@render fmtItems()}</div>
+            {:else if pop === "lang" && !S.isMobile}
+              <div class="pop menu narrow" role="menu">{@render langItems()}</div>
+            {:else if pop === "color" && !S.isMobile}
+              <div class="pop colors" role="menu" aria-label="Text colour">{@render colorItems()}</div>
+            {/if}
           </div>
-        {/if}
-        {#if dropping}<div class="dropnote"><Icon name="attach" size={18} /> Drop to attach</div>{/if}
+          <div class="split">
+            <button
+              type="button"
+              class="tb"
+              class:on={emojiOpen}
+              aria-label="Emoji"
+              aria-expanded={emojiOpen}
+              use:tooltip
+              onmousedown={noSteal}
+              onclick={() => (emojiOpen = !emojiOpen)}><Icon name="smile" size={16} /></button>
+            {#if emojiOpen}
+              <!-- EmojiPicker positions itself against the nearest positioned
+                   ancestor; .split is that ancestor, and the override below
+                   lifts it above the field's corner. -->
+              <div class="epwrap">
+                <EmojiPicker onPick={pickEmoji} onClose={() => (emojiOpen = false)} />
+              </div>
+            {/if}
+          </div>
+          {#if attachments}
+            <button
+              type="button"
+              class="tb"
+              use:tooltip={"Attach an image or file (or paste / drop one)"}
+              aria-label="Attach a file"
+              disabled={reading > 0}
+              onmousedown={noSteal}
+              onclick={() => fileInput?.click()}><Icon name="attach" size={16} /></button>
+          {/if}
+        </div>
       </div>
     {/if}
 
@@ -1107,16 +978,29 @@
     {/if}
   </div>
 
+  <!-- One quiet line under the field: the Preview toggle (and the host's own
+       extras, the embed card) on the left, and on the right only what is worth
+       saying — the length once it is near the point where people skim, and the
+       send chord. A live "0 words · 0 characters" on an empty post was a form
+       field's furniture. -->
   <div class="status">
-    <span class="counts" class:over={stats.over}>
-      <strong>{stats.words}</strong> word{stats.words === 1 ? "" : "s"}
-      <span class="dotsep" aria-hidden="true">·</span>
-      <strong>{stats.chars}</strong> character{stats.chars === 1 ? "" : "s"}
-      {#if stats.minutes}
-        <!-- Only past READ_TIME_FLOOR words, where the number means something. -->
-        <span class="dotsep" aria-hidden="true">·</span>{stats.minutes} min read
-      {/if}
-    </span>
+    <button
+      type="button"
+      class="segb"
+      class:on={view !== "write" && !zen}
+      aria-pressed={view !== "write" && !zen}
+      onclick={() => ((mode = view === "write" ? "preview" : "write"), (zen = false))}>Preview</button>
+    {@render toolbarExtra?.()}
+    {#if nearLimit}
+      <span class="counts" class:over={stats.over}>
+        <strong>{stats.words}</strong> word{stats.words === 1 ? "" : "s"}
+        <span class="dotsep" aria-hidden="true">·</span>
+        <strong>{stats.chars}</strong> character{stats.chars === 1 ? "" : "s"}
+        {#if stats.minutes}
+          <span class="dotsep" aria-hidden="true">·</span>{stats.minutes} min read
+        {/if}
+      </span>
+    {/if}
     {#if stats.over}
       <span class="warn"><Icon name="alert" size={12} /> Long enough that people will skim it — consider a heading or two.</span>
     {/if}
@@ -1166,33 +1050,26 @@
     }
   }
 
-  /* ---- toolbar ---------------------------------------------------------- */
-  /* One rhythm everywhere: 10px between blocks, 6px inside a block, 2px
-     between siblings in a group. The grouping is the hierarchy — separators
-     carry it, not colour. */
-  .bar {
+  /* ---- the field's trailing tools ------------------------------------- */
+  /* Inside the field's bottom-right corner, on the field's own ground: three
+     quiet icons, no slab behind them. */
+  .editwrap {
+    position: relative;
     display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 6px;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
   }
-  .grp {
+  .editwrap > .edit {
+    flex: 1;
+  }
+  .trail {
+    position: absolute;
+    right: var(--sp-2);
+    bottom: var(--sp-2);
     display: flex;
     align-items: center;
     gap: 2px;
-  }
-  .grp.right {
-    margin-left: auto;
-  }
-  .sep {
-    width: 1px;
-    align-self: stretch;
-    margin: 2px 4px;
-    background: var(--border);
   }
   .tb {
     width: 30px;
@@ -1214,8 +1091,8 @@
   .tb:disabled {
     opacity: 0.4;
   }
-  /* An active tool is the ONE place accent appears in the toolbar, which is why
-     it means something. */
+  /* An open menu is the ONE place accent appears among these tools, which is
+     why it means something. */
   .tb.on {
     background: var(--accent-soft);
     color: var(--accent-hover);
@@ -1225,54 +1102,19 @@
     display: flex;
     align-items: center;
   }
-  .caret {
-    width: 14px;
-    height: 30px;
-    display: grid;
-    place-items: center;
-    padding: 0;
-    background: transparent;
-    color: var(--text-faint);
-    border-radius: var(--radius-sm);
-  }
-  .caret :global(svg) {
-    transform: rotate(90deg);
-  }
-  .caret:hover,
-  .caret.on {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  .bar .aa {
+  .trail .aa {
     width: auto;
-    padding: 0 9px;
+    padding: 0 var(--sp-2);
     font-size: var(--fs-ui);
     font-weight: 700;
     letter-spacing: 0.01em;
   }
-  /* A monochrome glyph with a colour bar under it, which is what every other
-     text-colour control in software looks like. It used to be a full-colour
-     conic disc in a row of 1.4px monochrome strokes — the one rainbow thing on
-     the toolbar, saying "colour" by being colourful rather than by naming what
-     it colours. The bar carries the colour it will apply. */
-  .swatchbtn {
-    position: relative;
-  }
-  .swatchbtn .swatch-bar {
-    position: absolute;
-    left: 50%;
-    bottom: 4px;
-    width: 14px;
-    height: 3px;
-    transform: translateX(-50%);
-    border-radius: 2px;
-    background: var(--sw, currentColor);
-    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.25);
-  }
 
-  /* The Preview and Focus toggles. */
+  /* The Preview toggle, a word on the status line, its text flush with the
+     field's edge. */
   .segb {
-    padding: 4px 10px;
+    margin-left: calc(-1 * var(--sp-2));
+    padding: var(--sp-1) var(--sp-2);
     font-size: var(--fs-small);
     font-weight: 600;
     color: var(--text-muted);
@@ -1284,21 +1126,11 @@
   }
   .segb:hover {
     color: var(--text);
-  }
-  .segb.on {
-    background: var(--bg-1);
-    color: var(--text);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
-  }
-  /* Focus is a mode of its own, not a fourth view — same type, its own well. */
-  .segb.solo {
-    margin-left: var(--sp-1);
     background: var(--bg-3);
   }
-  .segb.solo.on {
+  .segb.on {
     background: var(--accent-soft);
     color: var(--accent-hover);
-    box-shadow: none;
   }
 
   /* ---- popovers -------------------------------------------------------- */
@@ -1320,6 +1152,28 @@
     min-width: 120px;
     max-height: 260px;
     overflow-y: auto;
+  }
+  /* From the field's bottom-right corner the menus rise and align right, and
+     the long one scrolls rather than running past the top of the dialog. */
+  .trail .pop {
+    top: auto;
+    bottom: calc(100% + 6px);
+    left: auto;
+    right: 0;
+    transform-origin: bottom right;
+  }
+  .pop.tall {
+    min-width: 240px;
+    max-height: min(420px, 60vh);
+    overflow-y: auto;
+  }
+  .mi-note {
+    margin: var(--sp-1) 0 0;
+    padding: var(--sp-2) 9px var(--sp-1);
+    border-top: 1px solid var(--border);
+    font-size: var(--fs-small);
+    line-height: 1.5;
+    color: var(--text-muted);
   }
   @keyframes pop-in {
     from {
@@ -1498,8 +1352,8 @@
     background: var(--accent-soft);
   }
   /* EmojiPicker anchors itself to the nearest positioned ancestor with
-     `bottom: 54px; right: 12px` — correct above a bottom-docked composer, wrong
-     under a toolbar. Re-anchor it downward.
+     `bottom: 54px; right: 12px` — correct above a bottom-docked composer, a
+     row too high over the field's corner button. Re-anchor it just above.
      Scoped to exactly the case where the picker is a floating card: its own
      mobile rule (`@media (max-width: 768px)`) turns it into a fixed bottom
      sheet, and this override has the higher specificity, so applying it
@@ -1507,11 +1361,11 @@
      toolbar. The condition below is the complement of that rule. */
   @media (min-width: 769px) {
     .epwrap :global(.picker) {
-      top: calc(100% + 6px);
-      bottom: auto;
-      right: auto;
-      left: -190px;
-      transform-origin: top left;
+      top: auto;
+      bottom: calc(100% + 6px);
+      right: 0;
+      left: auto;
+      transform-origin: bottom right;
     }
   }
   .attnote {
@@ -1770,16 +1624,19 @@
        this, a pane shrunk below the textarea's height paints the draft straight
        over whatever is underneath. */
     overflow: hidden;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
+    /* The standard field (app.css input/textarea): the field fill, an edge
+       that says "type here", the accent edge and halo on focus. It used to be
+       a grey well on a white dialog, unlike every other field in the app. */
+    background: var(--bg-input);
+    border: 1px solid var(--border-strong);
     border-radius: var(--radius-md);
     transition:
       border-color var(--dur-standard) ease,
       box-shadow var(--dur-standard) ease;
   }
   .edit.focused {
-    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: var(--accent-hover);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-hover) 22%, transparent);
   }
   .edit.dropping {
     border-color: var(--accent);
@@ -1794,7 +1651,8 @@
     border: none !important;
     box-shadow: none !important;
     outline: none !important;
-    padding: 16px 18px;
+    /* The bottom pad keeps the last line clear of the trailing tools. */
+    padding: 14px 16px 44px;
     font-family: inherit;
     /* --fs-body is 16px on a phone, which is also the threshold under which
        iOS zooms the page on focus and never zooms back. */
@@ -1817,17 +1675,8 @@
     pointer-events: none;
   }
 
-  /* Focus mode: nothing moves, things simply stop being drawn. The measure
-     narrows to a readable column and the type grows a step. */
-  .rx.zen .bar .grp:not(.right),
-  .rx.zen .status .counts {
-    opacity: 0.35;
-    transition: opacity var(--dur-calm) ease;
-  }
-  .rx.zen .bar:hover .grp,
-  .rx.zen .bar:focus-within .grp {
-    opacity: 1;
-  }
+  /* Focus mode (a host can still set it): the measure narrows to a readable
+     column and the type grows a step. */
   .rx.zen .draft {
     font-size: 16.5px;
     line-height: 1.85;
@@ -1923,7 +1772,7 @@
     min-height: 0;
     overflow-y: auto;
     padding: 14px;
-    background: var(--bg-1);
+    background: transparent;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
   }
@@ -2142,30 +1991,16 @@
     .work.split {
       grid-template-columns: 1fr;
     }
-    .bar {
-      gap: var(--sp-1);
-    }
-    /* One row: the insert tools, then ⓘ, Preview and Focus at its end. It
-       used to be a full-width second row for the three-way view switcher. */
-    .grp.right {
-      margin-left: auto;
-    }
-    /* Modal's sheet floor makes every button 44px tall on touch. That floor is
-       right — these are thumb targets — so the toolbar does NOT fight it; it
-       widens to match instead, because a 30×44 tool is a sliver. With the marks
-       behind the "Aa" sheet this bar is now six tools and fits one line at
-       393px; at 360px it wraps to two, which is still half what it was. */
-    .rx .bar .tb {
+    /* Thumb-sized, which Modal's 44px sheet floor already makes them tall;
+       the width follows so they are squares, not slivers. */
+    .rx .trail .tb {
       width: 40px;
     }
-    .rx .bar .caret {
-      width: 22px;
+    .rx .trail .aa {
+      width: auto;
     }
-    /* Each .grp is one flex item, so it wraps as a unit: on a phone the rows ARE
-       the groups. The separators then land at row ends as stray marks, saying
-       nothing the line break isn't already saying. */
-    .sep {
-      display: none;
+    .draft {
+      padding-bottom: 56px;
     }
     /* The word counts are the only part of the status line worth a row here —
        the "⌘/Ctrl + ↵" hint names keys this device does not have and the host

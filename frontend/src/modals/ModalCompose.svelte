@@ -276,9 +276,8 @@
       previewExtraFilled={!!previewEmbed}
       onSubmit={post}
       onInput={persist}
-      submitHint={editId ? "⌘/Ctrl + ↵ to save" : "⌘/Ctrl + ↵ to send"}>
+      submitHint={S.isMobile ? "" : editId ? "⌘/Ctrl + ↵ to save" : "⌘/Ctrl + ↵ to send"}>
       {#snippet toolbarExtra()}
-        <span class="sep" aria-hidden="true"></span>
         <button
           type="button"
           class="embedbtn"
@@ -514,8 +513,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    height: 30px;
-    padding: 0 9px;
+    padding: var(--sp-1) var(--sp-2);
     font-size: var(--fs-small);
     font-weight: 600;
     color: var(--text-muted);
@@ -532,12 +530,6 @@
   .embedbtn.on {
     background: var(--accent-soft);
     color: var(--accent-hover);
-  }
-  .sep {
-    width: 1px;
-    align-self: stretch;
-    margin: 2px 4px;
-    background: var(--border);
   }
 
   /* ---- embed builder ---------------------------------------------------- */
