@@ -2468,8 +2468,7 @@
     color: var(--text);
   }
   .dm-item.active {
-    background: var(--bg-3);
-    box-shadow: inset 2px 0 0 var(--text);
+    background: var(--sel-bar), var(--bg-3);
     color: var(--text);
   }
   .dm-name {
@@ -3041,10 +3040,15 @@
     font-weight: 600;
   }
   /* Selected: the fill alone is 1.13:1 in the light theme, so a 2px ink bar
-     on the start edge is the cue. */
+     on the start edge is the cue. It is a short straight mark set 3px in,
+     painted as a background layer, not an inset shadow along the whole edge:
+     on a pack with pill-shaped rows (Atrium's 24px radius) the shadow bent
+     round the curve into a half-moon. */
   .channel-row.active {
-    background: var(--bg-3);
-    box-shadow: inset 2px 0 0 var(--text);
+    background: var(--sel-bar), var(--bg-3);
+  }
+  .cols {
+    --sel-bar: linear-gradient(var(--text), var(--text)) 3px 50% / 2px calc(100% - 16px) no-repeat;
   }
   .channel-row.active .channel {
     color: var(--text);
