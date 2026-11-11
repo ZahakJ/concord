@@ -99,7 +99,13 @@
   const canEdit = $derived(
     !!g && (ev.createdBy === S.identity.fingerprint || g.isOwner || has(g.myPerms || 0, PERM.MANAGE_MESSAGES)),
   );
-  const mon = $derived(new Date(ev.startUnix * 1000).toLocaleDateString([], { month: "short" }));
+  // The tile's top line: the weekday while the event is within the coming
+  // week (that is how people say it — "on Tuesday"), the month beyond that.
+  const mon = $derived.by(() => {
+    const at = new Date(ev.startUnix * 1000);
+    const soonish = ev.startUnix * 1000 - Date.now() < 6 * 86400000 && ev.startUnix * 1000 > Date.now() - 86400000;
+    return at.toLocaleDateString([], soonish ? { weekday: "short" } : { month: "short" });
+  });
   const dayN = $derived(new Date(ev.startUnix * 1000).getDate());
   const fmtT = (u) =>
     new Date(u * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", ...clockOpts() });
@@ -689,26 +695,18 @@
     align-items: center;
     justify-content: center;
     border-radius: var(--radius-md);
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-  }
-  .evcard.soon .date {
-    background: color-mix(in srgb, var(--warn) 14%, transparent);
-    color: var(--warn-text);
-  }
-  .evcard.live .date {
-    background: var(--ok-soft);
-    color: var(--ok-text);
+    /* A date, not a signal: the tile is neutral in every state. The state
+       line beside it (soon, happening now) carries the colour. */
+    background: var(--bg-3);
+    color: var(--text);
   }
   .evcard.ended .date {
-    background: var(--bg-2);
     color: var(--text-faint);
   }
   .mon {
     font-size: var(--fs-tiny);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-weight: 600;
+    color: var(--text-muted);
     line-height: 1.1;
   }
   .dayn {
@@ -745,9 +743,8 @@
   }
   .bm {
     font-size: var(--fs-micro);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    font-weight: 600;
+    color: var(--text-muted);
     line-height: 1.1;
   }
   .body {
@@ -771,7 +768,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    color: var(--text-faint);
+    color: var(--text-muted);
     padding-top: 3px;
     white-space: nowrap;
     overflow: hidden;
@@ -832,8 +829,6 @@
     background: var(--bg-2);
     border: 1px solid var(--border);
     color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
     font-size: var(--fs-micro);
   }
   .srctag.dm {
@@ -1210,10 +1205,24 @@
   }
   /* Phones: every primary tappable reaches 44px; Join stretches to a full
      row so the thumb cannot miss the door. */
+  /* On a phone the answers are one control the width of the card, so Going,
+     Maybe, No and Who share a row instead of wrapping one per line. */
   @media (max-width: 768px) {
+    .rsvps {
+      display: flex;
+      flex-wrap: nowrap;
+      width: 100%;
+      gap: var(--sp-1);
+    }
+    .rsvps > :global(*) {
+      flex: 1 1 0;
+      min-width: 0;
+      justify-content: center;
+    }
     .chip {
       min-height: 44px;
-      padding: 4px 14px;
+      padding: var(--sp-1) var(--sp-2);
+      white-space: nowrap;
     }
     .dots {
       width: 40px;

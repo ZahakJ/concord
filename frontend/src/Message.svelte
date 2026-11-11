@@ -2188,8 +2188,6 @@
     border-radius: var(--radius-sm);
     background: var(--accent-soft);
     color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
   }
   .revealed-text {
     color: var(--text);
@@ -3079,14 +3077,16 @@
     position: relative;
     padding-top: 20px;
   }
+  /* The language, as written ("c", "go"), in the corner with room around it:
+     a lone capital "C" flush to the edge read as a stray glyph. */
   .body :global(pre[data-lang])::before {
     content: attr(data-lang);
     position: absolute;
-    top: 3px;
-    right: 8px;
-    font-size: var(--fs-tiny);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    top: 6px;
+    right: 10px;
+    font-size: var(--fs-micro);
+    font-family: var(--ui-font);
+    text-transform: lowercase;
     color: var(--text-faint);
   }
   /* Inline (data-URI) images have no lightbox, so anything the column clips is
@@ -3201,11 +3201,9 @@
     .seal-card { animation: none; }
   }
   .seal-card-h {
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--text-faint);
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--text-muted);
   }
   .seal-card-f {
     font-size: var(--fs-compact);

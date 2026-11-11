@@ -2260,14 +2260,13 @@ textarea[aria-invalid="true"] {
 .muted {
   color: var(--text-muted);
 }
-/* The kicker — the events surface's voice: a tiny, bold, tracked-out caps line
-   ABOVE a thing (state over a card title, the day over its agenda, the guild
-   over an aggregated event). Color says state; the recipe never changes. */
+/* The kicker — the events surface's voice: a short line ABOVE a thing (state
+   over a card title, the day over its agenda, the guild over an aggregated
+   event). Sentence case at the small size: tracked-out capitals were the old
+   system's shout. Color says state; the recipe never changes. */
 .kicker {
-  font-size: var(--fs-tiny);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-size: var(--fs-small);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 .mono {

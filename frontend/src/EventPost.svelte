@@ -32,7 +32,7 @@
 {#if ev}
   <div class="ep">
     <span class="ep-head"><Icon name="calendar" size={12} /> New event</span>
-    <EventCard {ev} {g} onJoinVoice={joinVoiceChannel} bubble="time" inFeed />
+    <EventCard {ev} {g} onJoinVoice={joinVoiceChannel} inFeed />
   </div>
 {:else}
   <!-- The record has not arrived (or was deleted). Say which of the two, and
@@ -57,8 +57,7 @@
     align-items: center;
     gap: 5px;
     font-size: var(--fs-small);
-    font-weight: 600;
-    color: var(--accent-hover);
+    color: var(--text-muted);
   }
   .ghost {
     padding: 10px var(--sp-3);

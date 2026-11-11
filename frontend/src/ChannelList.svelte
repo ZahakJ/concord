@@ -1907,10 +1907,9 @@
     flex: 1;
     min-width: 0;
     padding: 2px 6px;
-    font-size: var(--fs-tiny);
+    font-size: var(--fs-small);
     letter-spacing: inherit;
-    text-transform: uppercase;
-    font-weight: 700;
+    font-weight: 600;
   }
   .ch-slow {
     flex: none;
@@ -2252,10 +2251,9 @@
     }
   }
   .menu-head {
-    font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-faint);
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--text-muted);
     padding: 4px 10px 2px;
   }
   .mute-btn {

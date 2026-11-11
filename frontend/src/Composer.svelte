@@ -601,7 +601,7 @@
   const SUGGEST_HEADS = {
     slash: "Commands",
     emoji: "Emoji",
-    mention: "Members & roles",
+    mention: "Members and roles",
     channel: "Channels",
   };
 
@@ -2671,10 +2671,8 @@
     opacity: 0.9;
   }
   .suggest-head {
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
     padding: 4px 10px 3px;
   }
@@ -2953,10 +2951,8 @@
     min-width: 130px;
   }
   .att-edit label span {
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    letter-spacing: 0.3px;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
   }
   .att-edit input {
