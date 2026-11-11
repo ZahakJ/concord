@@ -1,4 +1,5 @@
 <script>
+  import { cycleRegion } from "./lib/regions.js";
   // App.svelte is the shell: login gate, the four-column layout, voice
   // lifecycle, global shortcuts, and modal routing. All shared state and the
   // backend event wiring live in lib/state.svelte.js.
@@ -2020,6 +2021,14 @@
   {#if S.quickSwitcher && commandPalette.C}
     {@const QuickSwitcher = commandPalette.C}
     <QuickSwitcher />
+  {/if}
+
+  <!-- The end of the tab order. Past the inspector's last control Tab used to
+       run off the document and leave focus on <body>, where the next key did
+       nothing visible; it now wraps to the sidebar's current row, the same
+       landing as F6 (lib/regions.js). A real control, so the hop is named. -->
+  {#if !S.isMobile && !S.modal}
+    <button type="button" class="sr-only" onfocus={() => cycleRegion(1)}>Back to the sidebar</button>
   {/if}
 
   {#if GSW.open}<GuildSwitcher />{/if}
