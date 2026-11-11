@@ -760,7 +760,10 @@
 
 <svelte:window onpaste={onPaste} onkeydown={onKey} />
 
-<Modal title={edit ? "Edit meme" : "Meme"} {onClose} size="xl">
+<!-- The workspace is the XL box; the opening picker, when it holds nothing
+     but "Your own image" (no template library on this build), is not a
+     workspace yet, and a 900x700 frame round one 130px tile read as empty. -->
+<Modal title={edit ? "Edit meme" : "Meme"} {onClose} size={browsing && manifestDone && !templates.length ? "m" : "xl"}>
   <div
     class="wrap"
     class:dropping
