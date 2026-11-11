@@ -1590,7 +1590,7 @@
       { id: "sound", label: "Sound", icon: "speaker", title: "A recipe, not a file — a few dozen bytes each", disabled: !ch, run: () => (S.modal = { kind: "soundboard" }) },
       { id: "game", label: "Game", icon: "die", title: "Play in the channel — the board is folded from the messages", disabled: !ch, run: () => (S.modal = { kind: "game" }) },
       { id: "later", label: draft.trim() ? "Send later" : "Scheduled", icon: "clock", title: draft.trim() ? "Pick a time for this message" : "See what's queued", disabled: !ch, run: scheduleSend },
-      { id: "seal", label: "Prove when it was sent", icon: "stamp", title: "Seal the send time onto the next message", pressed: sealNext, disabled: !ch, run: toggleSeal },
+      { id: "seal", label: "Seal the time", icon: "stamp", title: "Prove when it was sent: seal the send time onto the next message", pressed: sealNext, disabled: !ch, run: toggleSeal },
       { id: "fmt", label: "Formatting", icon: "bold", glyph: "Aa", title: "Bold, italics, code, quotes, links", pressed: showFmt, disabled: !ch, run: () => { showFmt = !showFmt; composerEl?.focus(); } },
       { id: "advanced", label: "Advanced", icon: "docpen", title: "Colours, rich embeds, preview", disabled: !ch, run: openAdvanced },
     ].filter(Boolean),

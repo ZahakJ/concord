@@ -16,7 +16,7 @@
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import EmptyState from "../EmptyState.svelte";
-  import { S, flash, activeGuild, nameInk } from "../lib/state.svelte.js";
+  import { S, flash, activeGuild, nameInk, faceFor } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { tooltip } from "../lib/tooltip.js";
   import { plural } from "../lib/plural.js";
@@ -131,8 +131,11 @@
     <ul class="log">
       {#each shown as e (e.hash)}
         {@const v = verdictLabel(e)}
+        {@const f = faceFor(e.signer, e.signerName)}
         <li class="row" class:doubt={v.id !== "ok"}>
-          <Avatar name={e.signerName || e.signer} size={28} />
+          <!-- The signer's real face, as every other list draws a person: the
+               log used to show initials on a grey disc for everyone. -->
+          <Avatar name={f.name} image={f.image} emoji={f.emoji} color={f.color} size={28} />
           <div class="body">
             <p class="say">
               {#each govSentence(e) as part, i (i)}

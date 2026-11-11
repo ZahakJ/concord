@@ -260,7 +260,13 @@
                   </span>
                   <span class="when">{fmtTime(e.at)}</span>
                 </span>
-                <span class="text">{e.snippet}</span>
+                <!-- An event's snippet comes from the core as "📅 <title>"; the
+                     interface says it with its own calendar glyph, not an emoji. -->
+                {#if e.snippet?.startsWith("📅 ")}
+                  <span class="text"><Icon name="calendar" size={11} /> {e.snippet.slice(3)}</span>
+                {:else}
+                  <span class="text">{e.snippet}</span>
+                {/if}
               </span>
             </button>
           {/each}

@@ -214,7 +214,13 @@
   // Which pack you are ON, said above the fold. The gallery used to answer that
   // only by scrolling until you found the ring.
   const currentPack = $derived(ALL_PACKS.find((p) => p.id === themePack) || ALL_PACKS[0]);
-  const packsF = $derived(sift(PACKS));
+  // "Default" is not a pack: it is whichever base theme is on, so its card is
+  // drawn in that theme. Under Light it showed the dark ground while ringed as
+  // current, which read as "this would make it dark".
+  const DEFAULT_LIGHT = { bg: "#eaece6", hi: "#dcdfd9", ac: "#0e7c70", day: true };
+  const packsF = $derived(
+    sift(PACKS.map((p) => (p.id === "" && shownLight ? { ...p, ...DEFAULT_LIGHT } : p))),
+  );
   const dayF = $derived(sift(DAY_PACKS));
   const liveF = $derived(sift(LIVE_PACKS));
   const textureF = $derived(sift(TEXTURE_PACKS));

@@ -341,7 +341,7 @@
       title="Recovery phrase"
       sub={phraseOpen
         ? "On screen now — anyone who reads them can become you."
-        : "24 words that ARE your account. Reveal them, write them down."}
+        : "24 words that are your account — reveal them and write them down."}
       onclick={togglePhrase}
     >
       <span class="reveal" class:open={phraseOpen}>{phraseOpen ? "Hide" : "Reveal"}</span>

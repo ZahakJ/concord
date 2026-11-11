@@ -122,7 +122,7 @@
     <span class="lbl">Options</span>
     {#each opts as o, i (o.id)}
       <div class="opt-row" animate:flip={{ duration: 180 }}>
-        <span class="opt-num">{POLL_EMOJI[i]}</span>
+        <span class="opt-num" aria-hidden="true">{i + 1}</span>
         <input
           bind:this={inputs[o.id]}
           bind:value={o.text}
@@ -182,7 +182,7 @@
               aria-checked={answerId === o.id}
               onclick={() => (answerId = o.id)}
             >
-              <span class="ans-num">{POLL_EMOJI[i]}</span>
+              <span class="ans-num" aria-hidden="true">{i + 1}</span>
               <span class="ans-text">{o.text}</span>
               {#if answerId === o.id}<Icon name="check" size={14} />{/if}
             </button>
@@ -230,16 +230,16 @@
     flex: 1;
     min-width: 0;
   }
+  /* Plain numerals in the faint tier, as the posted poll numbers its
+     options — not keycap emoji on accent discs. */
   .opt-num {
     display: grid;
     place-items: center;
-    font-size: var(--fs-body);
-    width: 30px;
-    height: 30px;
+    width: 20px;
     flex-shrink: 0;
-    border-radius: 50%;
-    background: var(--accent-soft);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+    font-size: var(--fs-compact);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
   }
   .opt-x {
     flex-shrink: 0;
@@ -366,7 +366,10 @@
   }
   .ans-num {
     flex-shrink: 0;
-    font-size: var(--fs-ui);
+    width: 16px;
+    font-size: var(--fs-compact);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
   }
   .ans-text {
     flex: 1;

@@ -1,4 +1,5 @@
 <script>
+  import Caution from "./Caution.svelte";
   // The just-created instant meeting. Two ways in:
   //   • the GUEST LINK — they click it and land in a browser meeting window,
   //     no install, no account (the killer demo);
@@ -159,7 +160,7 @@
       {#if expiryText}
         <p class="muted tiny" aria-live="polite">
           Link and meeting expire <strong>{expiryText}</strong>. Anyone with the
-          link can walk in until then — lock the call (🔒) to make them knock
+          link can walk in until then — lock the call to make them knock
           first, which is how you'd run office hours.
         </p>
       {/if}
@@ -179,11 +180,10 @@
         through you, so they aren't end-to-end encrypted like full members.
       </p>
       {#if noRelay}
-        <p class="muted tiny">
-          ⚠️ This meeting has no media relay — whoever opens the link may see
-          your IP address once you're both on the call. A connected rendezvous
-          does not hide that.
-        </p>
+        <Caution
+          text="No media relay: whoever opens the link may see your IP once you're both on the call."
+          detail="A connected rendezvous does not hide that; only a media relay does."
+        />
       {/if}
     </section>
   {/if}
