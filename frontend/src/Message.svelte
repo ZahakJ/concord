@@ -121,6 +121,8 @@
     replyRef = null,
     entering = false,
     tabbable = false,
+    // Threads started from this message ([{id, name}]), found by MessageList.
+    threads = null,
   } = $props();
 
   // Moderators (Manage Messages) can delete anyone's message.
@@ -1666,6 +1668,20 @@
       </div>
     {/if}
 
+    {#if threads?.length}
+      <!-- The message's threads, one chip each: the way into a side
+           conversation from the message it is about. -->
+      <div class="thread-chips">
+        {#each threads as t (t.id)}
+          <button type="button" class="thread-chip" onclick={() => jumpToChannel(t.id)}>
+            <Icon name="forum" size={13} />
+            <span class="tc-name"><bdi>{t.name}</bdi></span>
+            <Icon name="chevron" size={11} />
+          </button>
+        {/each}
+      </div>
+    {/if}
+
     {#if threadPrompt}
       <!-- The whole ceremony a thread needs is one line: a title. A modal would
            also hide the message the thread is about — which is exactly what the
@@ -2296,6 +2312,39 @@
   @keyframes tag-in {
     from {
       opacity: 0;
+    }
+  }
+  .thread-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1);
+    margin-top: var(--sp-1);
+  }
+  .thread-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 320px;
+    height: 28px;
+    padding: 0 var(--sp-2);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-2);
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+  }
+  .tc-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    font-weight: 500;
+  }
+  @media (pointer: fine) {
+    .thread-chip:hover {
+      border-color: var(--border-strong);
+      color: var(--text);
     }
   }
   .edit-wrap {

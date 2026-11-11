@@ -51,6 +51,7 @@
   import { recordText } from "./lib/callflow.js";
   import { gameAt, isGameToken } from "./lib/games.js";
   import { msOf, rangeLabel } from "./lib/chronicle.js";
+  import { threadsBySource } from "./lib/threadlinks.js";
   import { entriesFor } from "./lib/outbox.svelte.js";
   import { untrack, tick } from "svelte";
   import { pointOf } from "./lib/place.js";
@@ -1057,6 +1058,35 @@
     if (!S.prefs.memberPanel) setPref("memberPanel", true);
   });
 
+  // Threads started from messages in this channel, by the message they came
+  // from (lib/threadlinks.js): read back from the threads' own openers, the
+  // most recently active few only. Re-read when the channel or its set of
+  // threads changes.
+  let threadsBySrc = $state(new Map());
+  const childThreads = $derived.by(() => {
+    const id = S.activeChannelId;
+    const g = activeGuild();
+    if (!id || !g || g.kind === "dm") return [];
+    return (g.channels || [])
+      .filter((c) => c.parent === id)
+      .sort((a, b) => (b.lastActivity || 0) - (a.lastActivity || 0));
+  });
+  const childKey = $derived(S.activeChannelId + ":" + childThreads.map((c) => c.id + "/" + c.name).join(","));
+  $effect(() => {
+    void childKey;
+    const parent = S.activeChannelId;
+    const list = untrack(() => childThreads);
+    if (!list.length) {
+      threadsBySrc = new Map();
+      return;
+    }
+    let stale = false;
+    threadsBySource(list, parent, (cid) => api.messages(cid)).then((m) => {
+      if (!stale && S.activeChannelId === parent) threadsBySrc = m;
+    });
+    return () => (stale = true);
+  });
+
   // One action bar at a time. A row shows its bar while hovered AND while it
   // holds focus, so a focused row (Escape out of the composer lands on one)
   // plus the row under the pointer drew two bars at once. Whichever moved last
@@ -1787,6 +1817,7 @@
         entering={it.row.m.id === animateId}
         tabbable={it.k === tabbableKey}
         replyRef={it.row.m.replyTo ? byId.get(it.row.m.replyTo) : null}
+        threads={threadsBySrc.get(it.row.m.id) || null}
       />
     {/if}
   {/each}
