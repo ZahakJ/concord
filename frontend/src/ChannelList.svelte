@@ -2896,27 +2896,31 @@
     display: flex;
     flex-direction: column;
   }
+  /* "↑ Unread" / "↓ 2 mentions": a band at the list's edge, in the flow,
+     not a pill floating over it. Floating, it sat on whichever row was at
+     the edge — in phone landscape, on the last visible channel — and the
+     row under it could not be read or tapped. In the flow the list gives up
+     the band's height instead (and only while there is something past the
+     edge), so it covers nothing and casts no shadow. */
   .edge-pill {
-    position: absolute;
-    left: 50%;
-    translate: -50% 0;
-    z-index: var(--z-sticky);
+    flex: none;
+    align-self: center;
+    margin: var(--sp-1) 0;
     height: 24px;
     padding: 0 10px;
     border-radius: 999px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-pop);
+    background: var(--bg-3);
+    border: none;
     color: var(--text);
     font-size: var(--fs-small);
     font-weight: 600;
     white-space: nowrap;
   }
   .edge-pill.up {
-    top: 6px;
+    order: -1;
   }
   .edge-pill.down {
-    bottom: 6px;
+    order: 1;
   }
   .nudge-row {
     padding: var(--sp-1) 0 6px;

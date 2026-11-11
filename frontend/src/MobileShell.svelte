@@ -1389,6 +1389,14 @@
     outline: none;
     box-shadow: none;
   }
+  /* type="search" draws the engine's own clear glyph — a blue × beside the
+     row's ×, two crosses with two meanings in one field. The row's × closes
+     the search and clears it with it, so it is the only one. */
+  .msearch input::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    display: none;
+  }
   .mchat {
     flex: 1;
     display: flex;
