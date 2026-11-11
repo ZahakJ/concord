@@ -241,6 +241,12 @@
           <span class="name">{story.authorName || story.author.slice(0, 9)}{isSelf ? " (you)" : ""}</span>
           <span class="when">{sealAgo(story.postedAt * 1000)}</span>
         </span>
+        <!-- Sharing your own, from inside someone else's: once a guild had a
+             moment, Moments opened straight into this viewer and there was
+             no way left to add one. -->
+        <button class="share" onclick={() => (S.modal = { kind: "storyCompose", guildId: story.guildId || S.activeGuildId })}>
+          <Icon name="plus" size={14} /> Share a moment
+        </button>
         {#if isSelf}
           <button
             class="x del"
@@ -352,6 +358,23 @@
     color: rgba(255, 255, 255, 0.75);
     font-size: var(--fs-small);
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  }
+  .share {
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    flex: none;
+    min-height: 34px;
+    padding: 0 var(--sp-3);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.35);
+    color: #fff;
+    font-size: var(--fs-compact);
+    font-weight: 600;
+  }
+  .share:hover {
+    background: rgba(0, 0, 0, 0.55);
   }
   .x {
     pointer-events: auto;

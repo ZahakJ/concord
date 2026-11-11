@@ -77,6 +77,7 @@
   import { plural } from "./lib/plural.js";
   import { tileColor } from "./lib/guildaccent.js";
   import { GSW, toggleGuildSwitcher } from "./lib/guildswitch.svelte.js";
+  import { MOM } from "./lib/momentsunseen.svelte.js";
   import { guildMenu } from "./lib/guildmenu.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
   import { api } from "./lib/api.js";
@@ -1014,7 +1015,7 @@
         oncontextmenu={coarse ? (e) => e.preventDefault() : placeMenu}
         use:longpress={{ handler: placeMenu }}
       >
-        <span class="ph-icon" class:hasicon={!!g.icon}>
+        <span class="ph-icon" class:hasicon={!!g.icon} class:moments={MOM.unseen[g.id] > 0} title={MOM.unseen[g.id] ? "New moments: right-click the guild's name, then View moments" : undefined}>
           {#if g.icon}<img src={g.icon} alt="" />{:else}<GuildMark {g} size={13} />{/if}
         </span>
         <span class="ph-name"><bdi>{g.name}</bdi></span>
@@ -2846,6 +2847,16 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+  }
+  /* Moments nobody here has watched yet: the strip tile's ring, here too. */
+  .ph-icon.moments {
+    overflow: visible;
+    box-shadow:
+      0 0 0 1px var(--bg-1),
+      0 0 0 2.5px var(--accent);
+  }
+  .ph-icon.moments img {
+    border-radius: inherit;
   }
   .place-head.gone .ph-icon {
     filter: grayscale(1);

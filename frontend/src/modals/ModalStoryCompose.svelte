@@ -63,9 +63,9 @@
 
   // ---- audience ----
   const myGuilds = $derived(S.guilds.filter((g) => g.kind !== "dm"));
-  const ag = activeGuild();
-  // Active guild pre-checked; the tray only exists on non-DM guilds, but a
-  // DM-open edge (deep link) simply starts with nothing checked.
+  // The guild it was opened for (a guild's menu, its moments viewer), else the
+  // active one, pre-checked; a DM-open edge starts with nothing checked.
+  const ag = S.guilds.find((g) => g.id === S.modal?.guildId) || activeGuild();
   let selected = $state(ag && ag.kind !== "dm" ? { [ag.id]: true } : {});
 
   // Member counts for the honesty line. The active guild's roster is already

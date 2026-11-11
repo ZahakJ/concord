@@ -4,6 +4,7 @@
   // lifecycle, global shortcuts, and modal routing. All shared state and the
   // backend event wiring live in lib/state.svelte.js.
   import { onMount, untrack } from "svelte";
+  import { watchMoments, refreshMoments } from "./lib/momentsunseen.svelte.js";
   import { precacheCosmetics } from "./lib/cosmetics.svelte.js";
   import { precacheEmoji } from "./lib/emojifull.svelte.js";
   import { api, leaveVoiceOnUnload } from "./lib/api.js";
@@ -469,6 +470,18 @@
     !!S.voice && !S.callStage && (S.isMobile ? callElsewhere : callElsewhere || sidebarHidden),
   );
   const call = $derived(incomingCall());
+
+  // Which guilds hold moments you have not watched (lib/momentsunseen): read
+  // once the core is unlocked, then kept current from its "story" events.
+  $effect(() => {
+    if (!S.ready) return;
+    return untrack(() => watchMoments(() => S.guilds.filter((g) => g.kind !== "dm").map((g) => g.id)));
+  });
+  // A guild joined since, or one whose event was missed, is caught on opening.
+  $effect(() => {
+    const id = S.activeGuildId;
+    if (S.ready && id) untrack(() => refreshMoments(id));
+  });
   const ringingChannel = $derived(call?.channelId || "");
   // Friendly label for the floating call window: DM name, or "Guild · #ch".
   const callLabel = $derived.by(() => {

@@ -51,6 +51,7 @@
   import { tileColor } from "./lib/guildaccent.js";
   import { playFlyby } from "./lib/sounds.js";
   import { longpress } from "./lib/touch.js";
+  import { MOM } from "./lib/momentsunseen.svelte.js";
   import { tooltip } from "./lib/tooltip.js";
   import FxLayer from "./FxLayer.svelte";
   import { untrack } from "svelte";
@@ -183,6 +184,7 @@
     if (m.count) parts.push(plural(m.count, "mention"));
     else if (m.dot) parts.push("unread");
     if (m.muted) parts.push("muted");
+    if (MOM.unseen[gg.id]) parts.push("new moments");
     return parts.join(" · ");
   }
 
@@ -462,6 +464,7 @@
           class:muted={m.muted}
           class:gone={!!gg.evicted}
           class:hasicon={!!gg.icon}
+          class:moments={MOM.unseen[gg.id] > 0}
           style={gg.icon ? undefined : faceStyle(gg)}
           use:tooltip={{ ...tip, text: tileLabel(gg) }}
           aria-label={gg.name}
@@ -606,6 +609,7 @@
             class:hasicon={sv.icon}
             class:muted={m.muted}
             class:gone={!!sv.evicted}
+            class:moments={MOM.unseen[sv.id] > 0}
             class:combine={dropHint?.k === "combine" && dropHint.id === sv.id}
             style={sv.icon ? undefined : faceStyle(sv)}
             use:tooltip={{ ...railTip, text: tileLabel(sv) }}
@@ -713,6 +717,7 @@
                     class:hasicon={gg.icon}
                     class:muted={m.muted}
                     class:gone={!!gg.evicted}
+                    class:moments={MOM.unseen[gg.id] > 0}
                     style={gg.icon ? undefined : faceStyle(gg)}
                     use:tooltip={{ ...railTip, text: tileLabel(gg) }}
                     aria-label={gg.name}
@@ -861,6 +866,23 @@
     box-shadow:
       inset 0 0 0 1px var(--bg-1),
       inset 0 0 0 3px var(--text);
+  }
+  /* Moments nobody here has watched yet: a thin ring in your accent just
+     outside the tile, on a 1px gap — outside, so it never meets the "you are
+     here" ring drawn inside it. */
+  .tile.moments {
+    overflow: visible;
+    box-shadow:
+      0 0 0 1px var(--bg-1),
+      0 0 0 2.5px var(--accent);
+  }
+  .pill.moments {
+    box-shadow:
+      0 0 0 1px var(--bg-1),
+      0 0 0 2.5px var(--accent);
+  }
+  .tile.moments .icon {
+    border-radius: inherit;
   }
   .tile.msg.current {
     color: var(--text);

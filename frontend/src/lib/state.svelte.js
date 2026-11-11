@@ -3,6 +3,7 @@
 // api.js stays the only transport layer underneath.
 import { tick } from "svelte";
 import { closeGuildSwitcher } from "./guildswitch.svelte.js";
+import { MOM } from "./momentsunseen.svelte.js";
 import { api, on, onTransportHealth, probeCore } from "./api.js";
 import { notify, wantsPermissionPrompt } from "./notify.js";
 import { draftIn, noteDraft } from "./drafts.svelte.js";
@@ -1191,7 +1192,7 @@ export async function openMoments(guildId) {
     /* locked or transport down: offer to share instead of an error */
   }
   const { list, start } = momentsPlaylist(stories);
-  S.modal = list.length ? { kind: "storyViewer", stories: list, start } : { kind: "storyCompose" };
+  S.modal = list.length ? { kind: "storyViewer", stories: list, start } : { kind: "storyCompose", guildId };
 }
 
 // guildMenuItems: everything you can do to a guild, in one list — so the rail's
@@ -1215,7 +1216,14 @@ export function guildMenuItems(g) {
     // Moments used to be a tray squatting at the top of the member list; they
     // belong to the guild, so they live in its menu. With nothing shared yet
     // the entry goes straight to sharing one.
-    { label: "Moments", icon: "imagetext", onClick: () => openMoments(g.id) },
+    // Both, always: viewing them used to be the only way in once one existed,
+    // so a second person could never share theirs.
+    {
+      label: MOM.unseen[g.id] ? `View moments · ${MOM.unseen[g.id]} new` : "View moments",
+      icon: "imagetext",
+      onClick: () => openMoments(g.id),
+    },
+    { label: "Share a moment", icon: "plus", onClick: () => (S.modal = { kind: "storyCompose", guildId: g.id }) },
     { label: "Stats & diagnostics", icon: "poll", onClick: () => (S.modal = { kind: "stats", guildId: g.id }) },
     { sep: true },
     // The guild-wide default every channel falls back to. Flat, with a tick on
