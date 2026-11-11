@@ -4034,7 +4034,23 @@ func (s *Store) AttachmentTotals() (count int64, bytes int64, err error) {
 }
 
 // Close closes the database.
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	err := s.db.Close()
+	// sql.DB.Close refuses new statements and shuts idle connections, but it
+	// does not wait for one in use: a write already running finished after
+	// Close returned, after the service had closed, racing a process exit or,
+	// in the tests, the removal of the data directory. The connection is shut
+	// as it is given back, so wait for that, bounded by the busy timeout's
+	// order of magnitude so a wedged statement cannot hold shutdown forever.
+	deadline := time.Now().Add(closeDrain)
+	for s.db.Stats().OpenConnections > 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	return err
+}
+
+// closeDrain bounds how long Close waits for a statement in flight.
+const closeDrain = 10 * time.Second
 
 // IsQuiet: a message body that is bookkeeping rather than something a person
 // said. Today that is exactly one thing — a bare game-move token, and nothing
