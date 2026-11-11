@@ -467,6 +467,19 @@
     background: var(--tb-scrim, rgba(0, 0, 0, 0.62));
   }
 }
+/* The pack contract: art lives behind the CONVERSATION, never behind the
+   navigation. The surfaces are translucent so a backdrop reads through the
+   feed, but the same alpha on the sidebar, the guild rail, the inspector and
+   the call stage let a striped sun sit behind the channel list and a halo
+   ring run through the member names — moving art under the very rows you
+   aim at. Those four keep the pack's own --bg-1 colour, made 96% opaque:
+   the tint survives, the motion does not reach them. The first declaration
+   is the fallback for an engine without relative colour syntax. */
+:root:is([data-anim-bg], [data-textured]) :is(nav.cols, nav.rail, aside.insp, .voice-panel.on-stage) {
+  background-color: var(--bg-elevated);
+  background-color: rgb(from var(--bg-1) r g b / 0.96);
+}
+
 /* GPU-promote the animated layers. Every backdrop animation here is transform
    or opacity, so on their own compositor layers they run without repaint and
    the translucent UI above just composites over a cached layer — that is what

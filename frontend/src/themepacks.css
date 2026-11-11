@@ -3004,3 +3004,25 @@
   --msg-gap: 13px;
   --feed-pad: 20px;
 }
+
+/* ── Counts that never read as an alarm ────────────────────────────────────
+   A count badge means "this is aimed at you", and it wears the accent. These
+   packs chose an accent within 30° of the danger hue — brick, coral, rose,
+   ember — which is right for their character and wrong for a number on a
+   tile: three mentions in Paper's brick read as three errors. Here the badge
+   is a neutral chip in ink with a control-strength edge instead. The list is
+   checked by themepacks.test.mjs against the hues, so a new warm pack cannot
+   forget to join it. */
+:root[data-theme-pack="sakura"],
+:root[data-theme-pack="rose"],
+:root[data-theme-pack="harvest"],
+:root[data-theme-pack="molten"],
+:root[data-theme-pack="lantern"],
+:root[data-theme-pack="blossom"],
+:root[data-theme-pack="meridian"],
+:root[data-theme-pack="dusk"],
+:root[data-theme-pack="paper"] {
+  --badge-bg: var(--bg-elevated);
+  --badge-fg: var(--text);
+  --badge-edge: inset 0 0 0 1px var(--border-strong);
+}

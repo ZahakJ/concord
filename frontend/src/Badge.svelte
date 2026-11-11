@@ -49,8 +49,11 @@
     height: 16px;
     padding: 0 4px;
     border-radius: 999px;
-    background: var(--accent);
-    color: var(--accent-fg);
+    /* A pack whose accent sits in the alarm range (themepacks.css) swaps the
+       fill for a neutral chip with an edge, so a count never reads as red. */
+    background: var(--badge-bg, var(--accent));
+    color: var(--badge-fg, var(--accent-fg));
+    box-shadow: var(--badge-edge, none);
     font-size: var(--fs-micro);
     font-weight: 600;
     line-height: 16px;
@@ -72,7 +75,9 @@
     background: var(--text);
   }
   .badge.ringed {
-    box-shadow: 0 0 0 2px var(--ring);
+    box-shadow:
+      var(--badge-edge, 0 0 0 0 transparent),
+      0 0 0 2px var(--ring);
   }
   .badge.muted.ringed {
     box-shadow:

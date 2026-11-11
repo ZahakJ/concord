@@ -136,6 +136,50 @@ const tail = (sel) => sel.replace(/^:root(:root)?(\[[^\]]*\])*/, "").trim();
   if (share < 0.2) fail(`themepacks.css is only ${(share * 100).toFixed(1)}% of the stylesheet — has it been merged back?`);
 }
 
+
+// Count badges never read as an alarm (spec §5.10: red is never a count). A
+// pack whose --accent hue is within 30° of its --danger hue must give the
+// badge a neutral ground (--badge-bg), or every mention count on that pack is
+// a red-looking dot.
+{
+  const plain = packs.replace(/\/\*[\s\S]*?\*\//g, "");
+  const rgb = (h) => {
+    h = h.replace("#", "");
+    if (h.length === 3) h = [...h].map((c) => c + c).join("");
+    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  };
+  const hueOf = ([r, g, b]) => {
+    const mx = Math.max(r, g, b);
+    const d = mx - Math.min(r, g, b);
+    if (!d) return null;
+    let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h *= 60;
+    return h < 0 ? h + 360 : h;
+  };
+  const seen = {};
+  for (const m of plain.matchAll(/:root\[data-theme-pack="([\w-]+)"\]\s*\{([^}]*)\}/g)) {
+    const a = m[2].match(/--accent:\s*(#[0-9a-fA-F]{3,6})\b/);
+    const d = m[2].match(/--danger:\s*(#[0-9a-fA-F]{3,6})\b/);
+    const e = (seen[m[1]] ||= {});
+    if (a) e.accent = a[1];
+    if (d) e.danger = d[1];
+  }
+  const neutral = new Set();
+  for (const r of rules(plain)) {
+    if (!/--badge-bg\s*:/.test(r.body)) continue;
+    for (const m of r.head.matchAll(/data-theme-pack="([\w-]+)"/g)) neutral.add(m[1]);
+  }
+  for (const [pack, v] of Object.entries(seen)) {
+    if (!v.accent) continue;
+    const ha = hueOf(rgb(v.accent));
+    const hd = hueOf(rgb(v.danger || "#e5636a"));
+    if (ha == null || hd == null) continue;
+    const dist = Math.min(Math.abs(ha - hd), 360 - Math.abs(ha - hd));
+    if (dist < 30 && !neutral.has(pack))
+      fail(`${pack}: accent ${v.accent} is ${Math.round(dist)}° from danger — set --badge-bg so counts don't read as alarms`);
+  }
+}
+
 if (failures) {
   console.error(`themepacks: ${failures} failure(s)`);
   process.exit(1);
