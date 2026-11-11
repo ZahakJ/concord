@@ -969,7 +969,10 @@
       </span>
     {/if}
     <span class="sh-spacer"></span>
-    {#if clock}<span class="sh-clock" class:held={!health.live} aria-label="Call duration">{clock}</span>{/if}
+    <!-- Until the call is live there is no duration to show: a running clock
+         with a line through it read as a rendering fault, not as "not yet". -->
+    {#if !health.live}<span class="sh-wait" role="status">Connecting…</span>
+    {:else if clock}<span class="sh-clock" aria-label="Call duration">{clock}</span>{/if}
     <button
       class="sh-swap"
       class:on={S.callStageChat}
@@ -1660,10 +1663,9 @@
     font-weight: 600;
     color: var(--text);
   }
-  .sh-clock.held {
-    color: var(--warn-text);
-    text-decoration: line-through;
-    text-decoration-thickness: 1px;
+  .sh-wait {
+    flex: none;
+    color: var(--text-muted);
   }
   .sh-swap {
     display: grid;
@@ -1817,10 +1819,10 @@
       box-shadow var(--dur-standard) ease;
   }
   /* Hover lift — a gentle rise + shadow so tiles feel tactile. */
+  /* Hover is the border stepping up a tier, nothing more: the accent means
+     "you", and a lift under the pointer is chrome moving for no reason. */
   .tile:hover {
-    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.45);
+    border-color: var(--border-strong);
   }
   .tile.speaking {
     border-color: color-mix(in srgb, var(--ok) 55%, transparent);
@@ -2036,8 +2038,8 @@
   .tile.unsettled video {
     opacity: 0.45;
   }
-  .tile.st-connecting,
-  .tile.st-reconnecting {
+  .tile.st-connecting .face,
+  .tile.st-reconnecting .face {
     animation: tile-pulse 1.6s ease-in-out infinite;
   }
   .tile.st-reconnecting {
@@ -2048,40 +2050,39 @@
     border-color: var(--danger);
     animation: none;
   }
+  /* Still trying: the receded face breathes. Not a coloured border — the
+     accent is "you" and an amber/orange frame read as an error. */
   @keyframes tile-pulse {
     50% {
-      border-color: var(--accent);
+      opacity: 0.3;
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .tile.st-connecting,
-    .tile.st-reconnecting {
+    .tile.st-connecting .face,
+    .tile.st-reconnecting .face {
       animation: none;
-      border-color: var(--accent);
     }
   }
-  /* The word itself, centered over the tile — where the eye already is. */
+  /* The word itself: one muted line centred under the avatar, where the eye
+     already is. It was a black band drawn across the face, which read as a
+     redaction bar rather than as a state. */
   .conn {
     position: absolute;
     left: 6px;
     right: 6px;
-    top: 50%;
-    transform: translateY(-50%);
+    top: calc(50% + 44px);
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
     align-items: center;
     gap: 6px;
-    padding: 3px 6px;
     font-size: var(--fs-compact);
-    font-weight: 600;
+    font-weight: 500;
     text-align: center;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.6);
-    border-radius: var(--radius-sm);
+    color: var(--text-muted);
   }
   .conn.bad {
-    color: color-mix(in srgb, var(--warn) 60%, #fff);
+    color: var(--warn-text);
   }
   .conn-retry {
     padding: 2px 8px;
@@ -2104,7 +2105,7 @@
     margin: 0;
     text-align: center;
     font-size: var(--fs-compact);
-    color: var(--warn-text);
+    color: var(--text-muted);
   }
   .screens {
     display: grid;
@@ -2278,13 +2279,14 @@
     height: 64px;
     background: #000;
   }
-  .rail-item:hover,
+  .rail-item:hover {
+    border-color: var(--border-strong);
+  }
   .rail-item.on {
-    border-color: var(--accent);
+    border-color: var(--text-muted);
   }
   .rail-item.speaking {
-    border-color: var(--ok);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 40%, transparent);
+    box-shadow: inset 0 0 0 2px var(--ok);
   }
   .rail-face {
     position: absolute;
