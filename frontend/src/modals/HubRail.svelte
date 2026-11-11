@@ -33,7 +33,7 @@
   // "Members" appeared twice, once in the row and once as a chip over the pane.
   let collapsed = $state(false);
   $effect(() => {
-    const mq = window.matchMedia("(max-width: 920px)");
+    const mq = window.matchMedia("(max-width: 768px)");
     const sync = () => (collapsed = mq.matches);
     sync();
     mq.addEventListener("change", sync);
@@ -205,7 +205,7 @@
   /* Narrow windows: the rail keeps its icons and drops its words, and the
      tooltip is what identifies a glyph then. The group hairlines stay — they
      cost 1px and they are the whole information architecture. */
-  @media (max-width: 920px) {
+  @media (max-width: 768px) {
     .rail {
       align-items: center;
       padding: var(--sp-3) 7px var(--sp-4);

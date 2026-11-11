@@ -20,7 +20,11 @@
   import { tooltip } from "../lib/tooltip.js";
 
   let { here = "" } = $props();
-  // Below 920px the words go and nine 16px glyphs are all that is left, so how
+  // The words stay for every desktop and tablet width: an 820px window has
+  // room for the 224px rail beside a 560px pane, and nine unlabelled glyphs
+  // made the panes unguessable there. A phone (768px and under) gets the
+  // drill-down page instead, so the icon-only form below is a guard, not a
+  // layout anyone is meant to see. When it does apply, how
   // you learn what one means IS the tooltip. It was the NATIVE tooltip until
   // now — the one lib/tooltip.js opens by explaining is the wrong tool for an
   // icon-only column: the OS sits on it for about a second and paints it in the
@@ -32,7 +36,7 @@
   const railTip = { side: "right", delay: 80 };
   let collapsed = $state(false);
   $effect(() => {
-    const mq = window.matchMedia("(max-width: 920px)");
+    const mq = window.matchMedia("(max-width: 768px)");
     const sync = () => (collapsed = mq.matches);
     sync();
     mq.addEventListener("change", sync);
@@ -183,7 +187,7 @@
   /* Narrow windows: the rail keeps its icons and drops its words, and the
      tooltip is what identifies a glyph then. The group hairlines stay — they
      cost 1px and they are the whole information architecture. */
-  @media (max-width: 920px) {
+  @media (max-width: 768px) {
     .rail {
       align-items: center;
       padding: var(--sp-3) 7px var(--sp-4);

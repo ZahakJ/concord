@@ -997,6 +997,15 @@
 </RailShell>
 
 <style>
+  /* Sentence case, not the shouted kicker: day headings, the legend and the
+     form's echo line read as labels ("Friday 13 November"), in the small
+     size at 600, the way every other group label in the app does. */
+  .kicker {
+    font-size: var(--fs-small);
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+  }
   .bar {
     display: flex;
     align-items: center;

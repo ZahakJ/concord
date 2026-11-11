@@ -509,9 +509,9 @@
     grid-template-columns: 224px minmax(0, 1fr);
     overflow: hidden;
   }
-  /* Below this the rail keeps its icons and drops its words rather than eating
-     the page it is meant to be navigating. See SettingsRail's own query. */
-  @media (max-width: 920px) {
+  /* The rail keeps its words at every desktop and tablet width; at the phone
+     contract the railed dialog is a page with no rail. See SettingsRail. */
+  @media (max-width: 768px) {
     .dialog.railed {
       grid-template-columns: auto minmax(0, 1fr);
     }

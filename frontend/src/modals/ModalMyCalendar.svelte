@@ -349,7 +349,7 @@
   <div class="list">
     {#each groups as grp (grp.key)}
       <div class="dayhead kicker">
-        {fmtDayHeading(grp.key)}{#if grp.key === todayKey && !grp.items.length}<span class="dh-none"> — nothing scheduled</span>{/if}
+        {fmtDayHeading(grp.key)}{#if grp.key === todayKey && !grp.items.length}<span class="dh-none">&nbsp;— nothing scheduled</span>{/if}
       </div>
       {#each grp.items as { ev, g }, i (ev.id)}
         {#if grp.key === todayKey && i === nowIdx}
@@ -389,6 +389,15 @@
 </Modal>
 
 <style>
+  /* Sentence case, not the shouted kicker: day headings, the legend and the
+     form's echo line read as labels ("Friday 13 November"), in the small
+     size at 600, the way every other group label in the app does. */
+  .kicker {
+    font-size: var(--fs-small);
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+  }
   /* ---- masthead: the reason to open this every morning ---- */
   /* A row now: the date column keeps the left edge, the Agenda|Month toggle
      rides the right — no extra bar row stealing height from the river. */
