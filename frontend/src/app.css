@@ -1906,6 +1906,15 @@ button:disabled {
      own radius, so forcing one squared off circular/pill controls (call buttons,
      reaction pills, avatars) on focus. Let each control keep its shape. */
 }
+/* No ring until the person moves through the app with the keyboard: focus
+   that script moves on a pointer-opened dialog or pane is not something they
+   navigated to, and a lone accent outline on its Cancel button read as an
+   error state (lib/inputmode.js sets data-kbd on <html>). !important because
+   a component's own ring rule is more specific than this one. */
+:root:not([data-kbd]) :focus-visible,
+:root:not([data-kbd]) :focus-visible * {
+  outline: none !important;
+}
 /* A dialog or popover holding focus itself is a PLACE focus was parked (it
    had nothing else to focus, or Escape stepped out of one of its fields), not
    a control; ringing the whole surface reads as a selection. */

@@ -456,6 +456,8 @@
   .menu :global(.menu-item:focus-visible) {
     background: var(--bg-3);
     outline: none;
+  }
+  :global(:root[data-kbd]) .menu :global(.menu-item:focus-visible) {
     box-shadow: inset 0 0 0 2px var(--accent-hover);
   }
   .menu :global(.menu-item.danger),

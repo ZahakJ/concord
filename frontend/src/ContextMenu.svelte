@@ -501,7 +501,7 @@
      down to Delete has to see which row Enter will run. The menu the keyboard
      is driving rings its active row, inset, in the accent. Hover moves focus
      (above), so the pointer's row and the keyboard's row are one row. */
-  .cm-item:focus-visible {
+  :global(:root[data-kbd]) .cm-item:focus-visible {
     box-shadow: inset 0 0 0 2px var(--accent-hover);
   }
   .cm-item.danger,

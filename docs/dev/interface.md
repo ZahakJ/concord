@@ -61,7 +61,7 @@ A guild's own colour is `--guild-accent` (`lib/guildaccent.js`), set only on tha
 
 ### Shape, elevation and focus
 
-Radii: `--radius-sm` 6px, `--radius-md` 10px, `--radius-lg` 14px, and `--radius-sheet` 18px; the Shape setting in Appearance moves all of them. `--shadow-pop` is the one shadow for floating surfaces. There are no glows: `--accent-glow` resolves to `none` and `--float-shadow` to `--shadow-pop`, and the token test fails any component that paints with either. `--focus-ring` is `2px solid var(--accent-hover)`.
+Radii: `--radius-sm` 6px, `--radius-md` 10px, `--radius-lg` 14px, and `--radius-sheet` 18px; the Shape setting in Appearance moves all of them. `--shadow-pop` is the one shadow for floating surfaces. There are no glows: `--accent-glow` resolves to `none` and `--float-shadow` to `--shadow-pop`, and the token test fails any component that paints with either. `--focus-ring` is `2px solid var(--accent-hover)`. It is drawn only once the person has moved through the app with the keyboard (Tab, F6, Escape, arrows outside a text field, or a shortcut; `lib/inputmode.js` marks `<html data-kbd>`), and a pointer press turns rings off again, so a dialog opened with the mouse moves focus without painting one. Typing in a field does not count.
 
 ### Type
 

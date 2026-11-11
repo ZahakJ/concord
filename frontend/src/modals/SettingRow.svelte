@@ -151,7 +151,7 @@
     outline-offset: 2px;
   }
   /* The checkbox is invisible over the track, so the ring goes on the track. */
-  label.row:has(input:focus-visible) > :global(.switch) {
+  :global(:root[data-kbd]) label.row:has(input:focus-visible) > :global(.switch) {
     outline: var(--focus-ring);
     outline-offset: 2px;
   }
