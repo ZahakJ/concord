@@ -300,6 +300,11 @@ type Service struct {
 	offeredRetry    map[string]string
 	offeredRetrying atomic.Bool
 
+	// liveGaps is topic -> the peer that forwarded a message we had to drop,
+	// waiting for the catch-up noteLiveGap schedules. Guarded by liveGapMu.
+	liveGaps  map[string]peer.ID
+	liveGapMu sync.Mutex
+
 	// blocked is the in-memory mirror of the block list (see block.go), guarded
 	// by mu. A blocked account's DM/guild invites are dropped on arrival.
 	blocked map[string]bool
@@ -1143,6 +1148,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		bootstrap:        bootstrap,
 	}
 	s.mbxPriv, s.mbxPub = deriveMailboxKeys(id)
+	ps.OnOverflow(s.noteLiveGap)
 
 	// Before ANYTHING else reads the account: has this device been unlinked?
 	// A previous session was told and did not finish erasing, or the record
