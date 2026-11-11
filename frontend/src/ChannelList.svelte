@@ -122,6 +122,9 @@
     }
   }
 
+  // Your calendar's news: events that are new or changed since you last looked.
+  const unseenEvents = $derived(Object.values(RADAR.unseen).reduce((a, b) => a + b, 0));
+
   // "N reachable" (§2.10): members other than you whose presence says they are
   // here right now. Invisible members are offline to everyone else, and render
   // that way, so they count that way. No new core call: the member list with
@@ -979,7 +982,21 @@
       <span class="jump-lbl">Jump to…</span>
       {#if !S.isMobile}<Kbd>Ctrl K</Kbd>{/if}
     </button>
-    {#if !S.isMobile}
+    <!-- Inbox and Your calendar have their own buttons on the classic rail;
+         here only when the strip stands in for it, so neither is drawn twice. -->
+    {#if !S.isMobile && strip}
+      <span class="inbox-wrap">
+        <button
+          class="iconbtn inbox-btn"
+          class:on={S.modal?.kind === "myCalendar"}
+          aria-label={unseenEvents > 0 ? `Your calendar — ${plural(unseenEvents, "new or changed event")}` : "Your calendar"}
+          use:tooltip={{ text: "Your calendar — everything you're part of" }}
+          onclick={() => (S.modal = S.modal?.kind === "myCalendar" ? null : { kind: "myCalendar" })}
+        >
+          <Icon name="calendar" size={16} />
+        </button>
+        {#if unseenEvents > 0}<span class="inbox-badge"><Badge count={unseenEvents} ring="var(--bg-1)" /></span>{/if}
+      </span>
       <span class="inbox-wrap">
         <button
           class="iconbtn inbox-btn"
@@ -1556,7 +1573,7 @@
        guild. Newest last, and it never reorders while it is on screen — a row
        leaves only when it is read, so the one you were reaching for is still
        where it was. -->
-  {#if !S.isMobile && g?.kind !== "dm" && (dmBlock.length || S.requests.length)}
+  {#if !S.isMobile && strip && g?.kind !== "dm" && (dmBlock.length || S.requests.length)}
     <div class="unread-block" aria-label="Unread messages" role="group">
       <div class="ub-head">Unread messages</div>
       {#if S.requests.length}
@@ -2830,10 +2847,19 @@
   }
   .inbox-badge {
     position: absolute;
-    top: -5px;
-    right: -5px;
+    top: -2px;
+    right: -2px;
     display: flex;
     pointer-events: none;
+  }
+  /* A short window (a phone on its side) has room for the list or for the
+     Unread messages block, not both: two channel rows were left between the
+     header and the block. The Messages tile on the strip still carries the
+     count. */
+  @media (max-height: 500px) {
+    .unread-block {
+      display: none;
+    }
   }
   .list-wrap {
     position: relative;
