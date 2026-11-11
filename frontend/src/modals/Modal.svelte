@@ -68,7 +68,12 @@
   // A railed page on a phone is a page, not a sheet: Settings is somewhere you
   // go and come back from, and a 92% sheet over the shell read as a dialog
   // you could half-dismiss by brushing its top edge.
-  const page = $derived(!!rail && S.isMobile);
+  // A phone TAB's own page (Inbox, You — stamped `tab` by MobileShell): a
+  // page that stops at the tab bar, so the bar stays on screen and lit, with
+  // no grip, no × and no dim; the other tabs and the system back are the ways
+  // out. Only the outermost panel — a confirm raised over it is a sheet.
+  const tabPage = $derived(S.isMobile && !!S.modal?.tab);
+  const page = $derived((!!rail || tabPage) && S.isMobile);
   let dialog = $state(null);
   let titleEl = $state(null);
   // TalkBack/VoiceOver announce a dialog by its label; without an id to point
@@ -346,6 +351,7 @@
 <div
   bind:this={overlay}
   class="overlay"
+  class:tabpage={tabPage && !me.hasOtherOfKind}
   class:lateral
   class:continuing
   class:stacked={!continuing && me.isInnermostOfKind && me.hasOtherOfKind}
@@ -359,6 +365,7 @@
     class="dialog {sz}"
     class:railed
     class:page
+    class:tabpage={tabPage && !me.hasOtherOfKind}
     class:scrolls
     class:lateral
     class:continuing
@@ -367,7 +374,7 @@
     onclick={(e) => e.stopPropagation()}
     onfocusout={onFocusOut}
     role="dialog"
-    aria-modal="true"
+    aria-modal={tabPage ? undefined : "true"}
     aria-labelledby={titleId}
   >
     {#snippet body()}
@@ -393,9 +400,11 @@
             </button>
           {/if}
           <h3 id={titleId} tabindex="-1" bind:this={titleEl}>{title}</h3>
-          <button class="iconbtn x" onclick={dismiss} aria-label="Close" title="Close · Esc">
-            <Icon name="close" size={16} />
-          </button>
+          {#if !(tabPage && !me.hasOtherOfKind)}
+            <button class="iconbtn x" onclick={dismiss} aria-label="Close" title="Close · Esc">
+              <Icon name="close" size={16} />
+            </button>
+          {/if}
         </div>
         {#if subtitle}<p class="subtitle">{subtitle}</p>{/if}
       </div>
@@ -745,6 +754,18 @@
     }
     .dialog.page .grip {
       display: none;
+    }
+    /* A tab's page ends where the tab bar begins, on no dim: it is a place
+       you are, like Guilds and Messages, not a layer over them. */
+    .overlay.tabpage {
+      background: none;
+      bottom: var(--tabbar-h, 0px);
+      animation: none;
+    }
+    .dialog.tabpage {
+      height: calc(100 * var(--dvh) - var(--tabbar-h, 0px) - var(--kb, 0px));
+      padding-bottom: var(--dlg-pad);
+      animation: none;
     }
     .dialog.page .sheet-top {
       top: calc(-1 * var(--safe-top));

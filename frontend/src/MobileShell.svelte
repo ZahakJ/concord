@@ -280,9 +280,34 @@
 
   // ---- the tab bar ----
   // Which tab is lit is a fact about where you are, not a second piece of
-  // state to keep in step: the DM area is the Messages tab, anything else is
-  // Home. Inbox and You open sheets and light nothing.
-  const tab = $derived(isDM ? "messages" : "home");
+  // state to keep in step: an open Inbox or You page is that tab, the DM area
+  // is the Messages tab, anything else is Home. Inbox and You used to open a
+  // sheet and a dialog OVER the tab bar, lighting nothing, with a × where the
+  // tab should have been — four tabs, two navigation models. They are pages
+  // now: the dialog is stamped `tab`, Modal draws it as a page that stops at
+  // the tab bar, and the bar stays visible and says where you are.
+  const tab = $derived(S.modal?.tab || (isDM ? "messages" : "home"));
+  function openTab(which) {
+    if (S.modal?.tab === which) return;
+    if (which === "inbox") openInbox({ tab: true });
+    else {
+      S.modalStack = [];
+      S.modal = { kind: "settings", tab: "you" };
+    }
+  }
+  // Leaving a tab page for Guilds or Messages closes it; it is not a layer
+  // the next tab should be opened on top of.
+  function leaveTabPage() {
+    if (!S.modal?.tab) return false;
+    S.modal = null;
+    S.modalStack = [];
+    return true;
+  }
+  // The tab bar's measured height, for Modal's tab pages to stop above.
+  let tabbarH = $state(0);
+  $effect(() => {
+    document.documentElement.style.setProperty("--tabbar-h", `${tabbarH}px`);
+  });
   // The guild to go back to from Messages: the last non-DM one you stood in,
   // else the first in the rail. Remembered here, not persisted — the app's
   // own last-place memory already decides where a launch lands.
@@ -292,6 +317,7 @@
     if (g && g.kind !== "dm") lastGuildId = g.id;
   });
   function goHome() {
+    if (leaveTabPage() && !isDM) return;
     // Tapping the tab you are on takes its list back to the top, as tab bars
     // do; the switcher is the long-press.
     if (tab === "home") {
@@ -302,6 +328,7 @@
     if (g) selectGuild(g.id, { browse: true });
   }
   function goMessages() {
+    if (leaveTabPage() && isDM) return;
     if (tab === "messages") return;
     openDMs({ browse: true });
   }
@@ -653,7 +680,7 @@
           <div class="home-list"><Welcome /></div>
         {/if}
       </div>
-      <nav class="tabbar" aria-label="Sections">
+      <nav class="tabbar" aria-label="Sections" bind:offsetHeight={tabbarH}>
         <!-- A long-press on Guilds opens the switcher sheet, within thumb
              reach (§2.6). -->
         <button
@@ -679,8 +706,10 @@
         </button>
         <button
           class="tab"
+          class:on={tab === "inbox"}
+          aria-current={tab === "inbox" ? "page" : undefined}
           aria-label={S.inbox.unread > 0 ? `Inbox — ${S.inbox.unread} unread` : "Inbox"}
-          onclick={() => openInbox()}
+          onclick={() => openTab("inbox")}
         >
           <span class="tab-ic">
             <Icon name="bell" size={22} />
@@ -688,7 +717,13 @@
           </span>
           <span class="tab-lbl" aria-hidden="true">Inbox</span>
         </button>
-        <button class="tab" aria-label="You — profile and settings" onclick={() => (S.modal = { kind: "settings" })}>
+        <button
+          class="tab"
+          class:on={tab === "you"}
+          aria-current={tab === "you" ? "page" : undefined}
+          aria-label="You — profile and settings"
+          onclick={() => openTab("you")}
+        >
           <span class="tab-ic tab-me">
             <Avatar
               name={S.displayName}

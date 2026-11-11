@@ -1011,7 +1011,7 @@
           class:on={S.modal?.kind === "inbox"}
           aria-label={S.inbox.unread > 0 ? `Inbox — ${S.inbox.unread} unread` : "Inbox"}
           use:tooltip={{ text: "Inbox — mentions, replies and alert words aimed at you" }}
-          onclick={() => (S.modal?.kind === "inbox" ? (S.modal = null) : openInbox())}
+          onclick={() => (S.modal?.kind === "inbox" ? (S.modal = null) : openInbox({ tab: S.isMobile }))}
         >
           <Icon name="bell" size={16} />
         </button>

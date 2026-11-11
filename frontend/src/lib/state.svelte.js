@@ -1834,8 +1834,12 @@ export async function markInboxRead() {
 // it is to find out what they have missed. It rides the modal stack rather than
 // being a place of its own: on a phone that makes it a sheet with the app's own
 // physics, and on desktop a dialog, from one component.
-export function openInbox() {
-  S.modal = { kind: "inbox" };
+//
+// `tab` opens it as the phone's Inbox TAB: a page under the tab bar rather than
+// a sheet over it (Modal.svelte reads the stamp; MobileShell lights the tab).
+export function openInbox({ tab = false } = {}) {
+  S.modalStack = [];
+  S.modal = tab ? { kind: "inbox", tab: "inbox" } : { kind: "inbox" };
   refreshInbox({ soon: true });
 }
 

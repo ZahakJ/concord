@@ -275,7 +275,7 @@
 
 </script>
 
-<RailShell title={S.isMobile ? "Settings" : "Account"} here="settings" {onClose}>
+<RailShell title={S.isMobile ? (S.modal?.tab === "you" ? "You" : "Settings") : "Account"} here="settings" {onClose}>
   <!-- WHO. It leads on both surfaces: on the desktop this page has no other way
        of saying which account it is about, and on a phone the list under it is
        all the ways of changing exactly this. On a phone the whole card is the
