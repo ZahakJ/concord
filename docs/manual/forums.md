@@ -53,21 +53,21 @@ The bar above the board holds:
 
 - **Search posts…**: matches posts whose title, preview text or author name contain every word you type, ignoring case and accents. This searches the board only; for message search across everything, see [Search](search.md).
 - **Sort**: **Recent activity** (the default), **Most replies** or **Oldest first**. Pinned posts stay at the top in every order.
-- **Layout**: **List**, **Gallery** or **Cover** (see below).
+- **Layout** (the button beside the sort): **List**, **Gallery** or **Cover** (see below).
 - **Filter chips**: **Unanswered** shows posts not marked answered that have no replies yet. Tag chips show posts carrying any of the selected tags. **Clear** resets the filters.
 
-On a phone, sort and layout are together under **View**. The board's header also counts closed and pinned posts.
+On a phone, and wherever the bar is narrow, sort and layout are together under **Sort**. The board's header also counts closed and pinned posts.
 
 ## Layout and banner
 
-**Board settings → Board look** offers three card layouts:
+**Board settings → Board look** (or the bar's layout button) offers three layouts:
 
 | Layout | Shape |
 |---|---|
-| **List** | Dense rows, thumbnail on the left |
+| **List** | Rows, a small thumbnail on the left when a post has a picture (the default) |
 | **Gallery** | Media on top, text underneath |
-| **Cover** | Full-bleed art behind the title |
+| **Cover** | The post's picture (or its colour) fills the card, the title on a dark band |
 
-The layout is a reading preference stored **on this device** only; other members choose their own. Members with **Manage channels** can also set the forum's banner art (**Auto**, one of the preset banners, or **Upload…** an image of up to 384 KiB), which everyone in the guild sees.
+The layout is a reading preference stored **on this device** only; other members choose their own. Members with **Manage channels** can also give the forum a header picture: **Upload a picture…** (PNG, JPEG, GIF or WebP, up to 384 KiB) or **Remove**. Everyone in the guild sees it. A banner chosen from the preset scenes in an older version shows as a plain colour.
 
 ![A forum board in the List layout with tag chips and a pinned post at the top](../media/manual/forum-board.png)

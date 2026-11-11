@@ -3,11 +3,11 @@
   // shares (guild state, announced over the guild-meta topic, gated on Manage
   // Channels).
   //
-  // This dialog used to sell the board's look as well — a gradient header-art
-  // grid of a dozen presets and List / Gallery / Cover card layouts. The board
-  // has no hero and is one list of rows now, so offering them was offering
-  // decoration that no longer draws. What a forum already stored (its banner,
-  // a device's layout pref) is left as it is and simply not rendered.
+  // And the board's look: how this device lays its posts out (List, Gallery,
+  // Cover — device-local) and the forum's header picture (shared, on the
+  // channel record, set by whoever can manage channels). The picture is an
+  // image someone uploads; the gradient presets the old grid offered are not
+  // offered, and one already chosen is drawn as a flat tint.
   import { tick } from "svelte";
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
@@ -16,7 +16,7 @@
   import { api } from "../lib/api.js";
   import { tooltip } from "../lib/tooltip.js";
   import { PERM, has } from "../lib/perms.js";
-  import { TAG_LIMITS, validateTag, normalizeHex, runeLen } from "../lib/forum.js";
+  import { TAG_LIMITS, LAYOUTS, validateTag, normalizeHex, runeLen, readBoardPrefs, writeBoardPrefs } from "../lib/forum.js";
 
   let { forum: forumProp, onClose } = $props();
 
@@ -31,6 +31,44 @@
   const canManage = $derived(
     !!guild && (guild.isOwner || has(guild.myPerms || 0, PERM.MANAGE_CHANNELS)),
   );
+
+  // ---- board look ---------------------------------------------------------
+  // svelte-ignore state_referenced_locally
+  let prefs = $state(readBoardPrefs(forumProp.id));
+  const saveLook = (patch) => (prefs = writeBoardPrefs(forum.id, patch, prefs));
+  const art = $derived(forum.banner || "");
+  const artImage = $derived(/^data:image\//.test(art) ? art : "");
+  const MAX_ART = 384 * 1024; // must match maxForumBannerBytes in internal/app/forum.go
+  async function setArt(banner) {
+    try {
+      await api.setForumBanner(guild.id, forum.id, banner);
+      await refreshGuilds();
+    } catch (e) {
+      flash(e);
+    }
+  }
+  function pickArt() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/png,image/jpeg,image/gif,image/webp";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file || !file.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result);
+        // Said here as well as by the core so the answer is the limit, not a
+        // failure after a round trip.
+        if (url.length > MAX_ART) {
+          flash(`That image is ${Math.round(url.length / 1024)} KB — the limit is ${MAX_ART / 1024} KB`, "error");
+          return;
+        }
+        setArt(url);
+      };
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  }
 
   // ---- tag palette --------------------------------------------------------
   // A draft copy. Nothing is sent until Save, because SetForumTags replaces the
@@ -151,6 +189,49 @@
         </button>
       {/if}
     </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h4>Board look</h4>
+      <span class="shared">Layout on this device</span>
+    </div>
+    <div class="looks" role="radiogroup" aria-label="Board layout">
+      {#each LAYOUTS as l (l.id)}
+        <button
+          class="look"
+          class:on={prefs.layout === l.id}
+          role="radio"
+          aria-checked={prefs.layout === l.id}
+          onclick={() => saveLook({ layout: l.id })}
+        >
+          <!-- A drawn mini-board, not an icon: what changes is the shape. -->
+          <span class="dia {l.id}" aria-hidden="true"><i></i><i></i><i></i></span>
+          <b>{l.label}</b>
+          <em>{l.hint}</em>
+        </button>
+      {/each}
+    </div>
+    <div class="art-row">
+      {#if artImage}
+        <span class="art-thumb" style="background-image:url('{artImage}')" aria-hidden="true"></span>
+      {/if}
+      <span class="art-words">
+        <b>Header picture</b>
+        <span class="muted small">
+          {#if artImage}Everyone in {guild?.name || "this guild"} sees it.
+          {:else if art}A colour, from an older pick.
+          {:else}None — the board's header is plain.{/if}
+        </span>
+      </span>
+      {#if canManage}
+        <button class="ghost" onclick={pickArt}>{artImage ? "Replace…" : "Upload a picture…"}</button>
+        {#if art}<button class="ghost" onclick={() => setArt("")}>Remove</button>{/if}
+      {/if}
+    </div>
+    {#if !canManage}
+      <p class="note">The header picture belongs to the forum; changing it needs Manage channels.</p>
+    {/if}
   </section>
 
   <section>
@@ -314,6 +395,101 @@
   .shared {
     background: var(--accent-soft);
     color: var(--accent-hover);
+  }
+  /* Board look: three drawn mini-boards, one ring for the chosen one. */
+  .looks {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--sp-2);
+  }
+  .look {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+    padding: var(--sp-2) 10px;
+    border-radius: var(--radius-md);
+    background: var(--bg-3);
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    text-align: start;
+  }
+  .look.on {
+    border-color: var(--accent-hover);
+    color: var(--text);
+  }
+  .look b {
+    font-size: var(--fs-compact);
+    color: var(--text);
+  }
+  .look em {
+    font-size: var(--fs-small);
+    font-style: normal;
+    line-height: 1.35;
+  }
+  .dia {
+    display: grid;
+    gap: 3px;
+    width: 100%;
+    height: 30px;
+    padding: 3px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-1);
+  }
+  .dia i {
+    display: block;
+    border-radius: 2px;
+    background: var(--text-faint);
+  }
+  .dia.list {
+    grid-template-rows: repeat(3, 1fr);
+  }
+  .dia.gallery {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .dia.cover {
+    grid-template: 1fr / 1fr;
+  }
+  .dia.cover i {
+    grid-area: 1 / 1;
+  }
+  .dia.cover i:nth-child(2) {
+    align-self: end;
+    height: 5px;
+    margin: 0 4px 4px;
+    background: var(--bg-1);
+  }
+  .dia.cover i:nth-child(3) {
+    display: none;
+  }
+  .look.on .dia i {
+    background: var(--accent);
+  }
+  .look.on .dia.cover i:nth-child(2) {
+    background: var(--bg-1);
+  }
+  .art-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-top: var(--sp-3);
+  }
+  .art-thumb {
+    flex: none;
+    width: 72px;
+    height: 40px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-3) center / cover no-repeat;
+    border: 1px solid var(--border);
+  }
+  .art-words {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .art-words b {
+    font-size: var(--fs-compact);
   }
   .note {
     margin: 0;

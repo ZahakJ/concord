@@ -46,6 +46,7 @@
   import { loadAttachment } from "./lib/attachments.js";
   import {
     SORTS,
+    LAYOUTS,
     TAG_LIMITS,
     arrangePosts,
     boardStats,
@@ -56,6 +57,7 @@
     absTime,
     isPending,
     tileFor,
+    SCRIM_FLOOR,
     hueOfCss,
     BOARD_PREFS_EVENT,
     readBoardPrefs,
@@ -441,6 +443,20 @@
     );
   }
 
+  const layoutIcon = (id) => (id === "list" ? "list" : id === "gallery" ? "imagetext" : "screen");
+  const layoutItems = () => [
+    { header: true, label: "Layout" },
+    ...LAYOUTS.map((l) => ({
+      label: l.label,
+      sub: l.hint,
+      icon: layoutIcon(l.id),
+      active: layout === l.id,
+      onClick: () => savePrefs({ layout: l.id }),
+    })),
+  ];
+  function layoutMenu(el) {
+    menuAt(el, layoutItems());
+  }
   function boardMenu(el) {
     menuAt(el, [
       { header: true, label: "Sort" },
@@ -450,6 +466,7 @@
         active: prefs.sort === s.id,
         onClick: () => savePrefs({ sort: s.id }),
       })),
+      ...layoutItems(),
       { sep: true },
       { label: "Board settings…", icon: "gear", onClick: () => (S.modal = { kind: "forumSettings", forum }) },
     ]);
@@ -498,10 +515,16 @@
     const el = root || document.querySelector(".app") || document.documentElement;
     return hueOfCss(getComputedStyle(el).getPropertyValue("--accent"));
   });
-  // The board is one list of rows with a plain header. Gallery and Cover
-  // layouts and header art are no longer offered (ModalForumSettings); a
-  // forum's stored banner and a device's stored layout stay in their records,
-  // readable by any build that wants them, and are simply not drawn here.
+  // How this device lays the board out (List by default, Gallery, Cover) is
+  // a device-local board pref, chosen here or in Board settings.
+  const layout = $derived(LAYOUTS.some((l) => l.id === prefs.layout) ? prefs.layout : "list");
+  // The forum's header art is shared, on the channel record: an image someone
+  // uploaded, drawn under a flat scrim so the words on it keep their contrast
+  // (SCRIM_FLOOR), or, for a banner an older build chose from its gradient
+  // presets, a flat tint of the board's own colour in its place.
+  const art = $derived(forum.banner || "");
+  const artImage = $derived(/^data:image\//.test(art) ? art : "");
+  const heroTile = $derived(tileFor(forum.id, forum.name, accentHue));
   //
   // The toolbar folds its sort into one "Sort" menu wherever the row is too
   // narrow for the three-way control beside a usable search field: at tablet
@@ -525,7 +548,13 @@
        place — instead of an icon, an h2 and a grey rule. -->
   <!-- A banner, if the board has one, behind a scrim; otherwise a plain
        header on the canvas — no generated gradient standing in for art. -->
-  <header class="hero plain">
+  <header class="hero" class:plain={!art} style={art && !artImage ? `--hero-tint:${heroTile.color}` : undefined}>
+    {#if artImage}
+      <img class="hero-img" src={artImage} alt="" />
+    {:else if art}
+      <span class="hero-tint" aria-hidden="true"></span>
+    {/if}
+    {#if art}<span class="hero-scrim" aria-hidden="true" style="--scrim:{SCRIM_FLOOR}"></span>{/if}
     <!-- Two layers over the art, in this order. The sheen lights one corner so a
          plain gradient reads as a designed surface; the scrim on top of it is the
          CONTRAST GUARANTEE, not decoration — white ink over SCRIM_FLOOR clears
@@ -616,6 +645,14 @@
           <span>Sort</span>
         </button>
       {:else}
+        <button
+          class="pill lay"
+          aria-label="Layout: {LAYOUTS.find((l) => l.id === layout)?.label}"
+          use:tooltip={{ text: "Layout", side: "bottom" }}
+          onclick={(e) => layoutMenu(e.currentTarget)}
+        >
+          <Icon name={layoutIcon(layout)} size={14} />
+        </button>
         <div class="seg" role="group" aria-label="Sort posts">
           {#each SORTS as s (s.id)}
             <button
@@ -736,7 +773,7 @@
       </EmptyState>
     </div>
   {:else}
-    <ul class="posts list">
+    <ul class="posts {layout}">
       {#each visible as p, i (p.id)}
         {@const pv = postPreview(p.excerpt)}
         {@const tok = firstImage(p)}
@@ -794,7 +831,7 @@
                     image={author?.avatar || ""}
                     emoji={author?.emoji || ""}
                     color={author?.color || ""}
-                    size={30}
+                    size={layout === "list" ? 30 : 44}
                   />
                 </span>
               {:else}
@@ -1068,6 +1105,29 @@
     display: flex;
     align-items: flex-end;
     border: 1px solid var(--border);
+  }
+  /* The forum's own picture, or a flat tint where an older build chose a
+     gradient preset, under a flat scrim the white words are proven on. */
+  .hero-img,
+  .hero-tint,
+  .hero-scrim {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .hero-img {
+    z-index: 0;
+    object-fit: cover;
+  }
+  .hero-tint {
+    z-index: 0;
+    background: var(--hero-tint);
+  }
+  .hero-scrim {
+    z-index: 2;
+    background: rgb(0 0 0 / var(--scrim));
+    pointer-events: none;
   }
   /* Banner renders its own root; place it as the art layer. */
   .hero :global(.bnr) {
@@ -1377,6 +1437,11 @@
     color: var(--text);
     font-size: var(--fs-compact);
     font-weight: 500;
+  }
+  .pill.lay {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
   }
   /* ---- chips ----------------------------------------------------------- */
   /* A tag's colour IDENTIFIES the chip; the theme's ink READS it. A member picks
@@ -1869,6 +1934,101 @@
   }
   .posts.list .more {
     margin-top: 10px;
+  }
+
+  /* ---- layout: gallery ------------------------------------------------- */
+  /* Cards in a grid: the picture on top (or the author on a flat tile of the
+     post's colour), the title and two lines under it. */
+  .posts.gallery {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
+  .posts.gallery .card,
+  .posts.cover .card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto 1fr;
+  }
+  .posts.gallery .media {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    aspect-ratio: 16 / 9;
+    background: color-mix(in srgb, var(--tile-a) 30%, var(--bg-3));
+  }
+  .posts.gallery .body {
+    grid-column: 1;
+    grid-row: 2;
+    padding: 10px var(--sp-3) var(--sp-3);
+  }
+  .posts.gallery .more {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .posts.gallery .title {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+  .posts.gallery .excerpt {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  /* ---- layout: cover --------------------------------------------------- */
+  /* The picture is the card and the words sit on it, on a flat scrim at the
+     floor forum.test.mjs proves; a post without a picture is a flat tile of
+     its own colour. */
+  .posts.cover {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+  .posts.cover .card {
+    grid-template-rows: minmax(84px, 1fr) auto;
+    min-height: 200px;
+    border-color: transparent;
+  }
+  .posts.cover .media {
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    background: var(--tile-a);
+  }
+  .posts.cover .tile-face {
+    align-self: start;
+    justify-self: start;
+    margin: var(--sp-3);
+  }
+  .posts.cover .body {
+    position: relative;
+    z-index: 1;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    align-self: end;
+    padding: 10px var(--sp-3) var(--sp-3);
+    background: rgba(0, 0, 0, 0.62);
+    pointer-events: none;
+  }
+  .posts.cover .more {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    margin: 0;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.62);
+  }
+  /* On the scrim everything reads in white whatever the theme, chips and
+     flags included: their theme inks are tuned for the theme's own ground. */
+  .posts.cover .title,
+  .posts.cover .excerpt,
+  .posts.cover .meta,
+  .posts.cover .wname,
+  .posts.cover .mi,
+  .posts.cover .muted,
+  .posts.cover .flag,
+  .posts.cover .pin-mark {
+    color: #fff;
+  }
+  .posts.cover .chip.tag {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+  }
+  .posts.cover .excerpt {
+    opacity: 0.88;
   }
 
 
