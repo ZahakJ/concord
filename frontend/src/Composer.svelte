@@ -38,6 +38,7 @@
   import { stagedImage, dataUrlBytes } from "./lib/attachopts.js";
   import { displayFileName } from "./lib/attachments.js";
   import { fmtBytes } from "./lib/chronicle.js";
+  import { midTrunc, fileLabel } from "./lib/attachments.js";
   import { wantsTypeToFocus } from "./lib/typetofocus.js";
   import { isPttKey } from "./lib/shortcuts.js";
 
@@ -1863,7 +1864,18 @@
               <img src={p.dataUrl} alt="" class:blur={p.spoiler} />
               {#if p.spoiler}<span class="att-tag">SPOILER</span>{/if}
             {:else}
-              <span class="att-file"><Icon name={p.isVideo ? "play" : "attach"} size={16} /><span class="att-name">{p.name}</span></span>
+              <!-- The posted file card's own shape (FileAttachment): a 36px
+                   tile, the name once on one line cut from the middle so the
+                   extension survives, and "TXT · 13 B" under it. The staged
+                   one used to cut the name mid-word with no ellipsis, lay the
+                   remove button over it, and print it again underneath. -->
+              <span class="att-file" title={p.name}>
+                <span class="af-tile"><Icon name={p.isVideo ? "play" : "attach"} size={16} /></span>
+                <span class="af-meta">
+                  <span class="att-name"><bdi>{midTrunc(p.name, 30)}</bdi></span>
+                  <span class="af-sub">{fileLabel(p.name, p.bytes)}</span>
+                </span>
+              </span>
             {/if}
             {#if mobile}
               <!-- Touch gets ONE target — the chip itself — instead of three
@@ -1919,19 +1931,16 @@
                client that refuses images over 5 MB and files over 25 MB. "How
                big is this?" is a question to answer BEFORE Enter, not after the
                send fails. -->
+          {#if p.isImage}
           <span class="att-meta" title={p.name || p.origName || ""}>
-            {#if p.isImage}
               <!-- Shape before weight: the dimensions decide whether the
                    picture lands as a postage stamp or eats the pane, and the
                    size decides whether it goes through at all. -->
               <span class="am-name">{p.name || p.origName || "image"}</span>
               <span class="am-num">{p.w ? `${p.w}×${p.h} · ` : ""}{fmtBytes(p.bytes)}</span>
-            {:else}
-              <span class="am-name">{p.name}</span>
-              <span class="am-num">{fmtBytes(p.bytes)}</span>
-            {/if}
             {#if p.spoiler}<span class="am-spoil">spoiler</span>{/if}
           </span>
+          {/if}
           </div>
         {/each}
         {#if uploading > 0}<div class="att-chip loading"><span class="att-spin"></span></div>{/if}
@@ -2845,7 +2854,6 @@
   /* The 34px right padding held the hover tools clear of the filename; with the
      tools gone on touch it's just a truncated name for no reason. */
   .composer.mobile .att-file {
-    padding-right: var(--sp-3);
     min-height: var(--tap-min);
   }
   /* Full-width rows in the edit panel — spoiler and, last and tinted, remove. */
@@ -2955,24 +2963,59 @@
       font-size: var(--fs-ui);
     }
   }
+  /* A staged file is a row, not a thumbnail: the card it will become once
+     posted, with its controls in a trailing column of their own rather than
+     laid over the name. */
+  .att-wrap:has(.att-chip.file) {
+    max-width: 320px;
+  }
   .att-chip.file {
     display: flex;
     align-items: center;
-    min-height: 40px;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-2) var(--sp-2) 10px;
+    background: var(--bg-2);
+    border-color: var(--border);
   }
   .att-file {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 34px 8px 10px;
-    max-width: 220px;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    color: var(--text);
+  }
+  .af-tile {
+    flex: none;
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-sm);
+    background: var(--bg-3);
     color: var(--text-muted);
+  }
+  .af-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
   }
   .att-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: var(--fs-ui);
+    font-weight: 500;
+  }
+  .af-sub {
+    font-size: var(--fs-small);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .att-chip.file .att-tools {
+    position: static;
+    flex: none;
   }
   .att-chip.loading {
     width: 64px;

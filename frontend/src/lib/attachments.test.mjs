@@ -13,6 +13,8 @@ import {
   worthRetrying,
   RETRY_COOLDOWN_MS,
   fmtBytes,
+  midTrunc,
+  fileLabel,
   parseAttachTokens,
   parseFileTokens,
   placeholderName,
@@ -146,6 +148,24 @@ eq(
   "a spoiler that will not load must not print the name that gives it away",
 );
 eq(placeholderName({ name: "" }), "", "a v1 token has no name and gets no line");
+
+// A staged file's name is cut from the middle, so the extension survives and
+// two names that share a long prefix still read differently.
+{
+  const long = "cutting-guide-long-name-for-the-lantern-workshop.txt";
+  const t = midTrunc(long, 32);
+  eq([...t].length, 32, "a long name is cut to the room it has");
+  assert(t.endsWith("workshop.txt"), `the extension and the end of the name survive: ${t}`);
+  assert(t.startsWith("cutting-guide-"), `the start survives: ${t}`);
+  assert(t.includes("…"), "the cut is marked");
+  eq(midTrunc("notes.txt", 32), "notes.txt", "a name that fits is untouched");
+  assert(
+    midTrunc("report-2026-quarterly-final-v2.pdf", 24) !== midTrunc("report-2026-quarterly-final-v3.pdf", 24),
+    "two names with a shared prefix stay distinguishable",
+  );
+  eq(fileLabel("a.txt", 13), "TXT · 13 B", "the card's second line: kind and size");
+  eq(fileLabel("README", 2048), "2 KB", "no extension: the size alone");
+}
 
 if (failures) {
   console.error(`${failures} failure(s)`);

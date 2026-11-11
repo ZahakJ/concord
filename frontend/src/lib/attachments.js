@@ -136,6 +136,33 @@ export function loadAttachment(channelId, tok) {
 
 // ---- "why isn't this here?" ------------------------------------------------
 
+// midTrunc shortens a file name from the MIDDLE, keeping its start and its
+// extension: "cutting-guide-lon…workshop.txt". A name cut at the end loses the
+// one part that says what kind of file it is, and two staged files that share
+// a long prefix ("report-2026-final-v2.pdf", "report-2026-final-v3.pdf") end
+// up reading the same. `max` counts characters (code points), ellipsis
+// included; a name that fits is returned whole.
+export function midTrunc(name, max = 32) {
+  const chars = [...String(name || "")];
+  if (chars.length <= max || max < 8) return chars.join("");
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 && name.length - dot <= 8 ? [...name.slice(dot)] : [];
+  // The tail keeps the extension plus as much of the name before it as fits
+  // in two fifths of the room; the head takes the rest.
+  const tail = Math.max(ext.length + 4, Math.round((max - 1) * 0.4));
+  const head = max - 1 - tail;
+  return chars.slice(0, head).join("") + "…" + chars.slice(chars.length - tail).join("");
+}
+
+// fileLabel is a file card's second line: "TXT · 13 B", or the size alone
+// when the name has no extension worth naming.
+export function fileLabel(name, bytes) {
+  const n = String(name || "");
+  const ext = n.includes(".") ? n.split(".").pop().slice(0, 5).toUpperCase() : "";
+  const size = fmtBytes(bytes);
+  return ext && size ? `${ext} · ${size}` : ext || size;
+}
+
 // fmtBytes renders a byte count the way an attachment card labels one.
 export function fmtBytes(n) {
   if (!(n > 0)) return "";

@@ -5,7 +5,7 @@
   import { saveBlob } from "./lib/savefile.js";
   import { api } from "./lib/api.js";
   import { flash, S, memberByFpr, nameFor } from "./lib/state.svelte.js";
-  import { fmtBytes, unavailableNote, worthRetrying } from "./lib/attachments.js";
+  import { fmtBytes, fileLabel, midTrunc, unavailableNote, worthRetrying } from "./lib/attachments.js";
 
   // `sender` is the fingerprint of whoever posted the file — see
   // Attachment.svelte for why a failed fetch has to be able to name them.
@@ -42,11 +42,6 @@
   });
 
   const sizeLabel = $derived(fmtBytes(tok.size));
-  // The type leads the meta line when the name has one ("TXT · 120 B"); a
-  // name without a dot ("README") just shows its size.
-  const ext = $derived(
-    tok.name.includes(".") ? tok.name.split(".").pop().slice(0, 5).toUpperCase() : "",
-  );
 
   async function download() {
     if (busy) return;
@@ -80,8 +75,11 @@
     {/if}
   </span>
   <span class="meta">
-    <span class="name"><bdi>{tok.name}</bdi></span>
-    <span class="muted sub">{errMsg ? `${sizeLabel} · ${note}` : ext ? `${ext} · ${sizeLabel}` : sizeLabel}</span>
+    <!-- Cut from the middle, so the extension survives (lib/attachments.js);
+         the full name is the card's title. The type leads the meta line when
+         the name has one ("TXT · 120 B"), else the size alone. -->
+    <span class="name"><bdi>{midTrunc(tok.name, 36)}</bdi></span>
+    <span class="muted sub">{errMsg ? `${sizeLabel} · ${note}` : fileLabel(tok.name, tok.size)}</span>
   </span>
   <span class="dl"><Icon name="download" size={16} /></span>
 </button>
