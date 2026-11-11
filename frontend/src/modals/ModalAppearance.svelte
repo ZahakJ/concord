@@ -13,6 +13,7 @@
   import FxOverlay from "../FxOverlay.svelte";
   import { THEME_FX } from "../lib/themefx.js";
   import { S, setAppearance } from "../lib/state.svelte.js";
+  import { LAYOUTS, currentLayout, setLayout } from "../lib/layout.js";
   import { ACCENT_PROFILE, profileAccent } from "../lib/guildaccent.js";
   import { rangefill } from "../lib/rangefill.js";
 
@@ -241,7 +242,7 @@
   // are off / "sidebar", so a missing key reads as the default.
   const roleNames = $derived(S.prefs.roleNameColors === true);
   const underline = $derived(S.prefs.underlineLinks === true);
-  const navModel = $derived(S.prefs.navModel === "rail" ? "rail" : "sidebar");
+  const layout = $derived(currentLayout(S.prefs));
 </script>
 
 <RailShell title="Appearance" here="appearance" {onClose}>
@@ -294,6 +295,37 @@
       </div>
     {/if}
   {/snippet}
+
+  <!-- First, because it changes the most: how the window is arranged. Each
+       card draws the arrangement in the app's own surfaces. -->
+  <section class="blk">
+    <h4 class="lbl">Layout</h4>
+    <div class="theme-row" role="radiogroup" aria-label="Layout">
+      {#each LAYOUTS as l (l.id)}
+        <button
+          class="theme-card"
+          class:sel={layout === l.id}
+          role="radio"
+          aria-checked={layout === l.id}
+          onclick={() => setLayout(l.id)}
+        >
+          <span class="lv {l.id}" aria-hidden="true">
+            {#if l.id === "rail"}
+              <span class="lv-rail"><b></b><b></b><b></b></span>
+            {/if}
+            <span class="lv-side">
+              {#if l.id !== "rail"}<span class="lv-strip"><b></b><b></b><b></b></span>{/if}
+              <i></i><i></i><i></i>
+            </span>
+            <span class="lv-main"><i></i><i class="s"></i><i></i>{#if l.id === "compact"}<i class="s"></i><i></i>{/if}</span>
+            {#if l.id !== "compact"}<span class="lv-insp"><i></i><i></i></span>{/if}
+          </span>
+          <span class="cap">{l.label}</span>
+        </button>
+      {/each}
+    </div>
+    <p class="muted tiny">{LAYOUTS.find((l) => l.id === layout)?.note}</p>
+  </section>
 
   <section class="blk">
     <h4 class="lbl">Theme</h4>
@@ -469,23 +501,6 @@
     </SettingRow>
   </SettingGroup>
 
-  <SettingGroup label="Layout">
-    <SettingRow
-      title="Guilds"
-      sub="Where your guilds sit: a strip of shortcuts above the list, or a column beside it."
-    >
-      <Segmented
-        label="Where your guilds sit"
-        value={navModel}
-        onChange={(v) => setAppearance("navModel", v)}
-        options={[
-          { value: "sidebar", label: "Strip" },
-          { value: "rail", label: "Rail" },
-        ]}
-      />
-    </SettingRow>
-  </SettingGroup>
-
   <SettingGroup label="Effects">
     <div class="pack-row fx-row" role="radiogroup" aria-label="Visual effect">
       {#each THEME_FX as f (f.id)}
@@ -568,6 +583,85 @@
   }
   .muted {
     color: var(--text-muted);
+  }
+
+  /* The layout cards: the same card as a theme's, drawn in this theme's own
+     surfaces — the arrangement is the point, not the colours. */
+  .lv {
+    display: flex;
+    gap: 2px;
+    height: 76px;
+    padding: 0;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    overflow: hidden;
+    background: var(--bg-2);
+  }
+  .theme-card.sel .lv {
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
+  }
+  .theme-card:focus-visible .lv {
+    outline: var(--focus-ring);
+    outline-offset: 2px;
+  }
+  .lv-rail,
+  .lv-side,
+  .lv-insp {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+    padding: 6px 5px;
+    background: var(--bg-1);
+  }
+  .lv-rail {
+    width: 14px;
+    align-items: center;
+    padding: 6px 2px;
+  }
+  .lv-side {
+    width: 30%;
+  }
+  .lv.rail .lv-side {
+    width: 24%;
+  }
+  .lv-insp {
+    width: 18%;
+  }
+  .lv-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 5px;
+    padding: 8px 6px;
+  }
+  .lv.compact .lv-main {
+    gap: 3px;
+  }
+  .lv-strip {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 2px;
+  }
+  .lv b {
+    display: block;
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    background: var(--text-faint);
+  }
+  .lv i {
+    display: block;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--bg-3);
+  }
+  .lv-main i:not(.s) {
+    width: 80%;
+  }
+  .lv-main i.s {
+    width: 45%;
+    background: var(--accent);
   }
 
   /* Three equal theme cards: a miniature of each ground, one indicator — an

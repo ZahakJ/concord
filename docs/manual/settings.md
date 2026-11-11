@@ -1,6 +1,6 @@
 # Settings and themes
 
-What is in Settings and where to find it, with a closer look at Appearance: themes, theme packs, effects, color, shape, font and density.
+What is in Settings and where to find it, with a closer look at Appearance: layout, themes, theme packs, effects, color, shape, font and density.
 
 ## Opening Settings
 
@@ -14,7 +14,7 @@ Settings in Concord are kept per device. Your theme, sounds and microphone on yo
 |---|---|---|
 | You | **Account** | Who you are on this device, your safety net (**Backup & restore** and **Recovery phrase**), the installed version and updates, and **Sign out (lock this device)** |
 | You | **Your profile** | Name, picture, banner, availability, status, bio, birthday, profile colors and your fingerprint |
-| You | **Appearance** | Theme, theme pack, effects, color, shape, font, density, scale and clock |
+| You | **Appearance** | Layout, theme, theme pack, effects, color, shape, font, density, scale and clock |
 | Alerts | **Notifications & sounds** | Do Not Disturb, sound volume and effects, call ringtone, alert words, system notifications, and on a phone **Stay connected** |
 | Alerts | **Voice & video** | Microphone, speaker and camera, voice activity or push-to-talk, noise reduction, noise gate, microphone boost, call volume and a record-and-play-back test |
 | Privacy | **Privacy & safety** | What leaves this device, typing indicators, deleted messages, message requests and blocked users, app lock, and erasing the device |
@@ -41,6 +41,16 @@ The **What leaves this device** group lists every feature that makes a request o
 **Settings → Appearance** (also **Open appearance** in the command palette) is a list of sections, each showing its current value. Open one to change it. Changes apply as you make them.
 
 ![Settings → Appearance with the Theme pack section open](../media/manual/appearance.png)
+
+### Layout
+
+How the window is arranged, shown as three small pictures:
+
+- **Sidebar** (the default): your guild shortcuts in a row above the channel list.
+- **Rail**: a column of guilds beside the channel list, with **+** at its foot and the member list docked on the right. Clicking the guild's name opens its settings.
+- **Compact**: the sidebar arrangement with tighter messages and the side panel closed until you open it.
+
+The command palette offers the same three as **Layout: Sidebar**, **Layout: Rail** and **Layout: Compact**. The choice is kept on this device.
 
 ### Theme
 

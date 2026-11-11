@@ -258,6 +258,12 @@
       g.heir === S.identity.fingerprint &&
       !heirNudgeDismissed[`heir:${g.id}`],
   );
+  // Once, on a desktop: that the window can be arranged another way. Last in
+  // the queue, so it never stands in front of anything that matters.
+  const layoutHint = $derived(!S.isMobile && !S.prefs.layoutHintSeen && !!g);
+  function layoutHintDone() {
+    setPref("layoutHintSeen", true);
+  }
   const nudgeNow = $derived(
     S.prefs.backupPending && !phraseLater.on
       ? "phrase"
@@ -271,7 +277,9 @@
           ? "notify"
             : S.update
               ? "update"
-              : "",
+              : layoutHint
+                ? "layout"
+                : "",
   );
 
   // ---- unread messages ----
@@ -1006,12 +1014,15 @@
       class:gone={!!g.evicted}
       use:reachFit
     >
+      <!-- In the Rail layout every guild is already in the column beside
+           this, so the name does what it did in the classic arrangement:
+           opens the guild's settings. -->
       <button
         class="ph-main"
         aria-haspopup="dialog"
-        aria-expanded={GSW.open}
-        aria-label="{g.name} — switch guild"
-        onclick={(e) => toggleGuildSwitcher(e.currentTarget.closest("[data-place-head]"))}
+        aria-expanded={strip ? GSW.open : undefined}
+        aria-label={strip ? `${g.name} — switch guild` : `${g.name} — guild settings`}
+        onclick={(e) => (strip ? toggleGuildSwitcher(e.currentTarget.closest("[data-place-head]")) : openGuildHub())}
         oncontextmenu={coarse ? (e) => e.preventDefault() : placeMenu}
         use:longpress={{ handler: placeMenu }}
       >
@@ -1019,7 +1030,7 @@
           {#if g.icon}<img src={g.icon} alt="" />{:else}<GuildMark {g} size={13} />{/if}
         </span>
         <span class="ph-name"><bdi>{g.name}</bdi></span>
-        <span class="ph-chev" aria-hidden="true"><Icon name="chevron" size={14} /></span>
+        {#if strip}<span class="ph-chev" aria-hidden="true"><Icon name="chevron" size={14} /></span>{/if}
       </button>
       {#if !g.evicted}
         <button
@@ -1201,6 +1212,21 @@
           onDismiss={() => dismissNotifyAsk(true)}
         >
           <strong>You just missed a message.</strong> Concord can tell you next time.
+        </Nudge>
+      </div>
+    {:else if nudgeNow === "layout"}
+      <div class="nudge-row">
+        <Nudge
+          icon="grid4"
+          action="Choose"
+          onAction={() => {
+            layoutHintDone();
+            S.modal = { kind: "appearance" };
+          }}
+          dismissLabel="Not now"
+          onDismiss={layoutHintDone}
+        >
+          <strong>Prefer a different layout?</strong> Sidebar, Rail or Compact.
         </Nudge>
       </div>
     {:else if nudgeNow === "update"}
@@ -2973,6 +2999,9 @@
   .ph-acts {
     grid-column: 2;
     grid-row: 1 / span 2;
+    display: flex;
+    align-items: center;
+    gap: 2px;
   }
   .reach-pop {
     position: fixed;

@@ -28,6 +28,7 @@
     copyMeetingGuestLink,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { LAYOUTS, currentLayout, setLayout } from "./lib/layout.js";
   import { parseQuery, buildDests, recentFirst, rank, inMode } from "./lib/switcher.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
 
@@ -100,6 +101,17 @@
       { id: "read", label: "Mark all as read", icon: "check", sub: "Shift+Esc", run: () => markAllRead() },
       { id: "meeting", label: "Instant meeting", icon: "bolt", sub: "a room with a guest link", run: () => startMeeting() },
     ];
+    if (!S.isMobile) {
+      const cur = currentLayout();
+      for (const l of LAYOUTS)
+        list.push({
+          id: `layout-${l.id}`,
+          label: `Layout: ${l.label}`,
+          icon: "grid4",
+          sub: l.id === cur ? "in use" : l.note,
+          run: () => setLayout(l.id),
+        });
+    }
     const g = activeGuild();
     const place = g && !g.evicted && (g.kind !== "dm" || g.dmNotes);
     list.push({
