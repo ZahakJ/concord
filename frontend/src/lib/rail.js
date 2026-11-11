@@ -318,8 +318,10 @@ export function stripTiles(ids, ctx, prev, current, n) {
 // is, and at thirty guilds they were a wall of look-alikes with two "CA"s. A
 // guild without an icon now shows ONE letter, and when an earlier guild (by
 // id, so the answer never depends on the order on screen) already has that
-// letter, a glyph from the icon set instead, chosen from its id.
-const MARK_GLYPHS = ["diamond", "spark", "bolt", "die", "palette", "megaphone", "seal", "key", "bookmark", "grid4", "camera", "crown"];
+// letter, a plain shape instead, chosen from its id.
+// Neutral shapes only (Icon.svelte's sh*): a glyph that already means
+// something in the sidebar (megaphone = announcements) cannot also be a name.
+const MARK_GLYPHS = ["shRing", "shTriangle", "shSquare", "shHex", "shStar", "shPentagon", "shHalf", "shOctagon"];
 const hashId = (id) => {
   let h = 0;
   for (const c of String(id)) h = (h * 31 + c.codePointAt(0)) >>> 0;

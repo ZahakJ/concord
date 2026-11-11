@@ -112,6 +112,18 @@
     dots: "M8 3.4h.01 M8 8h.01 M8 12.6h.01",
     // Guild calendar (events panel, "Your calendar").
     calendar: "M2.5 4h11v9.5h-11z M2.5 7h11 M5 2.5V5 M11 2.5V5",
+    // Plain shapes that mean nothing anywhere else in the app: a guild's mark
+    // when its first letter is already taken (lib/rail.js guildMarks). The
+    // marks used to be borrowed icons — the announcement megaphone, the
+    // palette's guild diamond, a key — which read as statements.
+    shRing: "M8 3a5 5 0 1 0 0.01 0z",
+    shTriangle: "M8 2.8 13.4 12.5H2.6z",
+    shSquare: "M3.5 3.5h9v9h-9z",
+    shHex: "M8 2.5l4.8 2.75v5.5L8 13.5l-4.8-2.75v-5.5z",
+    shStar: "M8 2.4l1.65 3.6 3.85.4-2.9 2.6.85 3.8L8 10.85 4.55 12.8l.85-3.8-2.9-2.6 3.85-.4z",
+    shPentagon: "M8 2.6l5.2 3.8-2 6.1H4.8l-2-6.1z",
+    shHalf: "M2.8 10a5.2 5.2 0 0 1 10.4 0z",
+    shOctagon: "M5.9 2.8h4.2l3.1 3.1v4.2l-3.1 3.1H5.9l-3.1-3.1V5.9z",
     // Ownership transfer (member context menu): a simple three-point crown.
     crown: "M2.5 12.5 2 5l3.5 2.5L8 3.5l2.5 4L14 5l-.5 7.5z",
     // Empty game library (EmptyState badge): a five-pip die.
