@@ -105,7 +105,6 @@
   const FLYBY_GAP = 400;
   let clicks = 0;
   let lastClick = 0;
-  let rolling = $state(false);
   function messagesClick() {
     // Already in the DM area: openDMs() would re-select the FIRST dm, which is
     // rarely the one you are reading. On a phone a tap browses the list rather
@@ -119,8 +118,6 @@
       clicks = 0;
       playFlyby();
     }
-    rolling = false;
-    requestAnimationFrame(() => (rolling = true));
   }
 
   const liveGuilds = $derived(guildLiveSet());
@@ -541,9 +538,10 @@
           : "Messages"}
         onclick={messagesClick}
       >
-        <span class="jet" class:roll={rolling} onanimationend={() => (rolling = false)}>
-          <Icon name="concorde" size={22} />
-        </span>
+        <!-- The Messages glyph, as on the strip and the phone's tab bar. It was
+             the app's own mark, so the rail's first tile read as a logo rather
+             than as the place your direct messages are. -->
+        <Icon name="bubble" size={20} />
       </button>
       {#if S.requests.length && !inDMs}<span class="p-dot"><Badge dot ring="var(--bg-1)" /></span>{/if}
     </div>
@@ -1081,31 +1079,11 @@
   .corner.fail {
     background: var(--danger);
   }
-  .jet {
-    display: inline-flex;
-    transform-origin: 50% 55%;
-  }
-  .jet.roll {
-    animation: barrel-roll 0.72s cubic-bezier(0.5, 0.05, 0.2, 1);
-  }
-  @keyframes barrel-roll {
-    55% {
-      transform: rotate(235deg) scale(1.28);
-    }
-    100% {
-      transform: rotate(360deg) scale(1);
-    }
-  }
   .divider {
     width: 24px;
     height: 1px;
     background: var(--hairline);
     flex-shrink: 0;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .jet.roll {
-      animation: none;
-    }
   }
   @media (max-width: 768px) {
     .pill {
