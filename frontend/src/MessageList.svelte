@@ -1590,7 +1590,7 @@
          channels an import has just created that are most likely to have no
          live history at all. -->
     <div class="empty">
-      <EmptyState icon={emptyInfo.icon} headline={emptyInfo.title} sub={emptyInfo.body}>
+      <EmptyState icon={emptyInfo.icon} headline={emptyInfo.title} sub={emptyInfo.body} center={!!emptyInfo.voice}>
         {#snippet actions()}
           {#if canSetTopic}
             <button

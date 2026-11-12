@@ -5,7 +5,11 @@
   // and how, up to two actions, and an optional meta line.
   //
   // It is left-aligned, like the column it sits in; anchoring it (bottom of a
-  // feed, top of a pane) is the parent's job. `compact` is the panel size
+  // feed, top of a pane) is the parent's job. `center` is for the one place
+  // it introduces something centred: a voice room's landing, which opens into
+  // the call stage's centred tiles and controls, so the headline, the Join
+  // button and who is in there share that one axis rather than starting at
+  // the left edge with the presence line centred under a button that is not. `compact` is the panel size
   // (32px mark, title-size headline) for inspectors, popovers and small
   // dialogs.
   //
@@ -17,10 +21,10 @@
   // with an icon).
   import Icon from "./Icon.svelte";
 
-  let { icon = "diamond", headline, sub = "", compact = false, actions, meta } = $props();
+  let { icon = "diamond", headline, sub = "", compact = false, center = false, actions, meta } = $props();
 </script>
 
-<div class="empty" class:compact>
+<div class="empty" class:compact class:center>
   <div class="mark"><Icon name={icon} size={compact ? 16 : 22} /></div>
   <h3>{headline}</h3>
   {#if sub}<p>{sub}</p>{/if}
@@ -87,6 +91,17 @@
   }
   .compact {
     padding: var(--sp-4) var(--sp-3);
+  }
+  /* Centred in its column: the box itself (margins), every line in it, and the
+     action row, whose items wrap onto centred lines. */
+  .center {
+    align-items: center;
+    text-align: center;
+    margin-inline: auto;
+  }
+  .center .acts,
+  .center .meta {
+    justify-content: center;
   }
   .compact .mark {
     width: 32px;
