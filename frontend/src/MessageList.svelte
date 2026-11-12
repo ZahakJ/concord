@@ -84,9 +84,11 @@
     if (!feedEl) return;
     let lastW = feedEl.clientWidth;
     let lastH = feedEl.clientHeight;
+    viewH = lastH;
     const repin = () => {
       const w = feedEl.clientWidth;
       const h = feedEl.clientHeight;
+      viewH = h;
       if (w !== lastW || h !== lastH) {
         layoutHold = performance.now() + 500;
         // Every cached height was measured at the old width. Kept, they
@@ -544,6 +546,7 @@
   //     scrollbar thumb, never the words.
   const OVERSCAN = 700; // px of rendered-but-offscreen rows on each side
   const MAX_WINDOW = 160; // hard ceiling on rendered items, whatever their size
+  let viewH = 0; // the feed's own height, kept by the resize observer below
   const REVEAL_SPAN = 48; // items mounted around a row a jump or a landing reveals
 
   let lo = $state(0);
@@ -722,7 +725,10 @@
   function windowFor() {
     const n = items.length;
     if (!n) return [0, 0];
-    const view = feedEl?.clientHeight || 600;
+    // The viewport height the resize observer last saw, not a fresh read: this
+    // runs in the middle of building a newly switched channel, where reading
+    // the box forces a whole extra layout of the page.
+    const view = viewH || feedEl?.clientHeight || 600;
     let a;
     let b;
     if (atBottom) {

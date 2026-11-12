@@ -72,7 +72,21 @@ export function roving(node) {
   // The contents change with the draft, the window width and the channel, and
   // every one of those can add or remove a button. One observer per bar is
   // cheap; getting it wrong strands the tab stop on a removed node.
-  const mo = new MutationObserver(sync);
+  //
+  // Re-synced on the next animation frame, once per frame, not inside the
+  // observer: telling a visible button from a hidden one reads layout, and the
+  // observer fires in the middle of whatever changed the bar — on a channel
+  // or guild switch, half way through rebuilding the page, where that read
+  // forced a full extra layout (about 16 ms a switch in a profile).
+  let frame = 0;
+  const later = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      sync();
+    });
+  };
+  const mo = new MutationObserver(later);
   mo.observe(node, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled", "hidden"] });
   sync();
 
@@ -81,6 +95,7 @@ export function roving(node) {
       node.removeEventListener("keydown", onKeydown);
       node.removeEventListener("focusin", onFocusIn);
       mo.disconnect();
+      cancelAnimationFrame(frame);
     },
   };
 }
