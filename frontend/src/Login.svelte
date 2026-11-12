@@ -10,6 +10,7 @@
   import { confettiBurst } from "./lib/burst.js";
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import { finishUnlock } from "./lib/unlock.js";
+  import { pushLayer } from "./lib/navstack.svelte.js";
   import Icon from "./Icon.svelte";
   import PassphraseField from "./PassphraseField.svelte";
   import QRScanner from "./QRScanner.svelte";
@@ -123,6 +124,23 @@
   let linking = $state(false); // "link this device to an existing account" flow
   let linkCode = $state("");
   let scanning = $state(false); // in-app QR scanner overlay
+  // Restore, Link and Forgot are screens stepped into from the first one, each
+  // with its own Back link. The phone's back did not know about them: it fell
+  // through to "Press back again to exit", and a second press closed the app
+  // from the middle of onboarding. Each is a layer while it is up, so back does
+  // what the Back link does.
+  $effect(() => {
+    if (!restoring) return;
+    return pushLayer("onboarding", () => ((restoring = false), (error = "")));
+  });
+  $effect(() => {
+    if (!linking) return;
+    return pushLayer("onboarding", () => ((linking = false), (scanned = false), (error = "")));
+  });
+  $effect(() => {
+    if (!forgot) return;
+    return pushLayer("onboarding", () => (forgot = false));
+  });
   // Scan is offered where a camera makes sense: touch devices with getUserMedia.
   const canScan =
     typeof navigator !== "undefined" &&
