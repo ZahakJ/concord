@@ -82,7 +82,7 @@ Nothing is set below 11px. Times, counts and tables use tabular figures.
 
 ### Space, layout and layers
 
-Spacing is the 4px rhythm `--sp-1` to `--sp-6` (4 to 32px), with `--sp-edge` 16px on desktop and 14px on a phone. `--header-h` (52px), `--sidebar-w` (280px) and `--inspector-w` (320px) are the layout defaults the redesigned shell is built on. Message text is capped at `--measure`, 76 characters. Stacking uses the layer scale in `lib/layers.js` (`--z-sticky` to `--z-tooltip`); a menu opened from inside a dialog takes the dialog's layer plus one.
+Spacing is the 4px rhythm `--sp-1` to `--sp-6` (4 to 32px), with `--sp-edge` 16px on desktop and 14px on a phone. `--header-h` (60px; 52px on a phone), `--sidebar-w` (280px) and `--inspector-w` (320px) are the layout defaults the redesigned shell is built on. The header row's names sit on one line 26px down: the conversation header keeps `--header-pad-b` (8px) clear under its single row, and the sidebar's place header starts its two lines (the guild's name in a `--place-name-h` row, "N reachable" under it) `--place-pad-t` down, so the guild's and the channel's names share a baseline with their cap tops about 20px from the window's edge, and the hairlines under the sidebar, the conversation and a docked inspector stay level (its tab row sits on the hairline). The desktop shell's native title bar adds nothing to this; on a phone the row is the unchanged 52px with nothing reserved. Message text is capped at `--measure`, 76 characters. Stacking uses the layer scale in `lib/layers.js` (`--z-sticky` to `--z-tooltip`); a menu opened from inside a dialog takes the dialog's layer plus one.
 
 ### Breakpoints
 

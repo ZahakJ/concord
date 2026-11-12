@@ -550,7 +550,7 @@
     align-items: center;
     min-height: var(--header-h);
     box-sizing: border-box;
-    padding: 0 12px 0 var(--sp-edge);
+    padding: 0 12px var(--header-pad-b) var(--sp-edge);
     border-bottom: 1px solid var(--border);
     gap: 10px;
     position: relative;

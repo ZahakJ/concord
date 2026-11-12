@@ -2844,8 +2844,9 @@
     border-right: 1px solid var(--hairline);
     overflow: hidden;
   }
-  /* Two lines in the header's 52px: the guild's name (the switcher), and
-     under it how many members this device can reach. Invite spans both. */
+  /* Two lines in the header row: the guild's name (the switcher), and under
+     it how many members this device can reach. Invite spans both. The name's
+     row sits on the conversation header's title line (app.css). */
   .place-head {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -2854,9 +2855,15 @@
     column-gap: var(--sp-1);
     height: var(--header-h);
     flex: none;
-    padding: 0 var(--sp-2) 0 var(--sp-3);
+    padding: var(--place-pad-t) var(--sp-2) 0 var(--sp-3);
     border-bottom: 1px solid var(--hairline);
     min-width: 0;
+  }
+  /* One line only (Messages, a guild you were removed from): centred on the
+     same title line as the conversation header beside it. */
+  .place-head:not(:has(.ph-reach)) {
+    padding-top: 0;
+    padding-bottom: var(--header-pad-b);
   }
   .ph-main {
     grid-column: 1;
@@ -2865,8 +2872,8 @@
     align-items: center;
     gap: var(--sp-2);
     min-width: 0;
-    /* 32 + the 18px reach line = the 50px that fits the 52px header. */
-    height: 32px;
+    /* This row + the 18px reach line fit the header row (app.css). */
+    height: var(--place-name-h);
     margin-left: calc(-1 * var(--sp-1));
     padding: 0 var(--sp-1);
     border-radius: var(--radius-sm);

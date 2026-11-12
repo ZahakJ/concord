@@ -264,7 +264,17 @@
 
   /* Layout defaults: the header row every pane lines up on, and the two side
      columns' starting widths (each is user-resizable). */
-  --header-h: 52px;
+  /* The header row is 60px with its names on a line 26px down, so the
+     sidebar's guild name (which has "N reachable" under it) and the
+     conversation's channel name share a baseline with room above them; at
+     52px the guild name sat 10px from the window's top edge. A single-line
+     header keeps the 8px under its line clear (--header-pad-b); the place
+     header starts its two lines --place-pad-t down, its name in a
+     --place-name-h row. The phone keeps its 52px row (below). */
+  --header-h: 60px;
+  --header-pad-b: 8px;
+  --place-pad-t: 11px;
+  --place-name-h: 28px;
   --sidebar-w: 280px;
   --inspector-w: 320px;
 
@@ -2550,6 +2560,11 @@ textarea[aria-invalid="true"] {
        Concord ships a store build for. A control sized for the smaller number
        is under the floor on the device most likely to be holding it. */
     --tap-min: 48px;
+    /* The phone's header row is unchanged: 52px, names centred in it. */
+    --header-h: 52px;
+    --header-pad-b: 0px;
+    --place-pad-t: 0px;
+    --place-name-h: 32px;
   }
 }
 @media (pointer: coarse), (max-width: 768px) {

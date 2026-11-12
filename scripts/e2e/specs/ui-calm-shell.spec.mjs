@@ -171,3 +171,59 @@ test("F6 walks the regions, and Shift+F10 opens a focused message's menu", async
   await a.page.keyboard.press("Shift+F10");
   await a.page.locator('[role="menu"]').waitFor({ state: "visible", timeout: 3000 });
 });
+
+// The guild's name in the sidebar and the channel's name in the conversation
+// header sit on one baseline, with room above them: at the old 52px row the
+// guild name, which has "N reachable" under it, started 10px from the top.
+// Checked in the Sidebar and Rail layouts at the three desktop sizes; the
+// hairlines under the sidebar, the conversation and the inspector stay level.
+test("the guild and channel names share a baseline clear of the window's top edge", async ({ world, assert, step }) => {
+  const [alice] = await world.peers(1);
+  await world.guild({ name: "Workshop", members: [alice] });
+  const INSET = 18; // the cap top of either name, at least this far down
+  const measure = (page) =>
+    page.evaluate(() => {
+      const baseline = (el) => {
+        const probe = document.createElement("span");
+        probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline";
+        el.appendChild(probe);
+        const y = probe.getBoundingClientRect().bottom;
+        probe.remove();
+        return y;
+      };
+      const capTop = (el) => {
+        const cs = getComputedStyle(el);
+        const c = document.createElement("canvas").getContext("2d");
+        c.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        return baseline(el) - c.measureText("H").actualBoundingBoxAscent;
+      };
+      const g = document.querySelector(".place-head .ph-name");
+      const ch = document.querySelector(".chat-head .title strong");
+      const line = (sel) => document.querySelector(sel)?.getBoundingClientRect().bottom ?? null;
+      return {
+        guild: baseline(g), channel: baseline(ch), guildCap: capTop(g), channelCap: capTop(ch),
+        // The inspector's tab row lines up only while it is docked beside the
+        // conversation; as an overlay it hangs below the header.
+        lines: [line(".place-head"), line(".chat-head"), document.querySelector('.app[data-inspector="docked"]') && line(".insp-head")].filter((v) => v != null),
+      };
+    });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720 }, { width: 820, height: 1180 }]) {
+    for (const layout of ["sidebar", "rail"]) {
+      const a = await alice.open({ viewport });
+      await a.page.evaluate((layout) => {
+        const p = JSON.parse(localStorage.getItem("concord.prefs") || "{}");
+        p.navModel = layout;
+        p.memberPanel = true;
+        localStorage.setItem("concord.prefs", JSON.stringify(p));
+      }, layout);
+      await a.reload();
+      await a.openChannel("general", "Workshop");
+      const m = await measure(a.page);
+      step(`${viewport.width}x${viewport.height} ${layout}: ${JSON.stringify(m)}`);
+      assert.ok(Math.abs(m.guild - m.channel) <= 1, `the names share a baseline (${m.guild} vs ${m.channel})`);
+      assert.ok(Math.min(m.guildCap, m.channelCap) >= INSET, `both names start at least ${INSET}px down`);
+      assert.ok(Math.max(...m.lines) - Math.min(...m.lines) <= 1, `the header hairlines are level: ${m.lines}`);
+      await a.close();
+    }
+  }
+});
