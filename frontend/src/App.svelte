@@ -2083,7 +2083,7 @@
   <!-- …and mute, wherever a dialog has covered every other way to reach it. -->
   {#if S.voice && S.modal && callMiniControls.C}
     {@const CallMiniControls = callMiniControls.C}
-    <CallMiniControls onToggleMute={toggleMicMute} onLeave={leaveVoice} />
+    <CallMiniControls label={callLabel} onToggleMute={toggleMicMute} onLeave={leaveVoice} />
   {/if}
 
   {#if S.knocking}
