@@ -76,7 +76,7 @@ test("the switcher's Instant meeting does not stay open behind the meeting", asy
   await world.guild({ name: "Studio", members: [alice] });
   const a = await alice.open({ viewport: "desktop" });
   step("switcher → ⋯ → Instant meeting");
-  await strip(a).getByRole("button", { name: /^All guilds/ }).click();
+  await a.openSwitcher();
   await a.page.getByRole("button", { name: "More guild actions" }).click();
   await a.page.getByRole("menuitem", { name: /Instant meeting/ }).click();
   await throughToMeeting(a, waitFor);

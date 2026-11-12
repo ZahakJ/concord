@@ -229,34 +229,16 @@ export function guildInitials(name) {
   return [...letters.join("")].slice(0, 2).join("").toUpperCase();
 }
 
-// ————————————————— the shortcut strip —————————————————
+// ————————————————— the strip: a shelf of every guild —————————————————
 //
-// The sidebar's strip is a SHORTCUT row, not the inventory (the guild switcher
-// is): Messages, then as many guild tiles as fit, then an overflow tile that
-// opens the switcher. Which guilds earn a tile is a stated rule, so the row is
-// predictable, and the rule is written so that a tile never moves because a
-// number changed under it.
-
-// How many guild tiles fit a sidebar this wide: n guild tiles plus the
-// Messages, overflow and Add tiles are (n + 3) × 28px with (n + 2) 4px gaps,
-// inside 8px of padding each side — so 32n + 108 ≤ width. The width is the
-// sidebar's clientWidth, a pixel under its nominal size for its border: with
-// 10px of padding the 240px sidebar came out one tile short. 5 at the default
-// 280px, 4 at 240 and at the tablet's 264, 7 at 360.
-export function stripFit(width) {
-  return Math.max(1, Math.floor((width - 108) / 32));
-}
-
-// classOf answers which of the four strip classes a guild is in right now, or
-// "" for none: pinned by the user, else a mention aimed at you, else plain
-// unread, else opened at some point on this device.
-export function stripClass(id, { pins, mentions, unread, opened }) {
-  if (pins.includes(id)) return "pin";
-  if (mentions.has(id)) return "mention";
-  if (unread.has(id)) return "unread";
-  if (opened.has(id)) return "recent";
-  return "";
-}
+// The sidebar's strip is a SHELF: Messages fixed at the leading end, Add fixed
+// at the trailing end, and between them every guild, in one row that scrolls
+// sideways. It used to be a fitted shortcut row — as many tiles as the width
+// allowed, picked by a rule, and an overflow tile for the rest — which meant
+// the guild you wanted was often behind a click, and which ones were on the
+// row depended on what had happened lately. All of them, in one order you
+// set, is something a hand can learn. The switcher stays the inventory
+// (search, folders, rearranging).
 
 // sharedOrder is the ONE order every view of the guild inventory uses — the
 // strip, the switcher and the rail: the user's pins first, in the order they
@@ -269,47 +251,89 @@ export function sharedOrder(ids, pins) {
   return [...p, ...ids.filter((id) => !ps.has(id))];
 }
 
-// stripTiles picks the strip's guild tiles and lays them out.
+// shelfView answers which tiles of the shelf you can actually see. The row
+// fades out at an edge where more tiles exist, so a tile under the fade does
+// not count as seen: a tile is in view when its centre is inside the shelf
+// less the faded band, and the band only exists on a side that can still
+// scroll. Geometry is the shelf's own (every tile the same pitch), so this is
+// arithmetic on numbers the caller already has, not a layout read per tile.
 //
-//   ids      every guild id, in the user's rail order
-//   ctx      { pins: [ids in the user's order], mentions: Set, unread: Set,
-//             opened: Map id → last opened time }
-//   prev     the tiles this session last showed ([] at start)
-//   current  the guild on screen ("" for none)
-//   n        how many tiles fit
+//   n      tiles on the shelf
+//   g      { lead: x of the first tile's left edge, pitch, size, left: scrollLeft,
+//            width: the shelf's clientWidth, max: the furthest scrollLeft, fade }
 //
-// WHICH guilds: pinned ones always; then the current guild; then guilds with
-// something aimed at you; then whatever the strip showed last time, so a tile
-// never drops out because it was read; then unread, then the most recently
-// opened, then the rest. A guild already shown leaves only when the row
-// overflows, and then the least pressing goes first.
+// Returns { first, last } — the first and last index in view (last < first
+// when none is).
+export function shelfView(n, g) {
+  const fadeL = g.left > 0.5 ? g.fade : 0;
+  const fadeR = g.left < g.max - 0.5 ? g.fade : 0;
+  const lo = g.left + fadeL;
+  const hi = g.left + g.width - fadeR;
+  const centre = (i) => g.lead + i * g.pitch + g.size / 2;
+  let first = 0;
+  while (first < n && centre(first) < lo) first++;
+  let last = n - 1;
+  while (last >= 0 && centre(last) > hi) last--;
+  return { first, last };
+}
+
+// edgeNews is what the hidden ends of the shelf are holding back, for the
+// small mark at each faded edge: mentions aimed at you as one number, else a
+// dot when anything there is unread. Never how many guilds are off-screen —
+// that is not news. A muted guild's mentions still count (it shows them
+// outlined on its own tile), its plain unread does not.
 //
-// WHERE: in sharedOrder, never by class. A tile used to be laid out by its
-// unread class, so reading a guild slid it sideways; now reading changes
-// nothing about where it sits. Returns { shown, hidden } (hidden in shared
-// order too).
-export function stripTiles(ids, ctx, prev, current, n) {
-  const order = sharedOrder(ids, ctx.pins);
-  const pos = new Map(order.map((id, i) => [id, i]));
-  const live = (id) => pos.has(id);
-  const byPos = (a, b) => pos.get(a) - pos.get(b);
-  const cls = (id) => stripClass(id, ctx);
-  const rankOf = { pin: 0, mention: 1, unread: 2, recent: 3, "": 4 };
-  const pins = order.filter((id) => cls(id) === "pin");
-  const mention = order.filter((id) => cls(id) === "mention");
-  const recency = (a, b) => (ctx.opened.get(b) ?? 0) - (ctx.opened.get(a) ?? 0);
-  const kept = (prev || []).filter(live).sort((a, b) => rankOf[cls(a)] - rankOf[cls(b)] || recency(a, b) || byPos(a, b));
-  const unread = order.filter((id) => cls(id) === "unread");
-  const recent = order
-    .filter((id) => cls(id) === "recent")
-    .sort((a, b) => recency(a, b) || byPos(a, b));
-  const cur = current && live(current) ? [current] : [];
-  const chosen = new Set();
-  for (const id of [...pins.slice(0, Math.max(0, n - cur.length)), ...cur, ...mention, ...kept, ...unread, ...recent, ...order]) {
-    if (chosen.size >= Math.max(0, n)) break;
-    chosen.add(id);
+//   order   guild ids in shelf order
+//   view    { first, last } from shelfView
+//   marks   id → { count, dot, muted }
+export function edgeNews(order, view, marks) {
+  const side = (ids) => {
+    let count = 0;
+    let dot = false;
+    for (const id of ids) {
+      const m = marks(id);
+      if (!m) continue;
+      count += m.count || 0;
+      dot = dot || (!m.muted && !!m.dot);
+    }
+    return { count, dot: !count && dot };
+  };
+  return { left: side(order.slice(0, view.first)), right: side(order.slice(Math.max(view.first, view.last + 1))) };
+}
+
+// revealLeft is where to scroll so tile i sits in view clear of the fades:
+// unchanged when it already is, otherwise the nearest position that shows it
+// whole with the fade's width of room beside it. g as for shelfView.
+export function revealLeft(i, g) {
+  const x = g.lead + i * g.pitch;
+  const lo = g.left + (g.left > 0.5 ? g.fade : 0);
+  const hi = g.left + g.width - (g.left < g.max - 0.5 ? g.fade : 0);
+  let to = g.left;
+  if (x < lo) to = x - g.fade;
+  else if (x + g.size > hi) to = x + g.size + g.fade - g.width;
+  return Math.max(0, Math.min(g.max, Math.round(to)));
+}
+
+// snapLeft is the resting place for a scroll position: the nearest snap stop
+// (where the shelf's CSS snap would put each tile), clamped to the ends. A
+// vertical wheel is mapped to the row by the strip itself, which turns snap
+// off while it drives the scroll and glides here when the wheel goes quiet.
+// The stops are read from the tiles as drawn, because the browser snaps to
+// the transformed box: a tile eased aside by 2px snaps 2px further along, and
+// a landing computed from the layout alone was corrected by a visible 2px
+// jump the moment snap came back on.
+export function snapLeft(left, stops, max) {
+  if (left >= max - 0.5) return max;
+  let best = 0;
+  let d = Infinity;
+  for (const s of stops) {
+    const c = Math.max(0, Math.min(max, s));
+    if (Math.abs(c - left) < d) {
+      d = Math.abs(c - left);
+      best = c;
+    }
   }
-  return { shown: order.filter((id) => chosen.has(id)), hidden: order.filter((id) => !chosen.has(id)) };
+  return Math.round(best);
 }
 
 // ————————————————— a guild's mark without an icon —————————————————

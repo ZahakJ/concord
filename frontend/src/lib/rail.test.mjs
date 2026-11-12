@@ -12,7 +12,6 @@ import {
   guildInitials,
   seedOrder,
   sharedOrder,
-  stripTiles,
 } from "./rail.js";
 
 let failures = 0;
@@ -153,71 +152,55 @@ console.log("rail.test.mjs: all passed");
   console.log("rail.test.mjs: guildInitials ok");
 }
 
-// ---- the shortcut strip ----
+// ---- the strip: a shelf of every guild ----
 {
-  const { stripFit, stripTiles, sharedOrder } = await import("./rail.js");
+  const { sharedOrder, shelfView, edgeNews, revealLeft, snapLeft } = await import("./rail.js");
   const fail = (msg) => {
     console.error("  FAIL", msg);
     process.exitCode = 1;
   };
   const same = (a, b, msg) => JSON.stringify(a) !== JSON.stringify(b) && fail(`${msg}: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`);
 
-  same([stripFit(280), stripFit(240), stripFit(360), stripFit(264)], [5, 4, 7, 4], "tiles that fit 280/240/360/264");
-  // The measured width is a pixel under the nominal one (the sidebar's border).
-  same([stripFit(279), stripFit(239), stripFit(359), stripFit(263)], [5, 4, 7, 4], "the same counts a border's pixel narrower");
-
   const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
-  const ctx = (o = {}) => ({ pins: [], mentions: new Set(), unread: new Set(), opened: new Map(), ...o });
-
   // One order everywhere: pins first in pin order, then the rail order.
   same(sharedOrder(ids, ["h", "gone", "b"]), ["h", "b", "a", "c", "d", "e", "f", "g"], "pins, then the rail order");
 
-  // Which guilds earn a tile: pins, mentions, unread, recent; laid out in the
-  // shared order, not by class.
-  {
-    const c = ctx({ pins: ["h", "b"], mentions: new Set(["e"]), unread: new Set(["c"]), opened: new Map([["a", 5], ["d", 9]]) });
-    same(stripTiles(ids, c, [], "", 6).shown, ["h", "b", "a", "c", "d", "e"], "the picked six, in the shared order");
-    same(stripTiles(ids, c, [], "", 4).shown, ["h", "b", "c", "e"], "pins and the most pressing when room is short");
-  }
+  // 20 tiles of 28px on a 32px pitch, from x=4, in a 200px shelf with 16px fades.
+  const n = 20;
+  const geo = (left) => ({ lead: 4, pitch: 32, size: 28, left, width: 200, max: 4 + 20 * 32 + 4 - 4 - 200, fade: 16 });
+  // At the start there is no left fade: tiles 0..4 have their centres inside
+  // 0..184 (tile 5's centre is at 178, inside; tile 6's at 210, outside).
+  same(shelfView(n, geo(0)), { first: 0, last: 5 }, "the start of the shelf");
+  // Scrolled: both fades apply.
+  same(shelfView(n, geo(96)), { first: 3, last: 8 }, "the middle, clear of both fades");
+  // At the end there is no right fade.
+  const end = geo(geo(0).max);
+  same(shelfView(n, end).last, n - 1, "the last tile is in view at the end");
 
-  // Reading a guild never moves it or drops it: the tile stays where it was.
-  {
-    const before = ctx({ mentions: new Set(["f"]), unread: new Set(["c"]), opened: new Map([["a", 1]]) });
-    const first = stripTiles(ids, before, [], "", 3).shown;
-    same(first, ["a", "c", "f"], "mention, unread, recent");
-    const read = ctx({ opened: new Map([["a", 1], ["f", 2], ["c", 3]]) });
-    same(stripTiles(ids, read, first, "", 3).shown, first, "reading them changes nothing");
-  }
+  // What the hidden ends hold back: mentions as one number, else a dot.
+  const order = Array.from({ length: n }, (_, i) => `g${i}`);
+  const M = { g1: { count: 2 }, g2: { dot: true }, g12: { dot: true }, g15: { dot: true, muted: true }, g18: { count: 1, muted: true } };
+  const marks = (id) => M[id] || { count: 0, dot: false };
+  same(edgeNews(order, { first: 3, last: 8 }, marks), { left: { count: 2, dot: false }, right: { count: 1, dot: false } }, "mentions win over dots, and a muted guild's mention still counts");
+  same(edgeNews(order, { first: 0, last: 5 }, (id) => (id === "g12" ? { dot: true } : null)), { left: { count: 0, dot: false }, right: { count: 0, dot: true } }, "plain unread past the right edge is a dot");
+  same(edgeNews(order, { first: 0, last: 5 }, (id) => (id === "g15" ? { dot: true, muted: true } : null)).right.dot, false, "a muted guild's plain unread is not news");
+  same(edgeNews(order, { first: 0, last: n - 1 }, marks), { left: { count: 0, dot: false }, right: { count: 0, dot: false } }, "nothing hidden, nothing to say");
 
-  // A shown tile leaves only when the row overflows, and the least pressing goes.
-  {
-    const c0 = ctx({ opened: new Map([["a", 1], ["b", 2]]) });
-    const first = stripTiles(ids, c0, [], "", 2).shown;
-    same(first, ["a", "b"], "two recent");
-    const c1 = ctx({ mentions: new Set(["g"]), opened: new Map([["a", 1], ["b", 2]]) });
-    same(stripTiles(ids, c1, first, "", 2).shown, ["b", "g"], "a mention takes the slot of the oldest-opened");
-  }
+  // Revealing a tile: no scroll when it is already clear of the fades, else
+  // the least scroll that shows it whole with a fade's room beside it.
+  same(revealLeft(2, geo(0)), 0, "already in view: no movement");
+  same(revealLeft(10, geo(0)), 4 + 10 * 32 + 28 + 16 - 200, "to the right: just enough to clear the fade");
+  same(revealLeft(1, geo(200)), 4 + 32 - 16, "to the left: just enough to clear the fade");
+  same(revealLeft(19, geo(0)), geo(0).max, "never past the end");
 
-  // Free slots go to the rest in the shared order.
-  {
-    const c = ctx({ opened: new Map([["c", 3]]) });
-    same(stripTiles(ids, c, [], "", 3).shown, ["a", "b", "c"], "free slots fill in order");
-  }
-
-  // The current guild is always present.
-  {
-    const c = ctx({ pins: ["a", "b", "c"] });
-    const r = stripTiles(ids, c, [], "g", 3);
-    same(r.shown, ["a", "b", "g"], "current guild takes the last slot");
-    same(r.hidden, ["c", "d", "e", "f", "h"], "the rest are hidden, in the shared order");
-  }
-
-  // Ids that no longer exist are ignored, never shown.
-  {
-    const c = ctx({ pins: ["gone", "a"] });
-    same(stripTiles(ids, c, ["gone"], "", 2).shown, ["a", "b"], "a guild you left is skipped");
-  }
-  if (!process.exitCode) console.log("rail.test.mjs: strip ok");
+  // Snapping a free scroll position to the nearest stop, clamped to the ends.
+  const stops = [-12, 20, 52, 86, 116];
+  same(snapLeft(0, stops, 100), 0, "a stop before the start is the start");
+  same(snapLeft(40, stops, 100), 52, "the nearest stop");
+  same(snapLeft(35, stops, 100), 20, "just under half way rounds back");
+  same(snapLeft(110, stops, 100), 100, "a stop past the end is the end");
+  same(snapLeft(99.8, stops, 100), 100, "the end stays the end");
+  if (!process.exitCode) console.log("rail.test.mjs: shelf ok");
 }
 
 // ---- guild marks ----
@@ -265,10 +248,7 @@ console.log("rail.test.mjs: all passed");
   const layouts = perms.map((p) => JSON.stringify(reconcile([], seedOrder(p.map((i) => gs[i])))));
   if (new Set(layouts).size !== 1) fail("a fresh layout depends on the order the guild list arrived in");
   const ids = guildIdsInLayout(JSON.parse(layouts[0]));
-  const strip = (cur) =>
-    stripTiles(ids, { pins: [], mentions: new Set(), unread: new Set(), opened: new Map() }, [], cur, 6).shown;
-  if (JSON.stringify(strip("g1")) !== JSON.stringify(sharedOrder(ids, []))) fail("the strip is laid out in the shared order on first load");
-  if (strip("g1").indexOf("g1") !== ids.indexOf("g1")) fail("the open guild sits at its place, not appended at the end");
+  if (JSON.stringify(sharedOrder(ids, [])) !== JSON.stringify(ids)) fail("the strip is laid out in the rail order on first load");
   // A guild that arrives later is appended; the placed ones do not move.
   const later = reconcile(JSON.parse(layouts[0]), seedOrder([...gs, { id: "g5", name: "Aardvarks" }]));
   if (guildIdsInLayout(later).join() !== [...ids, "g5"].join()) fail("a new guild is appended without moving the placed ones");

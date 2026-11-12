@@ -15,6 +15,11 @@ eq(stepIndex(5, 3, "Home"), 0, "Home");
 eq(stepIndex(5, 1, "End"), 4, "End");
 eq(stepIndex(5, 1, "x"), -1, "not a navigation key");
 eq(stepIndex(0, 0, "ArrowDown"), -1, "an empty list");
+// A sideways row (the guild strip) steps on ←/→ and leaves ↑/↓ alone.
+eq(stepIndex(5, 2, "ArrowRight", "x"), 3, "right steps in a row");
+eq(stepIndex(5, 2, "ArrowLeft", "x"), 1, "left steps back in a row");
+eq(stepIndex(5, 2, "ArrowDown", "x"), -1, "down is not a row's key");
+eq(stepIndex(5, 2, "ArrowRight"), -1, "right is not a column's key");
 
 const names = ["workshop", "notices", "showcase", "supplies", "brainstorm", "# patterns"];
 eq(typeahead(names, 0, "s"), 2, "a letter finds the next row starting with it");

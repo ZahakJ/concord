@@ -45,7 +45,7 @@ test("everything you own wears the crown beside its name, and nothing else does"
   await shot(a, "strip without owner marks");
 
   step("the switcher: a crown right after the name of Workshop and the meeting, none on Bench");
-  await strip.getByRole("button", { name: /^All guilds/ }).click();
+  await a.openSwitcher();
   const row = (name) => a.page.locator("[role='option']", { hasText: name }).first();
   await row("Bench").waitFor();
   for (const name of ["Workshop", meeting.name]) {

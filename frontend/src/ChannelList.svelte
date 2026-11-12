@@ -118,8 +118,7 @@
   let { strip = true, callFloating = false, onJoinVoice, onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } =
     $props();
 
-  // The sidebar's own width decides how many strip tiles fit and when
-  // "N reachable" folds to its glyph.
+  // The sidebar's own width decides when "N reachable" folds to its glyph.
   let colW = $state(280);
 
   // ---- the place header ----
@@ -1092,7 +1091,7 @@
   {/if}
 
   {#if strip}
-    <GuildRail layout="strip" width={colW} />
+    <GuildRail layout="strip" />
   {/if}
 
   <!-- One field for going anywhere (it opens the palette), and the inbox,

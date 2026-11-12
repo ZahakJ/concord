@@ -2,12 +2,12 @@
   // The guilds, in one of two arrangements (the device-local `navModel` pref,
   // decided in App.svelte):
   //
-  //   layout="strip" — the sidebar's SHORTCUT row (the default): Messages, as
-  //     many guild tiles as fit the sidebar's width, and an overflow tile that
-  //     opens the guild switcher. Which guilds earn a tile is the stated rule in
-  //     lib/rail.js (stripTiles): pinned, then mentions, then unread, then most
-  //     recently opened — laid out in the one order the switcher uses too
-  //     (pins, then the rail order), so a tile never moves because it was read.
+  //   layout="strip" — the sidebar's SHELF (the default): Messages fixed at
+  //     the leading end, Add at the trailing end, and between them every guild
+  //     in a row that scrolls sideways, in the one order the switcher uses too
+  //     (pins, then the rail order — lib/rail.js sharedOrder), so a tile never
+  //     moves because it was read. The pointer or the arrow keys move a
+  //     highlight along it; only a click or Enter switches guild.
   //   layout="rail"  — the classic slim column beside the channel list, every
   //     guild in the user's order with folders, kept whole as the alternative
   //     arrangement.
@@ -44,24 +44,28 @@
     DEFAULT_FOLDER_COLOR,
     guildInitials,
     guildIdsInLayout,
-    stripFit,
-    stripTiles,
     seedOrder,
+    sharedOrder,
+    shelfView,
+    edgeNews,
+    revealLeft,
+    snapLeft,
   } from "./lib/rail.js";
-  import { guildMenu, folderMenu, renameFolderTo, stripPins, pinAt, noteOpened, openedTimes } from "./lib/guildmenu.js";
-  import { openGuildSwitcher, GSW } from "./lib/guildswitch.svelte.js";
+  import { guildMenu, folderMenu, renameFolderTo, stripPins, pinAt } from "./lib/guildmenu.js";
+  import { listNav } from "./lib/listnav.js";
+  import { reducedMotion } from "./lib/motion.js";
+  import { openGuildSwitcher } from "./lib/guildswitch.svelte.js";
   import { tileColor } from "./lib/guildaccent.js";
   import { playFlyby } from "./lib/sounds.js";
   import { longpress } from "./lib/touch.js";
   import { MOM } from "./lib/momentsunseen.svelte.js";
   import { tooltip } from "./lib/tooltip.js";
   import FxLayer from "./FxLayer.svelte";
-  import { untrack } from "svelte";
+  import { tick } from "svelte";
   import { RADAR, guildLiveSet } from "./lib/radar.svelte.js";
   import { failedInGuild } from "./lib/outbox.svelte.js";
 
-  // width: the sidebar's own width, which decides how many tiles fit.
-  let { layout = "rail", width = 280 } = $props();
+  let { layout = "rail" } = $props();
   const strip = $derived(layout === "strip");
   const phone = $derived(S.isMobile);
 
@@ -204,63 +208,140 @@
     return { count, mentions, attention };
   }
 
-  // ————————————————— the strip —————————————————
-  // Recency: every guild you open is noted on this device, for the strip's
-  // "most recently opened" class. A counter stands in for reactivity: the
-  // times live in localStorage, read through lib/guildmenu.js.
-  let openedRev = $state(0);
+  // ————————————————— the strip: a shelf of every guild —————————————————
+  // Every guild, pins first, then the rail order — never reordered by what is
+  // unread, so a hand can learn where a guild sits.
+  const order = $derived(sharedOrder(guildIdsInLayout(S.rail).filter((id) => guildById.has(id)), stripPins()));
+  const shelfGuilds = $derived(order.map((id) => guildById.get(id)));
+  const curIdx = $derived(order.indexOf(S.activeGuildId));
+
+  // The shelf's geometry. Every tile has the same pitch, so where a tile is
+  // and which ones are in view is arithmetic on a few numbers measured when
+  // the shelf changes size or contents — a scroll reads scrollLeft and nothing
+  // else, and touches the DOM only when the answer changes.
+  // The faded band at a scrollable end: wide enough to hold that end's news
+  // chip, so a tile counted as in view (or revealed by the keys) is never
+  // under it. --shelf-fade in the CSS is the same number.
+  const FADE = 30;
+  let shelf = $state(null);
+  let box = { lead: 0, pitch: 32, size: 28 };
+  let seen = $state({ first: 0, last: -1 });
+  let fadeL = $state(false);
+  let fadeR = $state(false);
+  function geo() {
+    return {
+      ...box,
+      left: shelf.scrollLeft,
+      width: shelf.clientWidth,
+      max: Math.max(0, shelf.scrollWidth - shelf.clientWidth),
+      fade: FADE,
+    };
+  }
+  function measure() {
+    if (!shelf) return;
+    const t = shelf.querySelectorAll(":scope > .tile-wrap");
+    if (t[0]) box = { lead: t[0].offsetLeft, size: t[0].offsetWidth, pitch: t[1] ? t[1].offsetLeft - t[0].offsetLeft : t[0].offsetWidth + 4 };
+    observe();
+  }
+  function observe() {
+    if (!shelf) return;
+    const g = geo();
+    const v = shelfView(order.length, g);
+    if (v.first !== seen.first || v.last !== seen.last) seen = v;
+    const l = g.left > 0.5;
+    const r = g.left < g.max - 0.5;
+    if (l !== fadeL) fadeL = l;
+    if (r !== fadeR) fadeR = r;
+  }
+  let frame = 0;
+  function onShelfScroll() {
+    if (!frame) frame = requestAnimationFrame(() => ((frame = 0), observe()));
+  }
   $effect(() => {
-    const id = S.activeGuildId;
-    const gg = id && guildById.get(id);
-    if (!gg) return;
-    noteOpened(id);
-    untrack(() => openedRev++);
+    if (!shelf) return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(shelf);
+    return () => ro.disconnect();
+  });
+  // What the faded ends are holding back: a number for mentions, else a dot.
+  const news = $derived(edgeNews(order, seen, (id) => marks(guildById.get(id))));
+
+  const scrollBehavior = () => (reducedMotion() ? "instant" : "smooth");
+  function reveal(i, behavior = scrollBehavior()) {
+    if (!shelf || i < 0) return;
+    // Clear of the band by a little more than a lifted tile's focus ring.
+    const to = revealLeft(i, { ...geo(), fade: FADE + 14 });
+    if (Math.abs(to - shelf.scrollLeft) > 0.5) shelf.scrollTo({ left: to, behavior });
+  }
+  // The open guild is brought into view when the shelf first draws (at once)
+  // and whenever you change guild by any road — the switcher, the palette, a
+  // link, the keyboard (gliding, unless motion is reduced).
+  let shown = false;
+  $effect(() => {
+    const i = curIdx;
+    void order.length;
+    if (!shelf) return;
+    tick().then(() => {
+      measure();
+      reveal(i, shown ? scrollBehavior() : "instant");
+      shown = true;
+    });
   });
 
-  // The strip does not reorder while you are reaching into it: the pointer is
-  // over it, or the switcher (the strip's inventory) is open. What changed
-  // meanwhile applies when the pointer leaves.
-  let hovering = $state(false);
-  let lastShown = [];
-  let tiles = $state({ shown: [], hidden: [] });
-  const DMS_N = 3;
-  $effect(() => {
-    if (!strip) return;
-    void openedRev;
-    const ids = guildIdsInLayout(S.rail).filter((id) => guildById.has(id));
-    const mentions = new Set();
-    const unread = new Set();
-    for (const id of ids) {
-      const m = marks(guildById.get(id));
-      if (m.count) mentions.add(id);
-      else if (m.dot) unread.add(id);
+  // A vertical wheel moves the shelf sideways. A sideways gesture (a
+  // trackpad's two-finger swipe) is left to the platform, which brings its own
+  // momentum and lands on the CSS snap. A mouse wheel has no sideways axis, so
+  // the shelf maps it itself: it glides toward an accumulated target with snap
+  // switched off (snap would pull every small step back to the tile it left),
+  // then lands on the nearest tile once the wheel goes quiet. Nothing here
+  // selects anything: the tile under a still pointer changes as the row moves
+  // under it, which is the highlight moving, and only a click switches guild.
+  function shelfWheel(node) {
+    let target = null;
+    let idle = 0;
+    let unsnap = 0;
+    function onWheel(e) {
+      if (e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      const max = node.scrollWidth - node.clientWidth;
+      if (max <= 0) return;
+      const unit = e.deltaMode === 1 ? box.pitch : e.deltaMode === 2 ? node.clientWidth : 1;
+      const from = target ?? node.scrollLeft;
+      const to = Math.max(0, Math.min(max, from + e.deltaY * unit));
+      if (to === from && target === null) return;
+      e.preventDefault();
+      target = to;
+      clearTimeout(unsnap);
+      node.classList.add("wheeling");
+      node.scrollTo({ left: target, behavior: scrollBehavior() });
+      clearTimeout(idle);
+      idle = setTimeout(land, 140);
     }
-    const ctx = { pins: stripPins(), mentions, unread, opened: openedTimes() };
-    const cur = guildById.has(S.activeGuildId) ? S.activeGuildId : "";
-    // A phone's strip scrolls sideways, so it holds more than fits: the rule
-    // still orders it, and the overflow tile is still last.
-    const n = phone ? Math.max(DMS_N * 4, 12) : stripFit(width);
-    if (hovering || GSW.open) return;
-    const next = stripTiles(ids, ctx, lastShown, cur, n);
-    lastShown = next.shown;
-    tiles = next;
-  });
-  const shownGuilds = $derived(tiles.shown.map((id) => guildById.get(id)).filter(Boolean));
-  // The overflow tile carries the hidden guilds' combined news: their mentions
-  // as one number, else a dot if any is unread. Never how MANY are hidden.
-  const overflow = $derived.by(() => {
-    let count = 0;
-    let dot = false;
-    const shown = new Set(shownGuilds.map((x) => x.id));
-    for (const gg of allGuilds) {
-      if (shown.has(gg.id)) continue;
-      const m = marks(gg);
-      if (m.muted) continue;
-      count += m.count;
-      dot = dot || m.dot;
+    function land() {
+      const base = node.getBoundingClientRect().left - node.scrollLeft + FADE;
+      const stops = [...node.children].map((w) => w.getBoundingClientRect().left - base);
+      const to = snapLeft(target ?? node.scrollLeft, stops, Math.max(0, node.scrollWidth - node.clientWidth));
+      target = null;
+      node.scrollTo({ left: to, behavior: scrollBehavior() });
+      unsnap = setTimeout(() => node.classList.remove("wheeling"), 320);
     }
-    return { count, dot };
-  });
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return {
+      destroy() {
+        clearTimeout(idle);
+        clearTimeout(unsnap);
+        node.removeEventListener("wheel", onWheel);
+      },
+    };
+  }
+
+  // Arrow keys move the highlight (focus) along the whole strip — Messages,
+  // the guilds, Add — as one Tab stop; the shelf glides the tile clear of the
+  // faded edge. Enter or Space is the button's own click.
+  function revealRow(row) {
+    const wrap = row.closest(".shelf > .tile-wrap");
+    if (wrap) reveal([...shelf.children].indexOf(wrap));
+  }
+
   // Messages: every message in a DM is aimed at you, so its number is the
   // DMs' attention; message requests are a dot (a stranger who has not been
   // accepted must not be able to make the app look like a friend is waiting).
@@ -274,9 +355,9 @@
     openGuildSwitcher(document.querySelector("[data-place-head]"));
   }
 
-  // Drag on the strip: a short fixed row, so only pins reorder here — drop a
-  // pinned tile among the pins to move it, drop an unpinned one to pin it at
-  // that spot. Folders and the full order are the switcher's.
+  // Drag on the strip: only pins reorder here — drop a pinned tile among the
+  // pins to move it, drop an unpinned one to pin it at that spot. Folders and
+  // the full order are the switcher's.
   let sdrag = $state("");
   let sdrop = $state(null); // { id, after }
   function stripOver(e, gg) {
@@ -431,14 +512,13 @@
 
 {#if strip}
   <!-- The strip. A nav of its own (inside the sidebar's) so "Guilds" stays a
-       landmark whichever arrangement is chosen. -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
+       landmark whichever arrangement is chosen, and one Tab stop: the arrows
+       walk it. -->
   <nav
     class="strip"
     class:phone
     aria-label="Guilds"
-    onpointerenter={(e) => e.pointerType === "mouse" && (hovering = true)}
-    onpointerleave={() => (hovering = false)}
+    use:listNav={{ rows: ".tile", current: ".tile.current", axis: "x", name: "aria-label", reveal: revealRow }}
   >
     <span class="tile-wrap">
       <button
@@ -454,64 +534,95 @@
       {#if dmMarks.count}<span class="t-badge"><Badge count={dmMarks.count} max={9} ring="var(--bg-1)" /></span>
       {:else if dmMarks.dot}<span class="t-dot"><Badge dot /></span>{/if}
     </span>
-    {#each shownGuilds as gg (gg.id)}
-      {@const m = marks(gg)}
-      <span
-        class="tile-wrap"
-        class:drop-before={sdrop?.id === gg.id && !sdrop.after}
-        class:drop-after={sdrop?.id === gg.id && sdrop.after}
-      >
-        <button
-          class="tile"
-          class:current={gg.id === S.activeGuildId}
-          class:muted={m.muted}
-          class:gone={!!gg.evicted}
-          class:hasicon={!!gg.icon}
-          class:moments={MOM.unseen[gg.id] > 0}
-          style={gg.icon ? undefined : faceStyle(gg)}
-          use:tooltip={{ ...tip, text: tileLabel(gg) }}
-          aria-label={gg.name}
-          aria-describedby={tileLabel(gg) !== gg.name ? `strip-d-${gg.id}` : undefined}
-          aria-current={gg.id === S.activeGuildId ? "page" : undefined}
-          draggable={!coarse}
-          ondragstart={(e) => {
-            sdrag = gg.id;
-            e.dataTransfer.effectAllowed = "move";
-            e.dataTransfer.setData("text/plain", gg.id);
-          }}
-          ondragend={() => ((sdrag = ""), (sdrop = null))}
-          ondragover={(e) => stripOver(e, gg)}
-          ondrop={stripDrop}
-          onclick={() => selectGuild(gg.id, { browse: S.isMobile })}
-          oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => guildMenu(e, gg)}
-          use:longpress={{ handler: (e) => guildMenu(e, gg) }}
+    {#if shelfGuilds.length}
+      <div class="shelf-box">
+        <div
+          class="shelf"
+          class:fade-l={fadeL}
+          class:fade-r={fadeR}
+          bind:this={shelf}
+          onscroll={onShelfScroll}
+          use:shelfWheel
         >
-          {#if gg.icon}
-            <img class="icon" src={gg.icon} alt="" />
-          {:else}
-            <span class="face"><GuildMark g={gg} /></span>
-          {/if}
-        </button>
-        {#if tileLabel(gg) !== gg.name}<span class="vh" id="strip-d-{gg.id}">{tileLabel(gg).slice(gg.name.length + 3)}</span>{/if}
-        {#if m.count}<span class="t-badge"><Badge count={m.count} max={9} muted={m.muted} ring="var(--bg-1)" /></span>
-        {:else if m.dot}<span class="t-dot"><Badge dot /></span>{/if}
-      </span>
-    {/each}
+          {#each shelfGuilds as gg, i (gg.id)}
+            {@const m = marks(gg)}
+            <span
+              class="tile-wrap"
+              class:pre={curIdx >= 0 && i < curIdx}
+              class:post={curIdx >= 0 && i > curIdx}
+              class:drop-before={sdrop?.id === gg.id && !sdrop.after}
+              class:drop-after={sdrop?.id === gg.id && sdrop.after}
+            >
+              <button
+                class="tile"
+                class:current={gg.id === S.activeGuildId}
+                class:muted={m.muted}
+                class:gone={!!gg.evicted}
+                class:hasicon={!!gg.icon}
+                class:moments={MOM.unseen[gg.id] > 0}
+                style={gg.icon ? undefined : faceStyle(gg)}
+                use:tooltip={{ ...tip, text: tileLabel(gg) }}
+                aria-label={gg.name}
+                aria-describedby={tileLabel(gg) !== gg.name ? `strip-d-${gg.id}` : undefined}
+                aria-current={gg.id === S.activeGuildId ? "page" : undefined}
+                draggable={!coarse}
+                ondragstart={(e) => {
+                  sdrag = gg.id;
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", gg.id);
+                }}
+                ondragend={() => ((sdrag = ""), (sdrop = null))}
+                ondragover={(e) => stripOver(e, gg)}
+                ondrop={stripDrop}
+                onclick={() => selectGuild(gg.id, { browse: S.isMobile })}
+                oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => guildMenu(e, gg)}
+                use:longpress={{ handler: (e) => guildMenu(e, gg) }}
+              >
+                {#if gg.icon}
+                  <img class="icon" src={gg.icon} alt="" />
+                {:else}
+                  <span class="face"><GuildMark g={gg} /></span>
+                {/if}
+              </button>
+              {#if tileLabel(gg) !== gg.name}<span class="vh" id="strip-d-{gg.id}">{tileLabel(gg).slice(gg.name.length + 3)}</span>{/if}
+              {#if m.count}<span class="t-badge"><Badge count={m.count} max={9} muted={m.muted} ring="var(--bg-1)" /></span>
+              {:else if m.dot}<span class="t-dot"><Badge dot /></span>{/if}
+            </span>
+          {/each}
+        </div>
+        <!-- News past a faded end: mentions as one number, else a dot. The
+             tiles themselves say it to a screen reader; this is for the eye. -->
+        {#if fadeL && (news.left.count || news.left.dot)}
+          <span class="edge l" aria-hidden="true">
+            <span class="chev"><Icon name="chevron" size={9} /></span>
+            {#if news.left.count}<Badge count={news.left.count} max={9} ring="var(--bg-1)" />{:else}<Badge dot ring="var(--bg-1)" />{/if}
+          </span>
+        {/if}
+        {#if fadeR && (news.right.count || news.right.dot)}
+          <span class="edge r" aria-hidden="true">
+            {#if news.right.count}<Badge count={news.right.count} max={9} ring="var(--bg-1)" />{:else}<Badge dot ring="var(--bg-1)" />{/if}
+            <span class="chev"><Icon name="chevron" size={9} /></span>
+          </span>
+        {/if}
+      </div>
+    {:else}
+      <span class="shelf-box"></span>
+    {/if}
     <span class="tile-wrap">
       {#if allGuilds.length}
+        <!-- Add: the same three doors the classic rail's + has. Instant meeting
+             lived only inside the switcher's ⋯ in this arrangement, which is
+             three clicks and an unlabelled icon away from a thing people
+             start on a whim. -->
         <button
-          class="tile more"
-          class:open={GSW.open}
-          use:tooltip={{ ...tip, text: "All guilds" }}
-          aria-label={overflow.count ? `All guilds · ${plural(overflow.count, "mention")} in guilds not shown` : "All guilds"}
-          aria-haspopup="dialog"
-          aria-expanded={GSW.open}
-          onclick={openSwitcher}
+          class="tile more add"
+          use:tooltip={{ ...tip, text: "Add a guild or start a meeting" }}
+          aria-label="Add a guild"
+          aria-haspopup="menu"
+          onclick={addMenu}
         >
-          <Icon name="grid4" size={phone ? 18 : 14} />
+          <Icon name="plus" size={phone ? 18 : 14} />
         </button>
-        {#if overflow.count}<span class="t-badge"><Badge count={overflow.count} max={9} ring="var(--bg-1)" /></span>
-        {:else if overflow.dot}<span class="t-dot"><Badge dot /></span>{/if}
       {:else}
         <!-- No guilds yet: the strip's last tile is the way to the first one. -->
         <button
@@ -525,23 +636,6 @@
         </button>
       {/if}
     </span>
-    {#if allGuilds.length}
-      <!-- Add: the same three doors the classic rail's + has. Instant meeting
-           lived only inside the switcher's ⋯ in this arrangement, which is
-           three clicks and an unlabelled icon away from a thing people
-           start on a whim. -->
-      <span class="tile-wrap">
-        <button
-          class="tile more add"
-          use:tooltip={{ ...tip, text: "Add a guild or start a meeting" }}
-          aria-label="Add a guild"
-          aria-haspopup="menu"
-          onclick={addMenu}
-        >
-          <Icon name="plus" size={phone ? 18 : 14} />
-        </button>
-      </span>
-    {/if}
   </nav>
 {:else}
 <nav class="rail" aria-label="Guilds">
@@ -790,12 +884,15 @@
 {/if}
 
 <style>
-  /* ————————————————— the strip ————————————————— */
+  /* ————————————————— the strip: a shelf ————————————————— */
+  /* 46px: the 28px tiles with room above for a lifted tile's count and below
+     for the unread dot, inside the shelf's scroll box (which clips both axes
+     once it scrolls one). */
   .strip {
     display: flex;
     align-items: center;
     gap: var(--sp-1);
-    height: 40px;
+    height: 46px;
     padding: 0 var(--sp-2);
     flex: none;
     border-bottom: 1px solid var(--hairline);
@@ -809,10 +906,135 @@
     overflow: hidden;
     clip-path: inset(50%);
   }
+  /* Sized by its tiles, shrinking only when they overflow: a short shelf
+     keeps Add right after its last guild instead of across an empty gap. */
+  .shelf-box {
+    position: relative;
+    flex: 0 1 auto;
+    min-width: 0;
+    align-self: stretch;
+    display: flex;
+  }
+  /* The row of guilds. It scrolls sideways and snaps to tiles; its ends fade
+     where more tiles wait, so a cut-off tile reads as "more this way" rather
+     than as a broken edge. The side padding is room for the outermost tiles
+     to ease aside without changing what can scroll. */
+  .shelf {
+    --shelf-fade: 30px;
+    position: relative;
+    flex: 0 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    padding: 0 var(--sp-1);
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: var(--shelf-fade);
+    scrollbar-width: none;
+  }
+  .shelf::-webkit-scrollbar {
+    display: none;
+  }
+  .shelf:global(.wheeling) {
+    scroll-snap-type: none;
+  }
+  .shelf.fade-l {
+    mask-image: linear-gradient(to right, transparent, black var(--shelf-fade));
+  }
+  .shelf.fade-r {
+    mask-image: linear-gradient(to left, transparent, black var(--shelf-fade));
+  }
+  .shelf.fade-l.fade-r {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black var(--shelf-fade),
+      black calc(100% - var(--shelf-fade)),
+      transparent
+    );
+  }
+  .shelf > .tile-wrap {
+    scroll-snap-align: start;
+  }
+  /* What the hidden end holds: a count or a dot, with a chevron saying which
+     way (next to a tile a bare number read as that tile's own count). It
+     sits on a band of the sidebar's ground the full height of the shelf,
+     outside the mask so it stays crisp, and the band covers the half-faded
+     tile's own marks, which otherwise peeked out above it. */
+  .edge {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    color: var(--text-muted);
+    pointer-events: none;
+    animation: edge-in var(--dur-standard) var(--ease-out) both;
+  }
+  @keyframes edge-in {
+    from {
+      opacity: 0;
+    }
+  }
+  .edge.l {
+    left: 0;
+    padding: 0 10px 0 1px;
+    background: linear-gradient(to right, var(--bg-1) 70%, transparent);
+  }
+  .edge.r {
+    right: 0;
+    padding: 0 1px 0 10px;
+    background: linear-gradient(to left, var(--bg-1) 70%, transparent);
+  }
+  .edge.l .chev {
+    rotate: 180deg;
+  }
+  .chev {
+    display: flex;
+  }
+
+  /* A tile and its marks. The WRAP carries the position — the lift and the
+     ease aside — so the count and the dot travel with the tile; the BUTTON
+     carries the scale, so the marks never scale with it and stay crisp. Both
+     are transform-only (translate, scale): nothing here changes layout, and
+     the room for them is reserved (the shelf's padding, the strip's height). */
   .tile-wrap {
     position: relative;
     display: flex;
     flex: none;
+    translate: var(--tx, 0px) var(--ty, 0px);
+    transition: translate var(--dur-move) var(--ease-out);
+  }
+  /* The open guild sits a little larger, so its neighbours make room. */
+  .tile-wrap.pre {
+    --tx: calc(-1 * var(--aside-x));
+  }
+  .tile-wrap.post {
+    --tx: var(--aside-x);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .tile-wrap:hover {
+      --ty: var(--lift-y);
+      transition: translate var(--dur-standard) var(--ease-lift);
+    }
+    .tile-wrap:hover > .tile:not(.current) {
+      --ts: var(--lift-scale);
+      transition:
+        scale var(--dur-standard) var(--ease-lift),
+        filter var(--dur-quick) var(--ease-out);
+    }
+  }
+  /* The keyboard's highlight is the pointer's: the same lift, plus the ring. */
+  .tile-wrap:has(> .tile:focus-visible) {
+    --ty: var(--lift-y);
+    transition: translate var(--dur-standard) var(--ease-lift);
+  }
+  .tile-wrap > .tile:focus-visible:not(.current) {
+    --ts: var(--lift-scale);
   }
   .tile {
     position: relative;
@@ -825,7 +1047,20 @@
     background: color-mix(in srgb, var(--guild-accent, var(--text-muted)) 18%, var(--bg-3));
     color: var(--text-muted);
     overflow: hidden;
-    transition: filter var(--dur-quick) var(--ease-out);
+    scale: var(--ts, 1);
+    transition:
+      scale var(--dur-move) var(--ease-out),
+      filter var(--dur-quick) var(--ease-out);
+  }
+  .tile.current {
+    --ts: var(--current-scale);
+    transition:
+      scale var(--dur-standard) var(--ease-lift),
+      filter var(--dur-quick) var(--ease-out);
+  }
+  .tile:active {
+    scale: calc(var(--ts, 1) * var(--press-scale));
+    transition: scale var(--dur-quick) var(--ease-out);
   }
   /* A guild without an icon: its colour as an 18% tint with the mark in its
      ink, not a flat swatch with white initials. */
@@ -854,12 +1089,9 @@
       filter: none;
     }
   }
-  .tile.more.open {
-    color: var(--text);
-  }
   /* The one "you are here" mark: a 2px ink ring INSIDE the tile, on a 1px gap
-     in the sidebar's colour, so nothing reaches into the 4px gaps between
-     tiles. Drawn over the icon (::after), which an inset shadow is not. */
+     in the sidebar's colour, so nothing reaches into the gaps between tiles.
+     Drawn over the icon (::after), which an inset shadow is not. */
   .tile::after {
     content: "";
     position: absolute;
@@ -900,13 +1132,15 @@
     opacity: 0.45;
   }
   /* A count at the top-right corner, cut out of the sidebar; a plain unread is
-     a dot 3px under the tile. One mark per tile, never two in one spot. */
+     a dot just under the tile. One mark per tile, never two in one spot. A
+     mark arrives once (it scales in) and then holds still: nothing pulses. */
   .t-badge {
     position: absolute;
-    top: -6px;
+    top: -5px;
     right: -6px;
     pointer-events: none;
     display: flex;
+    animation: mark-in var(--dur-standard) var(--ease-lift) both;
   }
   /* A guild you own, on the rail's larger tiles: a small filled crown cut
      into the bottom-left corner (OwnerMark). The count has the top-right,
@@ -927,10 +1161,17 @@
   .t-dot {
     position: absolute;
     left: 50%;
-    bottom: -9px;
+    bottom: -8px;
     translate: -50% 0;
     pointer-events: none;
     display: flex;
+    animation: mark-in var(--dur-standard) var(--ease-lift) both;
+  }
+  @keyframes mark-in {
+    from {
+      scale: 0.4;
+      opacity: 0;
+    }
   }
   .tile-wrap.drop-before::before,
   .tile-wrap.drop-after::after {
@@ -948,17 +1189,15 @@
   .tile-wrap.drop-after::after {
     right: -3px;
   }
-  /* Phone: 40px tiles in 48px hit areas, a row that scrolls sideways. */
+  /* Phone: 40px tiles in 48px hit areas; the shelf swipes sideways with the
+     same snap. No hover here, so no lift: a press sinks the tile instead. */
   .strip.phone {
-    height: 52px;
+    height: 60px;
     gap: var(--sp-2);
     padding: 0 var(--sp-3);
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
   }
-  .strip.phone::-webkit-scrollbar {
-    display: none;
+  .strip.phone .shelf {
+    gap: var(--sp-2);
   }
   .strip.phone .tile {
     width: 40px;

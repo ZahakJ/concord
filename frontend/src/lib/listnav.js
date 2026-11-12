@@ -21,17 +21,25 @@
 // current the row that holds the stop when you arrive (the open channel);
 //         after that the row you last left, then the first row
 // park    controls inside the list taken out of the Tab order
-// name    where in a row its typeahead name lives (default: the row's text)
+// name    where in a row its typeahead name lives (default: the row's text;
+//         "aria-label" for rows that are pictures, like the guild tiles)
+// axis    "x" for a row laid out sideways (the guild strip): ←/→ step instead
+//         of ↑/↓
+// reveal  how to bring a row into view when the keys land on it; the default
+//         is scrollIntoView, which a list with its own scroll motion (the
+//         strip eases a tile clear of its faded edges) replaces
 //
 // The rows are read out of the DOM on every keystroke and every mutation,
 // because these lists change under you: a category folds, a voice channel
 // grows a participant, a member comes online and re-sorts.
 
 // The next row index for a navigation key, or -1 when the key is not one.
-export function stepIndex(len, at, key) {
+export function stepIndex(len, at, key, axis = "y") {
   if (!len) return -1;
-  if (key === "ArrowDown") return Math.min(len - 1, at + 1);
-  if (key === "ArrowUp") return Math.max(0, at - 1);
+  const next = axis === "x" ? "ArrowRight" : "ArrowDown";
+  const prev = axis === "x" ? "ArrowLeft" : "ArrowUp";
+  if (key === next) return Math.min(len - 1, at + 1);
+  if (key === prev) return Math.max(0, at - 1);
   if (key === "Home") return 0;
   if (key === "End") return len - 1;
   return -1;
@@ -67,7 +75,8 @@ export function listNav(node, opts) {
   let typedAt = 0;
 
   const rows = () => [...node.querySelectorAll(o.rows)].filter(visible);
-  const nameOf = (row) => (o.name && row.querySelector(o.name)?.textContent) || row.textContent || "";
+  const nameOf = (row) =>
+    (o.name === "aria-label" ? row.getAttribute("aria-label") : o.name && row.querySelector(o.name)?.textContent) || row.textContent || "";
 
   function setTab(el, v) {
     if (el.getAttribute("tabindex") !== v) el.setAttribute("tabindex", v);
@@ -109,8 +118,13 @@ export function listNav(node, opts) {
 
   function go(row) {
     last = row;
-    row.focus();
-    row.scrollIntoView?.({ block: "nearest" });
+    if (o.reveal) {
+      row.focus({ preventScroll: true });
+      o.reveal(row);
+    } else {
+      row.focus();
+      row.scrollIntoView?.({ block: "nearest" });
+    }
     sync();
   }
 
@@ -126,7 +140,7 @@ export function listNav(node, opts) {
     // Alt+↑/↓ and friends are the app's channel steppers; leave every chord
     // with a modifier to them.
     if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
-    const to = stepIndex(rs.length, at, e.key);
+    const to = stepIndex(rs.length, at, e.key, o.axis);
     if (to >= 0) {
       e.preventDefault();
       go(rs[to]);
