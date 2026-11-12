@@ -349,5 +349,11 @@
     .op {
       padding: 10px var(--sp-3) 8px;
     }
+    /* The post's only menu, at the screen's edge: a 28px square there was
+       a thumb's width short of a target. */
+    .dots {
+      width: var(--tap-min);
+      height: var(--tap-min);
+    }
   }
 </style>

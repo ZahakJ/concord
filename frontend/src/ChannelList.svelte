@@ -261,8 +261,10 @@
       !heirNudgeDismissed[`heir:${g.id}`],
   );
   // Once, on a desktop: that the window can be arranged another way. Last in
-  // the queue, so it never stands in front of anything that matters.
-  const layoutHint = $derived(!S.isMobile && !S.prefs.layoutHintSeen && !!g);
+  // the queue, so it never stands in front of anything that matters. Not on a
+  // touch screen: a phone on its side is wide enough for this layout, and there
+  // the card took half of a 390px-tall list to offer arrangements for a mouse.
+  const layoutHint = $derived(!S.isMobile && !coarse && !S.prefs.layoutHintSeen && !!g);
   function layoutHintDone() {
     setPref("layoutHintSeen", true);
   }
@@ -1101,7 +1103,7 @@
       <span class="jump-lbl">Jump to…</span>
       <!-- The chip gives way before the label does: at 240px "Jump to…" was
            cut to "Jump t…" to keep a shortcut hint. -->
-      {#if !S.isMobile && colW >= 260}<Kbd>Ctrl K</Kbd>{/if}
+      {#if !S.isMobile && !coarse && colW >= 260}<Kbd>Ctrl K</Kbd>{/if}
     </button>
     <!-- Inbox and Your calendar have their own buttons on the classic rail;
          here only when the strip stands in for it, so neither is drawn twice. -->
