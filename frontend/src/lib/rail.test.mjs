@@ -200,6 +200,21 @@ console.log("rail.test.mjs: all passed");
   same(snapLeft(35, stops, 100), 20, "just under half way rounds back");
   same(snapLeft(110, stops, 100), 100, "a stop past the end is the end");
   same(snapLeft(99.8, stops, 100), 100, "the end stays the end");
+  // A wheel notch is one tile; a trackpad's pixel stream is not a notch.
+  const { wheelNotch, nextStop, glideStep } = await import("./rail.js");
+  same([wheelNotch(100, 0), wheelNotch(120, 0), wheelNotch(53, 0), wheelNotch(3, 1)], [true, true, true, true], "wheel notches");
+  same([wheelNotch(4, 0), wheelNotch(12.5, 0), wheelNotch(60.3, 0)], [false, false, false], "trackpad deltas");
+  same(nextStop(52, stops, 1, 100), 86, "one tile on");
+  same(nextStop(52.4, stops, -1, 100), 20, "one tile back");
+  same(nextStop(100, stops, 1, 100), 100, "nothing past the end");
+  same(nextStop(0, stops, -1, 100), 0, "nothing before the start");
+  same(nextStop(0, [-30, 2, 34, 66], 1, 100, 16), 34, "a stop 2px away is not a tile on");
+  // The glide: the first frame already moves, a quarter of the way.
+  same(glideStep(0, 32), 8, "a quarter of the way in the first frame");
+  same(glideStep(31.5, 32), 32, "arrives exactly");
+  let x = 0, frames = 0;
+  while (x !== 96 && frames < 100) (x = glideStep(x, 96)), frames++;
+  if (frames > 20) fail(`the glide takes ${frames} frames to arrive`);
   if (!process.exitCode) console.log("rail.test.mjs: shelf ok");
 }
 

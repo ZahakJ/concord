@@ -50,6 +50,9 @@
     edgeNews,
     revealLeft,
     snapLeft,
+    wheelNotch,
+    nextStop,
+    glideStep,
   } from "./lib/rail.js";
   import { guildMenu, folderMenu, renameFolderTo, stripPins, pinAt } from "./lib/guildmenu.js";
   import { listNav } from "./lib/listnav.js";
@@ -86,8 +89,6 @@
   const seasonOn = $derived(!strip && !!season && S.prefs.seasonal === true);
 
   const railTip = { side: "right", delay: 80 };
-  const stripTip = { side: "bottom", delay: 80 };
-  const tip = $derived(strip ? stripTip : railTip);
 
   // Touch: long-press opens the menus. iOS never synthesizes `contextmenu` for
   // a plain element, and Android's synthesized one would double-fire alongside
@@ -195,6 +196,18 @@
     return parts.join(" · ");
   }
 
+  // The strip's caption: the name and what is waiting there, without the
+  // ownership note (the description keeps it for a screen reader).
+  function capLabel(gg) {
+    const m = marks(gg);
+    const parts = [gg.name];
+    if (m.count) parts.push(plural(m.count, "mention"));
+    else if (m.dot) parts.push("unread");
+    if (m.muted) parts.push("muted");
+    if (MOM.unseen[gg.id]) parts.push("new moments");
+    return parts.join(" · ");
+  }
+
   function folderUnread(guilds) {
     let count = 0,
       mentions = 0,
@@ -222,7 +235,7 @@
   // The faded band at a scrollable end: wide enough to hold that end's news
   // chip, so a tile counted as in view (or revealed by the keys) is never
   // under it. --shelf-fade in the CSS is the same number.
-  const FADE = 30;
+  const FADE = 36;
   let shelf = $state(null);
   let box = { lead: 0, pitch: 32, size: 28 };
   let seen = $state({ first: 0, last: -1 });
@@ -252,6 +265,7 @@
     const r = g.left < g.max - 0.5;
     if (l !== fadeL) fadeL = l;
     if (r !== fadeR) fadeR = r;
+    relight();
   }
   let frame = 0;
   function onShelfScroll() {
@@ -265,6 +279,20 @@
   });
   // What the faded ends are holding back: a number for mentions, else a dot.
   const news = $derived(edgeNews(order, seen, (id) => marks(guildById.get(id))));
+
+  const edgeCap = (n, side) =>
+    n.count ? `${plural(n.count, "mention")} further ${side}` : `Unread further ${side}`;
+  // The chip's click: glide to the nearest guild past that edge with news.
+  function toNews(dir) {
+    const hasNews = (id) => {
+      const m = marks(guildById.get(id));
+      return m.count > 0 || (!m.muted && m.dot);
+    };
+    const idx = dir < 0
+      ? order.slice(0, seen.first).findLastIndex(hasNews)
+      : order.findIndex((id, i) => i > seen.last && hasNews(id));
+    if (idx >= 0) reveal(idx);
+  }
 
   const scrollBehavior = () => (reducedMotion() ? "instant" : "smooth");
   function reveal(i, behavior = scrollBehavior()) {
@@ -290,48 +318,154 @@
 
   // A vertical wheel moves the shelf sideways. A sideways gesture (a
   // trackpad's two-finger swipe) is left to the platform, which brings its own
-  // momentum and lands on the CSS snap. A mouse wheel has no sideways axis, so
-  // the shelf maps it itself: it glides toward an accumulated target with snap
-  // switched off (snap would pull every small step back to the tile it left),
-  // then lands on the nearest tile once the wheel goes quiet. Nothing here
-  // selects anything: the tile under a still pointer changes as the row moves
-  // under it, which is the highlight moving, and only a click switches guild.
+  // momentum and lands on the CSS snap. Everything else is the shelf's own
+  // glide: ONE animation frame loop easing scrollLeft toward an accumulated
+  // target (lib/rail.js glideStep), so a run of notches carries its speed
+  // instead of restarting a smooth scroll from rest on every event — that
+  // restart was a 66ms dead start and a flat spot between notches. A mouse
+  // notch is exactly one tile (wheelNotch); a trackpad's vertical stream
+  // moves in proportion. Snap is off while it glides (it would pull each step
+  // back) and the glide lands on the nearest tile as drawn once the wheel is
+  // quiet. Nothing here selects anything: only a click switches guild.
+  function stopsOf(node) {
+    const base = node.getBoundingClientRect().left - node.scrollLeft + FADE;
+    return [...node.children].map((w) => w.getBoundingClientRect().left - base);
+  }
   function shelfWheel(node) {
     let target = null;
+    let raf = 0;
     let idle = 0;
-    let unsnap = 0;
+    let quiet = true;
+    const maxOf = () => Math.max(0, node.scrollWidth - node.clientWidth);
+    function frame() {
+      const next = glideStep(node.scrollLeft, target);
+      node.scrollLeft = next;
+      if (Math.abs(node.scrollLeft - target) > 1) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
+      raf = 0;
+      if (quiet) finish();
+    }
+    function finish() {
+      target = null;
+      node.classList.remove("wheeling");
+      observe();
+    }
+    function stop() {
+      if (target === null) return;
+      cancelAnimationFrame(raf);
+      clearTimeout(idle);
+      raf = 0;
+      finish();
+    }
+    function go(to) {
+      target = to;
+      node.classList.add("wheeling");
+      if (reducedMotion()) {
+        node.scrollLeft = to;
+        if (quiet) finish();
+        return;
+      }
+      if (!raf) frame();
+    }
     function onWheel(e) {
-      if (e.ctrlKey || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-      const max = node.scrollWidth - node.clientWidth;
+      if (e.ctrlKey) return;
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return stop();
+      const max = maxOf();
       if (max <= 0) return;
-      const unit = e.deltaMode === 1 ? box.pitch : e.deltaMode === 2 ? node.clientWidth : 1;
       const from = target ?? node.scrollLeft;
-      const to = Math.max(0, Math.min(max, from + e.deltaY * unit));
+      const dir = Math.sign(e.deltaY);
+      const to = wheelNotch(e.deltaY, e.deltaMode)
+        ? nextStop(from, stopsOf(node), dir, max, box.pitch / 2)
+        : Math.max(0, Math.min(max, from + e.deltaY * (e.deltaMode === 2 ? node.clientWidth : 1)));
       if (to === from && target === null) return;
       e.preventDefault();
-      target = to;
-      clearTimeout(unsnap);
-      node.classList.add("wheeling");
-      node.scrollTo({ left: target, behavior: scrollBehavior() });
+      quiet = false;
       clearTimeout(idle);
-      idle = setTimeout(land, 140);
+      idle = setTimeout(() => {
+        quiet = true;
+        // Land on the nearest tile; a notch's target already is one.
+        go(snapLeft(target ?? node.scrollLeft, stopsOf(node), maxOf()));
+      }, 140);
+      go(to);
     }
-    function land() {
-      const base = node.getBoundingClientRect().left - node.scrollLeft + FADE;
-      const stops = [...node.children].map((w) => w.getBoundingClientRect().left - base);
-      const to = snapLeft(target ?? node.scrollLeft, stops, Math.max(0, node.scrollWidth - node.clientWidth));
-      target = null;
-      node.scrollTo({ left: to, behavior: scrollBehavior() });
-      unsnap = setTimeout(() => node.classList.remove("wheeling"), 320);
-    }
+    // Anything else that moves the row takes over from the glide.
+    const others = ["pointerdown", "touchstart", "keydown"];
     node.addEventListener("wheel", onWheel, { passive: false });
+    for (const t of others) node.addEventListener(t, stop, { passive: true });
     return {
       destroy() {
+        cancelAnimationFrame(raf);
         clearTimeout(idle);
-        clearTimeout(unsnap);
         node.removeEventListener("wheel", onWheel);
+        for (const t of others) node.removeEventListener(t, stop);
       },
     };
+  }
+
+  // The caption: the lit tile's name, from the pointer or the keyboard. It
+  // keeps its last text and place while it fades out, so leaving the strip
+  // does not snap it back to the start. Recomputed after the shelf moves
+  // under a still pointer, so a wheel glide walks it along.
+  let navEl = $state(null);
+  let peek = $state(null);
+  let capText = $state("");
+  let capX = $state(0);
+  let capEl = $state(null);
+  let ptr = null;
+  let keyLit = false;
+  // Slides between tiles, but appears in place: from nothing it fades in where
+  // it is wanted instead of travelling from wherever it last was.
+  let glide = $state(false);
+  function light(tile) {
+    if (!tile || !navEl) return;
+    const r = tile.getBoundingClientRect();
+    const n = navEl.getBoundingClientRect();
+    const text = tile.dataset.cap || tile.getAttribute("aria-label") || "";
+    const x = Math.round(r.left + r.width / 2 - n.left);
+    if (peek && peek.text === text && peek.x === x) return;
+    glide = !!peek;
+    peek = { text, x };
+    capText = text;
+  }
+  // Centred under the tile, but kept inside the sidebar: the caption's width
+  // is only known once its text is drawn, so the clamp runs after.
+  $effect(() => {
+    if (!peek || !capEl || !navEl) return;
+    const half = capEl.offsetWidth / 2;
+    const w = navEl.clientWidth;
+    const x = Math.round(Math.max(half + 4, Math.min(w - half - 4, peek.x)));
+    if (x !== capX) capX = x;
+  });
+  function onStripPointer(e) {
+    if (e.pointerType !== "mouse") return;
+    ptr = { x: e.clientX, y: e.clientY };
+    const t = e.target.closest?.(".tile, .edge");
+    if (t) light(t);
+    else if (!keyLit) peek = null;
+  }
+  function onStripLeave() {
+    ptr = null;
+    if (!keyLit) peek = null;
+  }
+  function onStripFocus(e) {
+    const t = e.target.closest?.(".tile");
+    keyLit = !!t && t.matches(":focus-visible");
+    if (keyLit) light(t);
+  }
+  function onStripBlur(e) {
+    if (navEl?.contains(e.relatedTarget)) return;
+    keyLit = false;
+    if (!ptr) peek = null;
+  }
+  // After the shelf moves: the tile under a still pointer has changed, and a
+  // keyboard-lit tile has moved.
+  function relight() {
+    if (keyLit && document.activeElement?.closest?.(".strip")) return light(document.activeElement);
+    if (!ptr) return;
+    const t = document.elementFromPoint(ptr.x, ptr.y)?.closest?.(".strip .tile");
+    if (t) light(t);
   }
 
   // Arrow keys move the highlight (focus) along the whole strip — Messages,
@@ -518,13 +652,18 @@
     class="strip"
     class:phone
     aria-label="Guilds"
+    bind:this={navEl}
     use:listNav={{ rows: ".tile", current: ".tile.current", axis: "x", name: "aria-label", reveal: revealRow }}
+    onpointermove={onStripPointer}
+    onpointerleave={onStripLeave}
+    onfocusin={onStripFocus}
+    onfocusout={onStripBlur}
   >
     <span class="tile-wrap">
       <button
         class="tile msg"
         class:current={inDMs}
-        use:tooltip={tip}
+        data-cap={dmMarks.count ? `Messages · ${plural(dmMarks.count, "unread message")}` : "Messages"}
         aria-label={dmMarks.count ? `Messages · ${plural(dmMarks.count, "unread message")}` : "Messages"}
         aria-current={inDMs ? "page" : undefined}
         onclick={messagesClick}
@@ -561,7 +700,7 @@
                 class:hasicon={!!gg.icon}
                 class:moments={MOM.unseen[gg.id] > 0}
                 style={gg.icon ? undefined : faceStyle(gg)}
-                use:tooltip={{ ...tip, text: tileLabel(gg) }}
+                data-cap={capLabel(gg)}
                 aria-label={gg.name}
                 aria-describedby={tileLabel(gg) !== gg.name ? `strip-d-${gg.id}` : undefined}
                 aria-current={gg.id === S.activeGuildId ? "page" : undefined}
@@ -590,19 +729,33 @@
             </span>
           {/each}
         </div>
-        <!-- News past a faded end: mentions as one number, else a dot. The
-             tiles themselves say it to a screen reader; this is for the eye. -->
+        <!-- News past a faded end: a quiet dot and a chevron on the faded
+             ground, in your accent when something there is aimed at you. A
+             number here read as the half-hidden tile's own count; the count is
+             in its caption and label instead. A click glides to that guild. -->
         {#if fadeL && (news.left.count || news.left.dot)}
-          <span class="edge l" aria-hidden="true">
-            <span class="chev"><Icon name="chevron" size={9} /></span>
-            {#if news.left.count}<Badge count={news.left.count} max={9} ring="var(--bg-1)" />{:else}<Badge dot ring="var(--bg-1)" />{/if}
-          </span>
+          <button
+            class="edge l"
+            class:you={news.left.count > 0}
+            tabindex="-1"
+            data-cap={edgeCap(news.left, "left")}
+            aria-label={edgeCap(news.left, "left")}
+            onclick={() => toNews(-1)}
+          >
+            <span class="chev"><Icon name="chevron" size={9} /></span><span class="edot"></span>
+          </button>
         {/if}
         {#if fadeR && (news.right.count || news.right.dot)}
-          <span class="edge r" aria-hidden="true">
-            {#if news.right.count}<Badge count={news.right.count} max={9} ring="var(--bg-1)" />{:else}<Badge dot ring="var(--bg-1)" />{/if}
-            <span class="chev"><Icon name="chevron" size={9} /></span>
-          </span>
+          <button
+            class="edge r"
+            class:you={news.right.count > 0}
+            tabindex="-1"
+            data-cap={edgeCap(news.right, "right")}
+            aria-label={edgeCap(news.right, "right")}
+            onclick={() => toNews(1)}
+          >
+            <span class="edot"></span><span class="chev"><Icon name="chevron" size={9} /></span>
+          </button>
         {/if}
       </div>
     {:else}
@@ -616,7 +769,7 @@
              start on a whim. -->
         <button
           class="tile more add"
-          use:tooltip={{ ...tip, text: "Add a guild or start a meeting" }}
+          data-cap="Add a guild or start a meeting"
           aria-label="Add a guild"
           aria-haspopup="menu"
           onclick={addMenu}
@@ -627,7 +780,7 @@
         <!-- No guilds yet: the strip's last tile is the way to the first one. -->
         <button
           class="tile more"
-          use:tooltip={{ ...tip, text: "Create or join a guild" }}
+          data-cap="Create or join a guild"
           aria-label="Create or join a guild"
           aria-haspopup="dialog"
           onclick={openSwitcher}
@@ -636,6 +789,13 @@
         </button>
       {/if}
     </span>
+    <!-- The highlighted tile's name: under the pointer or the keyboard's
+         highlight, a caption that slides along under the strip to whichever
+         tile is lit, so a row of look-alike marks can be read. It floats over
+         the row below rather than taking room, so nothing reflows. -->
+    {#if !phone}
+      <span class="caption" bind:this={capEl} class:on={!!peek} class:glide style:--cx="{capX}px" aria-hidden="true">{peek?.text ?? capText}</span>
+    {/if}
   </nav>
 {:else}
 <nav class="rail" aria-label="Guilds">
@@ -920,7 +1080,7 @@
      than as a broken edge. The side padding is room for the outermost tiles
      to ease aside without changing what can scroll. */
   .shelf {
-    --shelf-fade: 30px;
+    --shelf-fade: 36px;
     position: relative;
     flex: 0 1 auto;
     min-width: 0;
@@ -970,9 +1130,10 @@
     bottom: 0;
     display: flex;
     align-items: center;
-    gap: 1px;
+    gap: 2px;
+    padding: 0;
+    border-radius: 0;
     color: var(--text-muted);
-    pointer-events: none;
     animation: edge-in var(--dur-standard) var(--ease-out) both;
   }
   @keyframes edge-in {
@@ -980,21 +1141,67 @@
       opacity: 0;
     }
   }
+  /* Its own ground: solid under the chip, then a short fade, so whatever
+     tile is half-hidden there is not what the dot appears to belong to. */
   .edge.l {
     left: 0;
-    padding: 0 10px 0 1px;
-    background: linear-gradient(to right, var(--bg-1) 70%, transparent);
+    padding: 0 14px 0 4px;
+    background: linear-gradient(to right, var(--bg-1) 62%, transparent);
   }
   .edge.r {
     right: 0;
-    padding: 0 1px 0 10px;
-    background: linear-gradient(to left, var(--bg-1) 70%, transparent);
+    padding: 0 4px 0 14px;
+    background: linear-gradient(to left, var(--bg-1) 62%, transparent);
+  }
+  @media (pointer: fine) {
+    .edge:hover {
+      color: var(--text);
+    }
+  }
+  .edot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text);
+  }
+  .edge.you .edot {
+    background: var(--accent);
   }
   .edge.l .chev {
     rotate: 180deg;
   }
   .chev {
     display: flex;
+  }
+  /* The lit tile's name, floating just under the strip over the row below. */
+  .caption {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: var(--z-raised);
+    max-width: 220px;
+    padding: 2px var(--sp-2);
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    box-shadow: var(--shadow-pop);
+    color: var(--text);
+    font-size: var(--fs-small);
+    line-height: 1.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+    opacity: 0;
+    translate: calc(var(--cx) - 50%) 2px;
+    transition: opacity var(--dur-quick) var(--ease-out);
+  }
+  .caption.on {
+    opacity: 1;
+  }
+  .caption.glide {
+    transition:
+      opacity var(--dur-quick) var(--ease-out),
+      translate var(--dur-move) var(--ease-out);
   }
 
   /* A tile and its marks. The WRAP carries the position — the lift and the
@@ -1018,11 +1225,11 @@
   }
   @media (hover: hover) and (pointer: fine) {
     .tile-wrap:hover {
-      --ty: var(--lift-y);
+      --ty: var(--shelf-lift-y);
       transition: translate var(--dur-standard) var(--ease-lift);
     }
     .tile-wrap:hover > .tile:not(.current) {
-      --ts: var(--lift-scale);
+      --ts: var(--shelf-lift-scale);
       transition:
         scale var(--dur-standard) var(--ease-lift),
         filter var(--dur-quick) var(--ease-out);
@@ -1030,11 +1237,11 @@
   }
   /* The keyboard's highlight is the pointer's: the same lift, plus the ring. */
   .tile-wrap:has(> .tile:focus-visible) {
-    --ty: var(--lift-y);
+    --ty: var(--shelf-lift-y);
     transition: translate var(--dur-standard) var(--ease-lift);
   }
   .tile-wrap > .tile:focus-visible:not(.current) {
-    --ts: var(--lift-scale);
+    --ts: var(--shelf-lift-scale);
   }
   .tile {
     position: relative;
@@ -1053,7 +1260,7 @@
       filter var(--dur-quick) var(--ease-out);
   }
   .tile.current {
-    --ts: var(--current-scale);
+    --ts: var(--shelf-current-scale);
     transition:
       scale var(--dur-standard) var(--ease-lift),
       filter var(--dur-quick) var(--ease-out);

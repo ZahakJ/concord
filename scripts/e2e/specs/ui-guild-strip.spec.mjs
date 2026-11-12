@@ -38,16 +38,50 @@ test("the strip holds every guild, and moving along it never switches guild", as
   await bashir.send(far.channel("general"), "@everyone the gate code changed");
   const right = a.page.locator('nav[aria-label="Guilds"] .edge.r');
   await right.waitFor({ timeout: 60000 });
-  assert.equal((await right.innerText()).trim(), "1", "the hidden mention, as a count");
+  assert.equal(await right.getAttribute("aria-label"), "1 mention further right", "the hidden mention, said by the chip");
+  assert.ok(await right.evaluate((el) => el.classList.contains("you")), "in your accent, since it is aimed at you");
   assert.equal(await a.page.locator('nav[aria-label="Guilds"] .edge.l').count(), 0, "nothing hidden to the left at the start");
+  // The chip sits on the faded ground, clear of every tile drawn in full: it
+  // is not read as some tile's own mark.
+  const clear = await a.page.evaluate(() => {
+    const c = document.querySelector('nav[aria-label="Guilds"] .edge.r .edot').getBoundingClientRect();
+    const shelf = document.querySelector('nav[aria-label="Guilds"] .shelf').getBoundingClientRect();
+    return [...document.querySelectorAll('nav[aria-label="Guilds"] .shelf .tile')]
+      .map((t) => t.getBoundingClientRect())
+      .filter((r) => r.left >= shelf.left && r.right <= shelf.right - 36)
+      .every((r) => r.right + 4 <= c.left);
+  });
+  assert.ok(clear, "the edge dot is clear of every tile in full view");
   await shot(a, "edge news");
 
-  step("a vertical wheel over the strip scrolls it sideways and selects nothing");
+  step("a wheel notch moves the shelf one tile and selects nothing; the caption names the tile under the pointer");
   const box = await a.page.locator('nav[aria-label="Guilds"] .shelf').boundingBox();
-  await a.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  for (let i = 0; i < 4; i++) await a.page.mouse.wheel(0, 120);
-  await waitFor(async () => (await shelfState(a)).left > 60, { message: "the shelf to scroll" });
-  await a.page.waitForTimeout(800);
+  const pitch = await a.page.evaluate(() => {
+    const w = document.querySelectorAll('nav[aria-label="Guilds"] .shelf > .tile-wrap');
+    return w[1].offsetLeft - w[0].offsetLeft;
+  });
+  // Over a tile's centre (the middle of the shelf may be a gap between two).
+  const spot = await a.page.evaluate(() => {
+    const s = document.querySelector('nav[aria-label="Guilds"] .shelf').getBoundingClientRect();
+    const t = [...document.querySelectorAll('nav[aria-label="Guilds"] .shelf .tile')].map((x) => x.getBoundingClientRect()).find((r) => r.left > s.left + s.width / 3);
+    return [t.left + t.width / 2, t.top + t.height / 2];
+  });
+  await a.page.mouse.move(spot[0], spot[1]);
+  const caption = a.page.locator('nav[aria-label="Guilds"] .caption');
+  await waitFor(async () => (await caption.evaluate((el) => el.classList.contains("on"))) && (await caption.innerText()).length > 0, { message: "the caption under the pointer" });
+  // Within 3px: the tiles beside the open guild sit 2px aside, and the snap
+  // stops follow the tiles as drawn.
+  const left0 = (await shelfState(a)).left;
+  await a.page.mouse.wheel(0, 120);
+  await waitFor(async () => Math.abs((await shelfState(a)).left - left0 - pitch) <= 3, { message: "one notch to move exactly one tile" });
+  await a.page.waitForTimeout(400);
+  assert.ok(Math.abs((await shelfState(a)).left - left0 - pitch) <= 3, "and to stay there");
+  for (let i = 0; i < 3; i++) await a.page.mouse.wheel(0, 120);
+  await waitFor(async () => Math.abs((await shelfState(a)).left - left0 - 4 * pitch) <= 3 || (await shelfState(a)).left >= (await shelfState(a)).max - 1, { message: "four notches, four tiles" });
+  await a.page.waitForTimeout(400);
+  const under = await a.page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest(".tile")?.getAttribute("aria-label"), spot);
+  assert.ok(under, "a tile under the pointer");
+  assert.ok((await caption.innerText()).startsWith(under), `the caption names the tile under the pointer (${under})`);
   assert.equal(await currentName(a), "Allotment", "the wheel moved no selection");
   assert.match(await a.page.locator("[data-place-head]").innerText(), /Allotment/);
 
@@ -65,6 +99,7 @@ test("the strip holds every guild, and moving along it never switches guild", as
   await a.page.keyboard.press("ArrowRight");
   await waitFor(async () => (await shelfState(a)).focus === "Chess at Noon", { message: "focus two tiles along" });
   assert.equal(await currentName(a), "Allotment", "arrowing switched nothing");
+  await waitFor(async () => (await caption.innerText()).startsWith("Chess at Noon"), { message: "the caption to name the highlighted tile" });
   await waitFor(async () => (await shelfState(a)).tiles.find((t) => t.name === "Chess at Noon").inView, { message: "the highlighted tile in view" });
   await a.page.keyboard.press("Enter");
   await waitFor(async () => (await currentName(a)) === "Chess at Noon", { message: "Enter to switch" });

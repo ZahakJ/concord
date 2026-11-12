@@ -161,6 +161,12 @@
   --press-scale: 0.97;
   --rise-y: 6px;
   --enter-scale: 0.98;
+  /* The guild strip's own, a step bolder than chrome's: it is a shelf you
+     browse, and a 28px tile lifted by 2px at 1.06 barely read as lifted.
+     1.14 and 3px still fit the strip's reserved height without clipping. */
+  --shelf-lift-y: -3px;
+  --shelf-lift-scale: 1.14;
+  --shelf-current-scale: 1.12;
 
   /* ---- Focus ------------------------------------------------------------
      One ring recipe, so a component that has to re-declare the ring (an inset
@@ -2617,6 +2623,9 @@ textarea[aria-invalid="true"] {
   --press-scale: 1;
   --rise-y: 0px;
   --enter-scale: 1;
+  --shelf-lift-y: 0px;
+  --shelf-lift-scale: 1;
+  --shelf-current-scale: 1;
 }
 :root[data-motion="reduced"],
 :root[data-motion="reduced"] *,

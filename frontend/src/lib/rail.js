@@ -336,6 +336,40 @@ export function snapLeft(left, stops, max) {
   return Math.round(best);
 }
 
+// wheelNotch says whether a wheel event is one click of a mouse wheel rather
+// than a trackpad's stream of pixel deltas. A notch moves the shelf exactly
+// one tile, the way a console's shelf steps one item per press; a trackpad
+// keeps moving it in proportion to the fingers. Line-mode deltas are always
+// a wheel; a pixel delta is a notch when it is large and whole (a wheel
+// reports 100 or 120, or 50-odd at some scales; a trackpad reports small,
+// often fractional, steps).
+export function wheelNotch(deltaY, deltaMode) {
+  if (deltaMode === 1) return true;
+  return Math.abs(deltaY) >= 50 && Number.isInteger(deltaY);
+}
+
+// nextStop is the snap stop one tile on from `left` in the wheel's direction
+// (dir 1 or -1): the first stop more than `min` past `left` (half a tile, so
+// a stop a couple of pixels away — the 2px the open guild's neighbours ease
+// aside — does not count as a tile), clamped to the ends.
+export function nextStop(left, stops, dir, max, min = 1) {
+  const cs = stops.map((s) => Math.max(0, Math.min(max, Math.round(s)))).sort((a, b) => a - b);
+  if (dir > 0) return cs.find((s) => s > left + min) ?? max;
+  return [...cs].reverse().find((s) => s < left - min) ?? 0;
+}
+
+// glideStep is one frame of the shelf's wheel glide: an exponential approach
+// to the target (a quarter of the remaining way per frame, so a run of
+// notches carries its speed instead of restarting from rest), at least a
+// pixel a frame so it always arrives, and exactly on the target at the end.
+export const GLIDE = 0.25;
+export function glideStep(cur, target) {
+  const d = target - cur;
+  if (Math.abs(d) <= 1) return target;
+  const step = d * GLIDE;
+  return cur + (Math.abs(step) < 1 ? Math.sign(d) : step);
+}
+
 // ————————————————— a guild's mark without an icon —————————————————
 //
 // Two-letter initials on a flat colour square are the most generic tile there

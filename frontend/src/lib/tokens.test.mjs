@@ -68,6 +68,7 @@ const NEEDED = [
   "--border-strong", "--mention-wash", "--display-font", "--ease-overshoot", "--header-h",
   // The motion vocabulary's other verbs and amounts (app.css › Motion).
   "--ease-lift", "--ease-in", "--dur-move", "--lift-y", "--lift-scale", "--current-scale", "--aside-x", "--press-scale", "--rise-y", "--enter-scale",
+  "--shelf-lift-y", "--shelf-lift-scale", "--shelf-current-scale",
 ];
 for (const t of NEEDED) if (!tokenValue(t)) fail(`app.css :root does not define ${t}`);
 
@@ -259,7 +260,7 @@ else {
 }
 {
   const amounts = /:root\[data-motion="reduced"\] \{([^}]*)\}/.exec(APP);
-  for (const t of ["--lift-y", "--lift-scale", "--current-scale", "--aside-x", "--press-scale", "--rise-y", "--enter-scale"]) {
+  for (const t of ["--lift-y", "--lift-scale", "--current-scale", "--aside-x", "--press-scale", "--rise-y", "--enter-scale", "--shelf-lift-y", "--shelf-lift-scale", "--shelf-current-scale"]) {
     if (!amounts || !new RegExp(`${t}:\\s*(0px|1);`).test(amounts[1])) fail(`reduced motion does not return ${t} to identity`);
   }
   for (const [rel, raw] of FILES) {
