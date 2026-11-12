@@ -1,4 +1,5 @@
 <script>
+  import { untrack } from "svelte";
   // Fullscreen story playback. Not a Modal: it's an overlay like the studios,
   // so it registers with the overlay-closer stack (BannerStudio.svelte does
   // the same) and the phone's back button dismisses it before anything else.
@@ -32,8 +33,10 @@
 
   $effect(() => pushLayer("story", () => onClose?.()));
 
-  // Seen is recorded when you move PAST a story (auto-advance or tap-forward)
-  // — rewinding and bailing out mid-story leave it unread, and the call is
+  // Seen is recorded when a story is SHOWN. It used to wait until you moved
+  // past it, so opening a guild's one moment and closing it after reading it
+  // left the "new moments" ring on the guild as if you never had — a mark
+  // that would not clear reads as a broken notification. The call is
   // local-only (no view receipts; see MarkStorySeen in the bridge).
   let changed = false;
   function markSeen(s) {
@@ -73,8 +76,12 @@
     return () => cancelAnimationFrame(raf);
   });
 
+  $effect(() => {
+    const s = story;
+    if (s) untrack(() => markSeen(s));
+  });
+
   function advance() {
-    markSeen(stories[index]);
     if (index >= stories.length - 1) {
       onClose?.();
       return;
