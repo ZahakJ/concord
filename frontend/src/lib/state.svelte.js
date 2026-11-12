@@ -47,6 +47,7 @@ import { landsOnWelcome } from "./firstrun.js";
 import { momentsPlaylist } from "./moments.js";
 import { insertBySent, compareSent } from "./feedorder.js";
 import { createFeedCache, reconcileFeed } from "./feedcache.js";
+import { formatClock } from "./clockfmt.js";
 import { isBlankText } from "./compose.js";
 import { isReading, readThrough, attention, addressedToYou } from "./readstate.js";
 import {
@@ -1012,7 +1013,7 @@ export function clockOpts() {
 // grouped rows change height under the cursor.
 export function fmtClock(iso) {
   try {
-    return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", ...clockOpts() });
+    return formatClock(iso, S.prefs.clock);
   } catch {
     return "";
   }
