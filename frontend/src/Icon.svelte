@@ -158,6 +158,9 @@
   // stroke so the two read as one shape in two states.
   const FILLED = {
     pinFilled: "M5.6 2h4.8l-.5 4.4 1.9 2.6H4.2l1.9-2.6z M8 9v5",
+    // Ownership (OwnerMark). The outline crown at 10–13px thinned to a
+    // scribble beside a name; filled, it reads as a crown at any size.
+    crownFilled: "M2.5 12.5 2 5l3.5 2.5L8 3.5l2.5 4L14 5l-.5 7.5z",
   };
 
   const CONCORDE =

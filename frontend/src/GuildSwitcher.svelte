@@ -12,6 +12,8 @@
   import Icon from "./Icon.svelte";
   import Badge from "./Badge.svelte";
   import GuildMark from "./GuildMark.svelte";
+  import OwnerMark from "./OwnerMark.svelte";
+  import { ownsPlace } from "./lib/ownermark.js";
   import {
     S,
     selectGuild,
@@ -450,10 +452,9 @@
           <span class="gicon" class:muted={m.muted} style={g.icon ? undefined : `--guild-accent:${tileColor(g)}`}>
             {#if g.icon}<img src={g.icon} alt="" />{:else}<GuildMark {g} />{/if}
           </span>
-          <span class="name" class:dim={m.muted}>{g.name}</span>
-          {#if g.isOwner}
-            <!-- Yours: the crown, the member list's owner mark. -->
-            <span class="own" role="img" aria-label="you own this guild" title="You own this guild"><Icon name="crown" size={13} /></span>
+          <span class="name" class:dim={m.muted} class:owned={ownsPlace(g)}>{g.name}</span>
+          {#if ownsPlace(g)}
+            <OwnerMark size={12} label="You own this guild" />
           {/if}
           <span class="trail">
             {#if m.count}<Badge count={m.count} muted={m.muted} label={plural(m.count, "mention")} />
@@ -669,11 +670,14 @@
     white-space: nowrap;
     unicode-bidi: plaintext;
   }
-  .own {
-    flex: none;
-    display: grid;
-    place-items: center;
-    color: var(--text-muted);
+  /* A guild you own: the name takes only its own width so the crown sits
+     right after it, as it does beside a name everywhere else, well clear of
+     the unread marks in the trail. */
+  .name.owned {
+    flex: 0 1 auto;
+  }
+  .name.owned + :global(.owner-mark) {
+    margin-inline-end: auto;
   }
   .name.dim {
     color: var(--text-muted);

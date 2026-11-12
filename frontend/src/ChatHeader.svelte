@@ -1,6 +1,8 @@
 <script>
   // Chat column header: channel name, search, pins, voice, guild actions.
   import Icon from "./Icon.svelte";
+  import OwnerMark from "./OwnerMark.svelte";
+  import { ownsPlace, ownerLabel } from "./lib/ownermark.js";
   import Menu from "./Menu.svelte";
   import {
     S,
@@ -193,6 +195,7 @@
            is what it means everywhere else in this app. -->
       <Icon name="bubble" size={15} />
       <strong>{g.name}</strong>
+      {#if ownsPlace(g)}<OwnerMark size={12} label={ownerLabel(g)} />{/if}
     {:else if ch?.parent}
       <!-- A forum post: breadcrumb back to its board. -->
       <button

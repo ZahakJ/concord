@@ -10,6 +10,8 @@
   // the one nudge, the place's list (channels by category, or your
   // conversations), the unread-messages block, the call dock and you.
   import Icon from "./Icon.svelte";
+  import OwnerMark from "./OwnerMark.svelte";
+  import { ownsPlace, ownerLabel } from "./lib/ownermark.js";
   import GuildMark from "./GuildMark.svelte";
   import Badge from "./Badge.svelte";
   import Nudge from "./Nudge.svelte";
@@ -1022,6 +1024,7 @@
         aria-haspopup="dialog"
         aria-expanded={strip ? GSW.open : undefined}
         aria-label={strip ? `${g.name} — switch guild` : `${g.name} — guild settings`}
+        aria-description={ownsPlace(g) ? "you own this guild" : undefined}
         onclick={(e) => (strip ? toggleGuildSwitcher(e.currentTarget.closest("[data-place-head]")) : openGuildHub())}
         oncontextmenu={coarse ? (e) => e.preventDefault() : placeMenu}
         use:longpress={{ handler: placeMenu }}
@@ -1030,6 +1033,7 @@
           {#if g.icon}<img src={g.icon} alt="" />{:else}<GuildMark {g} size={13} />{/if}
         </span>
         <span class="ph-name"><bdi>{g.name}</bdi></span>
+        {#if ownsPlace(g)}<OwnerMark size={12} label={ownerLabel(g)} />{/if}
         {#if strip}<span class="ph-chev" aria-hidden="true"><Icon name="chevron" size={14} /></span>{/if}
       </button>
       {#if !g.evicted}
@@ -1284,6 +1288,7 @@
           <span class="dm-col">
             <span class="dm-top">
               <span class="dm-name">{dm.dmNotes ? "Notes (you)" : dm.name}</span>
+              {#if ownsPlace(dm)}<OwnerMark size={11} label={ownerLabel(dm)} />{/if}
               {#if !dm.dmNotes && liveChannels.has(dm.channels?.[0]?.id)}
                 <!-- A DM-located event is live: the conversation IS the meeting. -->
                 <span class="ch-live" use:tooltip={"A scheduled event is live in this conversation"}>

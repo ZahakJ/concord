@@ -10,6 +10,7 @@
   // is in it, and a key nobody checked is a key somebody could have swapped.
   import Modal from "./Modal.svelte";
   import Avatar from "../Avatar.svelte";
+  import OwnerMark from "../OwnerMark.svelte";
   import { api } from "../lib/api.js";
   import { S, refreshGuilds, flash } from "../lib/state.svelte.js";
 
@@ -69,7 +70,8 @@
     {#each members as m (m.fingerprint)}
       <li>
         <Avatar name={m.name} image={m.avatar} color={m.color} online={m.online} presence={m.presence} size={28} />
-        <span class="who">{m.name || m.fingerprint.slice(0, 9)}{m.isSelf ? " (you)" : ""}</span>
+        <span class="who" class:owned={m.isOwner}>{m.name || m.fingerprint.slice(0, 9)}{m.isSelf ? " (you)" : ""}</span>
+        {#if m.isOwner}<OwnerMark size={11} label="Started this group" />{/if}
         {#if !m.isSelf && !m.verified}<span class="muted tag">not verified</span>{/if}
         {#if canManage && !m.isSelf}
           <button class="ghost" disabled={!!busy} onclick={() => remove(m)}>Remove</button>
@@ -116,6 +118,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* The starter: the crown right after the name, the slack after it. */
+  .who.owned {
+    flex: 0 1 auto;
+  }
+  .who.owned + :global(.owner-mark) {
+    margin-inline-end: auto;
   }
   .tag {
     font-size: var(--fs-small);
