@@ -744,10 +744,14 @@
     // The full emoji table rides the same idle moment, for the same reason:
     // typing a colon or opening the picker must not be the first time anyone
     // asks for 35KB of Unicode.
+    // The dialogs people open most ride it too: the first Settings of a
+    // session otherwise waited on a chunk fetch (about 100 ms on a desktop,
+    // more on a phone) before its first frame.
     const warm = () => {
       precacheCosmetics();
       precacheEmoji();
       warmIslands();
+      for (const k of ["settings", "guildSettings", "profile", "confirm"]) MODAL_LOADERS[k]?.().catch(() => {});
     };
     if (window.Capacitor && "requestIdleCallback" in window)
       requestIdleCallback(warm, { timeout: 4000 });
