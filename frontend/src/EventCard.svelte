@@ -1151,12 +1151,10 @@
   .gcopy:active {
     text-decoration: underline;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .now-dot,
-    .evcard.live,
-    .spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .now-dot,
+  :global(:root[data-motion="reduced"]) .evcard.live,
+  :global(:root[data-motion="reduced"]) .spin {
+    animation: none;
   }
   /* Phones: every primary tappable reaches 44px; Join stretches to a full
      row so the thumb cannot miss the door. */

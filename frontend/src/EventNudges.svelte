@@ -11,15 +11,15 @@
   import { fly } from "svelte/transition";
   import { S, jumpToChannel } from "./lib/state.svelte.js";
   import { RADAR, dismissNudge } from "./lib/radar.svelte.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   // onJoinVoice is App's joinVoice — knock-if-locked, mic capture, call view —
   // the exact path EventCard's Join uses, threaded here so the banner's Join
   // is the same door, not a fork.
   let { onJoinVoice } = $props();
 
-  const reducedMotion =
-    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const dur = reducedMotion ? 0 : 180;
+  // Read at each entrance, so Appearance › Motion applies without a reload.
+  const dur = () => (reducedMotion() ? 0 : 180);
 
   async function join(n) {
     dismissNudge(n.id);
@@ -42,8 +42,8 @@
         class:live={n.kind === "live"}
         role="status"
         aria-live="polite"
-        in:fly={{ y: -16, duration: dur }}
-        out:fly={{ y: -10, duration: dur / 2 }}
+        in:fly={{ y: -16, duration: dur() }}
+        out:fly={{ y: -10, duration: dur() / 2 }}
       >
         {#if n.kind === "live"}
           <span class="live-dot" aria-hidden="true"></span>
@@ -186,11 +186,9 @@
     background: var(--bg-3);
     color: var(--text);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .nudge.live,
-    .live-dot {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .nudge.live,
+  :global(:root[data-motion="reduced"]) .live-dot {
+    animation: none;
   }
   /* One-handed at 393px: the actionable pills reach the 44px floor. */
   @media (max-width: 768px) {

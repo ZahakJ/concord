@@ -404,10 +404,8 @@
       transform: translateY(-4px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .menu {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .menu {
+    animation: none;
   }
   .menu.right {
     transform-origin: top right;
@@ -435,10 +433,8 @@
   }
   /* After the .menu.up rule above, not with the other reduced-motion block: a
      media query adds no specificity, so at equal weight the later rule wins. */
-  @media (prefers-reduced-motion: reduce) {
-    .menu.up {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .menu.up {
+    animation: none;
   }
   /* Sheet presentation: the dropdown's positioning and chrome come off, the
      rows stay. Same markup, same consumer classes. */

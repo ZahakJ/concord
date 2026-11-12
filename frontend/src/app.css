@@ -110,31 +110,57 @@
   --ease-calm: cubic-bezier(0.25, 0.8, 0.35, 1);
 
   /* ---- Motion -----------------------------------------------------------
-     The app only ever means two things by an easing curve, and it was spelling
-     each of them six ways: an overshoot (a thing ARRIVES — a popover, a
-     reaction pill, a sheet) and a deceleration (a thing MOVES or a state
-     changes — hover, fade, slide). Twenty-one distinct curves is not twenty-one
-     intents, it is one intent typed from memory, and the drift is visible when
-     two elements animate side by side with 1.3 and 1.56 of overshoot.
+     A small vocabulary, so every moving thing in the app feels like the same
+     hand. Three verbs, each with its curve:
 
-     These two are the most-used spelling of each family, so adopting them moved
-     the majority of call sites by zero. Anything genuinely different — an
-     ease-IN for something leaving, the shake, --ease-calm's editorial curve —
-     stays its own literal on purpose; this is not a rule that everything must
-     decelerate. */
+       arrive / lift  --ease-lift     a tile rising under the pointer, a pill
+                                      landing, a dialog settling: decelerates
+                                      with a settle you feel rather than see
+       move           --ease-out      a state change or a thing sliding over
+                                      (hover tints, a thumb travelling, a
+                                      neighbour easing aside)
+       leave          --ease-in       a thing going away: accelerates out,
+                                      and is quicker than its arrival
+
+     --ease-lift is the ONE curve allowed past its target in chrome, and only
+     a little: its peak is 2.0% over (y = 1.020 at x = 0.59), which on a 28px
+     tile growing to 1.10 is 0.06px and on a 2px lift 0.04px — a settle, not
+     a bounce. tokens.test.mjs allows it by name and still forbids the
+     literal and the celebration curve (--ease-overshoot) in chrome.
+
+     --ease-spring is the older name for an arrival that does not overshoot
+     at all (sheets, popovers); it stays for those. Anything genuinely else —
+     the shake, --ease-calm's editorial curve — stays its own literal. */
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
+  --ease-lift: cubic-bezier(0.3, 1.25, 0.4, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
   /* The overshoot that --ease-spring used to be. Chrome does not bounce — a
      menu that overshoots its anchor reads as unsteady — so the curve survives
      only for celebrations (bursts, reaction effects, the join veil), and
      tokens.test.mjs holds it to those files. */
   --ease-overshoot: cubic-bezier(0.34, 1.56, 0.64, 1);
-  /* Two durations for chrome. Quick is a state change you should not notice
-     happening (hover, focus, a tint); standard is a thing you should see move
-     (a panel, a reveal, a slide). Longer runs — the ambient backdrops, the
-     cosmetic effects — are compositions, not chrome, and keep their own times. */
+  /* Three durations for chrome. Quick (120ms) is a state change you should
+     not notice happening — hover, focus, a tint, a press, and anything
+     leaving; standard (150ms) is a thing you should see arrive — a lift, a
+     reveal, a dialog; move (180ms) is a thing travelling — a thumb, a row
+     of tiles easing aside, a pane sliding. Longer runs — the ambient
+     backdrops, the cosmetic effects — are compositions, not chrome, and keep
+     their own times. */
   --dur-quick: 120ms;
   --dur-standard: 150ms;
+  --dur-move: 180ms;
+  /* How far things move. Transform amounts, never layout: a lifted tile, the
+     open guild's tile at rest, a press, the rise of something arriving. Under
+     reduced motion (below) every one of them is identity, so nothing sits
+     transformed at rest and nothing travels. */
+  --lift-y: -2px;
+  --lift-scale: 1.06;
+  --current-scale: 1.1;
+  --aside-x: 2px;
+  --press-scale: 0.97;
+  --rise-y: 6px;
+  --enter-scale: 0.98;
 
   /* ---- Focus ------------------------------------------------------------
      One ring recipe, so a component that has to re-declare the ring (an inset
@@ -893,17 +919,10 @@
 /* Respect reduced-motion: freeze every backdrop layer (the static gradient,
    sun, grid and rain still render — just no movement) and hand the compositor
    layers back, since nothing is going to move on them. */
-@media (prefers-reduced-motion: reduce) {
-  .theme-bg,
-  .theme-bg > span {
-    animation: none !important;
-    will-change: auto !important;
-  }
-  /* The keyframe carried the sun's own transform; without the animation it has
-     to be restated or the grid loses its perspective. */
-  :root[data-theme-pack="synthwave"] .tb-b {
-    transform: perspective(900px) rotateX(72deg);
-  }
+:root[data-motion="reduced"] .theme-bg,
+:root[data-motion="reduced"] .theme-bg > span {
+  animation: none !important;
+  will-change: auto !important;
 }
 
 /* ── The structural tokens, wired up ──────────────────────────────────────
@@ -1626,22 +1645,20 @@
    still it is not weather, it is dirt on the screen — so those effects turn
    off completely. The CRT is the exception: its grille is static by design
    and is most of what the effect IS, so only the roll and the flicker go. */
-@media (prefers-reduced-motion: reduce) {
-  .fx-overlay > .fo {
-    animation: none !important;
-    will-change: auto !important;
-  }
-  .fxo-snow,
-  .fxo-rain,
-  .fxo-stars,
-  .fxo-embers,
-  .fxo-leaves {
-    display: none;
-  }
-  .fxo-crt .fo-0,
-  .fxo-crt .fo-1 {
-    display: none;
-  }
+:root[data-motion="reduced"] .fx-overlay > .fo {
+  animation: none !important;
+  will-change: auto !important;
+}
+:root[data-motion="reduced"] .fxo-snow,
+:root[data-motion="reduced"] .fxo-rain,
+:root[data-motion="reduced"] .fxo-stars,
+:root[data-motion="reduced"] .fxo-embers,
+:root[data-motion="reduced"] .fxo-leaves {
+  display: none;
+}
+:root[data-motion="reduced"] .fxo-crt .fo-0,
+:root[data-motion="reduced"] .fxo-crt .fo-1 {
+  display: none;
 }
 /* Momentary cross-fade while the theme/accent swaps — setAppearance() adds
    .theme-fade around the change and removes it right after. Kept out of the
@@ -1947,11 +1964,9 @@ button.primary:disabled {
     color: var(--danger-fg);
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .callbtn:hover,
-  .callbtn:active {
-    transform: none;
-  }
+:root[data-motion="reduced"] .callbtn:hover,
+:root[data-motion="reduced"] .callbtn:active {
+  transform: none;
 }
 
 /* Opt-in hit-box expander for controls that must stay visually small — a 22px
@@ -2586,18 +2601,32 @@ textarea[aria-invalid="true"] {
    therefore did not remove the animation, it removed only the part where the
    element becomes visible: a reduced-motion reader watched a list appear one
    invisible row at a time, which is the same wait with none of the feedback.
-   Zeroing both makes the finished state the first state. */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-delay: 0s !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    transition-delay: 0s !important;
-    scroll-behavior: auto !important;
-  }
+   Zeroing both makes the finished state the first state.
+
+   Keyed on the root attribute, not the media query: lib/motion.js stamps
+   data-motion="reduced" when the OS asks OR when Appearance › Motion is set
+   to Reduced, so the in-app choice reaches every rule the OS one does. The
+   amounts go to identity too, so nothing rests transformed (the open guild's
+   tile is its plain size) and a hover or a press changes colour, not shape. */
+:root[data-motion="reduced"] {
+  --lift-y: 0px;
+  --lift-scale: 1;
+  --current-scale: 1;
+  --aside-x: 0px;
+  --press-scale: 1;
+  --rise-y: 0px;
+  --enter-scale: 1;
+}
+:root[data-motion="reduced"],
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
 }
 
 /* Animated banner presets drift slowly (galaxies, auroras, prisms…). The
@@ -2614,10 +2643,8 @@ textarea[aria-invalid="true"] {
     background-position: 100% 50%;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .banner-drift {
-    animation: none;
-  }
+:root[data-motion="reduced"] .banner-drift {
+  animation: none;
 }
 
 /* ============================================================
@@ -3018,23 +3045,21 @@ textarea[aria-invalid="true"] {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .fxfield .fxp,
-  .fxfield .fxp::before,
-  .fxfield .fxr,
-  .fxfield .fxb,
-  .fxfield .fxbar,
-  .fxfield .fxblob,
-  .fxfield .fxg,
-  .fxfield .fxw,
-  .fxfield .fxs {
-    animation: none !important;
-  }
-  /* Static effects still read as the effect — just frozen. */
-  .fx-bolt .fxb,
-  .fx-streak .fxp {
-    opacity: var(--o);
-  }
+:root[data-motion="reduced"] .fxfield .fxp,
+:root[data-motion="reduced"] .fxfield .fxp::before,
+:root[data-motion="reduced"] .fxfield .fxr,
+:root[data-motion="reduced"] .fxfield .fxb,
+:root[data-motion="reduced"] .fxfield .fxbar,
+:root[data-motion="reduced"] .fxfield .fxblob,
+:root[data-motion="reduced"] .fxfield .fxg,
+:root[data-motion="reduced"] .fxfield .fxw,
+:root[data-motion="reduced"] .fxfield .fxs {
+  animation: none !important;
+}
+/* Static effects still read as the effect — just frozen. */
+:root[data-motion="reduced"] .fx-bolt .fxb,
+:root[data-motion="reduced"] .fx-streak .fxp {
+  opacity: var(--o);
 }
 
 /* ---- one-shot bursts (lib/burst.js) ----
@@ -3141,11 +3166,9 @@ textarea[aria-invalid="true"] {
     opacity: 0;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .fxo {
-    animation: none !important;
-    opacity: 0;
-  }
+:root[data-motion="reduced"] .fxo {
+  animation: none !important;
+  opacity: 0;
 }
 
 /* ── the app, behind a dialog ─────────────────────────────────────────────

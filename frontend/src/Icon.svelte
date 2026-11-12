@@ -207,11 +207,9 @@
       stroke-dashoffset: 0;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    /* No sketching; dashoffset stays at its default 0, so with dasharray 1 on
+  /* No sketching; dashoffset stays at its default 0, so with dasharray 1 on
        a pathLength-1 path the glyph simply renders complete. */
-    .draw {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .draw {
+    animation: none;
   }
 </style>

@@ -66,6 +66,8 @@ const NEEDED = [
   // The interface system's own few: control edges, the mention row tint, the
   // titles' face, the one curve allowed to overshoot, the shared header row.
   "--border-strong", "--mention-wash", "--display-font", "--ease-overshoot", "--header-h",
+  // The motion vocabulary's other verbs and amounts (app.css › Motion).
+  "--ease-lift", "--ease-in", "--dur-move", "--lift-y", "--lift-scale", "--current-scale", "--aside-x", "--press-scale", "--rise-y", "--enter-scale",
 ];
 for (const t of NEEDED) if (!tokenValue(t)) fail(`app.css :root does not define ${t}`);
 
@@ -141,27 +143,33 @@ for (const [rel, raw] of FILES) {
 }
 
 // ---- 4. motion -------------------------------------------------------------
-// The app means two things by a curve: an arrival (--ease-spring, which no
-// longer overshoots) and a deceleration (--ease-out). The overshoot spelling
-// is a celebration's (--ease-overshoot, rule 12). Anything genuinely else — an
-// ease-in for something leaving, the shake, the editorial --ease-calm — stays
-// a literal.
+// The app's verbs, each with its curve (app.css › Motion): arrive/lift
+// (--ease-lift, a bounded settle), move (--ease-out), leave (--ease-in), and
+// the older non-overshooting arrival (--ease-spring). The celebration's
+// overshoot is --ease-overshoot (rule 12). A literal spelling of any of them is
+// drift. Anything genuinely else — the shake, the editorial --ease-calm —
+// stays a literal.
 const norm = (s) => s.replace(/\s+/g, "");
 const SPRING = new Set(["cubic-bezier(0.34,1.56,0.64,1)", "cubic-bezier(0.34,1.4,0.5,1)", "cubic-bezier(0.34,1.3,0.5,1)", "cubic-bezier(0.34,1.4,0.64,1)", "cubic-bezier(0.34,1.5,0.5,1)", "cubic-bezier(0.22,1.1,0.36,1)"]);
 const DECEL = new Set(["cubic-bezier(0.2,0.9,0.3,1)", "cubic-bezier(0.2,0.8,0.2,1)", "cubic-bezier(0.22,1,0.36,1)", "cubic-bezier(0.2,0.8,0.25,1)", "cubic-bezier(0.16,0.84,0.44,1)", "cubic-bezier(0.2,0.7,0.45,1)", "cubic-bezier(0.2,0.7,0.3,1)"]);
+const NAMED = new Map([
+  [norm(tokenValue("--ease-lift") || "-"), "--ease-lift"],
+  [norm(tokenValue("--ease-in") || "-"), "--ease-in"],
+]);
 for (const [rel, raw] of FILES) {
   for (const line of strip(raw).split("\n")) {
-    if (/--ease-(spring|out|calm|overshoot):/.test(line)) continue; // the definitions
+    if (/--ease-(spring|out|calm|overshoot|lift|in):/.test(line)) continue; // the definitions
     for (const m of line.matchAll(/cubic-bezier\([^)]*\)/g)) {
       const n = norm(m[0]);
-      if (SPRING.has(n)) fail(`${rel}: ${m[0]} is the overshoot family — chrome uses var(--ease-spring); a celebration uses var(--ease-overshoot)`);
+      if (SPRING.has(n)) fail(`${rel}: ${m[0]} is the overshoot family — chrome uses var(--ease-lift) or var(--ease-spring); a celebration uses var(--ease-overshoot)`);
       if (DECEL.has(n)) fail(`${rel}: ${m[0]} is the decelerate family — use var(--ease-out)`);
+      if (NAMED.has(n)) fail(`${rel}: ${m[0]} is var(${NAMED.get(n)})`);
     }
   }
 }
 
 const DUR = new Map();
-for (const n of ["--dur-quick", "--dur-standard"]) {
+for (const n of ["--dur-quick", "--dur-standard", "--dur-move"]) {
   const v = tokenValue(n);
   if (!v) continue;
   const ms = parseFloat(v);
@@ -170,7 +178,7 @@ for (const n of ["--dur-quick", "--dur-standard"]) {
 }
 for (const [rel, raw] of FILES) {
   for (const line of strip(raw).split("\n")) {
-    if (/--dur-(quick|standard|calm):/.test(line)) continue;
+    if (/--dur-(quick|standard|calm|move):/.test(line)) continue;
     for (const m of line.matchAll(/(?<![\w.])([0-9.]+m?s)(?![\w.])/g)) {
       const tok = DUR.get(m[1]);
       if (tok) fail(`${rel}: ${m[1]} is var(${tok})`);
@@ -235,12 +243,46 @@ for (const [rel, raw] of FILES) {
 // on a staggered `animation: … both` entrance means the element is held at its
 // FROM frame — invisible — for the length of the delay. Both lines, or neither
 // is doing its job.
-const nuke = /@media \(prefers-reduced-motion: reduce\) \{\s*\*,\s*\*::before,\s*\*::after \{([\s\S]*?)\}/.exec(APP);
-if (!nuke) fail("app.css has no global prefers-reduced-motion stand-down");
+//
+// And ONE switch: the stand-downs key off the root attribute lib/motion.js
+// stamps (the OS setting or Appearance › Motion), never the media query
+// directly — a `@media (prefers-reduced-motion)` block cannot hear the in-app
+// choice, so it would be a stand-down that half the people asking never get.
+const nuke = /:root\[data-motion="reduced"\],\s*:root\[data-motion="reduced"\] \*,\s*:root\[data-motion="reduced"\] \*::before,\s*:root\[data-motion="reduced"\] \*::after \{([\s\S]*?)\}/.exec(APP);
+if (!nuke) fail("app.css has no global reduced-motion stand-down on :root[data-motion=\"reduced\"]");
 else {
   for (const prop of ["animation-duration", "animation-delay", "transition-duration", "transition-delay"]) {
     if (!new RegExp(`${prop}:[^;]*!important`).test(nuke[1])) {
       fail(`app.css reduced-motion block does not neutralise ${prop}`);
+    }
+  }
+}
+{
+  const amounts = /:root\[data-motion="reduced"\] \{([^}]*)\}/.exec(APP);
+  for (const t of ["--lift-y", "--lift-scale", "--current-scale", "--aside-x", "--press-scale", "--rise-y", "--enter-scale"]) {
+    if (!amounts || !new RegExp(`${t}:\\s*(0px|1);`).test(amounts[1])) fail(`reduced motion does not return ${t} to identity`);
+  }
+  for (const [rel, raw] of FILES) {
+    if (/@media[^{]*prefers-reduced-motion/.test(strip(raw))) fail(`${rel}: a @media (prefers-reduced-motion) block — key it on :root[data-motion="reduced"] (lib/motion.js) so Appearance › Motion reaches it`);
+  }
+}
+
+// ---- 6b. motion moves things, it never re-lays them out ---------------------
+// The vocabulary's verbs (--ease-lift, --ease-in, --dur-move) animate transform
+// and opacity — what the compositor can move without asking layout. A
+// transition on width, height, an inset or a margin re-lays out the page on
+// every frame of it, and in the guild strip or a list that is the difference
+// between a lift and a stutter. Colour and filter fades are allowed (they
+// repaint, they do not reflow).
+{
+  const LAYOUT = /^(all|width|height|min-width|min-height|max-width|max-height|top|left|right|bottom|inset[\w-]*|margin[\w-]*|padding[\w-]*|gap|flex[\w-]*|grid[\w-]*)$/;
+  for (const [rel, raw] of FILES) {
+    for (const m of strip(raw).matchAll(/transition(?:-property)?\s*:\s*([^;{}]+);/g)) {
+      for (const item of m[1].split(/,(?![^(]*\))/)) {
+        if (!/var\(--(ease-lift|ease-in|dur-move)\)/.test(item)) continue;
+        const prop = item.trim().split(/\s+/)[0];
+        if (LAYOUT.test(prop)) fail(`${rel}: "${item.trim()}" — the motion verbs move transform and opacity, never ${prop}`);
+      }
     }
   }
 }
@@ -721,6 +763,8 @@ const value = (name, block) => {
         fail(`${rel}: var(--${m[1]}) — glows are retired; a float uses var(--shadow-pop), and nothing else glows`);
       }
     }
+    // --ease-lift is NOT this: it settles by 2% and is allowed by name in
+    // chrome; rule 4 forbids its literal, so the bound lives in one place.
     if (!OVERSHOOT_OK.test(rel) && /var\(--ease-overshoot\)/.test(src)) {
       fail(`${rel}: var(--ease-overshoot) is for celebrations (burst.js, fx*.js, FxLayer, FxOverlay, JoinVeil); chrome uses var(--ease-spring)`);
     }

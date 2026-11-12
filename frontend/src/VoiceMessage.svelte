@@ -318,9 +318,7 @@
       height: var(--tap-min);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .vm-play:hover {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .vm-play:hover {
+    transform: none;
   }
 </style>

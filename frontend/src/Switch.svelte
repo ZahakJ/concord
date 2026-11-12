@@ -69,10 +69,8 @@
     opacity: 0;
     z-index: 1;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .switch,
-    .knob {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .switch,
+  :global(:root[data-motion="reduced"]) .knob {
+    transition: none;
   }
 </style>

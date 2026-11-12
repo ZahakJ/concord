@@ -203,12 +203,10 @@
         0 0 calc(var(--rglow) + 6px) 5px transparent;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .art,
-    .orbit,
-    .halo,
-    .sat {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .art,
+  :global(:root[data-motion="reduced"]) .orbit,
+  :global(:root[data-motion="reduced"]) .halo,
+  :global(:root[data-motion="reduced"]) .sat {
+    animation: none;
   }
 </style>

@@ -453,12 +453,10 @@
       transform: scale(0.6);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .bubble,
-    .tpl,
-    .tpl-mark {
-      animation: none;
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .bubble,
+  :global(:root[data-motion="reduced"]) .tpl,
+  :global(:root[data-motion="reduced"]) .tpl-mark {
+    animation: none;
+    transition: none;
   }
 </style>

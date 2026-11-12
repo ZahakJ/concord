@@ -60,9 +60,7 @@ function ensureTip() {
       transition: opacity var(--dur-quick) ease;
     }
     .app-tooltip.show { opacity: 1; }
-    @media (prefers-reduced-motion: reduce) {
-      .app-tooltip { transition: none; }
-    }
+    :root[data-motion="reduced"] .app-tooltip { transition: none; }
   `;
   document.head.appendChild(style);
   tip = document.createElement("div");

@@ -517,10 +517,8 @@
   .member-row:active {
     background: var(--bg-3);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .member-row:hover {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .member-row:hover {
+    transform: none;
   }
   .member {
     flex: 1;
@@ -661,11 +659,9 @@
       height: 100%;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .eq i {
-      animation: none;
-      height: 60%;
-    }
+  :global(:root[data-motion="reduced"]) .eq i {
+    animation: none;
+    height: 60%;
   }
   .member-name :global(.owner-mark) {
     vertical-align: -1px;
@@ -684,10 +680,8 @@
       opacity: 0;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .v-badge {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .v-badge {
+    animation: none;
   }
   .muted-badge,
   .blocked-badge {

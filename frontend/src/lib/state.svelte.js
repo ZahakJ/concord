@@ -68,6 +68,7 @@ import {
   wantsAlert,
   showsBadge,
 } from "./notifs.js";
+import { reducedMotion, motionMode, onOsMotionChange } from "./motion.js";
 
 export const S = $state({
   ready: false,
@@ -2236,7 +2237,7 @@ function restoreReadingPosition(id) {
 let flashTimer = null;
 let flashEl = null;
 function landOn(el, instant = false) {
-  const reduceMotion = instant || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const reduceMotion = instant || reducedMotion();
   el.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
   clearTimeout(flashTimer);
   flashEl?.classList.remove("flash-highlight");
@@ -2612,6 +2613,9 @@ function rememberBootPaint() {
 
 export function applyAppearance() {
   const el = document.documentElement;
+  // Appearance › Motion, or the OS asking: one attribute every stylesheet and
+  // every scripted animation reads (lib/motion.js).
+  el.dataset.motion = motionMode(S.prefs.motion);
   const t = S.prefs.theme || "dark";
   el.dataset.theme = t === "system" ? (sysDark && !sysDark.matches ? "light" : "dark") : t;
   // Three rungs now, and an unknown value still lands on the default rather
@@ -2704,6 +2708,8 @@ export function setAppearance(key, value) {
 sysDark?.addEventListener?.("change", () => {
   if (S.prefs.theme === "system") setAppearance("theme", "system");
 });
+
+onOsMotionChange(() => applyAppearance());
 
 // Stamp saved theme/density at import time, so even the login screen (before
 // onLogin runs) honors them instead of flashing dark.

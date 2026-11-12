@@ -25,6 +25,7 @@
     isPast,
     guildDotColor,
   } from "../lib/events.svelte.js";
+  import { reducedMotion } from "../lib/motion.js";
 
   let { onClose, onJoinVoice } = $props();
 
@@ -71,7 +72,7 @@
       /* private mode: the toggle still works, it just isn't remembered */
     }
   }
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const reduceMotion = reducedMotion();
 
   const groups = $derived.by(() => {
     const out = [];
@@ -781,11 +782,9 @@
       min-height: var(--tap-min);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .riser,
-    .mn-dot {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .riser,
+  :global(:root[data-motion="reduced"]) .mn-dot {
+    animation: none;
   }
   @media (max-width: 768px) {
     .dayhead {

@@ -226,7 +226,7 @@
     max-height: calc(100 * var(--dvh) - 16px);
     overflow-y: auto;
     overscroll-behavior: contain;
-    animation: pop-in 0.18s var(--ease-spring);
+    animation: pop-in var(--dur-move) var(--ease-spring);
   }
   @keyframes pop-in {
     from {
@@ -234,10 +234,8 @@
       transform: translateY(6px) scale(0.96);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .status-pop {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .status-pop {
+    animation: none;
   }
   .sec-label {
     font-size: var(--fs-tiny);
@@ -355,11 +353,9 @@
   }
   /* After the hover rules, not before them: this block used to sit above the
      transforms it was meant to cancel, at the same specificity, so it lost. */
-  @media (prefers-reduced-motion: reduce) {
-    .em:hover,
-    .em:active {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .em:hover,
+  :global(:root[data-motion="reduced"]) .em:active {
+    transform: none;
   }
   .st-box {
     display: flex;
@@ -484,10 +480,8 @@
       transform: translateY(100%);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .status-pop.sheet {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .status-pop.sheet {
+    animation: none;
   }
   @media (pointer: coarse), (max-width: 768px) {
     .presence {

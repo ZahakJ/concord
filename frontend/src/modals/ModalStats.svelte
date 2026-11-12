@@ -7,6 +7,7 @@
   import { S, activeGuild, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { haptic } from "../lib/touch.js";
+  import { reducedMotion } from "../lib/motion.js";
 
   let { onClose } = $props();
 
@@ -74,8 +75,7 @@
     return `0.5,100 ${weekLine} ${w.length - 0.5},100`;
   });
 
-  const noMotion =
-    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const noMotion = reducedMotion();
 
   // Count from zero when the panel opens. The bars grow in CSS; the headline
   // would look frozen next to them if it printed the final number immediately.
@@ -974,28 +974,26 @@
       transform: none;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .hero,
-    .spark,
-    .sparkline-foot,
-    .rows,
-    .qchip,
-    .sfill,
-    .rfill,
-    .sline polyline,
-    .sline .sarea {
-      animation: none;
-    }
-    .sfill,
-    .rfill {
-      transform: none;
-    }
-    .sline polyline {
-      stroke-dashoffset: 0;
-    }
-    .sline .sarea {
-      opacity: 1;
-    }
+  :global(:root[data-motion="reduced"]) .hero,
+  :global(:root[data-motion="reduced"]) .spark,
+  :global(:root[data-motion="reduced"]) .sparkline-foot,
+  :global(:root[data-motion="reduced"]) .rows,
+  :global(:root[data-motion="reduced"]) .qchip,
+  :global(:root[data-motion="reduced"]) .sfill,
+  :global(:root[data-motion="reduced"]) .rfill,
+  :global(:root[data-motion="reduced"]) .sline polyline,
+  :global(:root[data-motion="reduced"]) .sline .sarea {
+    animation: none;
+  }
+  :global(:root[data-motion="reduced"]) .sfill,
+  :global(:root[data-motion="reduced"]) .rfill {
+    transform: none;
+  }
+  :global(:root[data-motion="reduced"]) .sline polyline {
+    stroke-dashoffset: 0;
+  }
+  :global(:root[data-motion="reduced"]) .sline .sarea {
+    opacity: 1;
   }
   .rn {
     flex: 0 0 auto;

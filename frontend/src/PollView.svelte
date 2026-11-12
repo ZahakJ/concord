@@ -522,13 +522,11 @@
       align-items: center;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .fill,
-    .mark {
-      transition: none;
-    }
-    .opt:active:not(:disabled) {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .fill,
+  :global(:root[data-motion="reduced"]) .mark {
+    transition: none;
+  }
+  :global(:root[data-motion="reduced"]) .opt:active:not(:disabled) {
+    transform: none;
   }
 </style>

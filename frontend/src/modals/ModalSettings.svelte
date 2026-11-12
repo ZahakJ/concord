@@ -673,10 +673,8 @@
       transform: translateY(2px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .spin-chip :global(svg) {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .spin-chip :global(svg) {
+    animation: none;
   }
   /* The md button: primary when there is an update to take, quiet to check. */
   .upd-btn {

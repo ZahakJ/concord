@@ -437,11 +437,9 @@
       transform: translateY(4px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .overlay,
-    .switcher {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .overlay,
+  :global(:root[data-motion="reduced"]) .switcher {
+    animation: none;
   }
   .qs-chip {
     display: inline-flex;

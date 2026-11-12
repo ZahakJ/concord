@@ -203,9 +203,7 @@
       transform: rotate(360deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .vid-spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .vid-spin {
+    animation: none;
   }
 </style>

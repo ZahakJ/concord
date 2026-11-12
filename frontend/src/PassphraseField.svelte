@@ -150,13 +150,11 @@
     outline: none;
     color: var(--accent-hover);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .peek {
-      transition: none;
-    }
-    .strength .bar span {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .peek {
+    transition: none;
+  }
+  :global(:root[data-motion="reduced"]) .strength .bar span {
+    transition: none;
   }
   /* ---- strength readout ----
      A bar and a sentence. The sentence is the part that does the work: "Fair"

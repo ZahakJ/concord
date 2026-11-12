@@ -487,10 +487,8 @@
   .bfill.over {
     background: var(--danger);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .bfill {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .bfill {
+    transition: none;
   }
 
   /* ---- tags ------------------------------------------------------------- */

@@ -347,10 +347,8 @@
       transform: scaleX(1);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .cfill {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .cfill {
+    animation: none;
   }
   .clabel {
     font-size: var(--fs-small);

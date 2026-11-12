@@ -97,17 +97,15 @@
       opacity: 0;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .veil {
-      animation: none;
-      clip-path: none;
-    }
-    /* Reduced motion keeps the pre-iris exit: no clip animation, the veil
+  :global(:root[data-motion="reduced"]) .veil {
+    animation: none;
+    clip-path: none;
+  }
+  /* Reduced motion keeps the pre-iris exit: no clip animation, the veil
        just stops being there (the old instant opacity drop). */
-    .veil.leaving {
-      clip-path: none;
-      opacity: 0;
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .veil.leaving {
+    clip-path: none;
+    opacity: 0;
+    transition: none;
   }
 </style>

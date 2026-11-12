@@ -442,12 +442,10 @@
       transform: translateY(10px) scale(0.96);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .gs-overlay,
-    .gs-card,
-    .g-tile {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .gs-overlay,
+  :global(:root[data-motion="reduced"]) .gs-card,
+  :global(:root[data-motion="reduced"]) .g-tile {
+    animation: none;
   }
   .gs-head {
     display: flex;

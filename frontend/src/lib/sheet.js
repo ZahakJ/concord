@@ -43,17 +43,17 @@
 // `pan-y` once there is something below to scroll back up to.
 import { haptic } from "./touch.js";
 import { pointOf } from "./place.js";
+import { reducedMotion } from "./motion.js";
 
 const DISMISS_PX = 120; // absolute cap on the pull a dismissal needs
 const DISMISS_FRACTION = 0.33; // …or a third of the sheet, whichever is less
 const FLING = 0.6; // px/ms, downward
 const EXIT_MS = 190;
 const SETTLE = "transform 0.24s var(--ease-spring)";
-const EXIT = `transform ${EXIT_MS}ms cubic-bezier(0.4, 0, 1, 1)`;
+const EXIT = `transform ${EXIT_MS}ms var(--ease-in)`;
 const SCRIM_MIN = 0.25; // the dim never goes fully clear mid-pull
 
-const reduced = () =>
-  typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const reduced = reducedMotion;
 
 // playExit slides a sheet out under the bottom edge and calls `done` when it
 // has landed. Reduced motion gets there immediately — waiting would be 190ms of
@@ -163,7 +163,7 @@ export function sheetdrag(node, params) {
       s.style.transform = "";
     }
     if (scr) {
-      scr.style.transition = "opacity 0.18s ease";
+      scr.style.transition = "opacity var(--dur-move) ease";
       scr.style.opacity = "";
     }
   }

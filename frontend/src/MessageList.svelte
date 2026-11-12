@@ -1982,10 +1982,8 @@
       padding-inline: var(--sp-3);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .oos-dot.spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .oos-dot.spin {
+    animation: none;
   }
   .side-panel {
     border-bottom: 1px solid var(--border);
@@ -2330,11 +2328,9 @@
       background-position: -120% 0;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .sk-av,
-    .sk-line {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .sk-av,
+  :global(:root[data-motion="reduced"]) .sk-line {
+    animation: none;
   }
   @keyframes new-pulse {
     0% {
@@ -2609,10 +2605,8 @@
       transform: rotate(360deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .ol-spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .ol-spin {
+    animation: none;
   }
   /* Pull-to-refresh chip: reuses .ol-spin, floats on a small elevated disc so
      it reads over message text. Position comes from an inline transform that

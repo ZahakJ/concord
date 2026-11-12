@@ -940,10 +940,8 @@
       opacity: 0.45;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .shimmer {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .shimmer {
+    animation: none;
   }
   .rm {
     position: absolute;

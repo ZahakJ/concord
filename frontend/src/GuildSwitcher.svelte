@@ -825,11 +825,9 @@
       font-size: 16px;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .gsw,
-    .chev {
-      animation: none;
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .gsw,
+  :global(:root[data-motion="reduced"]) .chev {
+    animation: none;
+    transition: none;
   }
 </style>

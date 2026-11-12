@@ -726,12 +726,10 @@
     color: var(--ok-text);
     transform: rotate(180deg); /* chevron points back at the call, not away */
   }
-  @media (prefers-reduced-motion: reduce) {
-    .dock,
-    .live,
-    .face.speaking :global(.avatar) {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .dock,
+  :global(:root[data-motion="reduced"]) .live,
+  :global(:root[data-motion="reduced"]) .face.speaking :global(.avatar) {
+    animation: none;
   }
 
   @media (max-width: 768px) {

@@ -1028,12 +1028,10 @@
       transform: translateX(300%);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .bar.indeterminate .fill {
-      animation: none;
-      width: 100%;
-      opacity: 0.5;
-    }
+  :global(:root[data-motion="reduced"]) .bar.indeterminate .fill {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
   }
   .counts {
     margin: 0;
@@ -1074,9 +1072,7 @@
       transform: rotate(360deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .spin {
+    animation: none;
   }
 </style>

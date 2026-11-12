@@ -28,6 +28,7 @@
   } from "../lib/events.svelte.js";
   import { REPEATS, expand, repeatSentence } from "../lib/recurrence.js";
   import { encodeEventToken } from "../lib/eventtoken.js";
+  import { reducedMotion } from "../lib/motion.js";
 
   let { onClose, onJoinVoice } = $props();
 
@@ -96,7 +97,7 @@
   let editing = $state(null); // null | draft {id?, title, details, location, start, durMin}
   let showPast = $state(false);
 
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const reduceMotion = reducedMotion();
 
   // Load on open; recheck on every guild-updated — that's the signal the core
   // emits for event upserts/removals/RSVPs (local and gossiped alike).
@@ -1618,13 +1619,11 @@
     justify-content: flex-end;
     gap: var(--sp-2);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .riser {
-      animation: none;
-    }
-    .wseg {
-      transition: background var(--dur-quick) ease, color var(--dur-quick) ease; /* drop the glow bloom */
-    }
+  :global(:root[data-motion="reduced"]) .riser {
+    animation: none;
+  }
+  :global(:root[data-motion="reduced"]) .wseg {
+    transition: background var(--dur-quick) ease, color var(--dur-quick) ease; /* drop the glow bloom */
   }
   @media (pointer: coarse), (max-width: 768px) {
     .dayhead {

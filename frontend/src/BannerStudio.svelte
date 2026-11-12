@@ -276,11 +276,9 @@
       transform: translateY(10px) scale(0.97);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .bs-scrim,
-    .bs {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .bs-scrim,
+  :global(:root[data-motion="reduced"]) .bs {
+    animation: none;
   }
   .bs-head {
     display: flex;

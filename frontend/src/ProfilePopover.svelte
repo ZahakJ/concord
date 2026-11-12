@@ -868,10 +868,8 @@
       transform: translateY(4px) scale(0.98);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .pop-wrap {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .pop-wrap {
+    animation: none;
   }
   /* ---- mobile: the same card as a bottom sheet ---- */
   .pp-scrim {
@@ -1057,11 +1055,9 @@
       transform: scale(1.05);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .av-glow {
-      animation: none;
-      opacity: 0.25;
-    }
+  :global(:root[data-motion="reduced"]) .av-glow {
+    animation: none;
+    opacity: 0.25;
   }
   .verified {
     display: inline-flex;

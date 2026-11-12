@@ -561,7 +561,7 @@
     border-radius: var(--radius-md);
     /* Appears in place; nothing above it moves except downward, which is the
        honest direction for a panel that opened. */
-    animation: eb-in 0.18s var(--ease-out);
+    animation: eb-in var(--dur-move) var(--ease-out);
   }
   .eb > * {
     flex-shrink: 0;
@@ -572,10 +572,8 @@
       transform: translateY(-6px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .eb {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .eb {
+    animation: none;
   }
   .eb header {
     display: flex;

@@ -261,10 +261,8 @@
   .tpl-toggle[aria-expanded="true"] :global(svg) {
     transform: rotate(90deg);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .tpl-toggle :global(svg) {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .tpl-toggle :global(svg) {
+    transition: none;
   }
   .tiny {
     font-size: var(--fs-tiny);

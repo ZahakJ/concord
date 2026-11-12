@@ -142,6 +142,7 @@
     setAudioRoute,
     AUDIO_ROUTES,
   } from "./lib/devices.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   // In push-to-talk the mic button stops being a toggle you watch and becomes a
   // readout of a key you're holding, so it says which key and lights up live.
@@ -150,8 +151,7 @@
 
   // Join/leave pop for tiles and strip bubbles; zero-duration under
   // prefers-reduced-motion (Svelte transitions don't read the media query).
-  const noMotion =
-    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const noMotion = reducedMotion();
   const pop = { duration: noMotion ? 0 : 190, start: 0.82 };
 
   let { onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } = $props();
@@ -1728,10 +1728,8 @@
   .sh-min :global(svg) {
     transform: rotate(90deg); /* chevron points down: put the call away */
   }
-  @media (prefers-reduced-motion: reduce) {
-    .sh-live {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .sh-live {
+    animation: none;
   }
   .stage {
     display: grid;
@@ -1795,10 +1793,8 @@
       transform: translateY(var(--sp-2));
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .voice-panel.on-stage .stage.fitted .tile {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .voice-panel.on-stage .stage.fitted .tile {
+    animation: none;
   }
   /* Theater sets its own (taller) cap; on the stage there is no cap at all, and
      the two rules have equal specificity, so say which wins rather than relying
@@ -2096,11 +2092,9 @@
       opacity: 0.3;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .tile.st-connecting .face,
-    .tile.st-reconnecting .face {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .tile.st-connecting .face,
+  :global(:root[data-motion="reduced"]) .tile.st-reconnecting .face {
+    animation: none;
   }
   /* The word itself: one muted line centred under the avatar, where the eye
      already is. It was a black band drawn across the face, which read as a
@@ -2598,14 +2592,12 @@
       transform: scaleX(0);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .sfx {
-      transition: none;
-    }
-    /* Still says "wait" — it just holds the wash instead of sweeping it. */
-    .sfx.cool::after {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .sfx {
+    transition: none;
+  }
+  /* Still says "wait" — it just holds the wash instead of sweeping it. */
+  :global(:root[data-motion="reduced"]) .sfx.cool::after {
+    animation: none;
   }
   .controls {
     position: sticky;
@@ -2782,19 +2774,17 @@
     background: color-mix(in srgb, var(--danger) 16%, transparent);
     color: var(--danger-text);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .knock-ring {
-      /* Pending still needs to read: one static soft halo instead of ripples. */
-      animation: none;
-      opacity: 0.3;
-      transform: none;
-    }
-    .knock-ring.r2 {
-      display: none;
-    }
-    .knock-rap {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .knock-ring {
+    /* Pending still needs to read: one static soft halo instead of ripples. */
+    animation: none;
+    opacity: 0.3;
+    transform: none;
+  }
+  :global(:root[data-motion="reduced"]) .knock-ring.r2 {
+    display: none;
+  }
+  :global(:root[data-motion="reduced"]) .knock-rap {
+    animation: none;
   }
   /* Size and lift only: the ground, the ink and the on/cut/hang states are
      .callbtn's, in app.css — this is the surface that language was taken from
@@ -2871,23 +2861,21 @@
   .ctl.hang {
     margin-left: 6px;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .tile.speaking .ring,
-    .focus-main.speaking,
-    .rail-item.speaking,
-    .eq span,
-    .dots span,
-    .ringing {
-      animation: none;
-    }
-    /* Speaking still reads without motion: hold the ring's base frame. */
-    .tile.speaking .ring {
-      box-shadow: inset 0 0 0 2px var(--ok);
-    }
-    .ctl.callbtn:hover,
-    .tile:hover {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .tile.speaking .ring,
+  :global(:root[data-motion="reduced"]) .focus-main.speaking,
+  :global(:root[data-motion="reduced"]) .rail-item.speaking,
+  :global(:root[data-motion="reduced"]) .eq span,
+  :global(:root[data-motion="reduced"]) .dots span,
+  :global(:root[data-motion="reduced"]) .ringing {
+    animation: none;
+  }
+  /* Speaking still reads without motion: hold the ring's base frame. */
+  :global(:root[data-motion="reduced"]) .tile.speaking .ring {
+    box-shadow: inset 0 0 0 2px var(--ok);
+  }
+  :global(:root[data-motion="reduced"]) .ctl.callbtn:hover,
+  :global(:root[data-motion="reduced"]) .tile:hover {
+    transform: none;
   }
 
   /* ---- touch adjustments: call controls you can't fat-finger. ---- */

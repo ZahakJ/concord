@@ -242,6 +242,8 @@
   // are off / "sidebar", so a missing key reads as the default.
   const roleNames = $derived(S.prefs.roleNameColors === true);
   const underline = $derived(S.prefs.underlineLinks === true);
+  const motion = $derived(S.prefs.motion === "reduced" ? "reduced" : "full");
+  const osReduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   const layout = $derived(currentLayout(S.prefs));
 </script>
 
@@ -506,6 +508,26 @@
   </SettingGroup>
 
   <SettingGroup label="Effects">
+    <!-- One switch for movement. The OS setting turns it down too, and wins:
+         asking for less motion anywhere is asking for less motion here. -->
+    <SettingRow
+      title="Motion"
+      sub={osReduced
+        ? "Your system asks for reduced motion, so the app keeps still whatever this says."
+        : motion === "reduced"
+          ? "Things appear and change in place: no lifts, slides or settles."
+          : "Tiles lift, dialogs settle, the guild strip glides. Small and quick."}
+    >
+      <Segmented
+        label="Motion"
+        value={motion}
+        onChange={(v) => setAppearance("motion", v)}
+        options={[
+          { value: "full", label: "Full" },
+          { value: "reduced", label: "Reduced" },
+        ]}
+      />
+    </SettingRow>
     <div class="pack-row fx-row" role="radiogroup" aria-label="Visual effect">
       {#each THEME_FX as f (f.id)}
         <button
@@ -531,7 +553,7 @@
     </div>
     <p class="muted tiny">
       An effect layers over whatever pack you picked. Drawn on this device, never downloaded, and
-      off entirely if your system asks for reduced motion. It starts off on each device.
+      off entirely when Motion is Reduced. It starts off on each device.
     </p>
     <SettingRow
       title="Seasonal touches"
@@ -1261,10 +1283,8 @@
   .pk-glow ~ .pk-body {
     background: color-mix(in srgb, var(--pk-bg) 60%, transparent);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .pk-glow {
-      animation: none !important;
-    }
+  :global(:root[data-motion="reduced"]) .pk-glow {
+    animation: none !important;
   }
   /* Daylight cards: the base card mixes its inks toward WHITE (fine on every
      dark pack, invisible on a light one), so these flip each mix toward black.

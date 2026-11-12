@@ -471,10 +471,8 @@
       transform: translateY(-4px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .cm {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .cm {
+    animation: none;
   }
   /* 32px rows, a 16px muted icon, the label in ink. The same look as Menu's
      rows: a context menu and a dropdown are one surface. */

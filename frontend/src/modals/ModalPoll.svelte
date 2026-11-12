@@ -403,9 +403,7 @@
     gap: var(--sp-2);
     margin-top: var(--sp-4);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .preview {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .preview {
+    transition: none;
   }
 </style>

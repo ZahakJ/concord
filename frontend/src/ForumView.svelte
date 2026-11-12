@@ -64,6 +64,7 @@
     writeBoardPrefs,
     normalizeBoardPrefs,
   } from "./lib/forum.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   let { forum } = $props();
 
@@ -74,8 +75,7 @@
 
   // Motion is read once: the CSS handles the rest through media queries, this is
   // only for the JS-driven FLIP duration (which has no CSS to opt out of).
-  const reduceMotion =
-    typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reduceMotion = reducedMotion();
   const flipMs = reduceMotion ? 0 : 260;
 
   // ---- device-local board preferences ------------------------------------
@@ -2334,36 +2334,34 @@
      title, two lines of excerpt and a metadata row. */
 
 
-  @media (prefers-reduced-motion: reduce) {
-    .card,
-    .card.skel,
-    .ghost-card,
-    .media img,
-    .tile-load,
-    .sk-media,
-    .sk-line,
-    .pend-bar,
-    .pick,
-    .pick-wrap {
-      animation: none;
-    }
-    .card,
-    .media img,
-    .cta,
-    .glass,
-    button.stat,
-    .chip {
-      transition: none;
-    }
-    .card:hover,
-    .cta:hover,
-    .glass:hover,
-    button.stat:hover,
-    button.chip:hover {
-      transform: none;
-    }
-    .card:hover .media img {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .card,
+  :global(:root[data-motion="reduced"]) .card.skel,
+  :global(:root[data-motion="reduced"]) .ghost-card,
+  :global(:root[data-motion="reduced"]) .media img,
+  :global(:root[data-motion="reduced"]) .tile-load,
+  :global(:root[data-motion="reduced"]) .sk-media,
+  :global(:root[data-motion="reduced"]) .sk-line,
+  :global(:root[data-motion="reduced"]) .pend-bar,
+  :global(:root[data-motion="reduced"]) .pick,
+  :global(:root[data-motion="reduced"]) .pick-wrap {
+    animation: none;
+  }
+  :global(:root[data-motion="reduced"]) .card,
+  :global(:root[data-motion="reduced"]) .media img,
+  :global(:root[data-motion="reduced"]) .cta,
+  :global(:root[data-motion="reduced"]) .glass,
+  :global(:root[data-motion="reduced"]) button.stat,
+  :global(:root[data-motion="reduced"]) .chip {
+    transition: none;
+  }
+  :global(:root[data-motion="reduced"]) .card:hover,
+  :global(:root[data-motion="reduced"]) .cta:hover,
+  :global(:root[data-motion="reduced"]) .glass:hover,
+  :global(:root[data-motion="reduced"]) button.stat:hover,
+  :global(:root[data-motion="reduced"]) button.chip:hover {
+    transform: none;
+  }
+  :global(:root[data-motion="reduced"]) .card:hover .media img {
+    transform: none;
   }
 </style>

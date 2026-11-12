@@ -1194,10 +1194,8 @@
     font-size: var(--fs-compact);
     color: var(--text-muted);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .fill,
-    .disclose-chev {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .fill,
+  :global(:root[data-motion="reduced"]) .disclose-chev {
+    transition: none;
   }
 </style>

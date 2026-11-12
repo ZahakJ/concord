@@ -160,17 +160,15 @@
     object-fit: cover;
     border-radius: 50%;
     /* Avatars fade in instead of popping — lists feel settled while loading. */
-    animation: img-in 0.18s ease;
+    animation: img-in var(--dur-move) ease;
   }
   @keyframes img-in {
     from {
       opacity: 0;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    img {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) img {
+    animation: none;
   }
   /* 10px (8 on a small avatar) with a 2px cut-out in the colour of the
      surface the avatar sits on. --avatar-cut lets a caller on another ground

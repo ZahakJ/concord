@@ -2502,12 +2502,10 @@
   }
   /* The global reduced-motion rule only shortens durations — an infinite loop
      would still churn, so stop the dots entirely and hold a steady frame. */
-  @media (prefers-reduced-motion: reduce) {
-    .t-dots span,
-    .up-dot {
-      animation: none;
-      opacity: 0.7;
-    }
+  :global(:root[data-motion="reduced"]) .t-dots span,
+  :global(:root[data-motion="reduced"]) .up-dot {
+    animation: none;
+    opacity: 0.7;
   }
   .up-dot {
     display: inline-block;
@@ -3137,10 +3135,8 @@
   .prev-bar.on {
     background: var(--accent);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .rec-fill {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .rec-fill {
+    transition: none;
   }
   @keyframes rec-pulse {
     0%,
@@ -3151,10 +3147,8 @@
       opacity: 0.35;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .rec-dot {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .rec-dot {
+    animation: none;
   }
   /* (Focus ring moved up to .input-shell — the whole well glows as one.) */
   /* The base-direction indicator. Deliberately small and quiet: it is a mode
@@ -3262,9 +3256,7 @@
     0%, 100% { opacity: 0.45; transform: scale(1); }
     50% { opacity: 1; transform: scale(1.06); }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .sealbtn.armed::after { animation: none; opacity: 0.8; }
-  }
+  :global(:root[data-motion="reduced"]) .sealbtn.armed::after { animation: none; opacity: 0.8; }
 
   /* The overflow trigger wears the composer's own icon-button clothes rather
      than Menu's default ghost chrome — inside the input well a bordered button
@@ -3314,11 +3306,9 @@
   }
   /* app.css already zeroes transition durations under reduced motion; also
      drop the scale so hover doesn't snap the glyph around. */
-  @media (prefers-reduced-motion: reduce) {
-    .iconbtn:hover:not(:disabled),
-    .iconbtn:active:not(:disabled) {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .iconbtn:hover:not(:disabled),
+  :global(:root[data-motion="reduced"]) .iconbtn:active:not(:disabled) {
+    transform: none;
   }
   .mini {
     padding: 2px 6px;

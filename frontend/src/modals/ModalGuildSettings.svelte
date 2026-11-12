@@ -346,10 +346,8 @@
   .tpl-toggle[aria-expanded="true"] :global(svg) {
     transform: rotate(90deg);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .tpl-toggle :global(svg) {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .tpl-toggle :global(svg) {
+    transition: none;
   }
   .shelves {
     /* The fade at the bottom says "keep scrolling". It used to land THROUGH a
@@ -453,10 +451,8 @@
   .banner-box:hover {
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .banner-box {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .banner-box {
+    transition: none;
   }
   /* Pinned to the top corner rather than sharing the bottom row with the name:
      on a 390px sheet the two chips and the name fought for the same line and

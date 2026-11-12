@@ -123,9 +123,7 @@
       background-position: 100% 50%;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .drift {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .drift {
+    animation: none;
   }
 </style>

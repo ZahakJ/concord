@@ -18,11 +18,11 @@
 
 import { rng } from "./fx.js";
 import { rectOf, uiZoom, viewport } from "./place.js";
+import { reducedMotion } from "./motion.js";
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
-const reduced = () =>
-  window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+const reduced = reducedMotion;
 
 // At most this many burst layers alive at once; extra requests are dropped
 // (not queued — a celebration that plays late celebrates the wrong thing).

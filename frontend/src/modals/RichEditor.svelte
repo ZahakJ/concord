@@ -1181,11 +1181,9 @@
       transform: translateY(-4px) scale(0.98);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .pop,
-    .suggest {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .pop,
+  :global(:root[data-motion="reduced"]) .suggest {
+    animation: none;
   }
   .pop-head {
     padding: 4px 8px 6px;

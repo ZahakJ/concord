@@ -3026,3 +3026,10 @@
   --badge-fg: var(--text);
   --badge-edge: inset 0 0 0 1px var(--border-strong);
 }
+
+/* Reduced motion freezes the backdrop (app.css). The synthwave keyframe
+   carried the grid's own transform; without the animation it has to be
+   restated or the grid loses its perspective. */
+:root[data-motion="reduced"][data-theme-pack="synthwave"] .tb-b {
+  transform: perspective(900px) rotateX(72deg);
+}

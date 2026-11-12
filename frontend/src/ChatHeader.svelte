@@ -628,10 +628,8 @@
   .chat-head:not(.stub) > .row:last-child {
     flex-shrink: 40;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .search-wrap {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .search-wrap {
+    transition: none;
   }
   /* The channel-type glyph carries the accent — a small "you are here" tint. */
   .title :global(svg) {
@@ -737,10 +735,8 @@
     font-size: var(--fs-ui);
     transition: width var(--dur-calm) var(--ease-out), border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease, background var(--dur-standard) ease;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .search-box {
-      transition: border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease;
-    }
+  :global(:root[data-motion="reduced"]) .search-box {
+    transition: border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease;
   }
   /* Leave room for the clear button / spinner once there's something to show. */
   .search-box.busy {
@@ -893,10 +889,8 @@
   .insp-toggle .count {
     font-weight: 600;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .iconbtn:hover {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .iconbtn:hover {
+    transform: none;
   }
   /* Same type and box as "Start a call" beside it: it used to inherit the
      body's 16px and stand a size larger and a few pixels taller than every
@@ -957,10 +951,8 @@
       opacity: 0.35;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .live-dot {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .live-dot {
+    animation: none;
   }
   /* The board's name is a breadcrumb, and a breadcrumb that line-breaks mid-word
      ("help-" / "desk") reads as a rendering fault. It wraps as a unit or it

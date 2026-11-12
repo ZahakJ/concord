@@ -243,9 +243,7 @@
     0%, 100% { top: 12%; }
     50% { top: 86%; }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .sweep { display: none; }
-  }
+  :global(:root[data-motion="reduced"]) .sweep { display: none; }
   .hint {
     position: absolute;
     /* --sa-* is the Android inset bridge (MainActivity); env() is iOS. */

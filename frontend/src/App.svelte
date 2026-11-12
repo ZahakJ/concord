@@ -279,6 +279,7 @@
   import { startEphemeralSweep } from "./lib/ephemeral.svelte.js";
   import { parseShare, fileSrc, skippedNote } from "./lib/sharein.js";
   import { backStep, makeTrail, installWebBack } from "./lib/webback.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   let composer = $state(null);
 
@@ -815,7 +816,7 @@
   let resumeBackup = $state(false);
   let flyIn = $state(false);
   function playFlyIn() {
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (reducedMotion()) return;
     flyIn = true;
     setTimeout(() => (flyIn = false), 1500);
   }
@@ -2530,10 +2531,8 @@
       transform: rotate(360deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .mw-spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .mw-spin {
+    animation: none;
   }
 
   /* Concorde fly-in: overlay fades from the login backdrop to nothing while
@@ -2766,11 +2765,9 @@
       transform: translateY(-4px) rotate(3deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .restart-curtain,
-    .rc-jet {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .restart-curtain,
+  :global(:root[data-motion="reduced"]) .rc-jet {
+    animation: none;
   }
 
   .lock-gate {
@@ -2942,10 +2939,8 @@
       opacity: 0.6;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .col-rz {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .col-rz {
+    transition: none;
   }
   .chat {
     display: flex;
@@ -3112,11 +3107,9 @@
       transform: translateX(26px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .feedwrap.aspanel,
-    .feedwrap.aspanel.folding {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .feedwrap.aspanel,
+  :global(:root[data-motion="reduced"]) .feedwrap.aspanel.folding {
+    animation: none;
   }
   /* Update-available banner: a floating top-center pill (doesn't cover the rail). */
   .update-banner {
@@ -3198,10 +3191,8 @@
       transform: rotate(360deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .ob-spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .ob-spin {
+    animation: none;
   }
   .ub-dl {
     flex-shrink: 0;
@@ -3332,16 +3323,14 @@
   .kw-cancel:hover {
     background: var(--bg-input);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .knock-wait {
-      animation: none;
-    }
-    .kw-ring {
-      /* Still-waiting must read without motion: one static soft halo. */
-      animation: none;
-      opacity: 0.3;
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .knock-wait {
+    animation: none;
+  }
+  :global(:root[data-motion="reduced"]) .kw-ring {
+    /* Still-waiting must read without motion: one static soft halo. */
+    animation: none;
+    opacity: 0.3;
+    transform: none;
   }
   /* Below the header, so it never sits on the header's own controls. */
   .ring-card {
@@ -3376,10 +3365,8 @@
       box-shadow: 0 0 0 12px transparent;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .ring-pulse {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .ring-pulse {
+    animation: none;
   }
   .ring-info {
     display: flex;
@@ -3429,10 +3416,8 @@
     border-color: var(--danger);
     color: var(--danger-text);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .ring-btn:active {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .ring-btn:active {
+    transform: none;
   }
   /* Touch: a full-width banner rather than a centred card that has to squeeze
      name, status line and both buttons into whatever the text doesn't claim. */

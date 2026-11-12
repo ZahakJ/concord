@@ -73,6 +73,7 @@
   import Badge from "./Badge.svelte";
   import { pointOf, viewport } from "./lib/place.js";
   import { voiceStage, forumBoard, searchTakeover, islandFailed } from "./lib/islands.svelte.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   let {
     composer = $bindable(null),
@@ -333,7 +334,7 @@
     // Tapping the tab you are on takes its list back to the top, as tab bars
     // do; the switcher is the long-press.
     if (tab === "home") {
-      document.querySelector(".home-list .scroll")?.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+      document.querySelector(".home-list .scroll")?.scrollTo({ top: 0, behavior: reducedMotion() ? "auto" : "smooth" });
       return;
     }
     const g = S.guilds.find((x) => x.id === lastGuildId) || S.guilds.find((x) => x.kind !== "dm");
@@ -1029,10 +1030,8 @@
     transform: scale(0.985);
     filter: brightness(1.18);
   }
-  @media (prefers-reduced-motion: reduce) {
-    :global(.lp-press) {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) :global(.lp-press) {
+    transform: none;
   }
   /* Under an animated pack, let the backdrop show through: the outer shell goes
      transparent so only the inner panels (translucent bg-*) tint it — no
@@ -1106,13 +1105,11 @@
     pointer-events: none;
     z-index: 3;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .home,
-    .page,
-    .page.parked,
-    .home.covered {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .home,
+  :global(:root[data-motion="reduced"]) .page,
+  :global(:root[data-motion="reduced"]) .page.parked,
+  :global(:root[data-motion="reduced"]) .home.covered {
+    transition: none;
   }
 
   /* ---- Home ------------------------------------------------------------ */
@@ -1377,11 +1374,9 @@
       transform: translateX(22px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .feedwrap.aspanel,
-    .feedwrap.aspanel.folding {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .feedwrap.aspanel,
+  :global(:root[data-motion="reduced"]) .feedwrap.aspanel.folding {
+    animation: none;
   }
   /* Mobile search row (under the top bar): feeds the shared search pipeline;
      results render in the SearchPanel inside the feed. */

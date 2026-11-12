@@ -10,13 +10,11 @@
   import { cubicOut } from "svelte/easing";
   import { S, dismissToast } from "./lib/state.svelte.js";
   import Icon from "./Icon.svelte";
+  import { reducedMotion } from "./lib/motion.js";
 
   const MAX_VISIBLE = 3;
   const visible = $derived(S.toasts.slice(-MAX_VISIBLE));
 
-  const reducedMotion =
-    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const dur = reducedMotion ? 0 : 150;
 
   const ICONS = { info: "info", success: "check", error: "alert" };
 
@@ -52,8 +50,8 @@
   {#each visible as t (t.id)}
     <div
       class="toast {t.kind}"
-      in:fly={{ y: 8, duration: dur, easing: cubicOut }}
-      out:fly={{ y: 4, duration: dur * 0.8 }}
+      in:fly={{ y: 8, duration: reducedMotion() ? 0 : 150, easing: cubicOut }}
+      out:fly={{ y: 4, duration: reducedMotion() ? 0 : 120 }}
     >
       <span class="t-icon"><Icon name={ICONS[t.kind] || "info"} size={16} /></span>
       <span class="t-text">{t.text}</span>

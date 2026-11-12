@@ -1097,10 +1097,8 @@
       transform: rotate(360deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .ls-spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .ls-spin {
+    animation: none;
   }
   /* The lock and onboarding screens: no card, a 340px column on the canvas,
      everything left-aligned to it — the mark, the heading in the display

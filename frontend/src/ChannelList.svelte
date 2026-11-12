@@ -2166,10 +2166,8 @@
       opacity: 0.6;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .voice-joining {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .voice-joining {
+    animation: none;
   }
   .ch-joining {
     margin-left: auto;
@@ -2241,10 +2239,8 @@
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .vc-av.speaking {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .vc-av.speaking {
+    animation: none;
   }
   .vc-name {
     flex: 1;
@@ -2321,11 +2317,9 @@
       opacity: 0.35;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .live-dot,
-    .ch-live-dot {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .live-dot,
+  :global(:root[data-motion="reduced"]) .ch-live-dot {
+    animation: none;
   }
   @keyframes nub-in {
     from {
@@ -2382,15 +2376,13 @@
       height: 100%;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .eq i {
-      animation: none;
-      height: 60%;
-    }
-    .channel-row:hover .channel,
-    .dm-item:hover {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .eq i {
+    animation: none;
+    height: 60%;
+  }
+  :global(:root[data-motion="reduced"]) .channel-row:hover .channel,
+  :global(:root[data-motion="reduced"]) .dm-item:hover {
+    transform: none;
   }
   /* Quiet: it is a reminder, not an alert. A draft is something YOU left, so
      it never competes with the unread count beside it. */
@@ -2414,10 +2406,8 @@
       opacity: 0;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .channel-row.unread::before {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .channel-row.unread::before {
+    animation: none;
   }
   @keyframes count-pop {
     from {
@@ -2633,15 +2623,11 @@
       opacity: 0.3;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .vb-live {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .vb-live {
+    animation: none;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .me-status-trigger:hover {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .me-status-trigger:hover {
+    transform: none;
   }
   .st-emoji {
     margin-right: 3px;
@@ -3439,10 +3425,8 @@
       opacity: 0.35;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .vb-live.held {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .vb-live.held {
+    animation: none;
   }
   .vb-faces {
     display: flex;

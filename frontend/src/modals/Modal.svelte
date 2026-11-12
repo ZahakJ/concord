@@ -896,13 +896,11 @@
   .dialog.railed :global(.grp) {
     animation: none;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .overlay,
-    .dialog,
-    .dialog.deeper,
-    .dialog.shallower,
-    .dialog.lateral > .pane {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .overlay,
+  :global(:root[data-motion="reduced"]) .dialog,
+  :global(:root[data-motion="reduced"]) .dialog.deeper,
+  :global(:root[data-motion="reduced"]) .dialog.shallower,
+  :global(:root[data-motion="reduced"]) .dialog.lateral > .pane {
+    animation: none;
   }
 </style>

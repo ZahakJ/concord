@@ -369,10 +369,8 @@
       transform: scale(1.16);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .face.hearing .glyph {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .face.hearing .glyph {
+    animation: none;
   }
   .glyph {
     font-size: var(--fs-display);

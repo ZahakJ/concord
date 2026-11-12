@@ -106,6 +106,7 @@
     activeShortcode,
     searchEmoji,
   } from "./lib/emoji.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   // `entering` is set by MessageList for the newest appended message only, so
   // it fades/slides in once — history rows never animate.
@@ -139,7 +140,7 @@
   // tap re-renders the pill, so it is never actually seen. On touch, drive the
   // pills off the viewport instead: they animate once when scrolled to.
   const reactionAnim = coarse ? animateInView : animateOnHover;
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+  const reduceMotion = reducedMotion();
 
   // Long-press a reaction pill: who reacted — the touch counterpart of the
   // hover card. Rows are informational; tapping one just closes the sheet.
@@ -2666,7 +2667,7 @@
     font-size: var(--fs-small);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
-    animation: count-in 0.18s ease; /* replays on {#key} re-mount */
+    animation: count-in var(--dur-move) var(--ease-out); /* replays on {#key} re-mount */
   }
   /* Click-bounce for the emoji you just tapped (pill glyph + quick bar). */
   .remoji.bounce,
@@ -3101,10 +3102,8 @@
     user-select: text;
   }
   /* Reduced motion still gets the reveal, just without the dissolve. */
-  @media (prefers-reduced-motion: reduce) {
-    .body :global(.spoiler) {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .body :global(.spoiler) {
+    transition: none;
   }
   /* Inline headers (chat-sized). */
   .body :global(.md-h) {
@@ -3253,9 +3252,7 @@
   @keyframes seal-in {
     from { opacity: 0; transform: translateY(3px); }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .seal-card { animation: none; }
-  }
+  :global(:root[data-motion="reduced"]) .seal-card { animation: none; }
   .seal-card-h {
     font-size: var(--fs-small);
     font-weight: 600;

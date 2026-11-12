@@ -338,15 +338,13 @@
     align-items: center;
     gap: 6px;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .bubble,
-    .bubble.ready,
-    .bubble.knock,
-    .dest,
-    .sub.arrived,
-    .shake {
-      animation: none;
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .bubble,
+  :global(:root[data-motion="reduced"]) .bubble.ready,
+  :global(:root[data-motion="reduced"]) .bubble.knock,
+  :global(:root[data-motion="reduced"]) .dest,
+  :global(:root[data-motion="reduced"]) .sub.arrived,
+  :global(:root[data-motion="reduced"]) .shake {
+    animation: none;
+    transition: none;
   }
 </style>

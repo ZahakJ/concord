@@ -825,14 +825,12 @@
     color: var(--accent-hover);
     transform: translateX(3px);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .ring-entry,
-    .chev {
-      transition: none;
-    }
-    .ring-entry:hover .chev {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .ring-entry,
+  :global(:root[data-motion="reduced"]) .chev {
+    transition: none;
+  }
+  :global(:root[data-motion="reduced"]) .ring-entry:hover .chev {
+    transform: none;
   }
   .banner-edit {
     position: absolute;
@@ -956,14 +954,12 @@
       transform: scale(1.18);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .emoji {
-      transition: none;
-      animation: none;
-    }
-    .emoji.sel {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .emoji {
+    transition: none;
+    animation: none;
+  }
+  :global(:root[data-motion="reduced"]) .emoji.sel {
+    animation: none;
   }
   .presence-row {
     display: flex;
@@ -999,12 +995,10 @@
     color: var(--text);
     animation: sel-pop 0.25s var(--ease-spring);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .presence,
-    .presence.sel {
-      transition: none;
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .presence,
+  :global(:root[data-motion="reduced"]) .presence.sel {
+    transition: none;
+    animation: none;
   }
   .pdot {
     width: 9px;

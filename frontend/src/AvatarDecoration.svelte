@@ -11,8 +11,7 @@
   // stylesheet below cannot switch it off. The one animated filter in the
   // library (flame's turbulence seed) therefore asks the media query directly,
   // once per module rather than once per avatar.
-  const REDUCED =
-    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const REDUCED = reducedMotion();
 
   // The def kinds that cost an offscreen buffer, as opposed to the gradients,
   // which cost nothing worth measuring. Only these are dropped at tile size.
@@ -34,6 +33,7 @@
   // in layout because both layers are overlays around a face that is already
   // there.
   import { decorationsTable } from "./lib/cosmetics.svelte.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   // `preview` overrides the small-size freeze below. A picker is the ONE place
   // motion has to be visible — it is the whole reason to choose one decoration
@@ -625,12 +625,10 @@
   /* Asked for less motion means less motion, hover or not. This has to stay
      `animation: none` rather than a pause: reduced-motion is a statement about
      what may move at all, not about what may move right now. */
-  @media (prefers-reduced-motion: reduce) {
-    .dec,
-    .anim,
-    :global(.avatar:hover) .dec.still,
-    :global(.avatar:hover) .dec.still .anim {
-      animation: none !important;
-    }
+  :global(:root[data-motion="reduced"]) .dec,
+  :global(:root[data-motion="reduced"]) .anim,
+  :global(:root[data-motion="reduced"]) :global(.avatar:hover) .dec.still,
+  :global(:root[data-motion="reduced"]) :global(.avatar:hover) .dec.still .anim {
+    animation: none !important;
   }
 </style>
