@@ -1894,15 +1894,17 @@
     outline: var(--focus-ring);
     outline-offset: -2px;
   }
-  /* Newest appended message only (see MessageList): quick fade + slide-up.
-     The global reduced-motion override in app.css zeroes the duration. */
+  /* Someone else's newest message, arriving while you watch (see
+     MessageList): the same 3px rise and fade your own pending row makes. Never
+     on a channel's first page, never on your own message (its pending row
+     already arrived). Reduced motion zeroes it. */
   .msg.enter {
-    animation: msg-in 0.26s var(--ease-out) backwards;
+    animation: msg-in var(--dur-standard) var(--ease-out) backwards;
   }
   @keyframes msg-in {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      translate: 0 3px;
     }
   }
   /* Also the spacer that keeps a grouped row's text aligned under the author's,

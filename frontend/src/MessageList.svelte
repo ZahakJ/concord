@@ -152,8 +152,13 @@
       const last = msgs[msgs.length - 1];
       // Append = same conversation AND the previous tail is still present
       // (a wholesale replacement — switch/jump — drops it).
-      const appended = ch === prevCh && (!prevLastId || ids.has(prevLastId));
-      if (last && appended && !prevIds.has(last.id)) animateId = last.id;
+      // An empty previous list is a channel loading, not a conversation:
+      // the first page arriving after a switch is not "a new message".
+      const appended = ch === prevCh && !!prevLastId && ids.has(prevLastId);
+      // Your own message has already arrived on screen as its pending row
+      // (PendingMessage eases in); the stored row replaces it in place.
+      const mine = last?.sender === S.identity.fingerprint;
+      if (last && appended && !mine && !prevIds.has(last.id)) animateId = last.id;
       else if (!appended) animateId = "";
       prevCh = ch;
       prevIds = ids;
@@ -841,8 +846,31 @@
   // flush that changes the id. It starts from 0.35, not from nothing, so the
   // new channel is legible from its first frame: the fade is continuity, never
   // a wait. Instant under reduced motion (the global stand-down).
+  //
+  // It is armed when the new channel's rows ARRIVE, not when the id changes:
+  // armed on the id it ran its whole course over an empty feed while history
+  // loaded, and nobody ever saw it. The step down to 0.35 is instant (no
+  // transition on the way down) and only the rise back is animated.
   let feedOpacity = $state(1);
+  let feedFadeUp = $state(false);
   let fadeRaf = 0;
+  let fadeArmed = false;
+  $effect.pre(() => {
+    const loading = S.feedLoading;
+    untrack(() => {
+      if (loading || !fadeArmed) return;
+      fadeArmed = false;
+      feedFadeUp = false;
+      feedOpacity = 0.35;
+      cancelAnimationFrame(fadeRaf);
+      fadeRaf = requestAnimationFrame(() => {
+        fadeRaf = requestAnimationFrame(() => {
+          feedFadeUp = true;
+          feedOpacity = 1;
+        });
+      });
+    });
+  });
 
   // A channel switch is a different thread: every measurement is about rows that
   // no longer exist.
@@ -864,11 +892,7 @@
       // Not on the first channel of the session: the app has its own entrance
       // and a second fade under it reads as a stutter.
       if (first) return;
-      feedOpacity = 0.35;
-      cancelAnimationFrame(fadeRaf);
-      fadeRaf = requestAnimationFrame(() => {
-        fadeRaf = requestAnimationFrame(() => (feedOpacity = 1));
-      });
+      fadeArmed = true;
     });
   });
 
@@ -1499,6 +1523,7 @@
 <div
   class="feed"
   class:bar-narrow={barNarrow}
+  class:fade-up={feedFadeUp}
   style:opacity={feedOpacity}
   bind:this={feedEl}
   role="log"
@@ -2093,9 +2118,9 @@
   .feed {
     flex: 1;
     min-height: 0;
-    /* The channel-switch fade. Opacity only, so the whole thing is one
-       compositor property and never touches layout or paint. */
-    transition: opacity var(--dur-quick) var(--ease-out);
+    /* The channel-switch fade (only on its way up, see feedFadeUp). Opacity
+       only, so the whole thing is one compositor property and never touches
+       layout or paint. */
     overflow-y: auto;
     /* Never let one long unbroken string (URL, fingerprint, code) give the
        whole chat a horizontal scrollbar — content wraps or scrolls inside its
@@ -2285,8 +2310,15 @@
     background: var(--bg-3);
     color: var(--text);
   }
-  /* Loading shimmer while a channel switch fetches history. */
+  .feed.fade-up {
+    transition: opacity var(--dur-quick) var(--ease-out);
+  }
+  /* Loading shimmer while a channel switch fetches history. It waits 150ms
+     (--dur-standard)
+     before it shows: most switches have their rows by then, and a skeleton
+     that flashed for two frames before them read as a blink. */
   .feed-skeleton {
+    animation: sk-late var(--dur-standard) var(--ease-out) var(--dur-standard) both;
     display: flex;
     flex-direction: column;
     gap: 18px;
@@ -2355,12 +2387,17 @@
   /* Newest appended system row slides in like a message (zeroed under the
      global reduced-motion override in app.css). */
   .system-msg.enter {
-    animation: row-in 0.26s var(--ease-out) backwards;
+    animation: row-in var(--dur-standard) var(--ease-out) backwards;
+  }
+  @keyframes sk-late {
+    from {
+      opacity: 0;
+    }
   }
   @keyframes row-in {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      translate: 0 3px;
     }
   }
   .system-msg > span {

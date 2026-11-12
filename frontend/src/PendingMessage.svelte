@@ -188,7 +188,12 @@
   .phdr strong {
     font-weight: 600;
   }
+  /* The feed's reading size, named, as Message.svelte's body names it: the
+     row inherited the document's size instead, so a jumbo emoji measured 48px
+     here and 46.5px in the stored row that replaces it. */
   .pbody {
+    font-size: var(--fs-body);
+    line-height: 1.5;
     word-break: break-word;
     white-space: pre-wrap;
   }
