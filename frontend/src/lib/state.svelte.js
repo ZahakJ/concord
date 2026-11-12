@@ -3554,6 +3554,17 @@ export function trimLoadedHistory() {
 function scrollToNewDivider() {
   feedReveal?.("new");
   let waited = 0;
+  // The divider is usually in the DOM as soon as the reveal's rows are: put
+  // it in view before the first paint rather than a frame after it, when the
+  // reader would see the top of the window flash past.
+  // Two ticks: the reveal's own measure-and-pad pass lands in between, and a
+  // scroll taken before it would be undone by the padding moving.
+  tick()
+    .then(() => tick())
+    .then(() => {
+      const el = S.activeChannelId && feedEl?.querySelector(".new-divider");
+      if (el) el.scrollIntoView({ block: "center" });
+    });
   afterRender(() => {
     const el = feedEl?.querySelector(".new-divider");
     if (el) {

@@ -326,3 +326,40 @@ test("under the desktop shell's mark, hovers and entrances are instant and nothi
   );
   assert.equal(blurred, 0, "no backdrop blur under the shell's mark");
 });
+
+// Landing on unread history reveals the NEW divider. That reveal used to mount
+// the window's whole ceiling (160 rows) around it, which made the first frame
+// of every switch into an unread channel cost several times a normal one, and
+// the divider was scrolled into view a frame after the rows appeared.
+test("landing on unread history mounts a screenful around the divider, already in view", async ({ world, assert, step }) => {
+  const [alice, bashir] = await world.peers(2);
+  const g = await world.guild({ name: "Unread", members: [alice, bashir], channels: ["busy", "quiet"] });
+  for (let i = 0; i < 150; i++) await alice.sendRaw(g.channels.busy, `read ${i} a line that alice has already seen`);
+  const a = await alice.open();
+  await a.openChannel("busy", "Unread");
+  await a.waitForMessage("read 149");
+  await a.openChannel("quiet");
+  step("Bashir writes 40 messages while Alice is elsewhere");
+  for (let i = 0; i < 40; i++) await bashir.sendRaw(g.channels.busy, `unread ${i} from bashir`);
+  await alice.waitForMessage(g.channels.busy, "unread 39 from bashir");
+  await installProbe(a.page);
+  const re = /^\s*#?\s*busy(\s|$)/;
+  const row = await a.page.locator(".channel").filter({ hasText: re }).first().elementHandle();
+  const first = await a.page.evaluate(async (el) => {
+    const t0 = performance.now();
+    el.click();
+    let snap = null;
+    await window.__waitFrame(t0, () => {
+      const rows = window.__rows();
+      if (rows.length < 3) return false;
+      const f = document.querySelector(".feed").getBoundingClientRect();
+      const d = document.querySelector(".new-divider")?.getBoundingClientRect();
+      snap = { mounted: document.querySelectorAll(".feed [data-msg-id]").length, divider: !!d && d.bottom > f.top && d.top < f.bottom };
+      return true;
+    });
+    return snap;
+  }, row);
+  assert.ok(first, "the channel showed rows");
+  assert.ok(first.mounted <= 60, `${first.mounted} rows mounted on landing`);
+  assert.ok(first.divider, "the NEW divider was in view on the first frame with rows");
+});

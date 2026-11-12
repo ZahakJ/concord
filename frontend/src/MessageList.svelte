@@ -544,6 +544,7 @@
   //     scrollbar thumb, never the words.
   const OVERSCAN = 700; // px of rendered-but-offscreen rows on each side
   const MAX_WINDOW = 160; // hard ceiling on rendered items, whatever their size
+  const REVEAL_SPAN = 48; // items mounted around a row a jump or a landing reveals
 
   let lo = $state(0);
   let hi = $state(0);
@@ -903,8 +904,13 @@
     if (i < 0) return false;
     if (i >= lo && i < hi) return true;
     atBottom = false;
-    lo = Math.max(0, i - Math.floor(MAX_WINDOW / 2));
-    hi = Math.min(items.length, lo + MAX_WINDOW);
+    // A screenful and a half either side of the row, not the window's
+    // ceiling: the reveal is what lands a channel on its NEW divider, and
+    // mounting all 160 rows around it made that first frame cost 150-190 ms
+    // where a normal landing costs 30. The window grows from here as soon as
+    // the reader scrolls, like any other.
+    lo = Math.max(0, i - REVEAL_SPAN / 2);
+    hi = Math.min(items.length, lo + REVEAL_SPAN);
     applyPads();
     // Hold the window here until the caller has finished scrolling to it.
     revealHold = performance.now() + 700;
