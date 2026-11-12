@@ -1363,6 +1363,14 @@
     border-radius: 50%;
     background: var(--bg-1);
     pointer-events: none;
+    /* Quiet until you point at the tile: with many guilds of your own the
+       column was a stack of crowns. Ownership is a fact, not news. */
+    opacity: 0.55;
+    transition: opacity var(--dur-quick) var(--ease-out);
+  }
+  .bubble-wrap:hover .r-own,
+  .bubble-wrap:has(> .pill:focus-visible) .r-own {
+    opacity: 1;
   }
   .t-dot {
     position: absolute;
