@@ -3697,10 +3697,27 @@ export async function jumpToChannel(channelId) {
   return false;
 }
 
+// guildOfChannel: the guild (or DM) a channel belongs to. Asked for every
+// arriving message, so it is a lookup in an index rebuilt only when the guild
+// list itself is replaced, not a walk over every channel of every guild. A
+// miss falls back to the walk (a channel added in place since the rebuild).
+let chIndex = { list: null, map: null };
+function guildOfChannel(channelId) {
+  if (!channelId) return undefined;
+  if (chIndex.list !== S.guilds) {
+    const map = new Map();
+    for (const g of S.guilds) for (const c of g.channels || []) map.set(c.id, g);
+    chIndex = { list: S.guilds, map };
+  }
+  const hit = chIndex.map.get(channelId);
+  if (hit && hit.channels?.some((c) => c.id === channelId)) return hit;
+  return S.guilds.find((g) => g.channels.some((c) => c.id === channelId));
+}
+
 // isDMChannel reports whether a channel belongs to a kind=dm guild (a direct
 // message), so incoming DMs can ping even without an @mention.
 export function isDMChannel(channelId) {
-  return S.guilds.some((g) => g.kind === "dm" && g.channels.some((c) => c.id === channelId));
+  return guildOfChannel(channelId)?.kind === "dm";
 }
 
 export function channelName(chId) {
@@ -3858,12 +3875,16 @@ function initEvents() {
     // re-fetch. Bumping it here is what makes "most recent first" true while
     // you are sitting there watching it. Stored in UnixNano to match what the
     // backend sends.
+    //
+    // A field write, not a new S.guilds array: the guild objects are deep
+    // state, so dmList()'s sort already re-runs on this property. Reassigning
+    // the whole list here re-ran everything that reads S.guilds — the rail,
+    // the channel list, every unread and ordering derivation — for every
+    // message that arrived anywhere, which in a busy guild is most of the
+    // main thread.
     const arrivedAt = m.sent ? new Date(m.sent).getTime() * 1e6 : Date.now() * 1e6;
-    const owner = S.guilds.find((g) => g.channels.some((c) => c.id === m.channelId));
-    if (owner && arrivedAt > (owner.lastActivity || 0)) {
-      owner.lastActivity = arrivedAt;
-      S.guilds = [...S.guilds]; // reassign so dmList()'s sort re-runs
-    }
+    const owner = guildOfChannel(m.channelId);
+    if (owner && arrivedAt > (owner.lastActivity || 0)) owner.lastActivity = arrivedAt;
     // The DM row's preview line has the same problem: it is the backend's
     // answer as of the last guild fetch, and the unread badge beside it is
     // live. A conversation whose first messages arrived after that fetch read
@@ -3877,7 +3898,6 @@ function initEvents() {
         owner.dmPreview = m.deleted ? "" : callLine || plainSnippet(m.content || "", 160);
         owner.dmPreviewMine = !callLine && m.sender === S.identity.fingerprint;
         owner.dmPreviewAt = at;
-        S.guilds = [...S.guilds];
       }
     }
 
