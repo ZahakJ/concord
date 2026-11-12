@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
@@ -164,6 +165,34 @@ func (s *Service) signMessage(m domain.Message) []byte {
 //
 // Reports whether to keep the row; the message is updated in place.
 func messageAttestation(m *domain.Message) bool {
+	return messageAttestationFrom(m, nil)
+}
+
+// messageAttestationFrom is messageAttestation for a row served by servedBy,
+// the ACCOUNT key MLS authenticated as the sender of the catch-up payload.
+//
+// One more rule, and it is the honest one: an unsigned row the author's own
+// account served — the author's device, or another device linked to it — is
+// not relayed. The hole the mark describes is a member putting words in
+// somebody ELSE'S mouth; a payload MLS proves came from the author is the same
+// proof the live lane accepts for a frame, carried by the same transport. Without
+// it, a sender on a build that predates signatures was flagged on every message
+// that reached a returning peer by catch-up from that sender, which after a
+// reconnect is most of them.
+//
+// The author's disk is not all the author's words, though: it also holds rows
+// other members relayed to it, some of them carrying the author's name. A
+// current build serves those with the mark it keeps on them (m.Unverified as it
+// arrives here is the SERVER's mark, read before this recomputes it), and such
+// a row stays marked — the author's device does not vouch for what it was
+// handed. A build that predates the mark cannot say, and is taken at its word
+// for rows naming its own account: that is the trust every peer already placed
+// in a pre-signature author, and the alternative is flagging every message such
+// an author ever writes that reaches anyone by catch-up.
+//
+// A signature, when present, is still checked whoever served it: a wrong one is
+// bytes the author's own disk does not hold either.
+func messageAttestationFrom(m *domain.Message, servedBy []byte) bool {
 	switch {
 	case m.Deleted || m.Expired:
 		// The body was erased; whatever signature once covered it is meaningless
@@ -175,6 +204,9 @@ func messageAttestation(m *domain.Message) bool {
 		if !verifyMessageSig(*m) {
 			return false
 		}
+		m.Unverified = false
+		return true
+	case len(servedBy) == ed25519.PublicKeySize && bytes.Equal(servedBy, m.Sender) && !m.Unverified:
 		m.Unverified = false
 		return true
 	default:

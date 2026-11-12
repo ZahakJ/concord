@@ -182,7 +182,7 @@ func (s *Store) MessagesAfterSeq(channelID string, afterSeq, sinceNano int64, li
 		limit = 200
 	}
 	rows, err := s.db.Query(
-		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, seq
+		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified, seq
 		 FROM messages WHERE channel_id = ? AND seq > ? AND (? = 0 OR sent > ? OR updated > ?) AND kind IN `+syncedKindsSQL+`
 		 ORDER BY seq ASC LIMIT ?`, channelID, afterSeq, sinceNano, sinceNano, sinceNano, limit)
 	if err != nil {
@@ -194,8 +194,8 @@ func (s *Store) MessagesAfterSeq(channelID string, afterSeq, sinceNano int64, li
 		var m domain.Message
 		var enc, nonceB []byte
 		var sent, updated, seq int64
-		var deleted, edited, pinned int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &enc, &nonceB, &sent, &updated, &m.Sig, &seq); err != nil {
+		var deleted, edited, pinned, unverified int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &enc, &nonceB, &sent, &updated, &m.Sig, &unverified, &seq); err != nil {
 			rows.Close()
 			return SeqRows{}, err
 		}
@@ -211,6 +211,7 @@ func (s *Store) MessagesAfterSeq(channelID string, afterSeq, sinceNano int64, li
 		}
 		m.Edited = edited != 0
 		m.Pinned = pinned != 0
+		m.Unverified = unverified != 0 // see Store.MessagesChangedSince
 		m.Sent = time.Unix(0, sent).UTC()
 		if updated != 0 {
 			m.Updated = time.Unix(0, updated).UTC()

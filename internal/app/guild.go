@@ -3898,8 +3898,23 @@ func (s *Service) deliverMessage(m domain.Message, senderID []byte) {
 	// name yet, so the roster and chat stay consistent.
 	s.learnNameHint(senderFpr, m.Name)
 	inserted, err := s.store.SaveMessage(m)
-	if err != nil || !inserted {
-		return // duplicate (gossip re-delivery or already synced): stay silent
+	if err != nil {
+		return
+	}
+	if !inserted {
+		// Duplicate: gossip re-delivery, or a catch-up that got here first. In
+		// the second case the row may be held marked — relayed and unsigned —
+		// and this frame is the proof it lacked: MLS just authenticated its
+		// sender. Keeping the mark would let whichever lane won the race decide
+		// whether an honest message is flagged, which is what made a sender on a
+		// build that predates signatures look forged whenever a reconnect's
+		// catch-up beat the mailbox drain.
+		if proved, err := s.store.ProveRelayedMessage(m); err == nil && proved {
+			if full, ok, err := s.store.MessageByID(m.ID); err == nil && ok {
+				s.emitMessage(full)
+			}
+		}
+		return // otherwise stay silent
 	}
 	s.emitMessage(m)
 	// A message landing in a closed DM reopens the conversation (closing

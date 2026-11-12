@@ -1149,6 +1149,10 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 		s.emitStory(guildID)
 	}
 
+	// Who served this, as an account: MLS authenticated the payload's sender
+	// leaf, and accountKeyOf folds a linked device onto its account exactly as
+	// the live lane does for a frame.
+	servedBy := accountKeyOf(dec.SenderID)
 	self := s.id.Fingerprint()
 	anyNew := false
 	refused := 0
@@ -1175,7 +1179,7 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 			// is refused outright; one that is absent is kept and marked, because
 			// refusing it would delete every guild's pre-signature history rather
 			// than protect anyone (recordsig.go states the reasoning in full).
-			if !messageAttestation(&m) {
+			if !messageAttestationFrom(&m, servedBy) {
 				refused++
 				continue
 			}

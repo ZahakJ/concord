@@ -1330,6 +1330,57 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	return n > 0, nil
 }
 
+// SameAuthoredMessage reports whether two copies of a message carry the same
+// authorship claim: the fields an author signature covers (app.messageSigV1),
+// compared as stored. Proof attached to one copy says nothing about the other
+// unless every one of them agrees.
+func SameAuthoredMessage(a, b domain.Message) bool {
+	return a.ID == b.ID && a.ChannelID == b.ChannelID &&
+		bytes.Equal(a.Sender, b.Sender) && a.Name == b.Name && a.Kind == b.Kind &&
+		a.ReplyTo == b.ReplyTo && domain.ValidDir(a.Dir) == domain.ValidDir(b.Dir) &&
+		a.Sent.UnixNano() == b.Sent.UnixNano() && a.Content == b.Content
+}
+
+// ProveRelayedMessage settles a row we hold MARKED (it reached us through
+// another member's history, unsigned) against a copy of the same message that
+// has just arrived on the live lane, where MLS authenticated its sender. The
+// caller has already checked that sender and any signature the frame carries.
+//
+// When the two agree, the mark is cleared and the frame's signature adopted.
+// When they disagree, the relayed copy was never the author's word — a stale
+// or invented version under the message's id — and the authenticated one
+// replaces it, unless the held row has since been edited or deleted, which a
+// first-send frame cannot speak to. Rows that are not marked are never touched:
+// this only ever adds proof. Reports whether the stored row changed.
+func (s *Store) ProveRelayedMessage(m domain.Message) (bool, error) {
+	held, ok, err := s.MessageByID(m.ID)
+	if err != nil || !ok || !held.Unverified || held.Deleted || held.Expired {
+		return false, err
+	}
+	if SameAuthoredMessage(held, m) {
+		_, err := s.db.Exec(`UPDATE messages SET unverified = 0, sig = ? WHERE id = ? AND unverified = 1`, nilIfEmpty(m.Sig), m.ID)
+		return err == nil, err
+	}
+	// Only the person the held row names can correct it. Another member's frame
+	// reusing the id is not a correction of somebody else's words, and letting
+	// it replace them would hand any member a way to erase a relayed message.
+	if held.Edited || held.ChannelID != m.ChannelID || !bytes.Equal(held.Sender, m.Sender) {
+		return false, nil
+	}
+	var nonce [nonceSize]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return false, err
+	}
+	sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
+	_, err = s.db.Exec(
+		`UPDATE messages SET name = ?, kind = ?, reply_to = ?, dir = ?, content_enc = ?, nonce = ?, sent = ?,
+		 sig = ?, unverified = 0, quiet = ?, expires = ? WHERE id = ? AND unverified = 1`,
+		m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir), sealed, nonce[:], m.Sent.UnixNano(),
+		nilIfEmpty(m.Sig), boolToInt(IsQuiet(m.Content)), EphemeralExpiry(m.Content), m.ID,
+	)
+	return err == nil, err
+}
+
 // LatestTimestamp returns the newest change time (UnixNano) in a channel — the
 // max over message send times and later state updates (edit/delete/pin/react) —
 // or 0. It drives "last activity" ordering. It is NOT a sync cursor any more:
@@ -2797,7 +2848,7 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 		limit = 200
 	}
 	rows, err := s.db.Query(
-		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig
+		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified
 		 FROM messages WHERE channel_id = ? AND (sent > ? OR updated > ?) AND kind IN `+syncedKindsSQL+`
 		 ORDER BY sent ASC LIMIT ?`, channelID, sinceNano, sinceNano, limit)
 	if err != nil {
@@ -2810,10 +2861,16 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 		var m domain.Message
 		var enc, nonceB []byte
 		var sent, updated int64
-		var deleted, edited, pinned int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &enc, &nonceB, &sent, &updated, &m.Sig); err != nil {
+		var deleted, edited, pinned, unverified int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &enc, &nonceB, &sent, &updated, &m.Sig, &unverified); err != nil {
 			return nil, err
 		}
+		// Served as it is held: a row this device keeps marked goes out saying
+		// so (an optional field every older reader ignores, and every reader
+		// recomputes for itself anyway). It is what stops an author's own device
+		// from vouching for a relayed row that merely carries the author's name —
+		// see app.messageAttestationFrom.
+		m.Unverified = unverified != 0
 		if deleted != 0 {
 			m.Deleted = true // tombstone: content stays blank
 		} else {
@@ -2864,11 +2921,26 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, tr
 }
 
 func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint string, trusted bool) (bool, error) {
-	var curDeleted, curEdited, curPinned int
-	var curUpdated int64
+	var curDeleted, curEdited, curPinned, curUnverified int
+	var curUpdated, curSent int64
+	var cur domain.Message
+	var curEnc, curNonce []byte
 	err := q.QueryRow(
-		`SELECT deleted, edited, pinned, updated FROM messages WHERE id = ?`, m.ID,
-	).Scan(&curDeleted, &curEdited, &curPinned, &curUpdated)
+		`SELECT deleted, edited, pinned, updated, unverified, sender, name, kind, reply_to, dir, sent, content_enc, nonce
+		 FROM messages WHERE id = ?`, m.ID,
+	).Scan(&curDeleted, &curEdited, &curPinned, &curUpdated, &curUnverified,
+		&cur.Sender, &cur.Name, &cur.Kind, &cur.ReplyTo, &cur.Dir, &curSent, &curEnc, &curNonce)
+	// sameWords: the served copy says exactly what the row we hold says, by the
+	// same person, in the same place, stamped the same moment. Only then can
+	// what one copy proves about authorship be carried over to the other.
+	sameWords := false
+	if err == nil && curDeleted == 0 && !m.Deleted {
+		if content, oerr := s.open(curEnc, curNonce); oerr == nil {
+			cur.ID, cur.ChannelID, cur.Content = m.ID, m.ChannelID, content
+			cur.Sent = time.Unix(0, curSent).UTC()
+			sameWords = SameAuthoredMessage(cur, m)
+		}
+	}
 
 	remoteUpdated := int64(0)
 	if !m.Updated.IsZero() {
@@ -2898,10 +2970,39 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 		inserted = true
 	case err != nil:
 		return false, err
+	case curUnverified != 0 && !m.Unverified && sameWords:
+		// We hold the row marked and this copy proves it: the author's signature
+		// checked out, or the author's own account served it (the caller decides
+		// which, app.messageAttestation). Proof needs no trusted messenger — it is
+		// about words we already hold — so any member may bring it.
+		if _, err := q.Exec(`UPDATE messages SET unverified = 0, sig = ? WHERE id = ?`, nilIfEmpty(m.Sig), m.ID); err != nil {
+			return false, err
+		}
+		if trusted && remoteUpdated > curUpdated {
+			if _, err := q.Exec(`UPDATE messages SET edited = ?, pinned = ?, updated = ? WHERE id = ?`,
+				boolToInt(m.Edited), boolToInt(m.Pinned), remoteUpdated, m.ID); err != nil {
+				return false, err
+			}
+		}
+		changed = true
 	case !trusted:
 		// Row already exists and the serving peer isn't a trusted sync source:
 		// refuse to tombstone or overwrite it. Only reaction reconciliation (below,
 		// which never touches our own rows) is allowed from an untrusted backfill.
+	case curUnverified == 0 && m.Unverified && sameWords:
+		// A trusted member's copy is newer — a reaction, a pin — but carries no
+		// signature, and the same words are proven here (by MLS on the live lane,
+		// or by a signature). The newer state is adopted and the proof kept.
+		// Taking the responder's unsigned copy wholesale is how a message that
+		// arrived live and signed came to be flagged as unproven the first time
+		// somebody reacted to it on an older owner's device.
+		if remoteUpdated > curUpdated {
+			if _, err := q.Exec(`UPDATE messages SET edited = ?, pinned = ?, updated = ? WHERE id = ?`,
+				boolToInt(m.Edited), boolToInt(m.Pinned), remoteUpdated, m.ID); err != nil {
+				return false, err
+			}
+			changed = true
+		}
 	default:
 		if m.Deleted && curDeleted == 0 {
 			if _, err := q.Exec(
