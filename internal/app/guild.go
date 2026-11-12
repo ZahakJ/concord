@@ -348,6 +348,11 @@ func (s *Service) Messages(channelID string, limit int) ([]domain.Message, error
 	return msgs, err
 }
 
+// UnreadRows is store.UnreadRows (the rows an exact unread count is made of).
+func (s *Service) UnreadRows(channelID string, afterNano int64, limit int) ([]domain.Message, error) {
+	return s.store.UnreadRows(channelID, afterNano, limit)
+}
+
 // UnreadCounts returns the per-channel count of normal messages newer than each
 // channel's cursor, without decrypting any bodies.
 func (s *Service) UnreadCounts(sinceNano map[string]int64) (map[string]int, error) {

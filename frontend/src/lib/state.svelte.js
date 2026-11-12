@@ -1558,7 +1558,11 @@ function bumpUnread(channelId, mention) {
 // countChannelUnread tallies one channel's unread from its history and the
 // last-read cursor. Returns null for "nothing unread".
 async function countChannelUnread(channelId) {
-  const msgs = (await api.messages(channelId)) || [];
+  return tallyUnread((await api.messages(channelId)) || [], channelId);
+}
+
+// tallyUnread is countChannelUnread's arithmetic over rows already in hand.
+function tallyUnread(msgs, channelId) {
   const since = lastRead[channelId] ? new Date(lastRead[channelId]) : null;
   let count = 0;
   let mentions = 0;
@@ -1598,6 +1602,11 @@ async function recomputeUnread() {
   } catch {
     /* fall through to the per-channel path below */
   }
+  // The channels whose cheap count needs its exact form (own lines out,
+  // mentions counted): fetched together, a batch at a time, and only the rows
+  // past each cursor — not each channel's whole newest page, one call per
+  // channel, which after an unlock was most of the core's work for seconds.
+  const refine = [];
   for (const g of S.guilds) {
     for (const c of g.channels) {
       if (c.id === S.activeChannelId && readingNow()) continue;
@@ -1611,15 +1620,40 @@ async function recomputeUnread() {
       // count instead — authoritative either way, and the fast path still
       // covers the common case (read channel, no badge).
       if (counts && !counts[c.id] && !S.unread[c.id]) continue;
-      try {
-        const u = await countChannelUnread(c.id);
-        const next = { ...S.unread };
-        if (u) next[c.id] = u;
-        else delete next[c.id];
-        S.unread = next;
-      } catch {
-        /* channel unreadable right now — skip */
-      }
+      refine.push(c.id);
+    }
+  }
+  let batched = true;
+  for (let i = 0; i < refine.length && batched; i += 40) {
+    const chunk = refine.slice(i, i + 40);
+    const ask = {};
+    for (const id of chunk) ask[id] = lastRead[id] || "";
+    let rows;
+    try {
+      rows = (await api.unreadMessages(ask)) || {};
+    } catch {
+      batched = false; // an older core: the per-channel path below
+      break;
+    }
+    const next = { ...S.unread };
+    for (const id of chunk) {
+      if (!(id in rows)) continue; // unreadable right now: keep what is shown
+      const u = tallyUnread(rows[id] || [], id);
+      if (u) next[id] = u;
+      else delete next[id];
+    }
+    S.unread = next;
+  }
+  if (batched) return;
+  for (const id of refine) {
+    try {
+      const u = await countChannelUnread(id);
+      const next = { ...S.unread };
+      if (u) next[id] = u;
+      else delete next[id];
+      S.unread = next;
+    } catch {
+      /* channel unreadable right now — skip */
     }
   }
 }

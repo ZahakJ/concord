@@ -469,6 +469,7 @@ export const api = {
   messages: (channelID) => call("Messages", channelID),
   messagesBefore: (channelID, beforeISO, limit) => call("MessagesBefore", channelID, beforeISO, limit),
   unreadCounts: (sinceISO) => call("UnreadCounts", sinceISO),
+  unreadMessages: (sinceISO) => call("UnreadMessages", sinceISO),
   // dir is the author's explicit base direction: "rtl", "ltr", or "" for the
   // per-line heuristic every message used before the composer could override
   // it. Bounded again on the Go side (domain.ValidDir), so this is a hint, not

@@ -1736,6 +1736,34 @@ func (b *Bridge) UnreadCounts(sinceISO map[string]string) (map[string]int, error
 	return svc.UnreadCounts(sinceNano)
 }
 
+// UnreadMessages returns, per channel, the rows that count towards its unread
+// badge sent after the given cursor (RFC 3339, "" for none), at most 200 per
+// channel, blocked senders removed — one call for all the channels the client
+// is refining after an unlock, instead of one full history page per channel.
+func (b *Bridge) UnreadMessages(sinceISO map[string]string) (map[string][]MessageView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string][]MessageView, len(sinceISO))
+	for ch, iso := range sinceISO {
+		var after int64
+		if iso != "" {
+			t, err := time.Parse("2006-01-02T15:04:05Z07:00", iso)
+			if err != nil {
+				continue
+			}
+			after = t.UnixNano()
+		}
+		msgs, err := svc.UnreadRows(ch, after, 200)
+		if err != nil {
+			continue // that channel keeps its cheap count
+		}
+		out[ch] = visibleViews(svc, msgs)
+	}
+	return out, nil
+}
+
 // dir is the author's explicit base direction — "rtl", "ltr", or "" for the
 // per-line heuristic. Absent from an older caller's argument list it arrives as
 // "", which is exactly the behaviour every message had before the field
@@ -3528,6 +3556,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 			_ = json.Unmarshal(args[0], &since)
 		}
 		return b.UnreadCounts(since)
+	case "UnreadMessages":
+		var since map[string]string
+		if len(args) > 0 {
+			_ = json.Unmarshal(args[0], &since)
+		}
+		return b.UnreadMessages(since)
 	case "SendMessage":
 		return nil, b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "SendCallNotice":

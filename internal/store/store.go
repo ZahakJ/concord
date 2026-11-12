@@ -1684,6 +1684,48 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 	return msgs, nil
 }
 
+// UnreadRows returns the newest limit rows of a channel that count towards
+// its unread badge (live, not quiet, a person speaking) and were sent after
+// afterNano, oldest first, without reactions. It is what the client needs to
+// turn a cheap unread count into an exact one (its own lines and mentions need
+// the bodies): before this the client fetched the channel's whole newest page
+// (200 rows decrypted, every reaction in the channel loaded) once per unread
+// channel, after every unlock.
+func (s *Store) UnreadRows(channelID string, afterNano int64, limit int) ([]domain.Message, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 200
+	}
+	rows, err := s.rd().Query(
+		`SELECT id, channel_id, sender, name, kind, reply_to, content_enc, nonce, sent
+		 FROM messages WHERE channel_id = ? AND sent > ? AND deleted = 0 AND quiet = 0 AND kind IN ('', 'guest')
+		 ORDER BY sent DESC LIMIT ?`, channelID, afterNano, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var msgs []domain.Message
+	for rows.Next() {
+		var m domain.Message
+		var enc, nonceB []byte
+		var sent int64
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &enc, &nonceB, &sent); err != nil {
+			return nil, err
+		}
+		if m.Content, err = s.open(enc, nonceB); err != nil {
+			return nil, err
+		}
+		m.Sent = time.Unix(0, sent).UTC()
+		msgs = append(msgs, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	return msgs, nil
+}
+
 // NewestMessage is Messages(channelID, 1) without the reactions: the DM list's
 // preview line wants the last thing said, and Messages loads every reaction in
 // the channel to decorate the one row it returns.
