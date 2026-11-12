@@ -297,7 +297,10 @@
   {/snippet}
 
   <!-- First, because it changes the most: how the window is arranged. Each
-       card draws the arrangement in the app's own surfaces. -->
+       card draws the arrangement in the app's own surfaces. Not on a phone:
+       the phone has one arrangement, so Rail there changed nothing on screen
+       and Compact quietly turned the density and the member panel down. -->
+  {#if !S.isMobile}
   <section class="blk">
     <h4 class="lbl">Layout</h4>
     <div class="theme-row" role="radiogroup" aria-label="Layout">
@@ -326,6 +329,7 @@
     </div>
     <p class="muted tiny">{LAYOUTS.find((l) => l.id === layout)?.note}</p>
   </section>
+  {/if}
 
   <section class="blk">
     <h4 class="lbl">Theme</h4>
