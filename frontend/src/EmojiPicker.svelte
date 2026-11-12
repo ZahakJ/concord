@@ -342,7 +342,7 @@
     box-shadow: var(--shadow-pop);
     z-index: 50;
     transform-origin: bottom right;
-    animation: ep-pop var(--dur-standard) var(--ease-out);
+    animation: ep-pop var(--dur-enter) var(--ease-out);
   }
   @keyframes ep-pop {
     from {
@@ -396,7 +396,7 @@
     box-shadow: var(--shadow-pop);
     z-index: 5;
     transform-origin: top right;
-    animation: ep-pop var(--dur-quick) var(--ease-out);
+    animation: ep-pop var(--dur-enter) var(--ease-out);
   }
   .tone-cell.sel {
     background: var(--bg-input);
@@ -529,7 +529,7 @@
   .pchar {
     font-size: 26px;
     line-height: 1;
-    animation: pv-pop var(--dur-quick) var(--ease-spring);
+    animation: pv-pop var(--dur-enter) var(--ease-spring);
   }
   @keyframes pv-pop {
     from {
@@ -569,7 +569,7 @@
       background: var(--scrim);
       border: none;
       border-radius: 0;
-      animation: ep-fade var(--dur-standard) ease;
+      animation: ep-fade var(--dur-enter) ease;
     }
     @keyframes ep-fade {
       from {

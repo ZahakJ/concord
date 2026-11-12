@@ -150,6 +150,12 @@
   --dur-quick: 120ms;
   --dur-standard: 150ms;
   --dur-move: 180ms;
+  /* Enter: something you asked for appearing — a dialog, a menu, the
+     palette, a popover. Shorter than the rest on purpose: it is the one
+     motion that sits between an action and its result, so it is held under
+     100ms and its first frame already carries the content. The desktop shell
+     sets it to zero (below). */
+  --dur-enter: 90ms;
   /* How far things move. Transform amounts, never layout: a lifted tile, the
      open guild's tile at rest, a press, the rise of something arriving. Under
      reduced motion (below) every one of them is identity, so nothing sits
@@ -3523,4 +3529,21 @@ textarea {
   .md .code-copy {
     display: none;
   }
+}
+
+/* ---- the desktop shell ------------------------------------------------------
+   The Linux desktop build renders through WebKitGTK, and on a machine whose
+   GPU path is unavailable (no driver, a driver/kernel mismatch until reboot,
+   a remote session) it composites in software, where every blurred backdrop
+   is a full re-blur of what is behind it on every frame and every entrance
+   animation is a full repaint of its area per frame. main.js stamps
+   data-shell="desktop" there. Overlays arrive at once, and nothing blurs what
+   is behind it: every surface that used a backdrop blur is opaque or
+   scrimmed on its own, so this costs separation nowhere. */
+:root[data-shell="desktop"] {
+  --dur-enter: 0s;
+}
+:root[data-shell="desktop"] * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }

@@ -61,7 +61,7 @@ const NEEDED = [
   "--radius-sm", "--radius-md", "--radius-lg", "--radius-sheet",
   "--fs-micro", "--fs-tiny", "--fs-small", "--fs-compact", "--fs-ui", "--fs-body", "--fs-title", "--fs-display",
   "--sp-1", "--sp-2", "--sp-3", "--sp-4", "--sp-5", "--sp-6",
-  "--ease-spring", "--ease-out", "--dur-quick", "--dur-standard",
+  "--ease-spring", "--ease-out", "--dur-quick", "--dur-standard", "--dur-enter",
   "--focus-ring", "--focus-ring-offset", "--scrim", "--bg-elevated",
   // The interface system's own few: control edges, the mention row tint, the
   // titles' face, the one curve allowed to overshoot, the shared header row.
@@ -170,7 +170,7 @@ for (const [rel, raw] of FILES) {
 }
 
 const DUR = new Map();
-for (const n of ["--dur-quick", "--dur-standard", "--dur-move"]) {
+for (const n of ["--dur-quick", "--dur-standard", "--dur-move", "--dur-enter"]) {
   const v = tokenValue(n);
   if (!v) continue;
   const ms = parseFloat(v);
@@ -179,7 +179,7 @@ for (const n of ["--dur-quick", "--dur-standard", "--dur-move"]) {
 }
 for (const [rel, raw] of FILES) {
   for (const line of strip(raw).split("\n")) {
-    if (/--dur-(quick|standard|calm|move):/.test(line)) continue;
+    if (/--dur-(quick|standard|calm|move|enter):/.test(line)) continue;
     for (const m of line.matchAll(/(?<![\w.])([0-9.]+m?s)(?![\w.])/g)) {
       const tok = DUR.get(m[1]);
       if (tok) fail(`${rel}: ${m[1]} is var(${tok})`);

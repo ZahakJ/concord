@@ -444,7 +444,7 @@
     display: grid;
     place-items: center;
     z-index: 100;
-    animation: fade var(--dur-standard) ease;
+    animation: fade var(--dur-enter) ease;
   }
   .dialog {
     --dlg-pad: var(--sp-5);
@@ -482,7 +482,7 @@
     /* Never a ring round the whole dialog: focus goes to the first field, the
        primary or the title, never the box. */
     outline: none;
-    animation: rise var(--dur-standard) var(--ease-lift);
+    animation: rise var(--dur-enter) var(--ease-lift);
   }
   .dialog.m {
     width: 560px;
@@ -867,7 +867,7 @@
      both the desktop and mobile entrances so it wins over either. */
   .dialog.deeper,
   .dialog.shallower {
-    animation: panel-in var(--dur-standard) var(--ease-out);
+    animation: panel-in var(--dur-enter) var(--ease-out);
   }
   .dialog.deeper {
     --panel-from: 24px;

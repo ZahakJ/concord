@@ -69,6 +69,12 @@ async function boot() {
       /* older Capacitor without getPlatform — the native push is the only path */
     }
   }
+  // The Linux desktop shell (Wails over WebKitGTK; the only build with the
+  // Wails runtime injected). app.css drops backdrop blurs and overlay
+  // entrances under it, because there it may be compositing in software.
+  if (typeof window !== "undefined" && window.runtime && typeof window.runtime.EventsOn === "function") {
+    document.documentElement.dataset.shell = "desktop";
+  }
   if (cap?.Plugins?.ConcordCore) {
     const { port, token } = await cap.Plugins.ConcordCore.start();
     configureTransport({ baseURL: `http://127.0.0.1:${port}`, authToken: token });

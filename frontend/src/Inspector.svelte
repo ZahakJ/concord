@@ -143,14 +143,14 @@
     height: 100%;
     background: var(--bg-1);
     border-left: 1px solid var(--hairline);
-    animation: insp-fade var(--dur-quick) var(--ease-out);
+    animation: insp-fade var(--dur-enter) var(--ease-out);
   }
   /* Overlay: lifted and shadowed over the conversation, below its header. */
   .insp.overlay {
     background: var(--bg-elevated);
     border-left: 1px solid var(--border);
     box-shadow: var(--shadow-pop);
-    animation: insp-slide var(--dur-standard) var(--ease-out);
+    animation: insp-slide var(--dur-enter) var(--ease-out);
   }
   @keyframes insp-fade {
     from {

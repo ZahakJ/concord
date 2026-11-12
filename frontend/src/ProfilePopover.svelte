@@ -841,7 +841,7 @@
     position: fixed;
     z-index: 250;
     width: 272px;
-    animation: pop-in var(--dur-quick) ease;
+    animation: pop-in var(--dur-enter) ease;
   }
   .pop {
     position: relative;
@@ -878,7 +878,7 @@
     background: var(--scrim);
     z-index: 400;
     border: none;
-    animation: pp-fade var(--dur-standard) ease;
+    animation: pp-fade var(--dur-enter) ease;
   }
   @keyframes pp-fade {
     from {

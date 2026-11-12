@@ -463,7 +463,7 @@
     /* Gentle rise-in so the menu arrives instead of blinking into place. Only
        opacity/translate animate — never scale — so the on-open flip measurement
        (which reads width/height) stays exact. */
-    animation: cm-in var(--dur-quick) var(--ease-out);
+    animation: cm-in var(--dur-enter) var(--ease-out);
   }
   @keyframes cm-in {
     from {

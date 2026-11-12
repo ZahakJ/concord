@@ -411,7 +411,7 @@
     /* Above a dialog's overlay, not level with it (lib/shortcuts.js refuses
        Ctrl+K behind a modal, but a tie lost the keyboard on DOM order). */
     z-index: 110;
-    animation: qs-fade var(--dur-quick) ease;
+    animation: qs-fade var(--dur-enter) ease;
   }
   .switcher {
     width: 640px;
@@ -424,7 +424,7 @@
     flex-direction: column;
     box-shadow: var(--shadow-pop);
     overflow: hidden;
-    animation: qs-pop var(--dur-quick) var(--ease-spring);
+    animation: qs-pop var(--dur-enter) var(--ease-spring);
   }
   @keyframes qs-fade {
     from {

@@ -387,7 +387,7 @@
     flex-direction: column;
     gap: 0;
     transform-origin: top;
-    animation: menu-in var(--dur-quick) var(--ease-out);
+    animation: menu-in var(--dur-enter) var(--ease-out);
   }
   .menu.placed {
     visibility: visible;
@@ -417,7 +417,7 @@
      grows toward the content instead of off the screen. */
   .menu.up {
     transform-origin: bottom;
-    animation: menu-in-up var(--dur-quick) var(--ease-out);
+    animation: menu-in-up var(--dur-enter) var(--ease-out);
   }
   .menu.up.right {
     transform-origin: bottom right;

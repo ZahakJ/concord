@@ -425,7 +425,7 @@
     background: var(--scrim);
     z-index: 400;
     border: none;
-    animation: sp-fade var(--dur-standard) ease;
+    animation: sp-fade var(--dur-enter) ease;
   }
   @keyframes sp-fade {
     from {

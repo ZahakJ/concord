@@ -88,7 +88,7 @@
     background: var(--scrim-sheet, var(--scrim));
     z-index: 400;
     border: none;
-    animation: bs-fade var(--dur-standard) ease;
+    animation: bs-fade var(--dur-enter) ease;
     /* Springs the dim back in sync with the sheet on a released half-swipe;
        lib/sheet.js suppresses it for the duration of a tracked drag. */
     transition: opacity var(--dur-standard) ease;
