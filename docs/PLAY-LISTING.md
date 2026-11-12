@@ -24,22 +24,24 @@ Regenerate the feature graphic after editing the SVG:
 rsvg-convert -w 1024 -h 500 docs/media/feature-graphic.svg -o docs/media/feature-graphic.png
 ```
 
-The screenshots are raw device captures at 1080 × 2400 from an API 35 emulator —
-no frames, no marketing overlays, no captions burned in. They are the app.
+The screenshots are captures of the app's phone layout at 1080 × 2400 (a
+360 × 800 screen at 3× density), taken from the v0.60.0 build on a made-up demo
+guild — no status bar, no frames, no marketing overlays, no captions burned in.
+They are the app.
 Descriptions for the Console, in upload order:
 
-1. `phone-1-conversation.png` — a channel conversation between three members.
+1. `phone-1-conversation.png` — a channel conversation with a photo, a code block, reactions and a mention.
 2. `phone-2-channels.png` — the guild drawer: guilds, channels, unread state.
 3. `phone-3-voice.png` — a three-person voice call in a voice channel.
-4. `phone-4-profile.png` — a profile card with its scene, ring and decoration.
+4. `phone-4-profile.png` — a profile card with its banner, roles and safety number.
 5. `phone-5-privacy.png` — Privacy & safety, every switch and its default.
 6. `phone-6-light.png` — the same conversation in the light theme.
 
 **A note on aspect ratio.** These are 1080 × 2400 (a 20:9 phone). Play's phone
 screenshot rules require each side between 320 px and 3840 px, and some Play
 surfaces state a 16:9 / 9:16 ratio. If the Console rejects a 20:9 upload, the fix
-is to recapture at 1080 × 1920 rather than to letterbox: set the emulator with
-`adb shell wm size 1080x1920` before capturing. Do not pad — a padded screenshot
+is to recapture at 1080 × 1920 rather than to letterbox (a 360 × 640 screen at 3×;
+on an emulator, `adb shell wm size 1080x1920` before capturing). Do not pad — a padded screenshot
 looks like a mistake on the listing card.
 
 ## Copy
