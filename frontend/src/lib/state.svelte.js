@@ -193,6 +193,8 @@ export const S = $state({
   // unread[channelId] = { count, mentions } — counts survive refresh via the
   // localStorage last-read map (recomputed on load).
   unread: {},
+  // Bumped whenever an unread count moves in place (bumpUnread).
+  unreadTick: 0,
   // How loud each channel and guild is allowed to be (see lib/notifs.js).
   // Seeded from the old per-channel mute list so an upgrade is silent about
   // itself — a channel you'd muted comes back as "Nothing", which is the same
@@ -1541,12 +1543,16 @@ export async function setChannelTopic(channel, topic) {
   }
 }
 
+// In place, one key: S.unread is deep state, so only what reads THIS channel's
+// entry re-runs — the one tile, the one row. Replacing the whole object (as
+// this did) re-ran every guild's tally on the strip, the channel list and the
+// palette for every message that arrived anywhere, which with a sidebar of
+// guilds was most of the cost of a busy guild in the background.
+// S.unreadTick is for the few readers that care that SOMETHING changed.
 function bumpUnread(channelId, mention) {
   const cur = S.unread[channelId] || { count: 0, mentions: 0 };
-  S.unread = {
-    ...S.unread,
-    [channelId]: { count: cur.count + 1, mentions: cur.mentions + (mention ? 1 : 0) },
-  };
+  S.unread[channelId] = { count: cur.count + 1, mentions: cur.mentions + (mention ? 1 : 0) };
+  S.unreadTick++;
 }
 
 // countChannelUnread tallies one channel's unread from its history and the

@@ -327,6 +327,7 @@
   }
   $effect(() => {
     void S.unread;
+    void S.unreadTick;
     void g?.id;
     void S.prefs.collapsedCats;
     const sc = scrollEl;
