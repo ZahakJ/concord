@@ -126,15 +126,38 @@
     }
     return a;
   }
+  // Where the conversation's text stops: the right edge of the longest line
+  // of any message on screen (the text itself, not its box, which runs to the
+  // full reading measure), or null with nothing on screen to read.
+  function textRight() {
+    let right = null;
+    const range = document.createRange();
+    for (const b of document.querySelectorAll("main.chat .feed .msg .body")) {
+      range.selectNodeContents(b);
+      const r = rectOf(range.getBoundingClientRect());
+      if (r.w) right = Math.max(right ?? 0, r.x + r.w);
+    }
+    return right;
+  }
   function clamp(x, y, corner = false) {
     const w = dockEl?.offsetWidth || 280;
     const h = dockEl?.offsetHeight || 180;
     const a = area(w, h);
     // Never placed by hand: it belongs in the conversation's top-right corner,
-    // wherever that is now (the inspector opening moves the corner).
-    if (corner) x = a.r - w;
+    // wherever that is now (the inspector opening moves the corner) — unless
+    // that corner is over the text you are reading and moving right by a
+    // sliver clears it. It may then lap the inspector's edge by up to 24px
+    // (the padding before the member names), never further: names under it
+    // would be the same problem moved. A dock you placed by hand stays where
+    // you put it.
+    let hi = a.r - w;
+    if (corner) {
+      const tr = textRight();
+      if (tr !== null && a.r - w < tr + 8 && tr + 8 + w <= a.r + 24) hi = tr + 8;
+      x = hi;
+    }
     return {
-      x: Math.max(a.l, Math.min(a.r - w, x)),
+      x: Math.max(a.l, Math.min(hi, x)),
       y: Math.max(a.t, Math.min(a.b - h, y)),
       ...(corner ? { corner: true } : {}),
     };
@@ -356,7 +379,6 @@
     class:dragging
     class:shelved
     class:trouble={!health.live}
-    class:watching={!!share}
     bind:this={dockEl}
     style="left:{pos.x}px; top:{pos.y}px"
   >
@@ -544,9 +566,6 @@
       translate: 0 var(--rise-y);
       scale: var(--enter-scale);
     }
-  }
-  .dock.watching {
-    width: 360px;
   }
   .share-view {
     position: relative;
