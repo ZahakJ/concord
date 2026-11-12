@@ -78,6 +78,9 @@ export const S = $state({
   displayName: "",
   guilds: [],
   activeGuildId: "",
+  // The guild the side chrome still shows for the one frame of a guild switch
+  // in which the feed paints first; "" the rest of the time (chromeGuildId).
+  chromeHold: "",
   activeChannelId: "",
   messages: [], // the active channel's messages, oldest first
   // Messages this device has handed to the core but has not seen come back.
@@ -478,7 +481,21 @@ export const S = $state({
   pendingLinkCode: "",
 });
 
-export const activeGuild = () => S.guilds.find((g) => g.id === S.activeGuildId) || null;
+// The guild on screen. Asked by every row of the feed, several times each,
+// so the answer is kept until the guild list or the selection changes rather
+// than found by walking the list on every call (each walk also made every
+// asker depend on every guild's id). Keyed on the list's length too: a guild
+// pushed onto the same array is a change.
+let agMemo = { list: null, len: -1, id: null, g: null };
+export const activeGuild = () => {
+  const list = S.guilds;
+  const id = S.activeGuildId;
+  const len = list.length;
+  if (agMemo.list === list && agMemo.len === len && agMemo.id === id && (!agMemo.g || agMemo.g.id === id)) return agMemo.g;
+  const g = list.find((x) => x.id === id) || null;
+  agMemo = { list, len, id, g };
+  return g;
+};
 export const activeChannel = () =>
   activeGuild()?.channels.find((c) => c.id === S.activeChannelId) || null;
 // Your own member row, synthesized from the identity when the roster doesn't
@@ -1691,7 +1708,7 @@ let feedSeq = 0;
 // The rows of the last channels you were in, so going back to one paints in
 // the same frame as the click (lib/feedcache.js). Memory only: a reload, a
 // lock or a logout starts from the store again.
-const feedCache = createFeedCache({ max: 12, rows: 200 });
+const feedCache = createFeedCache({ max: 30, rows: 200 });
 
 // clearFeed empties everything scoped to "the channel currently on screen".
 export function clearFeed() {
@@ -3089,6 +3106,23 @@ export async function selectGuild(id, { browse = false } = {}) {
   // about the moment you arrived, and selectChannel below moves the read marks
   // it is computed from.
   armCatchUp(id);
+  // Rows first, chrome second. When the channel this guild resumes to is in
+  // the feed cache, its rows can be on screen in the frame after the click,
+  // but rebuilding the sidebar for the new guild in the same task (every
+  // channel row, the place header, the strip's marks) pushed that frame back
+  // past where v0.59.0 got its rows. The side chrome keeps showing the guild
+  // being left (chromeGuildId) until the frame with the rows has been
+  // painted, then follows — one frame later, in a task of its own.
+  const g0 = S.guilds.find((x) => x.id === id);
+  const prevGuild = S.activeGuildId;
+  if (g0 && prevGuild && prevGuild !== id && g0.channels.length && hasCachedFeed(channelToResume(g0))) {
+    S.chromeHold = prevGuild;
+    afterPaint(() => {
+      if (S.activeGuildId === id) S.chromeHold = "";
+    });
+  } else {
+    S.chromeHold = "";
+  }
   S.activeGuildId = id;
   // Drop the previous guild's archive index before anything renders: the feed
   // matches archived channels by mapped id, and two guilds' ids do not collide
@@ -3748,6 +3782,27 @@ export async function jumpToChannel(channelId) {
   }
   return false;
 }
+
+// chromeGuildId: the guild the side chrome (channel list, place header, the
+// strip's "current" mark) is drawing. The same as activeGuildId except for the
+// one frame of a guild switch in which the feed paints first (selectGuild).
+export const chromeGuildId = () => S.chromeHold || S.activeGuildId;
+export const chromeGuild = () => {
+  const id = chromeGuildId();
+  return id === S.activeGuildId ? activeGuild() : S.guilds.find((g) => g.id === id) || null;
+};
+
+// afterPaint runs fn in a task of its own once the next frame has been drawn.
+function afterPaint(fn) {
+  requestAnimationFrame(() => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => fn();
+    ch.port2.postMessage(0);
+  });
+}
+
+// hasCachedFeed: would opening this channel paint from memory?
+export const hasCachedFeed = (channelId) => !!channelId && feedCache.has(channelId);
 
 // guildOfChannel: the guild (or DM) a channel belongs to. Asked for every
 // arriving message, so it is a lookup in an index rebuilt only when the guild

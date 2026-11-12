@@ -33,6 +33,8 @@
     commitRail,
     openInbox,
     dmList,
+    chromeGuild,
+    chromeGuildId,
   } from "./lib/state.svelte.js";
   import { plural } from "./lib/plural.js";
   import {
@@ -131,7 +133,7 @@
   const liveGuilds = $derived(guildLiveSet());
   const unseenTotal = $derived(Object.values(RADAR.unseen).reduce((a, b) => a + b, 0));
 
-  const g = $derived(S.guilds.find((x) => x.id === S.activeGuildId) || null);
+  const g = $derived(chromeGuild());
   const inDMs = $derived(g?.kind === "dm");
   const allGuilds = $derived(S.guilds.filter((x) => x.kind !== "dm"));
   const guildById = $derived(new Map(allGuilds.map((s) => [s.id, s])));
@@ -226,7 +228,7 @@
   // unread, so a hand can learn where a guild sits.
   const order = $derived(sharedOrder(guildIdsInLayout(S.rail).filter((id) => guildById.has(id)), stripPins()));
   const shelfGuilds = $derived(order.map((id) => guildById.get(id)));
-  const curIdx = $derived(order.indexOf(S.activeGuildId));
+  const curIdx = $derived(order.indexOf(chromeGuildId()));
 
   // The shelf's geometry. Every tile has the same pitch, so where a tile is
   // and which ones are in view is arithmetic on a few numbers measured when
@@ -694,7 +696,7 @@
             >
               <button
                 class="tile"
-                class:current={gg.id === S.activeGuildId}
+                class:current={gg.id === chromeGuildId()}
                 class:muted={m.muted}
                 class:gone={!!gg.evicted}
                 class:hasicon={!!gg.icon}
@@ -703,7 +705,7 @@
                 data-cap={capLabel(gg)}
                 aria-label={gg.name}
                 aria-describedby={tileLabel(gg) !== gg.name ? `strip-d-${gg.id}` : undefined}
-                aria-current={gg.id === S.activeGuildId ? "page" : undefined}
+                aria-current={gg.id === chromeGuildId() ? "page" : undefined}
                 draggable={!coarse}
                 ondragstart={(e) => {
                   sdrag = gg.id;

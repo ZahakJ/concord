@@ -27,6 +27,7 @@
     S,
     openProfilePopover,
     activeGuild,
+    chromeGuild,
     selectGuild,
     selectNotes,
     selectChannel,
@@ -410,7 +411,9 @@
     else if (bottom > room) sc.scrollTop += bottom - room + 8;
   }
 
-  const g = $derived(activeGuild());
+  // The chrome's guild: the one being shown, which for the single frame of a
+  // guild switch in which the feed paints first is still the one being left.
+  const g = $derived(chromeGuild());
   const canManageChannels = $derived(has(g?.myPerms || 0, PERM.MANAGE_CHANNELS));
 
   // Channels hosting a live channel-located event right now (the event radar's

@@ -363,3 +363,47 @@ test("landing on unread history mounts a screenful around the divider, already i
   assert.ok(first.mounted <= 60, `${first.mounted} rows mounted on landing`);
   assert.ok(first.divider, "the NEW divider was in view on the first frame with rows");
 });
+
+// Switching back to a guild you were just in puts its rows on screen within a
+// frame or two: the rows come from memory and are painted before the side
+// chrome is rebuilt for the new guild.
+test("a guild switch paints the rows quickly, and the sidebar follows", async ({ world, assert, step, log }) => {
+  const [alice] = await world.peers(1);
+  const names = ["Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"];
+  for (const name of names) {
+    const g = await world.guild({ name, members: [alice], channels: ["room-a", "room-b", "room-c", "room-d"] });
+    for (let i = 0; i < 40; i++) await alice.sendRaw(g.allChannels[0].id, `${name} line ${i} with a little text in it`);
+  }
+  const a = await alice.open();
+  await installProbe(a.page);
+  const tile = (n) => a.page.locator(`nav[aria-label="Guilds"] button[aria-label="${n}"]`).first();
+  step("Visit every guild once, then switch among them");
+  for (const n of names) {
+    await tile(n).click();
+    await a.page.waitForTimeout(600);
+  }
+  const times = [];
+  for (let r = 0; r < 2; r++)
+    for (const n of names) {
+      const h = await tile(n).elementHandle();
+      const t = await a.page.evaluate(async ({ el, n }) => {
+        const before = new Set(window.__rows());
+        const t0 = performance.now();
+        el.click();
+        const rows = await window.__waitFrame(t0, () => {
+          const r = window.__rows();
+          return r.length >= 3 && r.filter((x) => !before.has(x)).length >= 3;
+        });
+        // ...and the sidebar has caught up shortly after.
+        const chrome = await window.__waitFrame(t0, () => document.querySelector("[data-place-head]")?.textContent?.includes(n));
+        return { rows, chrome };
+      }, { el: h, n });
+      assert.ok(t.rows > 0, `${n}: rows appeared`);
+      assert.ok(t.chrome > 0, `${n}: the sidebar caught up`);
+      times.push(t.rows);
+      await a.page.waitForTimeout(300);
+    }
+  log(`guild switch to rows p50 ${pct(times, 50).toFixed(0)} ms, p95 ${pct(times, 95).toFixed(0)} ms`);
+  assert.ok(pct(times, 50) < 100 * SCALE, `guild switch p50 ${pct(times, 50).toFixed(0)} ms is over 100 ms`);
+  assert.ok(pct(times, 95) < 250 * SCALE, `guild switch p95 ${pct(times, 95).toFixed(0)} ms is over 250 ms`);
+});
