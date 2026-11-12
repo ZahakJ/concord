@@ -7,7 +7,7 @@
 // that actually broke instead of just "sync is down".
 //
 // Run as: node scripts/interop.mjs <phase>
-// Phases: online | while-old-down | old-came-back | report
+// Phases: online | while-old-down | old-came-back | while-new-down | new-came-back | report
 // State and evidence persist in $INTEROP_WORK between phases, because the
 // history-sync lane needs the OLD peer restarted in between.
 
@@ -273,6 +273,9 @@ async function phaseOnline() {
     }
     const g = (await rpc(NEW, "Guilds")).find((x) => x.id === dm.id);
     const newChan = textChannels(g)[0]?.id || (g.channels || [])[0]?.id;
+    st.dmChanOld = oldChan;
+    st.dmChanNew = newChan;
+    saveState(st);
     await rpc(OLD, "SendMessage", [oldChan, "PUSHED-DM-FROM-LEGACY", ""]);
     const got = await waitFor("NEW receives the legacy peer's pushed DM", () =>
       findMessage(NEW, newChan, "PUSHED-DM-FROM-LEGACY")
@@ -591,6 +594,69 @@ async function phaseOnline() {
     };
   });
 
+  await lane("U1", "nothing OLD sent live is marked unsigned on NEW", () => noneMarked(st, "live"));
+
+  st.lanes = (st.lanes || []).concat(results);
+  saveState(st);
+  return results.every((r) => r.status !== "FAIL");
+}
+
+// noneMarked is the release gate for the "unsigned" caveat (Message.svelte):
+// every row the OLD peer wrote, as NEW holds it now, must not be flagged as
+// relayed and unproven. An older peer is an honest peer; a build that flags its
+// messages has made its users look forged to everyone who upgraded, and no
+// unit test sees it because both sides of a unit test are the same build.
+async function noneMarked(st, when) {
+  const chans = [st.oldGuildChanNew, st.newGuildChanNew, st.dmChanNew].filter(Boolean);
+  const ev = [];
+  let total = 0;
+  const marked = [];
+  for (const ch of chans) {
+    const mine = (await messagesIn(NEW, ch)).filter((m) => m.sender === st.oldFP);
+    total += mine.length;
+    for (const m of mine) if (m.unverified) marked.push(`${ch.slice(0, 8)}: ${(m.content || "").slice(0, 60)}`);
+  }
+  ev.push(`${when}: ${total} rows by OLD on NEW across ${chans.length} channels, ${marked.length} marked unsigned`);
+  if (!total) throw new Error("no rows by OLD found on NEW, so nothing was checked");
+  if (marked.length) {
+    throw new Error(`honest messages from OLD are flagged on NEW:\n         ${marked.join("\n         ")}`);
+  }
+  return { evidence: ev };
+}
+
+async function phaseWhileNewDown() {
+  const st = loadState();
+  // NEW is down. OLD writes into the guild and the DM; NEW must take them from
+  // the mailbox or from a catch-up when it returns, and whichever lane wins,
+  // none of them may come out flagged.
+  for (let i = 1; i <= 3; i++) {
+    await rpc(OLD, "SendMessage", [st.oldGuildChanOld, `NEW-AWAY-${i}`, ""]);
+  }
+  if (st.dmChanOld) await rpc(OLD, "SendMessage", [st.dmChanOld, "NEW-AWAY-DM", ""]);
+  console.log("  posted 3 guild messages + 1 DM from OLD while NEW was down");
+  return true;
+}
+
+async function phaseNewCameBack() {
+  const st = loadState();
+  await login(NEW, PASS_NEW, "HeadPeer");
+  await lane("U2", "OLD's messages from while NEW was offline arrive unflagged", async () => {
+    await waitFor(
+      "NEW catches up on OLD's messages",
+      async () => {
+        const g = await messagesIn(NEW, st.oldGuildChanNew);
+        const d = st.dmChanNew ? await messagesIn(NEW, st.dmChanNew) : [];
+        const hits = [1, 2, 3].filter((i) => g.some((m) => (m.content || "") === `NEW-AWAY-${i}`));
+        const dm = !st.dmChanNew || d.some((m) => (m.content || "") === "NEW-AWAY-DM");
+        return hits.length === 3 && dm;
+      },
+      { timeout: 90000 }
+    );
+    // Let the reconnect's catch-ups and the mailbox drain both land: the
+    // flag used to depend on which of them got there first.
+    await sleep(15000);
+    return noneMarked(st, "after NEW came back");
+  });
   st.lanes = (st.lanes || []).concat(results);
   saveState(st);
   return results.every((r) => r.status !== "FAIL");
@@ -681,6 +747,8 @@ const phases = {
   online: phaseOnline,
   "while-old-down": phaseWhileOldDown,
   "old-came-back": phaseOldCameBack,
+  "while-new-down": phaseWhileNewDown,
+  "new-came-back": phaseNewCameBack,
   report: async () => phaseReport(),
 };
 const run = phases[phase];

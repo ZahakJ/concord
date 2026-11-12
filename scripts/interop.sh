@@ -47,7 +47,7 @@ RV_PORT=${RV_PORT:-8961}
 OLD_WEB_PORT=${OLD_WEB_PORT:-8962}
 NEW_WEB_PORT=${NEW_WEB_PORT:-8963}
 
-WORK="$(mktemp -d /tmp/concord-interop.XXXXXXXX)"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/concord-interop.XXXXXXXX")"
 RV_BIN="$WORK/rendezvous"
 PIDS=()
 
@@ -187,7 +187,18 @@ note "restarting OLD peer..."
 start_peer old "$OLD_BIN" "$OLD_WEB_PORT"
 drive old-came-back
 
-# Phase 3: final report over collected evidence.
+# Phase 3: the other direction. NEW goes away, OLD writes in the guild and the
+# DM, NEW comes back. Every row OLD wrote must reach NEW without the "unsigned"
+# flag, whichever of the mailbox and the reconnect catch-up lands first — a
+# release that flags an honest older peer must not ship.
+note "stopping NEW peer for the unflagged-catch-up lane..."
+stop_peer new
+drive while-new-down
+note "restarting NEW peer..."
+start_peer new "$NEW_BIN" "$NEW_WEB_PORT"
+drive new-came-back
+
+# Phase 4: final report over collected evidence.
 drive report
 
 note "PASS: every lane survived a v0.41.0 peer"
