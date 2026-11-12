@@ -4,7 +4,7 @@ How to create a guild, invite people and join one, organize channels and categor
 
 A guild is a shared, end-to-end-encrypted space with its own channels and members. It is not hosted anywhere: every member's device holds a copy, and the guild keeps running as long as members keep using it.
 
-![A guild open on its #general channel: the guild rail, the channel list with categories, the conversation and the member list](../media/manual/guild-chat.png)
+![A guild open on its #workshop channel: the guild shortcuts above the channel list with its categories, the conversation, and the side panel with the member list](../media/manual/guild-chat.webp)
 
 ## Creating a guild
 
@@ -25,13 +25,13 @@ You are the guild's **owner**. The owner holds every permission and outranks eve
 
 ## Inviting people
 
-Anyone with the **Manage members** permission (and the owner) can invite. Open **Guild settings → Invite people**, or right-click the guild in the rail and choose **Invite / add people**. The **Invite a friend** panel shows:
+Anyone with the **Manage members** permission (and the owner) can invite. Open **Guild settings → Invite people**, or right-click the guild in the guild shortcuts and choose **Invite / add people**. The **Invite a friend** panel shows:
 
 - **The invite code**, as text and as a QR code. **Copy code** copies it; on a phone, **Share code…** opens the system share sheet.
 - **Or add a verified contact directly**: contacts you have verified, with an **Add** button each. No code is needed. They receive an offer they can accept or **Ignore**, and they appear in the guild only once they accept.
 - **Can people reach me?** opens a check of whether people on other networks can connect to you. See [Troubleshooting](troubleshooting.md).
 
-![The Invite a friend panel with its QR code and Copy code button; the code itself is blurred in this picture](../media/manual/guild-invite.png)
+![The Invite a friend panel with its QR code and Copy code button; the code itself is blurred in this picture](../media/manual/guild-invite.webp)
 
 ### What an invite code carries
 

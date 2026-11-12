@@ -27,7 +27,7 @@ The list is in **Settings → Privacy & safety → Blocked users**, with **Unblo
 
 A direct message from a stranger waits as a **message request** instead of opening. A stranger here means someone you have not verified, share no guild or direct message with, and have never contacted first.
 
-Requests appear in a **Message requests** row at the top of your direct messages, with a dot on the guild rail, and in **Settings → Privacy & safety → Message requests**. For each one you can:
+Requests appear in a **Message requests** row at the top of your direct messages, with a dot on the **Messages** button, and in **Settings → Privacy & safety → Message requests**. For each one you can:
 
 - **Accept**: join the conversation. The sender needs to be online for this to work; if they are not, the request stays.
 - **Delete**: drop it without telling them.

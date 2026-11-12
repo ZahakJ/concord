@@ -40,7 +40,7 @@ The **What leaves this device** group lists every feature that makes a request o
 
 **Settings → Appearance** (also **Open appearance** in the command palette) is a list of sections, each showing its current value. Open one to change it. Changes apply as you make them.
 
-![Settings → Appearance with the Theme pack section open](../media/manual/appearance.png)
+![Settings → Appearance: the Layout cards, the theme, and the theme pack gallery](../media/manual/appearance.webp)
 
 ### Layout
 

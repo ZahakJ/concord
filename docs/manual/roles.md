@@ -26,7 +26,7 @@ Only the owner can import a chat archive, transfer ownership, or name an heir.
 
 ## Creating and editing roles
 
-Open **Guild settings → Roles**, or right-click the guild in the rail and choose **Roles & permissions**. These are shown only to the owner and to members with **Manage roles**.
+Open **Guild settings → Roles**, or right-click the guild in the guild shortcuts and choose **Roles & permissions**. These are shown only to the owner and to members with **Manage roles**.
 
 1. Click **New role**.
 2. Enter a **Role name** (up to 32 characters) and pick its color.
@@ -37,7 +37,7 @@ Click a role in the list to edit it. The bin icon deletes it after a confirmatio
 
 A role's position in the hierarchy is its **rank**. The editor has no control for reordering: a new role is always placed above every existing one. Because nobody but the owner may create a role at or above their own rank, in practice only the owner can create roles here. A member with **Manage roles** can edit, delete and assign the roles that rank below them.
 
-![The roles editor with a Moderator role open and three permissions ticked](../media/manual/roles-editor.png)
+![The roles editor with the Mentor role open and two permissions ticked](../media/manual/roles-editor.webp)
 
 ## Assigning roles
 

@@ -22,7 +22,7 @@ The dialog states which situation this device is in and offers the one next step
 
 Below the verdict, **The three ways in** shows the state of each route: **Same network**, **A port you forward** and **Somebody's rendezvous**.
 
-![The Can people reach me? dialog](../media/manual/troubleshooting-reach.png)
+![The Can people reach me? dialog](../media/manual/troubleshooting-reach.webp)
 
 ### Peers cannot see each other
 

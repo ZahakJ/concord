@@ -102,7 +102,7 @@ There is no sign-up. The first time Concord opens on a device, it asks for two t
 
 Select **Create identity**. Concord generates your identity, a cryptographic key pair, and shows your **recovery phrase**: 24 words that can rebuild that key on any device. Select **Show phrase**, write the words down somewhere safe (on paper or in a password manager, not in a screenshot), then select **I've saved my recovery phrase**. Concord asks for two of the words to make sure you have them; **Show me the words again** goes back to the list.
 
-![The unlock screen with the name and passphrase fields filled in](../media/manual/first-run.png)
+![The first-run screen, Create your account, with the name and passphrase fields filled in](../media/manual/first-run.webp)
 
 The same screen also offers **Restore from a recovery phrase** and **Link to an existing account**, for when this is not your first device. See [Accounts and identity](identity.md) and [Multiple devices](devices.md).
 

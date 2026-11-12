@@ -4,7 +4,7 @@ Private conversations outside any guild: one-to-one messages, group DMs, your ow
 
 ## Where DMs live
 
-Click the home button (**Home / Direct messages**) at the top of the guild rail. The channel list becomes **Direct messages**, with **Notes** (a conversation with yourself, synced to your own linked devices), your conversations, and **Message requests** when any are waiting.
+Click **Messages** (the speech-bubble button) at the start of the guild shortcuts at the top of the sidebar, or at the top of the guild column in the Rail layout. The channel list becomes **Direct messages**, with **Notes** (a conversation with yourself, synced to your own linked devices), your conversations, and **Message requests** when any are waiting.
 
 Every DM is its own end-to-end-encrypted group, just like a guild, with no roles or permissions inside it. Both sides can pin, and a delete erases the text for real on every device rather than leaving it for a moderator to reveal.
 

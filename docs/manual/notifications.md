@@ -18,7 +18,7 @@ Every guild and every channel has one of three levels:
 
 A channel uses its own level if you set one, otherwise its guild's, otherwise **All messages**.
 
-- **Guild:** open the guild's menu in the guild rail and pick a level under **Notifications**.
+- **Guild:** right-click the guild in the guild shortcuts (or the guild column in the Rail layout) and pick a level under **Notifications**.
 - **Channel:** open the channel's menu and pick a level under **Notifications**, or **Use guild default** to go back to following the guild.
 - **Mute a channel quickly:** on the desktop, the bell on a channel row toggles **Mute channel** / **Unmute channel**. On a phone, a muted channel shows the bell, and tapping it unmutes. The quick switcher (`Ctrl+K`) also offers **Mute #channel** and **Unmute #channel**. Muting sets the channel to **Nothing**. Unmuting returns it to the guild default.
 
@@ -76,8 +76,8 @@ The window title shows how many mentions are waiting, for example `(3) #general 
 
 ## Badges, the Inbox, and marking read
 
-- The guild rail shows an unread count on each guild you are not looking at. It turns red when any of it mentions you or matches an alert word. Folders add up the guilds inside them.
-- The **Inbox** (the bell on the guild rail) collects every mention, reply and alert word aimed at you, with **Mentions** and **Replies** filters and **Mark all read**.
+- The guild shortcuts (the guild column in the Rail layout) show an unread count on each guild you are not looking at. It turns red when any of it mentions you or matches an alert word. Folders add up the guilds inside them.
+- The **Inbox** (the bell beside the **Jump to** field above the channel list, on the guild column in the Rail layout, or the **Inbox** tab on a phone) collects every mention, reply and alert word aimed at you, with **Mentions** and **Replies** filters and **Mark all read**.
 - **Mark as read** is on every guild, channel and direct message menu, and on the new-messages divider. `Esc` marks the current channel read, and `Shift+Esc` marks everything read.
 
 Read state syncs to your other linked devices and to nobody else.

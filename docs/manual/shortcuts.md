@@ -21,7 +21,7 @@ On a phone, only the typed items (Markdown and slash commands) apply, and the sh
 | `Alt+↑` / `Alt+↓` | Previous / next channel |
 | `Alt+Shift+↑` / `Alt+Shift+↓` | Previous / next unread channel |
 | `Ctrl+Alt+↑` / `Ctrl+Alt+↓` | Previous / next guild |
-| `Ctrl+U` | Show or hide the member panel |
+| `Ctrl+U` | Show or hide the side panel (members, pins, files, threads) |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom in / zoom out / reset zoom |
 | `?` or `Ctrl+/` | Show the shortcut list |
 

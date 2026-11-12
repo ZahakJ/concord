@@ -16,7 +16,7 @@ Linking needs both devices online at the same time and able to reach each other.
 4. Choose a passphrase for the new device and type it twice. It protects your identity on that device only and does not have to match the passphrase on your other devices.
 5. Select **Link this device**, and keep both devices on their linking screens until it finishes.
 
-![Settings → Link a device; the QR code is blurred in this picture](../media/manual/link-device.png)
+![Settings → Your devices, linking a new device; the QR code is blurred in this picture](../media/manual/link-device.webp)
 
 The code is single-use and expires two minutes after it is shown. Anyone who scans it within that time can add a device to your account, so only scan it with a device you own.
 

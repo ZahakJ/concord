@@ -70,4 +70,4 @@ On a phone, and wherever the bar is narrow, sort and layout are together under *
 
 The layout is a reading preference stored **on this device** only; other members choose their own. Members with **Manage channels** can also give the forum a header picture: **Upload a picture…** (PNG, JPEG, GIF or WebP, up to 384 KiB) or **Remove**. Everyone in the guild sees it. A banner chosen from the preset scenes in an older version shows as a plain colour.
 
-![A forum board in the List layout with tag chips and a pinned post at the top](../media/manual/forum-board.png)
+![A forum board in the List layout with tag chips and a pinned post at the top](../media/manual/forum-board.webp)
