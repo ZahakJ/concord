@@ -438,6 +438,15 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 		`CREATE INDEX IF NOT EXISTS idx_messages_sent ON messages(sent, id)`); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
 	}
+	// The disappearing-message sweeper asks "which rows are due?" every 15
+	// seconds. Almost no row carries a deadline, so without this the answer was
+	// a scan of the whole messages table, sealed bodies included, on the one
+	// connection every UI call also waits for. Partial, so it holds only the
+	// rows that have a deadline and costs nothing for the rest.
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_messages_expires ON messages(expires) WHERE expires > 0`); err != nil {
+		return fmt.Errorf("store: migrate: %w", err)
+	}
 	return nil
 }
 
