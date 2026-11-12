@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/nacl/secretbox"
@@ -104,6 +106,13 @@ func passphraseForms(p string) []string {
 // SaveKeystore encrypts id's seed under passphrase and writes it to path,
 // creating parent directories as needed. The file is written 0600.
 func SaveKeystore(path, passphrase string, id *Identity) error {
+	keystoreMu.Lock()
+	defer keystoreMu.Unlock()
+	return saveKeystoreLocked(path, passphrase, id)
+}
+
+// saveKeystoreLocked is SaveKeystore for a caller already holding keystoreMu.
+func saveKeystoreLocked(path, passphrase string, id *Identity) error {
 	if passphrase == "" {
 		return errors.New("identity: passphrase must not be empty")
 	}
@@ -209,11 +218,30 @@ func ChangePassphrase(path, oldPass, newPass string) error {
 	if newPass == "" {
 		return errors.New("identity: passphrase must not be empty")
 	}
+	keystoreMu.Lock()
+	defer keystoreMu.Unlock()
 	id, err := LoadKeystore(path, oldPass)
 	if err != nil {
 		return err
 	}
-	return SaveKeystore(path, newPass, id)
+	return saveKeystoreLocked(path, newPass, id)
+}
+
+// keystoreMu orders the background re-seal (resealIfUnchanged) against a
+// passphrase change, so the re-seal can never write the old passphrase back
+// over a file that was just re-sealed under a new one.
+var keystoreMu sync.Mutex
+
+// resealIfUnchanged rewrites the keystore under passphrase, but only if the
+// file is still byte for byte the one the caller read.
+func resealIfUnchanged(path, passphrase string, id *Identity, before []byte) {
+	keystoreMu.Lock()
+	defer keystoreMu.Unlock()
+	now, err := os.ReadFile(path)
+	if err != nil || len(before) == 0 || !bytes.Equal(now, before) {
+		return
+	}
+	_ = saveKeystoreLocked(path, passphrase, id)
 }
 
 // LoadKeystore reads and decrypts the identity at path using passphrase.
@@ -280,11 +308,18 @@ func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
 		// memory for this session and the upgrade retries next unlock.
 		created, derr := id.ensureDeviceSeed()
 		pub, _ := ReadAccountPub(path)
-		// Also re-sealed when the file does not yet name its account in the
-		// clear (see keystoreFile.AccountPub), so a device that has been
-		// unlocked once by this build can say whose it is while locked.
-		if (derr == nil && created) || pub == nil {
+		if derr == nil && created {
 			_ = SaveKeystore(path, passphrase, id)
+		} else if pub == nil {
+			// Also re-sealed when the file does not yet name its account in the
+			// clear (see keystoreFile.AccountPub), so a device that has been
+			// unlocked once by this build can say whose it is while locked. That
+			// is a second key derivation (about 200 ms) the unlock does not
+			// need to wait for, so it happens behind it; it only replaces the
+			// file it read, so a passphrase change in between always wins, and
+			// a re-seal lost to an exit is simply retried at the next unlock.
+			before, _ := os.ReadFile(path)
+			go resealIfUnchanged(path, passphrase, id, before)
 		}
 		return id, false, nil
 	}

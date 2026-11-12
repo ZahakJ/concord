@@ -2,9 +2,11 @@ package identity
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSaveLoadRoundTrip(t *testing.T) {
@@ -117,5 +119,63 @@ func TestSealWithPassphraseRoundTripsAndRejects(t *testing.T) {
 	sealed[len(sealed)-8] ^= 0xff
 	if _, err := OpenWithPassphrase("correct horse", sealed); err == nil {
 		t.Fatal("a tampered envelope opened successfully")
+	}
+}
+
+// The re-seal that records the account in the clear runs behind the unlock
+// (it is a second key derivation), still lands, and never writes over a
+// passphrase change that happened first.
+func TestAccountPubResealIsBackgroundAndYieldsToAPassphraseChange(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "keystore.json")
+	id, _, err := LoadOrCreate(path, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	strip := func() {
+		raw, _ := os.ReadFile(path)
+		var env map[string]any
+		_ = json.Unmarshal(raw, &env)
+		delete(env, "account_pub")
+		out, _ := json.Marshal(env)
+		if err := os.WriteFile(path, out, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// As a file written before AccountPub existed.
+	strip()
+	if _, _, err := LoadOrCreate(path, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if pub, _ := ReadAccountPub(path); pub != nil {
+			if !bytes.Equal(pub, id.PublicKey()) {
+				t.Fatal("re-seal recorded the wrong account")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the account was never recorded in the clear")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// A passphrase change that lands before the background re-seal wins.
+	strip()
+	before, _ := os.ReadFile(path)
+	keystoreMu.Lock()
+	go resealIfUnchanged(path, "pw", id, before)
+	keystoreMu.Unlock()
+	if err := ChangePassphrase(path, "pw", "new"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, err := LoadKeystore(path, "new"); err != nil {
+		t.Fatalf("the new passphrase no longer opens the keystore: %v", err)
+	}
+	if _, err := LoadKeystore(path, "pw"); err == nil {
+		t.Fatal("the background re-seal wrote the old passphrase back")
 	}
 }
