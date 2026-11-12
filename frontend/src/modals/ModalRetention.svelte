@@ -72,10 +72,10 @@
     deleted messages that moderators can otherwise still reveal.
   </p>
 
-  <div class="opts" role="radiogroup" aria-label="How long to keep messages">
+  <div class="choices" role="radiogroup" aria-label="How long to keep messages">
     {#each OPTIONS as o (o.secs)}
       <button
-        class="opt"
+        class="choice"
         class:sel={current === o.secs}
         role="radio"
         aria-checked={current === o.secs}
@@ -124,42 +124,14 @@
     line-height: 1.5;
     margin: 0 0 12px;
   }
-  .opts {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .opt {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 11px 14px;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text);
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-  }
-  .opt:hover:not(:disabled) {
-    border-color: var(--accent);
-  }
-  .opt:disabled {
-    opacity: 0.55;
-    cursor: default;
-  }
-  .opt.sel {
-    border-color: var(--accent);
-  }
   .lbl {
     display: flex;
     flex-direction: column;
     gap: 2px;
   }
   .sub {
-    font-size: var(--fs-tiny);
+    font-size: var(--fs-small);
+    font-weight: 400;
     color: var(--text-muted);
   }
   .notes {

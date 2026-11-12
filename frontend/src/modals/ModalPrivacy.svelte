@@ -1,4 +1,6 @@
 <script>
+  import Caution from "./Caution.svelte";
+  import Icon from "../Icon.svelte";
   // Privacy & safety: the switches whose defaults are deliberate, each with the
   // reason it's set that way. These used to sit in the main Settings list with
   // their paragraphs attached, which is what made that list a wall.
@@ -144,14 +146,11 @@
       onclick={() => setPref("hideCallIp", !S.prefs.hideCallIp)}
     />
     {#if mediaRelay === false}
-      <p class="ip-note">
-        Can't hide your IP on this rendezvous. Being connected to it is how
-        peers find each other — it is not a media relay. Hiding an address
-        needs TURN running on that same host, which whoever operates it has
-        to turn on. Calls still connect directly, and people on them can see
-        your IP. You can leave the switch on; it starts working if a relay
-        appears.
-      </p>
+      <Caution
+        class="ip-note"
+        text="This rendezvous can't relay calls, so others on a call can still see your IP."
+        detail="The switch starts working if your rendezvous gains a relay."
+      />
     {/if}
     <SettingRow
       icon="edit"
@@ -260,13 +259,7 @@
   /* Full-strength, not a faded disabled row: locking a privacy switch without
      saying why is how this read as broken. Sits in the group's card under
      Hide my IP so the reason is on the setting, not in an ⓘ. */
-  .ip-note {
-    margin: 0;
-    padding: 10px 14px 12px;
-    font-size: var(--fs-compact);
-    line-height: 1.45;
-    color: var(--text);
-    background: color-mix(in srgb, var(--warn-text, var(--accent)) 10%, transparent);
-    border-top: 1px solid var(--hairline);
+  :global(.warn-line.ip-note) {
+    padding: 0 0 var(--sp-2) var(--sp-5);
   }
 </style>

@@ -52,12 +52,22 @@ export function parseAttachTokens(content) {
         w: +m[9],
         h: +m[10],
         spoiler: (flags & ATTACH_SPOILER) !== 0,
-        name: b64urlDecode(m[12]),
+        name: displayFileName(b64urlDecode(m[12])),
         desc: b64urlDecode(m[13]),
       });
     }
   }
   return out;
+}
+
+// displayFileName is a file name fit to show. Bidirectional control characters
+// are removed: a right-to-left override in "photo (1) \u202Egnp.exe" draws the
+// name as "photo (1) exe.png", so a program wore a picture's extension on
+// every screen it was shown on. Nobody needs one in a file name, and a name
+// that renders the way its bytes read is the only kind a reader can check.
+const BIDI_CONTROLS = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+export function displayFileName(name) {
+  return String(name || "").replace(BIDI_CONTROLS, "");
 }
 
 // parseFileTokens returns FILE tokens [{blobId, keys, size, mime, name}].
@@ -69,7 +79,7 @@ export function parseFileTokens(content) {
       keys: m[2],
       size: +m[3],
       mime: b64urlDecode(m[4]),
-      name: b64urlDecode(m[5]) || "file",
+      name: displayFileName(b64urlDecode(m[5])) || "file",
     });
   }
   return out;
@@ -125,6 +135,33 @@ export function loadAttachment(channelId, tok) {
 }
 
 // ---- "why isn't this here?" ------------------------------------------------
+
+// midTrunc shortens a file name from the MIDDLE, keeping its start and its
+// extension: "cutting-guide-lon…workshop.txt". A name cut at the end loses the
+// one part that says what kind of file it is, and two staged files that share
+// a long prefix ("report-2026-final-v2.pdf", "report-2026-final-v3.pdf") end
+// up reading the same. `max` counts characters (code points), ellipsis
+// included; a name that fits is returned whole.
+export function midTrunc(name, max = 32) {
+  const chars = [...String(name || "")];
+  if (chars.length <= max || max < 8) return chars.join("");
+  const dot = name.lastIndexOf(".");
+  const ext = dot > 0 && name.length - dot <= 8 ? [...name.slice(dot)] : [];
+  // The tail keeps the extension plus as much of the name before it as fits
+  // in two fifths of the room; the head takes the rest.
+  const tail = Math.max(ext.length + 4, Math.round((max - 1) * 0.4));
+  const head = max - 1 - tail;
+  return chars.slice(0, head).join("") + "…" + chars.slice(chars.length - tail).join("");
+}
+
+// fileLabel is a file card's second line: "TXT · 13 B", or the size alone
+// when the name has no extension worth naming.
+export function fileLabel(name, bytes) {
+  const n = String(name || "");
+  const ext = n.includes(".") ? n.split(".").pop().slice(0, 5).toUpperCase() : "";
+  const size = fmtBytes(bytes);
+  return ext && size ? `${ext} · ${size}` : ext || size;
+}
 
 // fmtBytes renders a byte count the way an attachment card labels one.
 export function fmtBytes(n) {

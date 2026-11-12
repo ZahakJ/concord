@@ -1,9 +1,22 @@
+<script module>
+  // Holding Shift over the feed swaps Edit, Pin and Delete into the hover
+  // toolbar. One listener for the whole app, written to the root as an
+  // attribute so every row's bar answers from CSS — hundreds of rows each
+  // listening for a modifier key would be hundreds of listeners for one bit.
+  if (typeof window !== "undefined" && !window.__msgShiftWired) {
+    window.__msgShiftWired = true;
+    const set = (e) => document.documentElement.toggleAttribute("data-shift-held", !!e.shiftKey);
+    window.addEventListener("keydown", set, true);
+    window.addEventListener("keyup", set, true);
+    window.addEventListener("blur", () => document.documentElement.removeAttribute("data-shift-held"));
+  }
+</script>
+
 <script>
   // One message row. `compact` renders the grouped continuation form (no
   // avatar/header, hover timestamp). The action bar is keyboard-reachable
   // (focus-within) with labelled icon buttons.
   import Icon from "./Icon.svelte";
-  import FormatBar from "./FormatBar.svelte";
   import { applyFormat as formatField, chordFor } from "./lib/mdformat.js";
   import { uneditableReason } from "./lib/tokenbody.js";
   import EmojiPicker from "./EmojiPicker.svelte";
@@ -32,7 +45,7 @@
   import { radialBurst } from "./lib/burst.js";
   import { playTick } from "./lib/sounds.js";
   import { saved, isSaved, toggleSaved, refreshSaved } from "./lib/saved.svelte.js";
-  import { sealedAt, stripTimestamp, sealShort, sealFull, sealAgo } from "./lib/timestamp.js";
+  import { sealedAt, stripTimestamp, sealShort, sealFull, sealAgo, shortWhen } from "./lib/timestamp.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
   import { untrack, tick } from "svelte";
@@ -60,7 +73,7 @@
     react,
     deleteMsg,
     saveEdit,
-    scrollToMessage,
+    jumpToMessage,
     flash,
     openProfilePopover,
     scheduleCloseProfilePopover,
@@ -93,6 +106,7 @@
     activeShortcode,
     searchEmoji,
   } from "./lib/emoji.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   // `entering` is set by MessageList for the newest appended message only, so
   // it fades/slides in once — history rows never animate.
@@ -108,6 +122,8 @@
     replyRef = null,
     entering = false,
     tabbable = false,
+    // Threads started from this message ([{id, name}]), found by MessageList.
+    threads = null,
   } = $props();
 
   // Moderators (Manage Messages) can delete anyone's message.
@@ -124,7 +140,12 @@
   // tap re-renders the pill, so it is never actually seen. On touch, drive the
   // pills off the viewport instead: they animate once when scrolled to.
   const reactionAnim = coarse ? animateInView : animateOnHover;
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+  const reduceMotion = reducedMotion();
+  // The reactions this row was drawn with. Only a pill that arrives while the
+  // row is on screen pops in, and only a count that changes ticks: the feed is
+  // virtualised, so a row scrolled back into view is drawn afresh, and every
+  // pill on it used to pop as you read past.
+  const drawnWith = untrack(() => new Map(Object.entries(m.reactions || {}).map(([e, f]) => [e, f.length])));
 
   // Long-press a reaction pill: who reacted — the touch counterpart of the
   // hover card. Rows are informational; tapping one just closes the sheet.
@@ -198,6 +219,28 @@
 
   const mem = $derived(memberByFpr(m.sender));
   const cemoji = $derived(customEmojiMap());
+  // Names are ink. A role's colour is an Appearance choice ("Colour names by
+  // role", off by default), and nameColorFor already mixes it toward the ink
+  // until it clears 4.5:1 on the canvas of whichever theme is on.
+  const inkFor = (f) => (S.prefs.roleNameColors ? nameColorFor(f) : "");
+  // One avatar size per density rung (compact draws none: its CSS hides the
+  // column), and the phone's own size, so the gutter of a grouped row lines up
+  // with the face above it at every rung.
+  // A very long message folds to twenty lines behind "Show more": past thirty
+  // lines one message is a wall the reader scrolls through to reach the next
+  // one. Measured after layout, so it is the RENDERED length (wrapping, code)
+  // that counts, not the number of newlines.
+  let longBody = $state(false);
+  let expanded = $state(false);
+  function foldLong(node) {
+    const check = () => {
+      const lh = parseFloat(getComputedStyle(node).lineHeight) || 24;
+      longBody = node.scrollHeight > lh * 30;
+    };
+    requestAnimationFrame(check);
+    return { update: () => requestAnimationFrame(check) };
+  }
+  const avSize = $derived(S.isMobile ? 34 : S.prefs.density === "comfortable" ? 40 : 36);
 
   const jumbo = $derived(!!bodyText && emojiOnly(bodyText));
   // "" when there's no animation for this emoji, which is the signal to fall
@@ -246,6 +289,12 @@
   // Reveal a focused spoiler with Enter/Space (it's role=button tabindex=0).
   function onBodyKeydown(e) {
     if (e.key !== "Enter" && e.key !== " ") return;
+    const link = e.target.closest?.(".msg-link");
+    if (link) {
+      e.preventDefault();
+      jumpToMessage(link.dataset.jumpChannel, link.dataset.jumpMsg);
+      return;
+    }
     const spoiler = e.target.closest?.(".spoiler");
     if (spoiler && !spoiler.classList.contains("revealed")) {
       e.preventDefault();
@@ -259,6 +308,13 @@
     if (spoiler && !spoiler.classList.contains("revealed")) {
       e.preventDefault();
       spoiler.classList.add("revealed");
+      return;
+    }
+    // A message link goes to the message, wherever and however far back.
+    const link = e.target.closest?.(".msg-link");
+    if (link) {
+      e.preventDefault();
+      jumpToMessage(link.dataset.jumpChannel, link.dataset.jumpMsg);
       return;
     }
     // A #channel goes where it points. It carries the id, not the name, so a
@@ -555,7 +611,6 @@
   const editDirToken = $derived(
     editDir === (m.dir || "") ? "" : editDir === "" ? "auto" : editDir,
   );
-  let editCancelled = false;
   let wasEditing = false;
   let editEl = $state(null);
   let editPicker = $state(false);
@@ -572,7 +627,12 @@
   // Seed the edit draft ONCE, when this message becomes the edit target (via the
   // menu or ArrowUp in an empty composer). untrack keeps a later reaction/edit
   // event that swaps `m` from wiping what the user is typing.
-  $effect(() => {
+  // $effect.pre: before the DOM update, so the edit box mounts already holding
+  // the text. Seeded after it, the box existed empty for a moment, and anything
+  // typed or selected in that moment was joined onto the old text when the
+  // seed and the caret placement below landed: a fast "select all, type the
+  // correction" saved "first draft of a thoughtsecond draft".
+  $effect.pre(() => {
     const editing = S.editing?.id === m.id;
     if (editing && !wasEditing) {
       editDraft = untrack(() => m.content);
@@ -581,7 +641,6 @@
       // across the pane, into a box laid out left-to-right, and there was no
       // control to say so.
       editDir = untrack(() => m.dir || "");
-      editCancelled = false;
     }
     wasEditing = editing;
   });
@@ -608,6 +667,9 @@
     tick().then(() =>
       requestAnimationFrame(() => {
         if (S.editing?.id !== m.id) return;
+        // Already in the box (clicked, or typing has begun): the caret and any
+        // selection are the person's, not ours to move.
+        if (document.activeElement === el) return;
         el.focus({ preventScroll: true });
         const end = el.value.length;
         el.setSelectionRange(end, end);
@@ -662,7 +724,6 @@
     autosizeEdit();
   }
   function cancelEdit() {
-    editCancelled = true; // so the textarea's blur handler doesn't save it
     S.editing = null;
     // The edit box is about to be unmounted from under the caret, and every
     // other Escape rung in the app says where focus goes next. <body> is not an
@@ -671,7 +732,7 @@
   }
   function commitEdit() {
     // Same shortcode treatment as the composer: :fire: saves as 🔥.
-    if (!editCancelled) saveEdit(m, replaceShortcodes(editDraft), editDirToken);
+    saveEdit(m, replaceShortcodes(editDraft), editDirToken);
   }
 
   // The ":colon command" while editing — same autocomplete as the composer:
@@ -734,6 +795,13 @@
       applyEditFormat(kind);
       return;
     }
+    // The composer's direction chord, here too: the edit box has no toolbar,
+    // and this is how a direction set by mistake gets corrected.
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "l") {
+      e.preventDefault();
+      cycleEditDir();
+      return;
+    }
     if (editSuggest) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -765,7 +833,7 @@
   const fmtTime = fmtClock; // honors the 12/24h clock pref
 
   function jumpToReply() {
-    if (m.replyTo && !scrollToMessage(m.replyTo)) flash("Original message not loaded");
+    if (m.replyTo) jumpToMessage(m.channelId, m.replyTo);
   }
 
   // Reply preview: the original message reduced to one line of prose. It used
@@ -861,8 +929,17 @@
   // What the sheet calls this message. On a phone it is also the only way to
   // read the send time of a GROUPED message: the compact row's gutter clock is
   // hover-revealed, and hover does not exist here.
+  // "Mira · 07:15", the way the rest of the app writes a moment: the
+  // locale's full date-and-seconds stamp ("10/11/2026, 07:15:04") read as a
+  // log line in the sheet's peek.
+  function saveAndClose() {
+    commitEdit();
+    S.editing = null;
+    focusComposer();
+  }
+
   const menuTitle = $derived(
-    `${guest ? guestName : announce ? announceGuild?.name || "Guild" : nameFor(m.sender, m.senderName)} · ${new Date(m.sent).toLocaleString()}`,
+    `${guest ? guestName : announce ? announceGuild?.name || "Guild" : nameFor(m.sender, m.senderName)} · ${shortWhen(Date.parse(m.sent), clockOpts())}`,
   );
 
   // Start a thread from this message: a forum post IS a thread channel under
@@ -893,13 +970,16 @@
       // The opening message quotes the origin (capped — a wall of text makes a
       // bad excerpt) and carries a concord://msg link back to it, in exactly
       // the shape "Copy Message Link" produces.
+      // It names who said it: the post is authored by whoever started the
+      // thread, so a bare quote read as their words.
       let src = copyText;
       if (src.length > 280) src = src.slice(0, 280) + "…";
       const quoted = src
         .split("\n")
         .map((l) => `> ${l}`)
         .join("\n");
-      const opener = `${quoted}\n\nconcord://msg/${m.channelId}/${m.id}`;
+      const who = (guest ? guestName : nameFor(m.sender, m.senderName)).replace(/[*_~|`\\]/g, "\\$&");
+      const opener = `**${who}** wrote:\n${quoted}\n\nconcord://msg/${m.channelId}/${m.id}`;
       const ch = await api.createThread(S.activeGuildId, m.channelId, title, opener, []);
       threadPrompt = false;
       threadTitle = "";
@@ -999,57 +1079,50 @@
         onClick: () => copy(pre.textContent || "", "Copied code"),
       },
       (link || pre) && { sep: true },
-      { label: "Reply", icon: "reply", onClick: () => (S.replyingTo = m) },
+      // Groups, in the order a reader reaches for them: answer it, pass it
+      // on, keep it, change it, and the two that need care last.
+      { label: "Reply", icon: "reply", kbd: "R", onClick: () => (S.replyingTo = m) },
       canThread && {
-        label: "Start thread",
+        label: "Start a thread",
         icon: "forum",
+        kbd: "T",
         onClick: () => {
           threadTitle = "";
           threadPrompt = true;
         },
       },
-      // The refusal already exists in startEdit; the menu had no idea, so the
-      // only possible outcome of this item was a toast saying no.
-      isOwn && !uneditableReason(m.content) && { label: "Edit", icon: "edit", onClick: startEdit },
-      memeTok && {
-        label: "Edit meme",
-        icon: "spark",
-        onClick: () =>
-          (S.modal = {
-            kind: "meme",
-            edit: { channelId: m.channelId, messageId: m.id, blobId: memeTok.blobId },
-          }),
-      },
       { label: "Add reaction", icon: "smile", onClick: () => (S.pickerTarget = m) },
       { sep: true },
       { label: "Copy text", icon: "copy", onClick: () => copy(copyText, "Copied text") },
       {
-        label: "Copy message link",
-        icon: "copy",
+        label: "Copy link",
+        icon: "link",
         onClick: () => copy(`concord://msg/${m.channelId}/${m.id}`, "Copied message link"),
       },
-      canPin && {
-        label: m.pinned ? "Unpin" : "Pin",
-        icon: "pin",
-        onClick: () => {
-          haptic("medium"); // pinning changes the channel for everyone; confirm it landed
-          api.pinMessage(m.channelId, m.id);
-        },
-      },
+      { label: "Forward…", icon: "forward", onClick: () => (S.modal = { kind: "forward", message: m }) },
       activeChannel()?.type === "announcement" && (isOwn || canDeleteOthers) && {
         label: "Publish",
         icon: "megaphone",
         onClick: () => (S.modal = { kind: "publish", message: m, channel: activeChannel() }),
       },
-      { label: "Forward", icon: "forward", onClick: () => (S.modal = { kind: "forward", message: m }) },
+      { sep: true },
+      canPin && {
+        label: m.pinned ? "Unpin" : "Pin",
+        icon: m.pinned ? "pinFilled" : "pin",
+        kbd: "P",
+        onClick: () => {
+          haptic("medium"); // pinning changes the channel for everyone; confirm it landed
+          api.pinMessage(m.channelId, m.id);
+        },
+      },
       {
-        label: isSaved(m.id) ? "Remove from saved" : "Save message",
-        icon: "pin",
+        label: isSaved(m.id) ? "Remove from saved" : "Save for later",
+        icon: "bookmark",
+        kbd: "S",
         onClick: () => toggleSaved(m),
       },
-      { label: "Mark unread", icon: "bell", onClick: () => markUnread(m.channelId, m) },
       {
-        label: "Remind me",
+        label: "Remind me…",
         icon: "clock",
         onClick: () =>
           (S.modal = {
@@ -1062,13 +1135,27 @@
             },
           }),
       },
+      { label: "Mark unread", icon: "bell", onClick: () => markUnread(m.channelId, m) },
+      // The refusal already exists in startEdit; the menu had no idea, so the
+      // only possible outcome of this item was a toast saying no.
+      (isOwn && !uneditableReason(m.content)) || memeTok ? { sep: true } : null,
+      isOwn && !uneditableReason(m.content) && { label: "Edit", icon: "edit", kbd: "E", onClick: startEdit },
+      memeTok && {
+        label: "Edit meme",
+        icon: "spark",
+        onClick: () =>
+          (S.modal = {
+            kind: "meme",
+            edit: { channelId: m.channelId, messageId: m.id, blobId: memeTok.blobId },
+          }),
+      },
       // Somebody else's message only: reporting your own is nothing but a
       // slower route to Delete, which is right there. This one entry serves
       // both the phone (long-press sheet) and the desktop (⋯), because they
       // render the same list.
       !isOwn && { sep: true },
       !isOwn && {
-        label: "Report message",
+        label: "Report message…",
         icon: "alert",
         onClick: () => (S.modal = { kind: "report", message: m }),
       },
@@ -1086,6 +1173,24 @@
       title: menuTitle,
       quick: { emojis: sheetEmojis, onPick: reactWithBounce, onMore: () => (S.pickerTarget = m) },
     });
+  }
+
+  // Single letters act on the message row that has focus (and only there:
+  // anywhere else a letter is typing). R reply, T thread, E edit, P pin,
+  // S save, Delete asks to delete, Shift+Delete deletes with an Undo.
+  function onRowKey(e) {
+    if (e.target !== e.currentTarget || e.altKey || e.ctrlKey || e.metaKey || m.deleted) return;
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    if (k === "r") S.replyingTo = m;
+    else if (k === "t" && canThread) {
+      threadTitle = "";
+      threadPrompt = true;
+    } else if (k === "e" && isOwn && !uneditableReason(m.content)) startEdit();
+    else if (k === "p" && canPin) api.pinMessage(m.channelId, m.id);
+    else if (k === "s") toggleSaved(m);
+    else if (k === "Delete" && (isOwn || canDeleteOthers)) deleteMsg(m, { now: e.shiftKey });
+    else return;
+    e.preventDefault();
   }
 
   // The hover toolbar carries the common verbs; Remind Me, Mark Unread, Copy
@@ -1126,9 +1231,11 @@
   class:enter={entering}
   class:mentions-me={mentionsMe}
   class:alerts-me={!mentionsMe && !!alertHit}
+  style:--av="{avSize}px"
   data-msg-id={m.id}
   data-menu-row
   tabindex={tabbable ? 0 : -1}
+  onkeydown={onRowKey}
   oncontextmenu={coarse ? (e) => e.preventDefault() : messageMenu}
   use:longpress={{ handler: messageMenu }}
   use:fxOnView
@@ -1142,7 +1249,7 @@
   {:else}
     {#if guest}
       <span class="av-btn guest-av" role="img" use:tooltip={"A guest in this meeting"} aria-label="A guest in this meeting">
-        <Avatar name={guestName} emoji="👤" color="#5b6270" size={38} />
+        <Avatar name={guestName} emoji="👤" color="#5b6270" size={avSize} />
       </span>
     {:else if announce}
       <!-- A published announcement is the guild talking, so it wears the
@@ -1156,7 +1263,7 @@
         <Avatar
           name={announceGuild?.name || "Guild"}
           image={announceGuild?.icon || ""}
-          size={38}
+          size={avSize}
         />
       </span>
     {:else}
@@ -1177,7 +1284,7 @@
           color={mem?.color}
           color2={mem?.color2}
           image={mem?.avatar}
-          size={38}
+          size={avSize}
           frame={mem?.frame}
           decoration={mem?.style?.dec || ""}
           dc={mem?.style?.dc || ""}
@@ -1188,30 +1295,6 @@
   {/if}
 
   <div class="msg-main">
-    {#if m.replyTo && !compact}
-      <button
-        class="reply-ref"
-        use:tooltip={"Jump to original message"}
-        aria-label="Jump to original message"
-        onclick={jumpToReply}
-      >
-        <span class="reply-icon"><Icon name="reply" size={11} /></span>
-        {#if replyRef}
-          <span
-            class="reply-author"
-            style={nameColorFor(replyRef.sender) ? `color:${nameColorFor(replyRef.sender)}` : ""}
-            >{nameFor(replyRef.sender, replyRef.senderName)}</span
-          >
-          {#if replyRef.deleted}
-            <em class="reply-snippet faded">message deleted</em>
-          {:else}
-            <span class="reply-snippet">{replySnippet}</span>
-          {/if}
-        {:else}
-          <em class="reply-snippet faded">original message not loaded</em>
-        {/if}
-      </button>
-    {/if}
     {#if !compact && !gameAside && !emote}
       <div class="msg-head">
         {#if guest}
@@ -1219,7 +1302,7 @@
           <span
             class="guest-badge"
             use:tooltip={"Joined from a meeting link — no account, unverified"}
-            >guest</span
+            >Guest</span
           >
         {:else if announce}
           <span class="sender guild-name">{announceGuild?.name || "Guild"}</span>
@@ -1227,12 +1310,12 @@
             class="ann-badge"
             use:tooltip={{ text: announce.from ? `Published from #${announce.from}` : "Announcement" }}
           >
-            <Icon name="megaphone" size={10} /> announcement
+            <Icon name="megaphone" size={10} /> Announcement
           </span>
         {:else}
           <button
             class="sender"
-            style={nameColorFor(m.sender) ? `color:${nameColorFor(m.sender)}` : ""}
+            style={inkFor(m.sender) ? `color:${inkFor(m.sender)}` : ""}
             onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
             >{nameFor(m.sender, m.senderName)}</button
           >
@@ -1276,6 +1359,30 @@
       >
     {/if}
 
+    {#if m.replyTo && !compact}
+      <!-- Under the author line, not above it: above, the quote read as the
+           tail of the message before. -->
+      <button
+        class="reply-ref"
+        use:tooltip={"Jump to original message"}
+        aria-label="Jump to original message"
+        onclick={jumpToReply}
+      >
+        {#if replyRef}
+          <span class="reply-author" style={inkFor(replyRef.sender) ? `color:${inkFor(replyRef.sender)}` : ""}
+            >{nameFor(replyRef.sender, replyRef.senderName)}</span
+          >
+          {#if replyRef.deleted}
+            <em class="reply-snippet faded">Original message was deleted</em>
+          {:else}
+            <span class="reply-snippet">{replySnippet}</span>
+          {/if}
+        {:else}
+          <em class="reply-snippet faded">Original message not loaded</em>
+        {/if}
+      </button>
+    {/if}
+
     {#if m.deleted}
       <!-- svelte-ignore a11y_no_static_element_interactions, a11y_mouse_events_have_key_events -->
       <div
@@ -1306,20 +1413,9 @@
       </div>
     {:else if S.editing?.id === m.id}
       <div class="edit-wrap" class:pick-below={editPickerBelow}>
-        <!-- The same bar the composer has, over the same engine, routed at this
-             textarea. Its buttons swallow mousedown, so pressing one never
-             takes focus out of the box and never trips the blur-commits rule
-             below. -->
-        <!-- The same bar, with the same ⇄ the composer has: the control that
-             sets a direction existed only where a message is written, so the
-             one place you might need to CORRECT one had no way to say it. -->
-        <FormatBar
-          onFormat={applyEditFormat}
-          label="Text formatting for this edit"
-          dirMode={editDir}
-          onCycleDir={cycleEditDir}
-          compact
-        />
+        <!-- A plain box: no toolbar over an inline edit. The format chords work
+             here exactly as in the composer (applyEditFormat), and so does the
+             direction chord. -->
         <div class="edit-field">
           <textarea
             class="edit-input"
@@ -1331,15 +1427,6 @@
             bind:this={editEl}
             oninput={onEditInput}
             onkeydown={onEditKeydown}
-            onblur={(e) => {
-              // Focus moving WITHIN the edit UI must not commit-and-close. That
-              // is the emoji button and its picker (.edit-wrap) — and Cancel and
-              // Save, which live in a SIBLING .edit-actions row. A mouse never
-              // noticed the gap because those buttons swallow mousedown, but Tab
-              // does not, so tabbing to Cancel saved the edit on the way there
-              // and then cancelled nothing.
-              if (!e.relatedTarget?.closest?.(".edit-wrap, .edit-actions")) commitEdit();
-            }}
           ></textarea>
           <button
             type="button"
@@ -1385,41 +1472,27 @@
       <!-- Buttons as well as the shortcuts. The keyboard path is faster once you
            know it, but a hint line only TELLS you it exists; something you can
            click is what makes it discoverable — and on a touchscreen there is no
-           Escape key at all. onmousedown/preventDefault matters: the textarea's
-           blur handler commits, so a plain click on Cancel would save the edit
-           on the way down and then cancel nothing. -->
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-      <div
-        class="edit-actions"
-        onfocusout={(e) => {
-          // The textarea hands the edit to these buttons rather than committing;
-          // leaving THEM for somewhere else outside the edit is the real "you
-          // walked away", and still commits, exactly as before.
-          if (!e.relatedTarget?.closest?.(".edit-wrap, .edit-actions")) commitEdit();
-        }}
-      >
-        <button
-          type="button"
-          class="edit-btn"
-          onmousedown={(e) => e.preventDefault()}
-          onclick={cancelEdit}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          class="edit-btn save"
-          onmousedown={(e) => e.preventDefault()}
-          onclick={() => {
-            editCancelled = false;
-            commitEdit();
-            S.editing = null;
-            focusComposer();
-          }}
-        >
-          Save
-        </button>
-        <span class="edit-hint muted">escape to cancel · enter to save</span>
+           Escape key at all. onmousedown/preventDefault keeps the caret in the
+           box while they are pressed. -->
+      <!-- Leaving the box does nothing: the edit stays open until Enter/Save
+           or Escape/Cancel. It used to save on blur, so clicking anywhere else
+           published a half-finished edit to everyone — the opposite of what a
+           box that says "escape to cancel" promises. The window pins the row
+           being edited, so scrolling away cannot unmount it either. -->
+      <!-- One quiet line on a desktop: the two words in it are the buttons,
+           so the pointer path stays and the box is not trailed by a Cancel /
+           Save pair heavier than the message. A phone has no Escape key, so
+           there they are buttons at full tap size. -->
+      <div class="edit-actions">
+        {#if S.isMobile}
+          <button type="button" class="edit-btn" onmousedown={(e) => e.preventDefault()} onclick={cancelEdit}>Cancel</button>
+          <button type="button" class="edit-btn save" onmousedown={(e) => e.preventDefault()} onclick={saveAndClose}>Save</button>
+        {:else}
+          <span class="edit-hint"
+            >Esc to <button type="button" class="link edit-link" onmousedown={(e) => e.preventDefault()} onclick={cancelEdit}>cancel</button>
+            · Enter to <button type="button" class="link edit-link" onmousedown={(e) => e.preventDefault()} onclick={saveAndClose}>save</button></span
+          >
+        {/if}
       </div>
     {:else if eventTok}
       <EventPost token={eventTok} />
@@ -1439,7 +1512,7 @@
              element's own direction by definition and dir alone would be
              silently inert. Bounded to two values on the way in
              (domain.ValidDir), so this is never a string a stranger chose. -->
-        <div class="body" class:jumbo={jumbo} dir={m.dir || null} style={m.dir ? "unicode-bidi:isolate" : null} use:animateInView={jumbo} use:highlightCode={bodyText} onclick={onBodyClick} onkeydown={onBodyKeydown} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
+        <div class="body" class:jumbo={jumbo} class:folded={longBody && !expanded} class:ul-links={S.prefs.underlineLinks} use:foldLong={bodyHtml} dir={m.dir || null} style={m.dir ? "unicode-bidi:isolate" : null} use:animateInView={jumbo} use:highlightCode={bodyText} onclick={onBodyClick} onkeydown={onBodyKeydown} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
           {#if sealMs}
             <!-- Tap AND hover, deliberately — but the hover pair must be gated
                  on a device that HAS hover: a tap synthesizes mouseenter first
@@ -1476,6 +1549,11 @@
               aria-label="Author unverified"><Icon name="alert" size={11} /></span
             >{/if}
         </div>
+        {#if longBody}
+          <button type="button" class="fold-btn" aria-expanded={expanded} onclick={() => (expanded = !expanded)}>
+            {expanded ? "Show less" : "Show more"}
+          </button>
+        {/if}
       {/if}
       {#if doodle}
         <DoodleView strokes={doodle} />
@@ -1562,6 +1640,7 @@
           <span class="react-wrap">
             <button
               class="reaction"
+              class:fresh={!drawnWith.has(emoji)}
               class:mine={fprs.includes(S.identity.fingerprint)}
               onclick={(ev) => reactWithBounce(emoji, ev)}
               use:stopTouch
@@ -1578,7 +1657,7 @@
                 {:else}{emoji}{/if}
               </span>
               <!-- keyed so the count re-mounts (and animates) when it changes -->
-              {#key fprs.length}<span class="rcount">{fprs.length}</span>{/key}
+              {#key fprs.length}<span class="rcount" class:ticked={drawnWith.get(emoji) !== fprs.length}>{fprs.length}</span>{/key}
             </button>
             <!-- who reacted, on hover -->
             <span class="react-who">
@@ -1592,6 +1671,20 @@
               {#if fprs.length > 12}<span class="rw-more">+{fprs.length - 12} more</span>{/if}
             </span>
           </span>
+        {/each}
+      </div>
+    {/if}
+
+    {#if threads?.length}
+      <!-- The message's threads, one chip each: the way into a side
+           conversation from the message it is about. -->
+      <div class="thread-chips">
+        {#each threads as t (t.id)}
+          <button type="button" class="thread-chip" onclick={() => jumpToChannel(t.id)}>
+            <Icon name="forum" size={13} />
+            <span class="tc-name"><bdi>{t.name}</bdi></span>
+            <Icon name="chevron" size={11} />
+          </button>
         {/each}
       </div>
     {/if}
@@ -1651,126 +1744,132 @@
        long-press sheet (messageMenu), which carries every action this bar has
        and several it never had, so nothing is lost by not drawing it. -->
   {#if !S.isMobile && !m.deleted && S.editing?.id !== m.id}
+    <!-- Seven controls: three reactions, Add reaction, Reply, Start thread, ⋯.
+         Holding Shift swaps Edit, Pin and Delete in after Reply (the root's
+         data-shift-held, see the module script); every one of them is also in
+         the ⋯ menu, which is where a keyboard or a menu-first reader finds
+         them. Forward lives in the menu. -->
     <div class="msg-actions" role="toolbar" aria-label="Message actions">
-      <div class="grp">
-        {#each quickEmojis as e (e)}
-          <button class="emoji-btn" class:bounce={bounced === e} use:tooltip aria-label="React {e}" onclick={(ev) => reactWithBounce(e, ev)}>{e}</button>
-        {/each}
-        <button class="add-react" use:tooltip aria-label="More reactions" onclick={() => (S.pickerTarget = m)}>
-          <Icon name="smile" size={15} />
-          <span class="plus" aria-hidden="true">+</span>
-        </button>
-      </div>
+      {#each quickEmojis as e (e)}
+        <button class="emoji-btn" class:bounce={bounced === e} use:tooltip aria-label="React {e}" onclick={(ev) => reactWithBounce(e, ev)}>{e}</button>
+      {/each}
       <span class="sep"></span>
-      <div class="grp">
-        <button use:tooltip aria-label="Reply" onclick={() => (S.replyingTo = m)}>
-          <Icon name="reply" size={15} />
-        </button>
-        <button use:tooltip aria-label="Forward" onclick={() => (S.modal = { kind: "forward", message: m })}>
-          <Icon name="forward" size={15} />
-        </button>
-        {#if canPin}
-          <button
-            class:on={m.pinned}
-            use:tooltip
-            aria-label={m.pinned ? "Unpin" : "Pin"}
-            onclick={() => api.pinMessage(m.channelId, m.id)}
-          >
-            <Icon name="pin" size={15} />
-          </button>
-        {/if}
-      </div>
-      {#if m.sender === S.identity.fingerprint}
-        <span class="sep"></span>
-        <div class="grp">
-          {#if !uneditableReason(m.content)}
-            <button use:tooltip aria-label="Edit" onclick={startEdit}><Icon name="edit" size={15} /></button>
-          {/if}
-          <button class="danger" use:tooltip aria-label="Delete" onclick={() => deleteMsg(m)}>
-            <Icon name="trash" size={15} />
-          </button>
-        </div>
-      {:else if canDeleteOthers}
-        <span class="sep"></span>
-        <div class="grp">
-          <button
-            class="danger"
-            use:tooltip={"Delete (moderator)"}
-            aria-label="Delete message"
-            onclick={() => deleteMsg(m)}
-          >
-            <Icon name="trash" size={15} />
-          </button>
-        </div>
+      <button use:tooltip aria-label="Add reaction" onclick={() => (S.pickerTarget = m)}>
+        <Icon name="smile" size={16} />
+      </button>
+      <button use:tooltip aria-label="Reply" onclick={() => (S.replyingTo = m)}>
+        <Icon name="reply" size={16} />
+      </button>
+      {#if isOwn && !uneditableReason(m.content)}
+        <button class="shift-only" use:tooltip aria-label="Edit" onclick={startEdit}><Icon name="edit" size={16} /></button>
       {/if}
-      <span class="sep"></span>
-      <div class="grp grp-more">
-        <!-- The only survivor in a narrow feed, where it stands in for the whole
-             bar — so it opens the full message menu there rather than the ⋯
-             shortlist, which assumes the bar is beside it. -->
+      {#if canPin}
+        <button
+          class="shift-only"
+          class:on={m.pinned}
+          use:tooltip
+          aria-label={m.pinned ? "Unpin" : "Pin"}
+          onclick={() => api.pinMessage(m.channelId, m.id)}
+        >
+          <Icon name={m.pinned ? "pinFilled" : "pin"} size={16} />
+        </button>
+      {/if}
+      {#if isOwn || canDeleteOthers}
+        <button
+          class="shift-only danger"
+          use:tooltip={isOwn ? "Delete" : "Delete (moderator)"}
+          aria-label="Delete"
+          onclick={(e) => deleteMsg(m, { now: e.shiftKey })}
+        >
+          <Icon name="trash" size={16} />
+        </button>
+      {/if}
+      {#if canThread}
         <button
           use:tooltip
-          aria-label="More"
-          onclick={(ev) =>
-            ev.currentTarget.closest(".feed")?.classList.contains("bar-narrow")
-              ? messageMenu(ev)
-              : moreMenu(ev)}
+          aria-label="Start a thread"
+          onclick={() => {
+            threadTitle = "";
+            threadPrompt = true;
+          }}
         >
-          <Icon name="dots" size={15} />
+          <Icon name="forum" size={16} />
         </button>
-      </div>
+      {/if}
+      <!-- The only survivor in a narrow feed, where it stands in for the whole
+           bar — so it opens the full message menu there rather than the ⋯
+           shortlist, which assumes the bar is beside it. -->
+      <button
+        class="more-btn"
+        use:tooltip
+        aria-label="More"
+        onclick={(ev) =>
+          ev.currentTarget.closest(".feed")?.classList.contains("bar-narrow")
+            ? messageMenu(ev)
+            : moreMenu(ev)}
+      >
+        <Icon name="dots" size={16} />
+      </button>
     </div>
   {/if}
 </div>
 
 <style>
-  /* Row rhythm comes from the density vars in app.css (Appearance setting):
-     cozy is today's spacing, compact tightens padding + group pull together. */
+  /* Row rhythm comes from the density vars in app.css (Appearance setting).
+     Groups are made here, in the markup: a row that starts a group (it wears
+     its author's name) carries the group gap above it, and a continuation row
+     carries none. The feed itself has no gap between rows, so nothing has to
+     pull a row back up against one. */
   .msg {
     display: flex;
     gap: var(--sp-3);
     position: relative;
     padding: var(--msg-pad-y, 2px) 0;
     border-radius: var(--radius-sm);
+    --av: 36px;
+  }
+  .msg:not(.compact) {
+    margin-top: var(--msg-gap, 16px);
   }
   /* Row highlight is a pointer affordance, and Chromium latches :hover onto the
      last element a finger touched — unguarded, the message you last tapped
      stayed lit forever and read as a selection the app doesn't have. */
   @media (pointer: fine) {
     .msg:hover {
-      background: color-mix(in srgb, var(--bg-3) 40%, transparent);
+      background: var(--msg-surface-hover);
     }
   }
-  /* ---- @you ----
-     Warm, not red: --danger is the rail's mention colour because a rail badge
-     is a dot with no room to say anything, but a whole row painted in the alarm
-     colour reads as "this message is broken". Amber carries the same "look
-     here" without the alarm, and both --warn and the tint derived from it flip
-     with the theme, so this is one declaration for all fifty packs. The bar sits
-     in the gutter the same way the unread bar does in the channel list. */
-  .msg.mentions-me {
-    background: var(--warn-soft);
-    /* The margin and the padding cancel, so the tint reaches into the feed's
-       gutter without moving a single pixel of the row's content. */
-    margin-left: -8px;
+  /* ---- @you, and the words you asked about ----
+     One look for "this is aimed at you": the accent wash and a 2px accent bar
+     on the row's start edge (the wash alone is ~1.1:1 against the canvas, so
+     it never ships without the bar). The margin and padding cancel, so the
+     wash reaches into the feed's gutter without moving the row's content. The
+     :root[data-theme] prefix outranks app.css's pack hover fill, which would
+     otherwise wipe the wash off the row under the pointer. */
+  :global(:root[data-theme]) .msg.mentions-me,
+  :global(:root[data-theme]) .msg.alerts-me {
+    background: var(--mention-wash);
+    margin-left: calc(-1 * var(--sp-2));
     padding-left: var(--sp-2);
-    margin-right: -8px;
+    margin-right: calc(-1 * var(--sp-2));
     padding-right: var(--sp-2);
+    border-radius: 0;
   }
   @media (pointer: fine) {
-    .msg.mentions-me:hover {
-      background: color-mix(in srgb, var(--warn) 22%, transparent);
+    :global(:root[data-theme]) .msg.mentions-me:hover,
+    :global(:root[data-theme]) .msg.alerts-me:hover {
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
     }
   }
-  .msg.mentions-me::before {
+  .msg.mentions-me::before,
+  .msg.alerts-me::before {
     content: "";
     position: absolute;
     left: 0;
     top: 0;
     bottom: 0;
-    width: 3px;
-    border-radius: 0 3px 3px 0;
-    background: var(--warn);
+    width: 2px;
+    background: var(--accent-hover);
   }
   /* ---- the row a menu is about ----
      A menu opens at the cursor and says nothing about what it belongs to, and
@@ -1783,38 +1882,9 @@
      as long as the menu is up; :global keeps the compiler from pruning a
      selector that never appears in this file's markup. Listed after the hover
      rules, and again for @you, so it wins on both grounds. */
-  .msg:global([data-menu-target]),
-  .msg.mentions-me:global([data-menu-target]) {
+  :global(:root[data-theme]) .msg:global([data-menu-target]) {
     background: color-mix(in srgb, var(--bg-3) 78%, transparent);
     box-shadow: inset 0 0 0 1px var(--border);
-  }
-  /* ---- a word you asked about ----
-     The same shape as @you, in the accent instead of the amber, because it is
-     the same "look here" arriving through a different door. Amber says someone
-     aimed this at you; the accent says you asked to be told. Giving them one
-     colour would be a small lie every time an alert word fired, and giving the
-     alert word a THIRD colour would just be another thing to learn. */
-  .msg.alerts-me {
-    background: var(--accent-soft);
-    margin-left: -8px;
-    padding-left: var(--sp-2);
-    margin-right: -8px;
-    padding-right: var(--sp-2);
-  }
-  @media (pointer: fine) {
-    .msg.alerts-me:hover {
-      background: color-mix(in srgb, var(--accent) 20%, transparent);
-    }
-  }
-  .msg.alerts-me::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    border-radius: 0 3px 3px 0;
-    background: var(--accent);
   }
   /* The row is the feed's roving tab stop (see the `tabbable` prop). The ring
      is drawn INSIDE it: the row runs the full width of the feed, and the app's
@@ -1824,18 +1894,17 @@
     outline: var(--focus-ring);
     outline-offset: -2px;
   }
-  .msg.compact {
-    margin-top: var(--msg-group-pull, -10px);
-  }
-  /* Newest appended message only (see MessageList): quick fade + slide-up.
-     The global reduced-motion override in app.css zeroes the duration. */
+  /* Someone else's newest message, arriving while you watch (see
+     MessageList): the same 3px rise and fade your own pending row makes. Never
+     on a channel's first page, never on your own message (its pending row
+     already arrived). Reduced motion zeroes it. */
   .msg.enter {
-    animation: msg-in 0.26s var(--ease-out) backwards;
+    animation: msg-in var(--dur-standard) var(--ease-out) backwards;
   }
   @keyframes msg-in {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      translate: 0 3px;
     }
   }
   /* Also the spacer that keeps a grouped row's text aligned under the author's,
@@ -1846,23 +1915,43 @@
        row's text under the text of the row that names its author, so it cannot
        simply grow. The 12-hour clock used to wrap its meridiem onto a second
        line inside it and make the row taller on hover; dropping the leading
-       zero (see fmtClock) is what makes "7:28 PM" fit, and nowrap is what makes
-       any remaining overhang hang into the feed's own gutter instead. */
-    width: 38px;
-    font-size: var(--fs-micro);
+       zero (see fmtClock) is what makes "7:28 PM" fit. "12:49 PM" still does
+       not, and right-aligned text that overflows spills to the RIGHT — into
+       the message's first word. A flex box packed to its end overflows at its
+       start instead, so the overhang goes left into the feed's own gutter. */
+    display: flex;
+    justify-content: flex-end;
+    width: var(--av);
+    font-size: var(--fs-tiny);
+    color: var(--text-faint);
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
     text-align: right;
     white-space: nowrap;
     opacity: 0;
     flex-shrink: 0;
-    padding-top: var(--sp-1);
+    padding-top: 3px;
+  }
+  .msg.compact:focus-visible .gutter-time,
+  .msg.emote-row:focus-visible .gutter-time {
+    opacity: 1;
   }
   @media (pointer: fine) {
     .msg.compact:hover .gutter-time,
     .msg.emote-row:hover .gutter-time {
       opacity: 1;
     }
+  }
+  /* Compact density draws no faces: the name line leads every group, and a
+     continuation row starts at the same edge as the text above it. */
+  :global(:root[data-density="compact"]) .msg .av-btn,
+  :global(:root[data-density="compact"]) .msg .gutter-time {
+    display: none;
+  }
+  /* With no face at its start a compact row's text began at the row's edge,
+     where the inset focus ring drew straight through the first letter. */
+  :global(:root[data-density="compact"]) .msg {
+    padding-inline: var(--sp-2);
   }
   .msg-main {
     min-width: 0;
@@ -1878,15 +1967,16 @@
   }
   .reply-ref {
     display: flex;
-    align-items: center;
-    gap: 5px;
-    font-size: var(--fs-small);
+    align-items: baseline;
+    gap: 6px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
     border-left: 2px solid var(--border);
-    padding: 1px 8px 1px 8px;
-    margin-bottom: 2px;
+    padding: 0 8px 0 10px;
+    margin: 2px 0;
     background: transparent;
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    border-radius: 0;
+    text-align: start;
     max-width: calc(100% - var(--act-gutter, 0px));
     min-width: 0;
     transition:
@@ -1896,8 +1986,7 @@
   }
   @media (pointer: fine) {
     .reply-ref:hover {
-      background: color-mix(in srgb, var(--bg-3) 65%, transparent);
-      border-left-color: var(--accent);
+      border-left-color: var(--text-faint);
       color: var(--text);
     }
   }
@@ -1907,14 +1996,9 @@
     border-left-color: var(--accent);
     color: var(--text);
   }
-  .reply-icon {
-    display: inline-flex;
-    flex-shrink: 0;
-    opacity: 0.75;
-  }
   .reply-author {
     font-weight: 600;
-    color: var(--accent-hover);
+    color: var(--text);
     flex-shrink: 0;
   }
   .reply-snippet {
@@ -1925,6 +2009,7 @@
   }
   .reply-snippet.faded {
     color: var(--text-faint);
+    font-style: italic;
   }
   @media (pointer: fine) {
     .reply-ref:hover .reply-snippet:not(.faded) {
@@ -1949,31 +2034,23 @@
   .av-btn:hover {
     background: transparent;
   }
-  .av-btn :global(.avatar) {
-    transition:
-      box-shadow var(--dur-quick) ease,
-      transform var(--dur-quick) ease;
-  }
-  @media (pointer: fine) {
-    .av-btn:hover :global(.avatar) {
-      box-shadow: 0 0 0 2px var(--accent);
-    }
+  .av-btn {
+    margin-top: 2px;
   }
   .sender {
     background: transparent;
     border: none;
     padding: 0;
     font: inherit;
+    font-size: var(--fs-body);
     font-weight: 600;
-    color: var(--accent-hover);
+    color: var(--text);
     cursor: pointer;
-    /* A 32-character display name used to run under the timestamp and push the
-       pin mark off the row. Ellipsis, the way the member list has always done
-       it — the full name is one hover (and one profile card) away. */
+    text-align: start;
+    /* A name is never cut in the feed: a long one wraps with the line, so the
+       person is always who the row says. */
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
   .msg-head .time,
   .msg-head .guest-badge,
@@ -2005,14 +2082,12 @@
     display: inline-flex;
     align-items: center;
     gap: var(--sp-1);
-    padding: 1px 7px;
-    border-radius: 999px;
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
     font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    font-weight: 600;
   }
   .verify-check {
     display: inline-flex;
@@ -2032,16 +2107,11 @@
   }
   .time {
     font-size: var(--fs-tiny);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
   }
   .pin-mark {
-    color: var(--warn);
-    animation: pin-in 0.25s var(--ease-spring);
-  }
-  @keyframes pin-in {
-    from {
-      transform: scale(0.4) rotate(-30deg);
-      opacity: 0;
-    }
+    color: var(--text-faint);
   }
   /* A guest is visibly not a member: muted name, an explicit badge, no
      fingerprint (they have no key to show). */
@@ -2060,10 +2130,8 @@
     font-weight: 600;
     line-height: 16px;
     border-radius: var(--radius-sm);
-    background: var(--bg-3);
+    border: 1px solid var(--border);
     color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
   }
   .guest-av {
     display: inline-flex;
@@ -2107,6 +2175,9 @@
        capped, not the text inside it, and `text-align: start` aligns within a
        box that begins where the avatar leaves off. */
     max-width: min(var(--measure, 92ch), calc(100% - var(--act-gutter, 0px)));
+    /* A one-line right-to-left message sits beside the face that wrote it
+       instead of at the far edge of the measure. */
+    width: fit-content;
     /* Direction is resolved per line — see the bidi section of app.css, which
        covers every rendered-prose container rather than just this one. */
   }
@@ -2116,8 +2187,9 @@
      word that told it. :global because the mark is inserted into rendered html,
      which Svelte's scoper never sees. */
   .body :global(mark) {
-    background: color-mix(in srgb, var(--warn) 26%, transparent);
-    color: inherit;
+    background: var(--accent-soft);
+    color: var(--text);
+    font-weight: 600;
     border-radius: 3px;
     padding: 0 1px;
   }
@@ -2147,8 +2219,6 @@
     border-radius: var(--radius-sm);
     background: var(--accent-soft);
     color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
   }
   .revealed-text {
     color: var(--text);
@@ -2188,9 +2258,27 @@
     margin-left: 0;
     margin-top: 2px;
   }
+  .body.folded {
+    max-height: calc(var(--fs-body) * 1.5 * 20);
+    overflow: hidden;
+  }
+  .fold-btn {
+    display: block;
+    margin-top: 2px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--accent-hover);
+    font-size: var(--fs-compact);
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .fold-btn:hover {
+    text-decoration: underline;
+  }
   .edited-tag {
     margin-left: 5px;
-    font-size: var(--fs-micro);
+    font-size: var(--fs-tiny);
     color: var(--text-faint);
     user-select: none;
     vertical-align: baseline;
@@ -2233,6 +2321,39 @@
   @keyframes tag-in {
     from {
       opacity: 0;
+    }
+  }
+  .thread-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1);
+    margin-top: var(--sp-1);
+  }
+  .thread-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 320px;
+    height: 28px;
+    padding: 0 var(--sp-2);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-2);
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+  }
+  .tc-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    font-weight: 500;
+  }
+  @media (pointer: fine) {
+    .thread-chip:hover {
+      border-color: var(--border-strong);
+      color: var(--text);
     }
   }
   .edit-wrap {
@@ -2330,12 +2451,14 @@
   .edit-btn.save:hover {
     background: var(--accent-hover);
   }
-  .edit-btn:focus-visible {
-    border-color: var(--accent);
-  }
   .edit-hint {
     font-size: var(--fs-small);
+    color: var(--text-faint);
     margin-top: 0;
+  }
+  .edit-link {
+    padding: 0;
+    font-size: inherit;
   }
   /* The shortcut hint is the redundant half once there are buttons — keep it
      where there is room, drop it on a phone where the row would wrap. (There is
@@ -2343,7 +2466,7 @@
      With it gone the two buttons are the ONLY way out of an edit, which is why
      they get the full tap minimum and a real gap: Cancel discards what you
      typed and it used to sit 6px from Save. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .edit-hint {
       display: none;
     }
@@ -2492,64 +2615,59 @@
   .reaction {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    background: var(--bg-3);
+    gap: 5px;
+    height: 26px;
+    background: transparent;
     border: 1px solid var(--border);
-    color: var(--text);
-    padding: 3px 9px;
-    font-size: var(--fs-ui);
-    border-radius: var(--radius-md);
-    /* springy pop when a new pill appears (overshoot bezier) */
-    animation: pill-in 0.25s var(--ease-spring);
+    color: var(--text-muted);
+    padding: 0 9px 0 7px;
+    font-size: var(--fs-small);
+    border-radius: 999px;
     transition:
-      transform var(--dur-quick) ease,
       border-color var(--dur-quick) ease,
-      background var(--dur-quick) ease,
-      box-shadow var(--dur-quick) ease;
+      background var(--dur-quick) ease;
+  }
+  /* A reaction arriving lands: 0.9 to 1 on the lift curve. */
+  .reaction.fresh {
+    animation: pill-in var(--dur-standard) var(--ease-lift);
   }
   @media (pointer: fine) {
     .reaction:hover {
-      transform: translateY(-1px);
       border-color: var(--text-faint);
-      box-shadow: 0 2px 6px rgb(0 0 0 / 0.18);
+      background: var(--bg-3);
     }
   }
   .reaction:active {
-    transform: scale(0.93);
+    filter: brightness(1.12);
   }
+  /* Yours, in YOUR accent: the one place a reaction says "you". */
   .reaction.mine {
-    border-color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent-hover) 55%, transparent);
     background: var(--accent-soft);
-    box-shadow:
-      0 0 0 1px var(--accent),
-      0 0 8px color-mix(in srgb, var(--accent) 26%, transparent); /* accent ring + faint charge: you reacted */
   }
   @media (pointer: fine) {
     .reaction.mine:hover {
-      border-color: var(--accent);
-      box-shadow:
-        0 0 0 1px var(--accent),
-        0 2px 6px rgb(0 0 0 / 0.18);
+      border-color: var(--accent-hover);
+      background: var(--accent-soft);
     }
   }
   .reaction.mine .rcount {
     color: var(--accent-hover);
-    font-weight: 600;
   }
   /* The emoji is noticeably larger than the count — the glyph is the thing you
      read at a glance. Overrides the pill's 13px font. */
   .remoji {
     display: inline-flex;
     line-height: 1;
-    font-size: 18px;
+    font-size: 15px;
     /* On a daylight ground a pale glyph gets an edge (app.css). */
     filter: var(--emoji-edge, none);
   }
   /* Sized to match the character it replaces, so a pill doesn't change shape
      depending on whether that emoji happens to have an animation. */
   .remoji-img {
-    width: 18px;
-    height: 18px;
+    width: 15px;
+    height: 15px;
     object-fit: contain;
     display: block;
   }
@@ -2557,34 +2675,36 @@
     display: inline-block;
     min-width: 1ch;
     text-align: center;
-    font-size: var(--fs-ui);
+    font-size: var(--fs-small);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
-    animation: count-in 0.18s ease; /* replays on {#key} re-mount */
+  }
+  /* A count that changed ticks into place (it re-mounts on {#key}). */
+  .rcount.ticked {
+    animation: count-in var(--dur-move) var(--ease-out);
   }
   /* Click-bounce for the emoji you just tapped (pill glyph + quick bar). */
   .remoji.bounce,
   .msg-actions .emoji-btn.bounce {
-    animation: emoji-bounce 0.45s ease;
+    animation: emoji-tap var(--dur-move) var(--ease-out);
   }
   @keyframes pill-in {
     from {
-      transform: scale(0.5);
+      scale: 0.9;
       opacity: 0;
     }
   }
   @keyframes count-in {
     from {
-      transform: translateY(-7px);
+      translate: 0 -4px;
       opacity: 0;
     }
   }
-  @keyframes emoji-bounce {
-    30% {
-      transform: scale(1.35) rotate(-8deg);
-    }
-    55% {
-      transform: scale(0.92) rotate(6deg);
+  /* The emoji you tapped answers once: a small swell and back. It used to
+     spin and bounce for almost half a second, in the middle of the feed. */
+  @keyframes emoji-tap {
+    40% {
+      scale: 1.15;
     }
   }
   .react-wrap {
@@ -2661,8 +2781,8 @@
      the quoted reply line, the header, the body — ends before it. The bar is
      then over nothing, at every width, every density, every UI scale, and on a
      grouped continuation row that has no header to hide behind.
-     A 340px reservation is affordable in a wide pane (the measure caps the text
-     first in a 1920 DM, and 1440 still reads at ~60 characters) and absurd in a
+     A 250px reservation is affordable in a wide pane (the measure caps the text
+     first in a 1920 DM, and 1440 with the inspector docked reads at ~62) and absurd in a
      483px forum panel, so a narrow feed gets `.bar-narrow` instead: the bar
      collapses to its ⋯, which opens the full message menu — the same menu the
      right-click and the phone's long-press open, carrying reply, reactions,
@@ -2670,13 +2790,15 @@
      one-click emoji. */
   .msg-actions {
     position: absolute;
-    top: 2px;
+    /* Half over the gap above the row: the author line under it is capped
+       short of the gutter, so the bar sits over nothing it would hide. */
+    top: -14px;
     right: 4px;
     display: flex;
     align-items: center;
-    gap: 3px;
+    gap: 2px;
     opacity: 0;
-    transform: translateY(3px) scale(0.97);
+    visibility: hidden;
     /* Sits ON the message it acts on, so it must not let it through. */
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
@@ -2684,17 +2806,33 @@
     padding: 3px;
     box-shadow: var(--shadow-pop);
     z-index: 5;
+    /* Instant in, a short fade out: a hover reveal never delays a click. */
     transition:
       opacity var(--dur-quick) ease,
-      transform var(--dur-quick) var(--ease-out);
+      visibility 0s linear var(--dur-quick);
   }
   .msg:hover .msg-actions,
-  .msg:focus-within .msg-actions {
+  .msg:focus-within .msg-actions,
+  .msg:global([data-menu-target]) .msg-actions {
     opacity: 1;
-    transform: none;
+    visibility: visible;
+    transition: none;
+  }
+  /* …but only one of them: the pointer's row or the focused row, whichever
+     moved last (MessageList's data-bar-src). An open menu keeps its row's bar. */
+  :global(.feed[data-bar-src="hover"]) .msg:focus-within:not(:hover):not(:global([data-menu-target])) .msg-actions,
+  :global(.feed[data-bar-src="focus"]) .msg:hover:not(:focus-within):not(:global([data-menu-target])) .msg-actions {
+    opacity: 0;
+    visibility: hidden;
+  }
+  .msg-actions .shift-only {
+    display: none;
+  }
+  :global(:root[data-shift-held]) .msg-actions .shift-only {
+    display: grid;
   }
   /* Narrow feed: one button, and it opens everything. */
-  :global(.feed.bar-narrow) .msg-actions > :not(.grp-more) {
+  :global(.feed.bar-narrow) .msg-actions > :not(.more-btn) {
     display: none;
   }
   /* ---- phone ------------------------------------------------------------
@@ -2800,63 +2938,30 @@
     background: var(--accent);
     color: var(--bg-0);
   }
-  .grp {
-    display: flex;
-    gap: 1px;
-  }
   .sep {
     width: 1px;
     align-self: stretch;
-    margin: 3px 2px;
+    margin: 4px 2px;
     background: var(--border);
   }
   .msg-actions button {
     background: transparent;
     border: none;
     color: var(--text-muted);
-    padding: 5px;
-    min-width: 28px;
-    height: 28px;
-    font-size: 14px;
+    padding: 0;
+    width: 30px;
+    height: 30px;
+    font-size: 16px;
     display: grid;
     place-items: center;
     border-radius: var(--radius-sm);
-    transition:
-      background var(--dur-quick) ease,
-      transform var(--dur-quick) ease;
   }
   .msg-actions button:hover {
     background: var(--bg-3);
     color: var(--text);
   }
-  .msg-actions .emoji-btn:hover {
-    transform: scale(1.18);
-    background: transparent;
-  }
-  /* "smiley +" picker opener. The + used to sit at top:0/right:2px, which put
-     it straight through the smiley's own outline — at 1x the two read as one
-     smudge. It sits at the baseline corner with a gap now, and carries the
-     button's ground behind it so it stays legible over the glyph whatever the
-     pack's colours are. */
-  .msg-actions .add-react {
-    position: relative;
-  }
-  .msg-actions .add-react .plus {
-    position: absolute;
-    right: -1px;
-    bottom: -1px;
-    padding: 0 1px;
-    border-radius: 3px;
-    background: var(--bg-2);
-    font-size: var(--fs-micro);
-    font-weight: 800;
-    line-height: 1;
-  }
-  .msg-actions .add-react:hover .plus {
-    background: var(--bg-3);
-  }
   .msg-actions button.on {
-    color: var(--warn);
+    color: var(--text);
   }
   .msg-actions button.danger:hover {
     background: var(--danger-soft);
@@ -2864,13 +2969,13 @@
   }
   .body :global(code) {
     background: var(--bg-3);
-    padding: 1px 5px;
-    border-radius: var(--radius-sm);
+    padding: 1px 4px;
+    border-radius: 4px;
     /* An Arabic string literal or comment inside code has no glyph in a
        monospace face and drops to whatever the system offers. Naming the
        companion keeps it the same Arabic the rest of the app is set in. */
-    font-family: ui-monospace, "Noto Sans Arabic", monospace;
-    font-size: var(--fs-compact);
+    font-family: var(--mono-font), "Noto Sans Arabic", monospace;
+    font-size: 0.88em;
   }
   /* Two columns, 4:3 cells, capped so a grid of eight does not take over the
      window. minmax(0,…) is load-bearing: a grid track's automatic minimum is
@@ -2881,12 +2986,12 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--sp-1);
     margin-top: var(--sp-1);
-    max-width: 380px;
+    max-width: 432px;
   }
   .att-grid > :global(*) {
     aspect-ratio: 4 / 3;
     min-width: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
     overflow: hidden;
   }
   /* An odd count would leave a half-width orphan on the last row; let it take
@@ -2897,20 +3002,26 @@
   }
   .body :global(pre) {
     background: var(--bg-0);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 8px 10px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
     overflow-x: auto;
     margin: 4px 0;
+    max-width: min(var(--measure), 600px);
+  }
+  :global(:root[data-theme="light"]:where(:not([data-theme-pack]), [data-theme-pack="paper"], [data-theme-pack="solarized"], [data-theme-pack="meadow"], [data-theme-pack="porcelain"], [data-theme-pack="daybreak"], [data-theme-pack="atrium"])) .body :global(pre) {
+    background: var(--bg-1);
   }
   .body :global(pre code) {
     background: transparent;
     padding: 0;
+    font-size: var(--fs-ui);
+    line-height: 1.6;
   }
   .body :global(blockquote) {
     margin: 2px 0;
-    padding: 0 0 0 8px;
-    border-left: 3px solid var(--border);
+    padding: 0 0 0 10px;
+    border-left: 2px solid var(--border);
     color: var(--text-muted);
   }
   .body :global(ul),
@@ -2922,21 +3033,22 @@
     color: var(--accent-hover);
     text-decoration: none;
   }
+  .body.ul-links :global(a),
   .body :global(a:hover) {
     text-decoration: underline;
     text-underline-offset: 3px;
     text-decoration-color: color-mix(in srgb, var(--accent) 65%, transparent);
   }
   .body :global(.mention) {
-    background: color-mix(in srgb, var(--text-muted) 22%, transparent);
+    background: var(--bg-3);
     color: var(--text);
-    border-radius: var(--radius-sm);
+    border-radius: 4px;
     padding: 0 3px;
-    font-weight: 600;
+    font-weight: 500;
     cursor: pointer;
   }
   .body :global(.mention:hover) {
-    background: color-mix(in srgb, var(--text-muted) 34%, transparent);
+    background: var(--border);
   }
   .body :global(.mention-self) {
     background: var(--accent-soft);
@@ -2962,6 +3074,18 @@
   /* #channel is a destination, so it reads like the links next to it. */
   .body :global(.mention-channel) {
     color: var(--accent-hover);
+  }
+  .body :global(.msg-link) {
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent-hover);
+    cursor: pointer;
+  }
+  .body :global(.msg-link:hover),
+  .body :global(.msg-link:focus-visible) {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
   }
   /* Spoiler: blacked-out until clicked. */
   /* Blurred rather than blacked out: you can see there are words, roughly how
@@ -2991,10 +3115,8 @@
     user-select: text;
   }
   /* Reduced motion still gets the reveal, just without the dissolve. */
-  @media (prefers-reduced-motion: reduce) {
-    .body :global(.spoiler) {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .body :global(.spoiler) {
+    transition: none;
   }
   /* Inline headers (chat-sized). */
   .body :global(.md-h) {
@@ -3023,14 +3145,16 @@
     position: relative;
     padding-top: 20px;
   }
+  /* The language, as written ("c", "go"), in the corner with room around it:
+     a lone capital "C" flush to the edge read as a stray glyph. */
   .body :global(pre[data-lang])::before {
     content: attr(data-lang);
     position: absolute;
-    top: 3px;
-    right: 8px;
-    font-size: var(--fs-tiny);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    top: 6px;
+    right: 10px;
+    font-size: var(--fs-micro);
+    font-family: var(--ui-font);
+    text-transform: lowercase;
     color: var(--text-faint);
   }
   /* Inline (data-URI) images have no lightbox, so anything the column clips is
@@ -3141,15 +3265,11 @@
   @keyframes seal-in {
     from { opacity: 0; transform: translateY(3px); }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .seal-card { animation: none; }
-  }
+  :global(:root[data-motion="reduced"]) .seal-card { animation: none; }
   .seal-card-h {
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--text-faint);
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--text-muted);
   }
   .seal-card-f {
     font-size: var(--fs-compact);

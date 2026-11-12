@@ -1,7 +1,8 @@
 <script>
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
-  import { S } from "../lib/state.svelte.js";
+  import { S, selectGuild } from "../lib/state.svelte.js";
+  import { joinFailure } from "../lib/joinerror.js";
   let { onSubmit, onClose, error } = $props();
   let code = $state("");
   let busy = $state(false);
@@ -9,9 +10,16 @@
 
   async function join() {
     if (!code.trim() || busy) return;
+    if (already) {
+      // Joining again used to go through, and posted a second "has joined"
+      // to everyone. You are there already; go there.
+      onClose?.();
+      selectGuild(already.id);
+      return;
+    }
     submitted = code.trim();
     busy = true;
-    await onSubmit(code.trim());
+    await onSubmit(code.trim(), preview?.name || "");
     busy = false; // if the modal is still open, the parent set an error
   }
 
@@ -79,7 +87,12 @@
   // Editing the code after a rejection withdraws the error immediately —
   // otherwise "bad invite code" sits accusing a fresh, unsent paste.
   const showError = $derived(!!error && code.trim() === submitted);
-  const ready = $derived(!!preview && !showError);
+  const failure = $derived(showError ? joinFailure(error) : null);
+  // A refusal that is not the code's fault keeps the preview: the person
+  // should still see which guild the code is for.
+  const ready = $derived(!!preview && !failure?.field);
+  // A guild this device is already a member of (and not thrown out of).
+  const already = $derived(preview ? S.guilds.find((g) => g.id === preview.id && !g.evicted) : null);
 
   // Same hash and initials the rail uses, so the bubble previewed here is
   // pixel-for-pixel the one that lands in the rail after joining.
@@ -100,26 +113,34 @@
 </script>
 
 <Modal title="Join a guild" {onClose}>
-  <!-- The doorway: an empty dashed bubble that becomes the guild's actual rail
-       bubble the moment a real code lands. aria-live so the reveal is spoken. -->
-  <div class="hero" aria-live="polite">
-    <span class="bubble" class:ready class:knock={busy} class:bad={showError} style={ready ? tint(preview.id) : ""}>
-      {#if ready && initials}
-        {initials}
-      {:else}
-        <Icon name="door" size={24} />
-      {/if}
-    </span>
+  <!-- Before a code: one line saying what to paste. Once a real code lands,
+       a preview row — the guild's bubble, its name, where things stand —
+       left-aligned like every dialog body. aria-live so the reveal is spoken.
+       (A centred dashed door tile stood in for the guild before; it was a
+       decoration in a dialog that has one job.) -->
+  <div class="hero" class:ready aria-live="polite">
     {#if ready}
+      <span class="bubble" class:ready class:knock={busy} class:bad={showError} style={tint(preview.id)}>
+        {#if initials}{initials}{:else}<Icon name="door" size={18} />{/if}
+      </span>
+    {/if}
+    {#if ready}
+      <span class="hero-text">
       <span class="dest">{preview.name || "A guild awaits"}</span>
-      <span class="sub arrived">{busy ? "Opening the door…" : "You're invited — step in."}</span>
+      <span class="sub arrived" class:warn={!!failure}>
+        {#if failure}
+          {failure.title}
+        {:else if already}
+          You're already in this guild.
+        {:else}
+          {busy ? "Knocking — whoever made this code lets you in…" : "You're invited — step in."}
+        {/if}
+      </span>
+      </span>
     {:else}
-      <span class="dest ph">Somewhere new</span>
-      <span class="sub">
-        {#if showError}
-          <!-- The code was whole — the guild refused it (expired, or the owner
-               is unreachable). Don't tell them to re-copy what they copied fine. -->
-          That code didn't open the door. Ask your friend for a fresh one.
+      <span class="sub" class:warn={!!failure || code.trim().length > 8}>
+        {#if failure}
+          {failure.title}
         {:else if code.trim().length > 8}
           That doesn't look like a whole code — check you copied all of it.
         {:else}
@@ -134,6 +155,9 @@
          sheet is still sliding up and make the panel jump (see ModalCreate). -->
     <textarea
       rows="4"
+      aria-label="Invite code"
+      aria-invalid={failure?.field ? "true" : undefined}
+      aria-describedby={failure ? "join-error" : undefined}
       placeholder="Paste invite code here…"
       bind:value={code}
       autofocus={!S.isMobile}
@@ -144,14 +168,14 @@
     </button>
   </div>
 
-  {#if showError}<div class="error shake"><Icon name="close" size={12} /> {error}</div>{/if}
+  {#if failure}<div class="error shake" id="join-error" role="alert"><Icon name="close" size={12} /> {failure.detail}</div>{/if}
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
     <!-- The decoder is a preview, not a gate: an undecodable code can still be
          submitted and judged by the server, so a peek bug can't lock anyone out. -->
-    <button class:go={ready && !busy} onclick={join} disabled={!code.trim() || busy}>
-      {busy ? "Joining…" : "Join"}
+    <button class="primary" class:go={ready && !busy} onclick={join} disabled={!code.trim() || busy}>
+      {busy ? "Joining…" : already ? "Open it" : "Join"}
     </button>
   </div>
 </Modal>
@@ -159,20 +183,28 @@
 <style>
   .hero {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: var(--sp-2);
-    padding: var(--sp-1) 0 0;
-    text-align: center;
+    gap: var(--sp-3);
+    min-height: 20px;
+  }
+  .hero.ready {
+    padding: var(--sp-1) 0;
+  }
+  .hero-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
   }
   .bubble {
-    width: 64px;
-    height: 64px;
-    border-radius: 20px;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
     display: grid;
     place-items: center;
-    font-size: var(--fs-display);
-    font-weight: 700;
+    font-size: var(--fs-ui);
+    font-weight: 600;
     color: var(--accent-hover);
     background: var(--accent-soft);
     border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
@@ -185,7 +217,6 @@
      and it gets the same glow a named bubble earns in ModalCreate. */
   .bubble.ready {
     border: 1px solid transparent;
-    box-shadow: var(--accent-glow);
     animation: arrive 0.35s var(--ease-spring);
   }
   /* Joining can take a few seconds of dialing — the bubble breathes so the
@@ -206,32 +237,28 @@
   @keyframes knock {
     50% {
       transform: scale(1.05);
-      box-shadow: 0 0 34px color-mix(in srgb, var(--accent) 50%, transparent);
     }
   }
   .dest {
-    font-size: var(--fs-title);
-    font-weight: 700;
-    max-width: 280px;
+    font-size: var(--fs-ui);
+    font-weight: 600;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     animation: rise 0.25s ease both;
   }
-  .dest.ph {
-    color: var(--text-faint);
-    font-weight: 500;
-    font-size: var(--fs-ui);
-    animation: none;
-  }
   .sub {
     font-size: var(--fs-compact);
     color: var(--text-muted);
-    max-width: 300px;
   }
   .sub.arrived {
     color: var(--ok-text);
     animation: rise 0.25s ease both;
+  }
+  .sub.warn,
+  .sub.arrived.warn {
+    color: var(--warn-text);
   }
   @keyframes rise {
     from {
@@ -311,20 +338,13 @@
     align-items: center;
     gap: 6px;
   }
-  /* Once the destination is known the commit button carries the glow too —
-     the whole dialog points at Join. */
-  .actions button.go {
-    box-shadow: var(--accent-glow);
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .bubble,
-    .bubble.ready,
-    .bubble.knock,
-    .dest,
-    .sub.arrived,
-    .shake {
-      animation: none;
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .bubble,
+  :global(:root[data-motion="reduced"]) .bubble.ready,
+  :global(:root[data-motion="reduced"]) .bubble.knock,
+  :global(:root[data-motion="reduced"]) .dest,
+  :global(:root[data-motion="reduced"]) .sub.arrived,
+  :global(:root[data-motion="reduced"]) .shake {
+    animation: none;
+    transition: none;
   }
 </style>

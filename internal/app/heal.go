@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -45,7 +46,7 @@ func (s *Service) authorizedCommittersOnline(guildID string) []peer.ID {
 		fpr := s.presence(p).Fingerprint
 		if fpr == ownerFpr {
 			owners = append(owners, p)
-		} else if st.Can(ownerFpr, fpr, PermManageMembers) {
+		} else if st.Can(ownerFpr, fpr, PermManageMembers) && !st.Removed[fpr] && !st.Banned[fpr] {
 			mods = append(mods, p)
 		}
 	}
@@ -234,11 +235,25 @@ func (s *Service) healOutOfSync(guildID string) {
 	if !s.OutOfSync(guildID) {
 		return
 	}
-	for _, pid := range s.healCandidates(guildID) {
-		if s.healViaCommitter(guildID, pid) {
+	candidates := s.healCandidates(guildID)
+	unseated := 0
+	for _, pid := range candidates {
+		ok, refusal := s.healAsk(guildID, pid)
+		if ok {
 			s.noteHealed(guildID)
 			return
 		}
+		if refusal == unseatedRefusal {
+			unseated++
+		}
+	}
+	// Every committer we could reach says its guild never seated us. One of them
+	// might merely be behind, but all of them cannot be: the welcome we hold came
+	// from someone who could not admit us (typically a member already thrown
+	// out), and the "guild" we have been reading is their private copy. Say so
+	// and stop asking, rather than sit on a catching-up bar that cannot end.
+	if unseated > 0 && unseated == len(candidates) {
+		s.noteEvicted(guildID, evictedUnseated)
 	}
 }
 
@@ -313,9 +328,17 @@ func (s *Service) healCandidates(guildID string) []peer.ID {
 // healViaCommitter asks one authorized committer to re-add us, reporting
 // whether the ratchet was repaired.
 func (s *Service) healViaCommitter(guildID string, pid peer.ID) bool {
+	ok, _ := s.healAsk(guildID, pid)
+	return ok
+}
+
+// healAsk is healViaCommitter that also hands back the committer's refusal,
+// so a pass over every candidate can tell "nobody could serve us right now"
+// from "nobody here ever seated us".
+func (s *Service) healAsk(guildID string, pid peer.ID) (bool, string) {
 	kp, err := s.mls.KeyPackage(s.ctx)
 	if err != nil {
-		return false
+		return false, ""
 	}
 	// Use this install's MLS leaf credential, not the bare account key: on a
 	// linked device the two differ (the leaf is a device cert), and the
@@ -323,16 +346,17 @@ func (s *Service) healViaCommitter(guildID string, pid peer.ID) bool {
 	// attempt fails and the guild stays stranded. Mirrors JoinViaInvite.
 	req, _ := json.Marshal(inviteRequest{
 		GuildID: guildID, KeyPackage: kp, Credential: s.myCredential, Profile: s.selfWireProfile(),
+		Heal: true,
 	})
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 	respBytes, err := s.host.RequestInvite(ctx, peer.AddrInfo{ID: pid}, req)
 	if err != nil {
-		return false
+		return false, ""
 	}
 	var resp inviteResponse
 	if json.Unmarshal(respBytes, &resp) != nil {
-		return false
+		return false, ""
 	}
 	if resp.Error != "" {
 		// Two of the refusals are answers, not failures. A committer telling us
@@ -341,15 +365,15 @@ func (s *Service) healViaCommitter(guildID string, pid peer.ID) bool {
 		// somebody else. It is also, for a member kicked while offline, the
 		// first they hear of it.
 		s.noteEvictionRefusal(guildID, resp.Error)
-		return false
+		return false, strings.TrimSpace(resp.Error)
 	}
 	if len(resp.Welcome) == 0 {
-		return false
+		return false, ""
 	}
 	// JoinGroup overwrites our local group entry with the fresh membership at the
 	// current epoch — the ratchet is repaired.
 	if _, err := s.mls.Join(s.ctx, resp.Welcome); err != nil {
-		return false
+		return false, ""
 	}
 	// A welcome we could join disproves the terminal state: somebody with
 	// manage-members just seated us.
@@ -383,7 +407,7 @@ func (s *Service) healViaCommitter(guildID string, pid peer.ID) bool {
 	// other members last heard from us is not something we can reason about.
 	s.announceProfileForce(guildID)
 	s.emitGuildUpdate()
-	return true
+	return true, ""
 }
 
 // healStrandedGuilds runs recovery for every currently-stranded guild —
@@ -447,6 +471,7 @@ func (s *Service) runHealLoop() {
 		tick++
 		s.healStrandedGuilds()
 		s.retryPendingDMInvites()
+		s.retryOfferedInvites()
 		s.noteDeviceLeaves()
 		// Backgrounded the tick itself is one slow beat, so reconcile rides
 		// every tick; foreground it runs on the polite cadence. The pending

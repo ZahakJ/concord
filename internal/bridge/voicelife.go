@@ -3,6 +3,8 @@ package bridge
 import (
 	"sync"
 	"time"
+
+	appsvc "github.com/ZahakJ/concord/internal/app"
 )
 
 // How long a call outlives the UI that started it.
@@ -155,8 +157,9 @@ func (b *Bridge) endVoiceFor(clientID string) {
 	for _, ch := range rooms {
 		// LeaveVoice cancels the heartbeat goroutine AND announces the
 		// departure, so the room hears about it on the same beat it would have
-		// heard another "join".
-		_ = svc.LeaveVoice(ch)
+		// heard another "join". The page that held the call went away, which
+		// is what "unload" says — the same as its own goodbye would have.
+		_ = svc.LeaveVoiceBecause(ch, appsvc.LeaveReasonUnload)
 	}
 }
 
@@ -178,4 +181,39 @@ func (b *Bridge) voice() *voiceOwners {
 		b.voiceOwn = &voiceOwners{rooms: map[string]map[string]bool{}, pending: map[string]*time.Timer{}}
 	}
 	return b.voiceOwn
+}
+
+// VoiceHeldElsewhere names the call this node is in on behalf of ANOTHER open
+// window, or "" when there is none.
+//
+// One node is one participant: the far side keeps one media connection per
+// peer, and a second window of the same node joining the same room took that
+// connection from the first, and the first took it back, every few seconds —
+// both windows said "2 in call" while each heard the room for half the time,
+// and closing either one pulled the node out of the call under the other. So
+// a second window is told the call is already up somewhere else instead of
+// joining it twice. Only a holder whose /events stream is still attached
+// counts: a window that has closed (inside its hang-up grace, or one that
+// crashed) holds nothing anyone can use.
+func (b *Bridge) VoiceHeldElsewhere(clientID string) string {
+	v := b.voice()
+	type hold struct{ ch, id string }
+	var holds []hold
+	v.mu.Lock()
+	for ch, holders := range v.rooms {
+		for id := range holders {
+			if id != clientID {
+				holds = append(holds, hold{ch, id})
+			}
+		}
+	}
+	v.mu.Unlock()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, h := range holds {
+		if b.clientStreams[h.id] > 0 {
+			return h.ch
+		}
+	}
+	return ""
 }

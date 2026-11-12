@@ -3,6 +3,7 @@ package bridge
 import (
 	"fmt"
 	"testing"
+	"time"
 )
 
 // Before anybody has said anything the answer is "foreground", and it has to
@@ -179,4 +180,32 @@ func (b *Bridge) background() bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return backgroundNow(b.shellBackground, b.heardClient, b.clientVisible)
+}
+
+// The frontend reuses one client id for every reconnect, and nothing orders
+// the old stream's teardown before the new stream's attach: over a slow
+// mobile WebView the server can notice the old request's context ending
+// after the redial has already attached. That late DropClient used to take
+// the live client out of the vote — and arm the hang-up timer on its call.
+func TestALateDropOfAnOldStreamKeepsTheLiveOne(t *testing.T) {
+	shortGrace(t, 20*time.Millisecond)
+	b := &Bridge{}
+	b.AttachClient("tab")
+	_ = b.SetClientVisible("tab", true)
+	b.noteVoiceOwner("study-hall", "tab")
+
+	b.AttachClient("tab") // the redial lands first
+	b.DropClient("tab")   // then the old stream's deferred drop
+	if b.background() {
+		t.Error("the old stream's drop took the reconnected client out of the vote")
+	}
+	time.Sleep(120 * time.Millisecond)
+	if !owns(b, "study-hall") {
+		t.Error("the old stream's drop hung up on the call the live stream still holds")
+	}
+
+	b.DropClient("tab") // the live stream ends too: now the client is gone
+	if !b.background() {
+		t.Error("the last stream for the id ended and the client still votes")
+	}
 }

@@ -9,6 +9,7 @@
   // made from somewhere else — the row overflow is the same shared moderation
   // menu the card's ⋯ and the member list's right-click render.
   import RailShell from "./RailShell.svelte";
+  import { humanError } from "../lib/errors.js";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import Select from "../Select.svelte";
@@ -100,7 +101,7 @@
         await api.assignRole(S.activeGuildId, fpr, roleID, add);
         ok++;
       } catch (err) {
-        failed.push(String(err?.message || err));
+        failed.push(humanError(err));
       }
     }
     await refreshRightPanel();
@@ -176,7 +177,7 @@
         onPick={(v) => (bulkRoleID = v)}
         options={[{ value: "", label: "Choose a role…" }, ...roles.map((r) => ({ value: r.id, label: r.name }))]}
       />
-      <button disabled={busy || !bulkRoleID} onclick={() => bulkRole(bulkRoleID, true)}>
+      <button class="primary" disabled={busy || !bulkRoleID} onclick={() => bulkRole(bulkRoleID, true)}>
         Grant
       </button>
       <button class="ghost" disabled={busy || !bulkRoleID} onclick={() => bulkRole(bulkRoleID, false)}>
@@ -226,12 +227,14 @@
                 </td>
               {/if}
               <td class="who">
-                <Avatar name={m.name || m.fingerprint} image={m.avatar} emoji={m.emoji} color={m.color} size={24} />
-                <span class="nm">
-                  <span class="n1">{m.name || "Unknown"}</span>
-                  {#if m.username && m.username !== m.name}
-                    <span class="n2">{m.username}</span>
-                  {/if}
+                <span class="who-in">
+                  <Avatar name={m.name || m.fingerprint} image={m.avatar} emoji={m.emoji} color={m.color} size={24} />
+                  <span class="nm">
+                    <span class="n1">{m.name || "Unknown"}</span>
+                    {#if m.username && m.username !== m.name}
+                      <span class="n2">{m.username}</span>
+                    {/if}
+                  </span>
                 </span>
               </td>
               <td class="roles">
@@ -309,20 +312,18 @@
     display: flex;
     align-items: center;
     gap: var(--sp-2);
-    min-height: 38px;
+    min-height: 32px;
     padding: 0 12px;
-    background: color-mix(in srgb, var(--bg-0) 42%, var(--bg-3));
-    border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+    background: var(--bg-input);
+    border: 1px solid var(--border-strong);
     border-radius: var(--radius-md);
     color: var(--text-faint);
-    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.14);
     transition:
       border-color var(--dur-standard) ease,
       background var(--dur-standard) ease;
   }
   .search:focus-within {
-    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-    background: var(--bg-3);
+    border-color: var(--accent-hover);
   }
   .search input {
     flex: 1;
@@ -346,8 +347,7 @@
     gap: var(--sp-2);
     flex-wrap: wrap;
     padding: 8px 10px;
-    background: var(--accent-soft);
-    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    background: var(--bg-3);
     border-radius: var(--radius-sm);
     font-size: var(--fs-small);
   }
@@ -384,6 +384,63 @@
   @container memtbl (max-width: 560px) {
     .fpr {
       display: none;
+    }
+  }
+  /* On a phone the table becomes a list: name and standing on one line, the
+     role chips under them, the ⋯ pinned to the trailing edge. Nothing scrolls
+     sideways and nothing is cut off. */
+  @container memtbl (max-width: 460px) {
+    thead {
+      display: none;
+    }
+    table,
+    tbody {
+      display: block;
+    }
+    tbody tr {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-areas: "pick who act" "pick roles act" "pick rank act";
+      align-items: center;
+      column-gap: var(--sp-2);
+      padding: var(--sp-2) var(--sp-3);
+      border-bottom: 1px solid var(--hairline);
+    }
+    tbody tr:last-child {
+      border-bottom: 0;
+    }
+    tbody td {
+      display: block;
+      padding: 0;
+      border: 0;
+    }
+    td.pick {
+      grid-area: pick;
+    }
+    td.who {
+      grid-area: who;
+    }
+    td.roles {
+      grid-area: roles;
+    }
+    td.rank {
+      grid-area: rank;
+    }
+    td.rank:empty {
+      display: none;
+    }
+    td.act {
+      grid-area: act;
+    }
+  }
+  @media (max-width: 768px) {
+    .bar {
+      flex-wrap: wrap;
+    }
+    .search,
+    .filt {
+      flex: 1 1 100%;
+      width: 100%;
     }
   }
   table {
@@ -427,7 +484,10 @@
   .pick {
     width: 30px;
   }
-  .who {
+  /* The cell stays a table cell — a flex td leaves the table's row model,
+     drawing its own divider at its own height (about 10px above the row's)
+     and ignoring the row's vertical centring. The flex lives inside it. */
+  .who-in {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
@@ -457,9 +517,21 @@
     padding: 2px 7px;
     border-radius: 999px;
     font-size: var(--fs-small);
-    color: var(--rc);
-    border: 1px solid color-mix(in srgb, var(--rc) 55%, transparent);
-    background: color-mix(in srgb, var(--rc) 14%, transparent);
+    /* A quiet chip in ink; the role's colour is a dot, so a dark role colour
+       never decides whether the name can be read. */
+    color: var(--text);
+    border: none;
+    background: var(--bg-3);
+  }
+  .pill::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: var(--rc);
+    vertical-align: 1px;
   }
   .none {
     color: var(--text-faint);

@@ -30,11 +30,19 @@ function load() {
 // always been tuned at, so an existing install sounds identical.
 function loadVolume() {
   try {
-    const v = Number(localStorage.getItem("concord.soundVolume"));
-    return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 1;
+    return parseVolume(localStorage.getItem("concord.soundVolume"));
   } catch {
     return 1;
   }
+}
+
+// parseVolume reads a stored volume, 1 when there is none. Nothing stored is
+// null, and Number(null) is 0 — a perfectly valid volume — so every fresh
+// install used to start silent, "sounds on, volume 0", missing calls.
+export function parseVolume(raw) {
+  if (raw === null || raw === undefined || String(raw).trim() === "") return 1;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 1;
 }
 
 export function soundVolume() {
@@ -256,10 +264,20 @@ function watchdog(ac) {
 // context already running by then. One listener, on the first gesture of the
 // session, in the capture phase so a handler that stops propagation cannot
 // swallow it. Costs one suspended context on a page nobody clicks.
+//
+// Every gesture, not only the first. A phone suspends the context again behind
+// the user's back — the app goes to the background, the screen turns off,
+// another app takes audio focus — and a suspended context only starts again
+// inside a gesture. With the listener gone after the first tap, a sound played
+// after that waited in withAudio() for a resume that came with whatever the
+// user happened to touch next: the join chime arriving late, or with the
+// following tap. The tap that joins a call is a gesture; it now restarts the
+// context before the join gets to its chime. A running context costs this one
+// comparison per tap.
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   const EVENTS = ["pointerdown", "keydown", "touchstart"];
   const prime = () => {
-    for (const e of EVENTS) window.removeEventListener(e, prime, true);
+    if (ctx && ctx.state === "running") return;
     try {
       audio();
     } catch {

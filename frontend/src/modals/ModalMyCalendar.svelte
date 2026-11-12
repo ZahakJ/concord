@@ -9,11 +9,12 @@
   // never in anyone else's view. Read-mostly: RSVPs and reminders work here,
   // creating/editing happens in each room's own calendar.
   import Modal from "./Modal.svelte";
+  import Segmented from "../Segmented.svelte";
   import Icon from "../Icon.svelte";
   import EmptyState from "../EmptyState.svelte";
   import EventCard from "../EventCard.svelte";
   import { fly } from "svelte/transition";
-  import { S, clockOpts, flash, refreshGuilds } from "../lib/state.svelte.js";
+  import { S, clockOpts, flash, refreshGuilds, openContextMenu, startMeeting } from "../lib/state.svelte.js";
   import { api, on } from "../lib/api.js";
   import {
     EV,
@@ -24,6 +25,7 @@
     isPast,
     guildDotColor,
   } from "../lib/events.svelte.js";
+  import { reducedMotion } from "../lib/motion.js";
 
   let { onClose, onJoinVoice } = $props();
 
@@ -70,7 +72,7 @@
       /* private mode: the toggle still works, it just isn't remembered */
     }
   }
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const reduceMotion = reducedMotion();
 
   const groups = $derived.by(() => {
     const out = [];
@@ -79,10 +81,9 @@
       if (!out.length || out[out.length - 1].key !== k) out.push({ key: k, items: [] });
       out[out.length - 1].items.push(item);
     }
-    // The daily driver must answer "what's today?" even when the answer is
-    // nothing — Today always renders when the river has anything at all (the
-    // full empty state below owns the totally-clear case).
-    if (out.length && !out.some((grp) => grp.key === todayKey)) out.unshift({ key: todayKey, items: [] });
+    // No empty "Today" group: when today holds nothing the masthead already
+    // says "Nothing else today", and an agenda heading saying "Today — nothing
+    // scheduled" right under it was the same sentence twice.
     let off = 0;
     for (const grp of out) {
       grp.offset = off;
@@ -225,6 +226,29 @@
   }
   const firstGuild = $derived(S.guilds.find((g) => g.kind !== "dm") || null);
 
+  // "New event" from here: where first, then the form. Every guild you can
+  // plan in, and your private calendar.
+  function newEventMenu(e) {
+    const where = S.guilds.filter((x) => x.kind !== "dm" && !x.evicted);
+    openContextMenu(
+      e,
+      [
+        ...where.map((x) => ({
+          label: x.name,
+          icon: x.kind === "meeting" ? "bolt" : "hash",
+          onClick: () => (S.modal = { kind: "events", guildId: x.id, compose: true }),
+        })),
+        where.length && { sep: true },
+        { label: "Private (only you)", icon: "lock", onClick: planPrivate },
+      ].filter(Boolean),
+      { title: "New event in…" },
+    );
+  }
+  function instantMeeting() {
+    S.modal = null;
+    startMeeting();
+  }
+
   // The private door: open (creating on first use) the Notes self-DM's
   // calendar. NotesDM() is idempotent, and a fresh Notes needs a guild
   // refresh or ModalEvents opens onto a guild id S.guilds can't resolve.
@@ -232,7 +256,7 @@
     try {
       const notes = await api.notesDM();
       if (!S.guilds.some((g) => g.id === notes.id)) await refreshGuilds();
-      S.modal = { kind: "events", guildId: notes.id };
+      S.modal = { kind: "events", guildId: notes.id, compose: true };
     } catch (err) {
       flash(err);
     }
@@ -256,14 +280,23 @@
         <div class="mnext quiet">Nothing else today</div>
       {/if}
     </div>
-    <div class="seg" role="tablist" aria-label="Calendar view">
-      <button class="seg-btn" class:on={view === "agenda"} role="tab" aria-selected={view === "agenda"} onclick={() => setView("agenda")}>
-        <Icon name="list" size={13} /> Agenda
+    <div class="mact">
+      <button class="primary" aria-haspopup="menu" onclick={newEventMenu}>
+        <Icon name="plus" size={13} /> New event
       </button>
-      <button class="seg-btn" class:on={view === "month"} role="tab" aria-selected={view === "month"} onclick={() => setView("month")}>
-        <Icon name="calendar" size={13} /> Month
+      <button class="ghost" onclick={instantMeeting}>
+        <Icon name="bolt" size={13} /> Instant meeting
       </button>
     </div>
+    <Segmented
+      label="Calendar view"
+      value={view}
+      onChange={setView}
+      options={[
+        { value: "agenda", label: "Agenda" },
+        { value: "month", label: "Month" },
+      ]}
+    />
   </header>
 
   {#if view === "month"}
@@ -347,7 +380,7 @@
   <div class="list">
     {#each groups as grp (grp.key)}
       <div class="dayhead kicker">
-        {fmtDayHeading(grp.key)}{#if grp.key === todayKey && !grp.items.length}<span class="dh-none"> — nothing scheduled</span>{/if}
+        {fmtDayHeading(grp.key)}
       </div>
       {#each grp.items as { ev, g }, i (ev.id)}
         {#if grp.key === todayKey && i === nowIdx}
@@ -387,51 +420,49 @@
 </Modal>
 
 <style>
+  /* Sentence case, not the shouted kicker: day headings, the legend and the
+     form's echo line read as labels ("Friday 13 November"), in the small
+     size at 600, the way every other group label in the app does. */
+  .kicker {
+    font-size: var(--fs-small);
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+  }
   /* ---- masthead: the reason to open this every morning ---- */
   /* A row now: the date column keeps the left edge, the Agenda|Month toggle
      rides the right — no extra bar row stealing height from the river. */
   .mast {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--sp-2);
     padding: 2px 2px 6px;
     border-bottom: 1px solid var(--hairline);
   }
+  /* The two ways to put something on it, on their own line under the date,
+     so the masthead keeps its width. */
+  .mact {
+    order: 3;
+    flex: 1 0 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+  .mact button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+  }
   .mtxt {
+    flex: 1;
     display: flex;
     flex-direction: column;
     gap: 2px;
     min-width: 0;
     flex: 1;
-  }
-  /* ModalEvents' segmented control, verbatim geometry — same words, same
-     place in the eye's grammar (view navigation, quiet thumb). */
-  .seg {
-    display: inline-flex;
-    padding: 3px;
-    gap: 2px;
-    background: var(--bg-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    flex-shrink: 0;
-    margin-top: 2px;
-  }
-  .seg-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 11px;
-    border-radius: calc(var(--radius-md) - 3px);
-    background: transparent;
-    color: var(--text-muted);
-    font-size: var(--fs-compact);
-    font-weight: 600;
-  }
-  .seg-btn.on {
-    background: var(--bg-1);
-    color: var(--text);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   }
   .mday {
     color: var(--text-faint);
@@ -541,10 +572,8 @@
   }
   .dow {
     text-align: center;
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    font-size: var(--fs-small);
+    font-weight: 600;
     padding: 2px 0 6px;
     color: var(--text-faint);
   }
@@ -693,11 +722,6 @@
     padding: 8px 0 4px;
     margin-top: var(--sp-2);
   }
-  .dh-none {
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    color: var(--text-faint);
-  }
   .riser {
     animation: mycal-rise var(--dur-calm) var(--ease-calm) backwards;
   }
@@ -758,13 +782,11 @@
       min-height: var(--tap-min);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .riser,
-    .mn-dot {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .riser,
+  :global(:root[data-motion="reduced"]) .mn-dot {
+    animation: none;
   }
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .dayhead {
       top: 44px;
     }
@@ -774,14 +796,6 @@
       flex-direction: column;
       align-items: stretch;
       gap: var(--sp-2);
-    }
-    .seg {
-      align-self: stretch;
-    }
-    .seg-btn {
-      flex: 1;
-      justify-content: center;
-      min-height: 40px;
     }
     .cell {
       min-height: 50px;

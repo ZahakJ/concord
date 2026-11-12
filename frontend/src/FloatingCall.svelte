@@ -13,10 +13,20 @@
   // until its own Mute/Leave row was below the bottom of the screen.
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
-  import { S, memberByFpr, nameFor, callHealth } from "./lib/state.svelte.js";
+  import {
+    S,
+    memberByFpr,
+    nameFor,
+    callHealth,
+    voiceMembersFor,
+    callMeetingGuild,
+    copyMeetingGuestLink,
+    openMeetingDetails,
+    openContextMenu,
+  } from "./lib/state.svelte.js";
   import { splitStatus } from "./lib/presence.js";
   import { haptic } from "./lib/touch.js";
-  import { pointOf, viewport } from "./lib/place.js";
+  import { pointOf, viewport, rectOf } from "./lib/place.js";
   import { callClock } from "./lib/calltimer.svelte.js";
   import { canShareScreen } from "./lib/devices.js";
   import { bindStream } from "./lib/bindstream.js";
@@ -39,6 +49,21 @@
   } = $props();
 
   const clock = $derived(callClock());
+
+  // In a meeting's call, the guest link and the meeting's dialog are one menu
+  // away here too: the dialog that first showed them is long closed.
+  const meetingG = $derived(callMeetingGuild());
+  function meetingMenu(e) {
+    if (!meetingG) return;
+    openContextMenu(
+      e,
+      [
+        { label: "Copy guest link", icon: "link", onClick: () => copyMeetingGuestLink(meetingG.id) },
+        { label: "Meeting details", icon: "calendar", onClick: () => openMeetingDetails(meetingG.id) },
+      ],
+      { title: "Meeting" },
+    );
+  }
 
   // Same test the CSS phone query makes, so the two never disagree about which
   // shape is on screen.
@@ -63,7 +88,7 @@
   // Layout pixels, like every other length written into style.left/top —
   // lib/place.js explains why the viewport has to be asked for rather than
   // read off window.innerWidth once the UI scale leaves 100%.
-  let pos = $state(savedPos() || { x: Math.max(12, viewport().w - 300), y: 70 });
+  let pos = $state(savedPos() || { x: Math.max(12, viewport().w - 300), y: 70, corner: true });
   let dockEl = $state(null);
   let drag = null;
   let dragging = $state(false); // lifts the dock visually while it moves
@@ -72,13 +97,69 @@
   // constant let the bottom of the widget — the row holding Mute and Leave —
   // hang below the viewport, and the only recovery was dragging it back by a
   // header you could no longer see the point of.
-  function clamp(x, y) {
+  //
+  // The box it may sit in is the conversation, not the window: parked over
+  // the inspector it hid the member list, and parked over the composer it
+  // hid what you were typing — the two things you are doing while the call
+  // runs elsewhere. Each edge only narrows when the dock still fits.
+  function area(w, h) {
+    const vp = viewport();
+    const a = { l: 8, r: vp.w - 8, t: 8, b: vp.h - 12 };
+    const main = document.querySelector("main.chat");
+    if (main) {
+      const m = rectOf(main);
+      if (m.w >= w + 16) {
+        a.l = Math.max(a.l, m.x + 8);
+        a.r = Math.min(a.r, m.x + m.w - 8);
+      }
+    }
+    // An overlay inspector lies over the conversation rather than beside it.
+    const insp = document.querySelector(".insp-slot.overlay");
+    if (insp) {
+      const i = rectOf(insp);
+      if (i.w && i.x - 8 - a.l >= w) a.r = Math.min(a.r, i.x - 8);
+    }
+    const comp = document.querySelector("main.chat .composer-wrap");
+    if (comp) {
+      const c = rectOf(comp);
+      if (c.h && c.y - 8 - a.t >= h) a.b = Math.min(a.b, c.y - 8);
+    }
+    return a;
+  }
+  // Where the conversation's text stops: the right edge of the longest line
+  // of any message on screen (the text itself, not its box, which runs to the
+  // full reading measure), or null with nothing on screen to read.
+  function textRight() {
+    let right = null;
+    const range = document.createRange();
+    for (const b of document.querySelectorAll("main.chat .feed .msg .body")) {
+      range.selectNodeContents(b);
+      const r = rectOf(range.getBoundingClientRect());
+      if (r.w) right = Math.max(right ?? 0, r.x + r.w);
+    }
+    return right;
+  }
+  function clamp(x, y, corner = false) {
     const w = dockEl?.offsetWidth || 280;
     const h = dockEl?.offsetHeight || 180;
-    const vp = viewport();
+    const a = area(w, h);
+    // Never placed by hand: it belongs in the conversation's top-right corner,
+    // wherever that is now (the inspector opening moves the corner) — unless
+    // that corner is over the text you are reading and moving right by a
+    // sliver clears it. It may then lap the inspector's edge by up to 24px
+    // (the padding before the member names), never further: names under it
+    // would be the same problem moved. A dock you placed by hand stays where
+    // you put it.
+    let hi = a.r - w;
+    if (corner) {
+      const tr = textRight();
+      if (tr !== null && a.r - w < tr + 8 && tr + 8 + w <= a.r + 24) hi = tr + 8;
+      x = hi;
+    }
     return {
-      x: Math.max(8, Math.min(vp.w - w - 8, x)),
-      y: Math.max(8, Math.min(vp.h - h - 12, y)),
+      x: Math.max(a.l, Math.min(hi, x)),
+      y: Math.max(a.t, Math.min(a.b - h, y)),
+      ...(corner ? { corner: true } : {}),
     };
   }
   // A pointer reports visual pixels; the dock lives in layout ones, so a drag
@@ -125,7 +206,7 @@
   }
   // Keep the dock on-screen when the window is resized smaller (or rotated).
   function onResize() {
-    pos = clamp(pos.x, pos.y);
+    pos = clamp(pos.x, pos.y, pos.corner);
   }
   // Clamp the REMEMBERED position against this window on the way in: a dock
   // parked at the right edge of a 2560px monitor is off-screen on a laptop.
@@ -133,10 +214,27 @@
   // call, and assigning one unconditionally in an effect that reads `pos` is an
   // effect that re-runs itself forever.
   $effect(() => {
-    if (phone || !dockEl) return;
+    if (phone || !dockEl || shelved) return;
     void share; // the preview widens the dock; re-clamp so it stays on screen
-    const c = clamp(pos.x, pos.y);
-    if (c.x !== pos.x || c.y !== pos.y) pos = c;
+    // What the box depends on: the inspector and the sidebar opening or
+    // closing, and the conversation changing under it.
+    void S.prefs.memberPanel;
+    void S.prefs.sidebarHidden;
+    void S.activeChannelId;
+    const fit = () => {
+      const c = clamp(pos.x, pos.y, pos.corner);
+      if (c.x !== pos.x || c.y !== pos.y) pos = c;
+    };
+    fit();
+    // The panes settle a frame later than the state that moved them.
+    const t = setTimeout(fit, 260);
+    const main = document.querySelector("main.chat");
+    const ro = main && typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : null;
+    if (ro) ro.observe(main);
+    return () => {
+      clearTimeout(t);
+      ro?.disconnect();
+    };
   });
 
   // The mobile drawers carry their own call bar and this would float over the
@@ -147,6 +245,16 @@
   const shelved = $derived(!away || (S.isMobile && (S.drawerOpen || S.membersOpen)));
 
   const roster = $derived(["self", ...S.voiceParticipants]);
+  // Who has their microphone or their ears off, by peer: the same gossip the
+  // sidebar's faces read.
+  const quiet = $derived.by(() => {
+    const out = {};
+    for (const vm of S.voice ? voiceMembersFor(S.voice.channelId) : []) {
+      out[vm.self ? "self" : vm.peerId] = vm.deafened ? "deafened" : vm.muted ? "muted" : "";
+    }
+    out.self = S.deafened ? "deafened" : S.muted ? "muted" : "";
+    return out;
+  });
   const share = $derived(watchedShare());
   const shareTitle = $derived.by(() => {
     if (!share) return "";
@@ -271,7 +379,6 @@
     class:dragging
     class:shelved
     class:trouble={!health.live}
-    class:watching={!!share}
     bind:this={dockEl}
     style="left:{pos.x}px; top:{pos.y}px"
   >
@@ -280,6 +387,18 @@
       <span class="live" class:held={!health.live}></span>
       <span class="lbl">{health.live ? label || "In call" : health.label}</span>
       {#if clock}<span class="clock" class:held={!health.live}>{clock}</span>{/if}
+      {#if meetingG}
+        <button
+          class="ico more"
+          title="Guest link and meeting details"
+          aria-label="Meeting"
+          aria-haspopup="menu"
+          onpointerdown={(e) => e.stopPropagation()}
+          onclick={meetingMenu}
+        >
+          <Icon name="dots" size={14} />
+        </button>
+      {/if}
       <button
         class="ico expand"
         title="Return to call"
@@ -302,7 +421,8 @@
     <div class="faces">
       {#each roster as pid (pid)}
         {@const p = part(pid)}
-        <div class="face" class:speaking={p.speaking} title={p.name}>
+        {@const q = quiet[pid]}
+        <div class="face" class:speaking={p.speaking} title={q ? `${p.name} · ${q}` : p.name}>
           <Avatar
             name={p.name}
             emoji={p.emoji}
@@ -315,6 +435,11 @@
             moodTitle={p.moodTitle}
             size={36}
           />
+          {#if q}
+            <span class="face-mark" aria-label="{p.name} is {q}">
+              <Icon name={q === "deafened" ? "deafened" : "micOff"} size={10} />
+            </span>
+          {/if}
         </div>
       {/each}
     </div>
@@ -365,7 +490,7 @@
     position: fixed;
     left: 0;
     right: 0;
-    z-index: 90; /* above chat, but BELOW modals (100) so dialogs aren't covered */
+    z-index: var(--z-dock); /* above chat, but BELOW modals (100) so dialogs aren't covered */
     display: flex;
     flex-direction: column;
   }
@@ -374,9 +499,13 @@
     align-items: center;
     gap: var(--sp-2);
     padding: 6px var(--sp-2);
-    background: var(--ok-soft);
-    border-bottom: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+    /* The soft tints are translucent by design, and this strip sits over the
+       message list: scrolled text showed through and collided with the
+       strip's own labels. The tint is laid over the app's own opaque ground. */
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
     box-shadow: var(--shadow-pop);
+    min-height: 44px;
     user-select: none;
   }
   .cb-open {
@@ -402,7 +531,7 @@
   .cb-lbl {
     font-size: var(--fs-compact);
     font-weight: 600;
-    color: var(--ok-text);
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -416,7 +545,7 @@
   .dock {
     position: fixed;
     width: 280px;
-    z-index: 90;
+    z-index: var(--z-dock);
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -425,11 +554,18 @@
     user-select: none;
     /* The dock breathes softly while the call is live — a low green ambience
        that says "this is running" without demanding attention. */
-    animation: dock-breathe 4s ease-in-out infinite;
-    transition: transform var(--dur-standard) ease, box-shadow var(--dur-standard) ease, width var(--dur-standard) ease;
+    transition: transform var(--dur-standard) ease, box-shadow var(--dur-standard) ease;
+    /* Appears the way a dialog does: a fade and a short rise, on the lift
+       curve. Its width changes in one step when a share starts (360px):
+       animating width re-laid out the window every frame. */
+    animation: dock-in var(--dur-standard) var(--ease-lift);
   }
-  .dock.watching {
-    width: 360px;
+  @keyframes dock-in {
+    from {
+      opacity: 0;
+      translate: 0 var(--rise-y);
+      scale: var(--enter-scale);
+    }
   }
   .share-view {
     position: relative;
@@ -491,9 +627,12 @@
   .dock.trouble {
     animation: none;
   }
-  .dock.trouble .head,
-  .phone-call.trouble .callbar {
+  .dock.trouble .head {
     background: var(--warn-soft);
+    color: var(--warn-text);
+  }
+  .phone-call.trouble .callbar {
+    background: var(--bg-elevated);
     color: var(--warn-text);
   }
   .dock.trouble .lbl,
@@ -508,28 +647,14 @@
   /* Lifted while dragged: bigger shadow + a slight grow under the pointer. */
   .dock.dragging {
     transform: scale(1.03);
-    box-shadow:
-      var(--shadow-pop),
-      0 18px 44px rgb(0 0 0 / 0.4);
-    animation: none;
-  }
-  @keyframes dock-breathe {
-    0%,
-    100% {
-      box-shadow: var(--shadow-pop);
-    }
-    50% {
-      box-shadow:
-        var(--shadow-pop),
-        0 0 18px color-mix(in srgb, var(--ok) 22%, transparent);
-    }
+    box-shadow: var(--shadow-pop);
   }
   .head {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
     padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
-    background: var(--ok-soft);
+    border-bottom: 1px solid var(--hairline);
     cursor: move;
     /* Ours, not the scroller's: with the default the browser claimed any
        vertical touch drag and cancelled the pointer mid-move. */
@@ -541,12 +666,6 @@
     border-radius: 50%;
     background: var(--ok);
     flex-shrink: 0;
-    animation: blink 1.4s ease-in-out infinite;
-  }
-  @keyframes blink {
-    50% {
-      opacity: 0.3;
-    }
   }
   /* Amber and still: the dot is the liveness claim, so it stops making it. */
   .live.held {
@@ -563,7 +682,7 @@
     min-width: 0;
     font-size: var(--fs-compact);
     font-weight: 600;
-    color: var(--ok-text);
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -575,7 +694,7 @@
     font-size: var(--fs-tiny);
     font-variant-numeric: tabular-nums;
     font-weight: 600;
-    color: color-mix(in srgb, var(--ok-text) 78%, transparent);
+    color: var(--ok-text);
   }
   .faces {
     display: flex;
@@ -587,27 +706,29 @@
     overflow-y: auto;
     overscroll-behavior: contain; /* don't hand the leftover flick to the feed */
   }
+  .face {
+    position: relative;
+  }
+  .face-mark {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    box-shadow: 0 0 0 1px var(--border);
+  }
   .face :global(.avatar) {
     border: 2px solid transparent;
     transition: border-color var(--dur-quick) ease;
   }
-  /* Speaking: same layered ring-and-glow as the big call tiles, mini-sized. */
+  /* Speaking: a ring, no glow (§8.12). */
   .face.speaking :global(.avatar) {
     border-color: var(--ok);
-    animation: fc-glow 1.6s ease-in-out infinite;
-  }
-  @keyframes fc-glow {
-    0%,
-    100% {
-      box-shadow:
-        0 0 0 2px var(--ok-soft),
-        0 0 3px 0 color-mix(in srgb, var(--ok) 30%, transparent);
-    }
-    50% {
-      box-shadow:
-        0 0 0 2px color-mix(in srgb, var(--ok) 28%, transparent),
-        0 0 8px 2px color-mix(in srgb, var(--ok) 45%, transparent);
-    }
   }
   .ctl {
     display: flex;
@@ -620,6 +741,13 @@
   /* The dock's controls are .callbtn (app.css) at its base size — the stage
      bar's language, 34px instead of 44. What is left here is the one button
      that is not a call control: the chevron back into the call. */
+  .ico.more {
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+  }
   .ico.expand {
     width: 28px;
     height: 28px;
@@ -628,15 +756,13 @@
     color: var(--ok-text);
     transform: rotate(180deg); /* chevron points back at the call, not away */
   }
-  @media (prefers-reduced-motion: reduce) {
-    .dock,
-    .live,
-    .face.speaking :global(.avatar) {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .dock,
+  :global(:root[data-motion="reduced"]) .live,
+  :global(:root[data-motion="reduced"]) .face.speaking :global(.avatar) {
+    animation: none;
   }
 
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .callbtn {
       width: var(--tap-min);
       height: var(--tap-min);

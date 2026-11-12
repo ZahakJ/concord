@@ -139,10 +139,8 @@
   .thumb:active .play svg {
     transform: scale(0.96);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .thumb:hover .play svg,
-    .thumb:active .play svg {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .thumb:hover .play svg,
+  :global(:root[data-motion="reduced"]) .thumb:active .play svg {
+    transform: none;
   }
 </style>

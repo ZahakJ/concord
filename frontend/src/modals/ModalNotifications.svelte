@@ -88,10 +88,15 @@
   // the end, for the case where the machine is fine and the speakers are not.
   let trouble = $state(null);
   let testing = $state(false);
+  // muteNote: the test was pressed with the volume at Off. It used to play
+  // nothing and say nothing — the speakers were fine, Concord was muted, and
+  // the page looked identical either way.
+  let muteNote = $state(false);
   async function probe(withChime) {
     testing = true;
     await probeAudioOutput();
     trouble = audioTrouble();
+    muteNote = withChime && !trouble && !sounds;
     if (withChime && !trouble && sounds) playDone();
     testing = false;
   }
@@ -259,6 +264,12 @@
         {testing ? "Listening…" : "Test"}
       </button>
     </SettingRow>
+    {#if muteNote && vol === 0}
+      <div class="trouble" role="status">
+        <span class="t-ico"><Icon name="alert" size={15} /></span>
+        <p>Nothing played because Volume is set to Off above. Drag it up to hear mentions, messages and calls.</p>
+      </div>
+    {/if}
   </SettingGroup>
 
   <SettingGroup
@@ -278,7 +289,7 @@
           aria-label="Add an alert word"
           maxlength={MAX_LEN}
         />
-        <button type="submit" disabled={!draft.trim() || !!reason}>Add</button>
+        <button class="primary" type="submit" disabled={!draft.trim() || !!reason}>Add</button>
       </form>
       <!-- Always here, empty until there is something to say: a validation line
            that appears pushes the chip list and the counter down the page while
@@ -343,7 +354,11 @@
     gap: var(--sp-2);
   }
   .vol input {
-    width: 130px;
+    width: 160px;
+    /* The app-wide groove is a shade of the ground, which on this card is no
+       shade at all: at "Off" the slider was a lone white dot floating in the
+       row. A visible track says what the dot is and how far it can go. */
+    --range-groove: color-mix(in srgb, var(--text-muted) 32%, transparent);
   }
   .volnum {
     /* Wide enough for "100%" AND for "Off", so the slider does not shift

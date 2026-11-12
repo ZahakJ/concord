@@ -4,6 +4,7 @@
   // un-redeemed (internal/app/request.go), which is why the row can show who
   // knocked but not what they said: reading it would mean joining their group,
   // and joining is what hands them your profile, presence and mailbox key.
+  import EmptyState from "../EmptyState.svelte";
   import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
@@ -48,7 +49,12 @@
 
 <RailShell title="Message requests" {onClose}>
   {#if S.requests.length === 0}
-    <p class="muted empty">Nothing waiting. Requests from people you don't know show up here.</p>
+    <EmptyState
+      compact
+      icon="user"
+      headline="No requests"
+      sub="When someone you don't share a guild with wants to talk, their request waits here until you accept it."
+    />
   {:else}
     <p class="muted tiny intro">
       They haven't reached you yet — Concord is holding the invitation, not the conversation. Until
@@ -82,7 +88,7 @@
               title="Delete and stop them contacting you again"
               onclick={() => decline(r, true)}>Block</button
             >
-            <button disabled={busy === r.from} onclick={() => accept(r)}>
+            <button class="primary" disabled={busy === r.from} onclick={() => accept(r)}>
               <Icon name="check" size={13} /> Accept
             </button>
           </div>

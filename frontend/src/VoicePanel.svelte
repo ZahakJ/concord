@@ -7,6 +7,9 @@
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
   import {
+    callMeetingGuild,
+    copyMeetingGuestLink,
+    openMeetingDetails,
     S,
     memberByFpr,
     nameFor,
@@ -139,6 +142,7 @@
     setAudioRoute,
     AUDIO_ROUTES,
   } from "./lib/devices.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   // In push-to-talk the mic button stops being a toggle you watch and becomes a
   // readout of a key you're holding, so it says which key and lights up live.
@@ -147,8 +151,7 @@
 
   // Join/leave pop for tiles and strip bubbles; zero-duration under
   // prefers-reduced-motion (Svelte transitions don't read the media query).
-  const noMotion =
-    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const noMotion = reducedMotion();
   const pop = { duration: noMotion ? 0 : 190, start: 0.82 };
 
   let { onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } = $props();
@@ -165,19 +168,24 @@
   // join is still in flight.
   const chId = $derived(S.voice?.channelId || S.joiningVoice || "");
   const joining = $derived(!S.voice && !!S.joiningVoice);
+  // The guild (or DM) the CALL is in, which is not always the one on screen:
+  // the stage stays up while you browse your DMs, and reading the open
+  // conversation instead told a guild room "Waiting for Tobin…" because Tobin's
+  // DM happened to be selected.
+  const callGuild = $derived(S.guilds.find((g) => g.channels?.some((c) => c.id === chId)) || activeGuild());
   // The padlock is HIDDEN, not disabled, for anyone who cannot use it. A
   // disabled control still advertises a power you do not have and invites the
   // question of why; and there was no check at all before this, so a member of
   // Warshat al-Layl holding a role with permissions ZERO locked the guild
   // owner's own room from the same eight-button bar he had.
-  const canLock = $derived(activeGuild()?.kind !== "dm" && canLockCall(chId));
+  const canLock = $derived(callGuild?.kind !== "dm" && canLockCall(chId));
   const locked = $derived(isCallLocked(chId));
   // Who shut it. The fingerprint comes off the authenticated sender of the lock
   // signal, so this is a claim the app can actually stand behind — the same way
   // a forum post says who locked IT.
   const lockedBy = $derived(callLockedBy(chId));
   const knockers = $derived(S.callKnocks[chId] || []);
-  const isDM = $derived(activeGuild()?.kind === "dm");
+  const isDM = $derived(callGuild?.kind === "dm");
 
   // A knocker's face for the door card. Members resolve to their real profile;
   // a browser guest has no member record, so Avatar falls back to initials of
@@ -212,28 +220,35 @@
     };
   }
 
-  // Ring for ~30s while alone in a DM call, then quietly settle into "just you
-  // in the call" if they never pick up.
-  let ringTimedOut = $state(false);
-  $effect(() => {
-    if (!solo) {
-      ringTimedOut = false;
-      return;
-    }
-    ringTimedOut = false;
-    const id = setTimeout(() => (ringTimedOut = true), 30000);
-    return () => clearTimeout(id);
-  });
-  // Neither applies until we are actually in the room: "Waiting for others to
-  // join" while our own connection is still being made says the wrong thing
-  // about the wrong party.
+  // Ringing is the DM call's own state (lib/callflow.js), not "alone in a
+  // DM": that reading re-rang the caller every time the other person hung up,
+  // and rang on after a decline it had never heard about.
+  //
+  // Neither pill applies until we are actually in the room: "Waiting for
+  // others to join" while our own connection is still being made says the
+  // wrong thing about the wrong party.
   // …and neither applies while the call is in trouble. Killing the node under a
   // peer emptied its roster, so an offline client announced "Waiting for others
   // to join…" over the top of "Reconnecting to the call…" — a fourth framing of
   // one event, and the only cheerful one. An empty room is a fact about the
   // room; you cannot state it while you cannot reach the room.
-  const ringing = $derived(solo && isDM && !ringTimedOut && !joining && health.live);
-  const waiting = $derived(solo && !isDM && !joining && health.live);
+  const dial = $derived(S.calls[chId]);
+  const dmGroup = $derived((callGuild?.dmMembers ?? 2) > 2);
+  const dmName = $derived(callGuild?.name || "them");
+  const ringing = $derived(
+    isDM && !joining && !S.offline && (dial?.phase === "ringing" || dial?.phase === "unreachable"),
+  );
+  const ringText = $derived(
+    dial?.phase === "unreachable" && !dmGroup
+      ? `${dmName} is offline — they'll see a missed call`
+      : `Ringing ${dmGroup ? "everyone" : dmName}…`,
+  );
+  // Not while someone is at the door: "Waiting for others to join…" under a
+  // person knocking contradicts the card right above it.
+  const waiting = $derived(solo && !ringing && !joining && health.live && !knockers.length);
+  const waitText = $derived(
+    !isDM ? "Nobody else is here" : dmGroup ? "Everyone else left" : `Waiting for ${dmName}…`,
+  );
 
   // Everything Avatar can paint, from a member record. The call stage is a
   // screen made of nothing but avatars, at 96px, that people look at for an
@@ -323,7 +338,10 @@
       return "Nobody can hear each other — these connections couldn't be made.";
     }
     if (health.state === "reconnecting") return "Reconnecting to the call…";
-    return "Nobody can hear each other yet — still connecting.";
+    // Still connecting is already said, once, on the tile of whoever is not
+    // through yet; a footer line saying it again made four "Connecting…" on
+    // one screen.
+    return "";
   });
 
   // The camera tile for a roster entry ("self" or a peerId), if they have one
@@ -465,6 +483,7 @@
   // Tracked from the event, not from a flag we set ourselves: Escape and the
   // system's own fullscreen affordances leave it without asking us.
   let isFullscreen = $state(false);
+  let panelEl = $state(null);
   $effect(() => {
     const sync = () => (isFullscreen = !!document.fullscreenElement);
     document.addEventListener("fullscreenchange", sync);
@@ -480,7 +499,9 @@
         screen.orientation?.unlock?.();
         return;
       }
-      await stageEl?.requestFullscreen?.();
+      // The whole panel, not just the picture: the controls (mute, camera,
+      // leave) have to stay in reach while the call fills the screen.
+      await (panelEl || stageEl)?.requestFullscreen?.();
       if (S.isMobile) await screen.orientation?.lock?.("landscape");
     } catch {
       /* denied, unsupported, or the lock refused — the fullscreen still stands */
@@ -646,7 +667,9 @@
         decoration: S.identity.style?.dec || "",
         dc: S.identity.style?.dc || "",
         ...moodOf(S.identity.status),
-        speaking: S.voiceSpeaking.includes("self"),
+        // Not while nobody can hear you yet: a green "speaking" ring on your
+        // own tile under "still connecting" said the opposite of the truth.
+        speaking: health.live && S.voiceSpeaking.includes("self"),
         muted: S.muted,
         deafened: S.deafened,
         self: true,
@@ -856,6 +879,20 @@
 
   // The phone's "⋯" — everything the four-button bar doesn't carry, as the
   // same action sheet every other secondary action in this app opens into.
+  // A meeting's guest link is shown once, in the dialog that opens with the
+  // meeting; after that it was gone for good. The call keeps the way back.
+  const meetingG = $derived(callMeetingGuild());
+  const meetingItems = () =>
+    meetingG
+      ? [
+          { sep: true },
+          { label: "Copy guest link", icon: "link", onClick: () => copyMeetingGuestLink(meetingG.id) },
+          { label: "Meeting details", icon: "calendar", onClick: () => openMeetingDetails(meetingG.id) },
+        ]
+      : [];
+  function meetingMenu(e) {
+    openContextMenu(e, meetingItems().slice(1), { title: "Meeting" });
+  }
   function moreControls(e) {
     openContextMenu(e, [
       { label: "Call controls", header: true },
@@ -888,6 +925,7 @@
         active: locked,
         onClick: toggleCallLock,
       },
+      ...meetingItems(),
       { sep: true },
       {
         label: S.callStageChat ? "Hide the chat" : "Chat",
@@ -942,7 +980,7 @@
 
 <svelte:window onkeydown={sfxKey} />
 
-<div class="voice-panel" class:theater={inTheater} class:watching={!!focusedScreen} class:on-stage={onStage} style="--cols:{cols}">
+<div bind:this={panelEl} class="voice-panel" class:theater={inTheater} class:watching={!!focusedScreen} class:on-stage={onStage} style="--cols:{cols}">
   <!-- The stage's own header: which room, how many people, how long, and
        whether the door is locked. None of it existed — a call had no elapsed
        time anywhere in the app, and a locked call (which makes everyone else
@@ -951,7 +989,9 @@
   <div class="stage-head">
     <span class="sh-live" class:held={!health.live} aria-hidden="true"></span>
     <span class="sh-room">{roomName || "Call"}</span>
-    <span class="sh-count">{roster.length} in call</span>
+    <!-- Not while it rings: "1 in call" over "Ringing Tobin…" counted a call
+         nobody had answered. -->
+    {#if !ringing}<span class="sh-count">{roster.length} in call</span>{/if}
     {#if locked}
       <span class="sh-lock">
         <Icon name="lock" size={11} />
@@ -959,7 +999,12 @@
       </span>
     {/if}
     <span class="sh-spacer"></span>
-    {#if clock}<span class="sh-clock" class:held={!health.live} aria-label="Call duration">{clock}</span>{/if}
+    <!-- Until the call is live there is no duration to show: a running clock
+         with a line through it read as a rendering fault, not as "not yet". -->
+    <!-- Not yet live: no clock, and no second "Connecting…" beside the
+         tile's. The status stays for a screen reader, which has no tile. -->
+    {#if !health.live}<span class="sr-only" role="status">Connecting…</span>
+    {:else if clock}<span class="sh-clock" aria-label="Call duration">{clock}</span>{/if}
     <button
       class="sh-swap"
       class:on={S.callStageChat}
@@ -983,7 +1028,7 @@
   {#if (ringing || waiting) && !focusedScreen}
     <div class="ringing">
       <span class="dots"><span></span><span></span><span></span></span>
-      {ringing ? "Ringing…" : "Waiting for others to join…"}
+      {ringing ? ringText : waitText}
     </div>
   {/if}
 
@@ -1008,7 +1053,7 @@
         {@const cam = camTile(focusedPid)}
         <div class="focus-face" style={t.color ? `--tint:${t.color}` : ""}>
           <Avatar
-            name={t.name}
+            name={t.pending ? "" : t.name}
             emoji={t.emoji}
             color={t.color}
             image={t.image}
@@ -1086,7 +1131,7 @@
         >
           <span class="rail-face" style={t.color ? `--tint:${t.color}` : ""}>
             <Avatar
-              name={t.name}
+              name={t.pending ? "" : t.name}
               emoji={t.emoji}
               color={t.color}
               image={t.image}
@@ -1147,7 +1192,7 @@
         >
           <div class="face" style={t.color ? `--tint:${t.color}` : ""}>
             <Avatar
-              name={t.name}
+              name={t.pending ? "" : t.name}
               emoji={t.emoji}
               color={t.color}
               image={t.image}
@@ -1460,6 +1505,17 @@
           <Icon name="lock" size={18} />
         </button>
       {/if}
+      {#if meetingG}
+        <button
+          class="ctl callbtn lg"
+          use:tooltip={"Guest link and meeting details"}
+          aria-label="Meeting"
+          aria-haspopup="menu"
+          onclick={meetingMenu}
+        >
+          <Icon name="link" size={18} />
+        </button>
+      {/if}
       <button
         class="ctl callbtn lg"
         use:tooltip={"Audio & video settings"}
@@ -1545,12 +1601,15 @@
 </div>
 
 <style>
+  .voice-panel:fullscreen {
+    padding: var(--sp-4);
+  }
   .voice-panel {
     display: flex;
     flex-direction: column;
     gap: var(--sp-3);
     padding: 14px 16px;
-    background: radial-gradient(120% 140% at 50% 0%, var(--bg-2), var(--bg-0));
+    background: var(--bg-0);
     overflow-y: auto;
     /* Flicking past the end of the tile grid used to hand the leftover momentum
        to the message feed underneath — the chat jumped while you were reaching
@@ -1647,11 +1706,6 @@
     font-weight: 600;
     color: var(--text);
   }
-  .sh-clock.held {
-    color: var(--warn-text);
-    text-decoration: line-through;
-    text-decoration-thickness: 1px;
-  }
   .sh-swap {
     display: grid;
     place-items: center;
@@ -1674,10 +1728,8 @@
   .sh-min :global(svg) {
     transform: rotate(90deg); /* chevron points down: put the call away */
   }
-  @media (prefers-reduced-motion: reduce) {
-    .sh-live {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .sh-live {
+    animation: none;
   }
   .stage {
     display: grid;
@@ -1741,10 +1793,8 @@
       transform: translateY(var(--sp-2));
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .voice-panel.on-stage .stage.fitted .tile {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .voice-panel.on-stage .stage.fitted .tile {
+    animation: none;
   }
   /* Theater sets its own (taller) cap; on the stage there is no cap at all, and
      the two rules have equal specificity, so say which wins rather than relying
@@ -1804,10 +1854,10 @@
       box-shadow var(--dur-standard) ease;
   }
   /* Hover lift — a gentle rise + shadow so tiles feel tactile. */
+  /* Hover is the border stepping up a tier, nothing more: the accent means
+     "you", and a lift under the pointer is chrome moving for no reason. */
   .tile:hover {
-    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.45);
+    border-color: var(--border-strong);
   }
   .tile.speaking {
     border-color: color-mix(in srgb, var(--ok) 55%, transparent);
@@ -1827,23 +1877,16 @@
   .tile video.mirror {
     transform: scaleX(-1);
   }
-  /* Idle tile face: soft member-color gradient — a top glow melting into a
-     faint tinted wash, so every tile carries its owner's color. */
+  /* Idle tile face: the sidebar ground with the avatar centred. */
   .face {
     width: 100%;
     height: 100%;
     display: grid;
     place-items: center;
-    background:
-      radial-gradient(
-        120% 95% at 50% 0%,
-        color-mix(in srgb, var(--tint, var(--accent)) 30%, transparent),
-        transparent 62%
-      ),
-      linear-gradient(180deg, color-mix(in srgb, var(--tint, var(--accent)) 10%, var(--bg-1)), var(--bg-1) 80%);
+    background: var(--bg-1);
   }
-  /* Animated speaking ring — layered: a crisp inner ring, an inner wash of
-     color, and a breathing outer halo. */
+  /* Speaking: a 2px inset ring in the ok colour. No glow, no pulse — the
+     ring appearing is the signal. */
   .ring {
     position: absolute;
     inset: 0;
@@ -1853,24 +1896,7 @@
     transition: box-shadow var(--dur-quick) ease;
   }
   .tile.speaking .ring {
-    animation: pulse 1.6s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    0%,
-    100% {
-      box-shadow:
-        inset 0 0 0 2px var(--ok),
-        inset 0 0 22px -6px color-mix(in srgb, var(--ok) 40%, transparent),
-        0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent),
-        0 0 6px 0 color-mix(in srgb, var(--ok) 25%, transparent);
-    }
-    50% {
-      box-shadow:
-        inset 0 0 0 2px var(--ok),
-        inset 0 0 30px -4px color-mix(in srgb, var(--ok) 52%, transparent),
-        0 0 0 3px color-mix(in srgb, var(--ok) 45%, transparent),
-        0 0 18px 4px color-mix(in srgb, var(--ok) 40%, transparent);
-    }
+    box-shadow: inset 0 0 0 2px var(--ok);
   }
   /* The speaking badge: three bars bouncing while someone talks, labelled
      "Speaking" for the pointer and the screen reader. It was read as an
@@ -1970,7 +1996,7 @@
      person, is a landmine under a thumb. It moves to the long-press sheet
      (tileMenu), which is where every other destructive action on this app's
      phone UI already lives. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .evict {
       display: none;
     }
@@ -2047,8 +2073,8 @@
   .tile.unsettled video {
     opacity: 0.45;
   }
-  .tile.st-connecting,
-  .tile.st-reconnecting {
+  .tile.st-connecting .face,
+  .tile.st-reconnecting .face {
     animation: tile-pulse 1.6s ease-in-out infinite;
   }
   .tile.st-reconnecting {
@@ -2059,40 +2085,37 @@
     border-color: var(--danger);
     animation: none;
   }
+  /* Still trying: the receded face breathes. Not a coloured border — the
+     accent is "you" and an amber/orange frame read as an error. */
   @keyframes tile-pulse {
     50% {
-      border-color: var(--accent);
+      opacity: 0.3;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .tile.st-connecting,
-    .tile.st-reconnecting {
-      animation: none;
-      border-color: var(--accent);
-    }
+  :global(:root[data-motion="reduced"]) .tile.st-connecting .face,
+  :global(:root[data-motion="reduced"]) .tile.st-reconnecting .face {
+    animation: none;
   }
-  /* The word itself, centered over the tile — where the eye already is. */
+  /* The word itself: one muted line centred under the avatar, where the eye
+     already is. It was a black band drawn across the face, which read as a
+     redaction bar rather than as a state. */
   .conn {
     position: absolute;
     left: 6px;
     right: 6px;
-    top: 50%;
-    transform: translateY(-50%);
+    top: calc(50% + 44px);
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
     align-items: center;
     gap: 6px;
-    padding: 3px 6px;
     font-size: var(--fs-compact);
-    font-weight: 600;
+    font-weight: 500;
     text-align: center;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.6);
-    border-radius: var(--radius-sm);
+    color: var(--text-muted);
   }
   .conn.bad {
-    color: color-mix(in srgb, var(--warn) 60%, #fff);
+    color: var(--warn-text);
   }
   .conn-retry {
     padding: 2px 8px;
@@ -2115,7 +2138,7 @@
     margin: 0;
     text-align: center;
     font-size: var(--fs-compact);
-    color: var(--warn-text);
+    color: var(--text-muted);
   }
   .screens {
     display: grid;
@@ -2181,9 +2204,9 @@
     overflow: hidden;
     background: #000;
   }
-  /* Speaking glow on the big focused view (participant focus only). */
+  /* Speaking on the big focused view: the same 2px ring as a tile. */
   .focus-main.speaking {
-    animation: pulse 1.6s ease-in-out infinite;
+    box-shadow: inset 0 0 0 2px var(--ok);
   }
   /* The eq badge would collide with the fullscreen/close buttons top-right, so
      it sits top-left in the big view. */
@@ -2216,13 +2239,7 @@
     height: 100%;
     display: grid;
     place-items: center;
-    background:
-      radial-gradient(
-        90% 80% at 50% 20%,
-        color-mix(in srgb, var(--tint, var(--accent)) 28%, transparent),
-        transparent 65%
-      ),
-      linear-gradient(180deg, color-mix(in srgb, var(--tint, var(--accent)) 10%, var(--bg-1)), var(--bg-1) 80%);
+    background: var(--bg-1);
   }
   .focus-actions {
     position: absolute;
@@ -2295,26 +2312,21 @@
     height: 64px;
     background: #000;
   }
-  .rail-item:hover,
+  .rail-item:hover {
+    border-color: var(--border-strong);
+  }
   .rail-item.on {
-    border-color: var(--accent);
+    border-color: var(--text-muted);
   }
   .rail-item.speaking {
-    border-color: var(--ok);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 40%, transparent);
+    box-shadow: inset 0 0 0 2px var(--ok);
   }
   .rail-face {
     position: absolute;
     inset: 0;
     display: grid;
     place-items: center;
-    background:
-      radial-gradient(
-        80% 70% at 50% 20%,
-        color-mix(in srgb, var(--tint, var(--accent)) 28%, transparent),
-        transparent 65%
-      ),
-      var(--bg-1);
+    background: var(--bg-1);
   }
   .rail-item video {
     position: absolute;
@@ -2452,10 +2464,8 @@
     align-items: baseline;
     gap: var(--sp-2);
     padding: 0 2px;
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-faint);
   }
   .sfx-hint {
@@ -2582,14 +2592,12 @@
       transform: scaleX(0);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .sfx {
-      transition: none;
-    }
-    /* Still says "wait" — it just holds the wash instead of sweeping it. */
-    .sfx.cool::after {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .sfx {
+    transition: none;
+  }
+  /* Still says "wait" — it just holds the wash instead of sweeping it. */
+  :global(:root[data-motion="reduced"]) .sfx.cool::after {
+    animation: none;
   }
   .controls {
     position: sticky;
@@ -2598,7 +2606,7 @@
     justify-content: center;
     gap: 10px;
     padding: 8px 0 2px;
-    background: linear-gradient(to top, var(--bg-0) 55%, transparent);
+    background: var(--bg-0);
     z-index: 1;
   }
   /* Held open rather than removed, so the panel doesn't jump when the call
@@ -2627,10 +2635,8 @@
     max-width: 640px;
     margin-inline: auto;
     padding: 0 2px;
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-faint);
   }
   .knock {
@@ -2645,14 +2651,10 @@
     padding: 10px 12px;
     /* Accent-lit from the corner the avatar sits in, fading to the panel's own
        surface — a doorway with light spilling through, not a solid alert bar. */
-    background: linear-gradient(
-      115deg,
-      color-mix(in srgb, var(--accent) 17%, var(--bg-1)),
-      var(--bg-1) 70%
-    );
-    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    box-shadow: 0 8px 22px -12px color-mix(in srgb, var(--accent) 55%, transparent);
+    box-shadow: var(--shadow-pop);
     font-size: var(--fs-ui);
   }
   .knock-ava {
@@ -2751,7 +2753,6 @@
   .knock-admit:hover {
     background: var(--accent-hover);
     transform: translateY(-1px);
-    box-shadow: var(--accent-glow);
   }
   .knock-admit:active {
     transform: scale(0.95);
@@ -2773,19 +2774,17 @@
     background: color-mix(in srgb, var(--danger) 16%, transparent);
     color: var(--danger-text);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .knock-ring {
-      /* Pending still needs to read: one static soft halo instead of ripples. */
-      animation: none;
-      opacity: 0.3;
-      transform: none;
-    }
-    .knock-ring.r2 {
-      display: none;
-    }
-    .knock-rap {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .knock-ring {
+    /* Pending still needs to read: one static soft halo instead of ripples. */
+    animation: none;
+    opacity: 0.3;
+    transform: none;
+  }
+  :global(:root[data-motion="reduced"]) .knock-ring.r2 {
+    display: none;
+  }
+  :global(:root[data-motion="reduced"]) .knock-rap {
+    animation: none;
   }
   /* Size and lift only: the ground, the ink and the on/cut/hang states are
      .callbtn's, in app.css — this is the surface that language was taken from
@@ -2862,27 +2861,25 @@
   .ctl.hang {
     margin-left: 6px;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .tile.speaking .ring,
-    .focus-main.speaking,
-    .rail-item.speaking,
-    .eq span,
-    .dots span,
-    .ringing {
-      animation: none;
-    }
-    /* Speaking still reads without motion: hold the ring's base frame. */
-    .tile.speaking .ring {
-      box-shadow: inset 0 0 0 2px var(--ok);
-    }
-    .ctl.callbtn:hover,
-    .tile:hover {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .tile.speaking .ring,
+  :global(:root[data-motion="reduced"]) .focus-main.speaking,
+  :global(:root[data-motion="reduced"]) .rail-item.speaking,
+  :global(:root[data-motion="reduced"]) .eq span,
+  :global(:root[data-motion="reduced"]) .dots span,
+  :global(:root[data-motion="reduced"]) .ringing {
+    animation: none;
+  }
+  /* Speaking still reads without motion: hold the ring's base frame. */
+  :global(:root[data-motion="reduced"]) .tile.speaking .ring {
+    box-shadow: inset 0 0 0 2px var(--ok);
+  }
+  :global(:root[data-motion="reduced"]) .ctl.callbtn:hover,
+  :global(:root[data-motion="reduced"]) .tile:hover {
+    transform: none;
   }
 
   /* ---- touch adjustments: call controls you can't fat-finger. ---- */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* On a phone the call IS the screen — 46vh is a desktop-derived slice that
        left two rows of tiles scrolling under an empty chat placeholder. */
     .voice-panel {
@@ -3009,7 +3006,7 @@
      138px ones at 320. The 560px cap keeps the wide edge of this tier (a 768px
      window, or a tablet) from drawing two enormous tiles instead of a grid;
      landscape overrides the whole thing below. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .stage {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       max-width: 560px;
@@ -3032,7 +3029,7 @@
      only fit by scrolling — and the sticky controls then sit across their name
      badges. Compact, wide tiles instead: everyone at once beats a stage you
      have to drag. */
-  @media (pointer: coarse) and (max-height: 480px) {
+  @media (max-height: 480px) {
     .stage,
     .stage.solo {
       grid-template-columns: repeat(auto-fit, minmax(96px, 132px));

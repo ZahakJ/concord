@@ -1,0 +1,208 @@
+# Interface
+
+How Concord's interface is put together: the principles it follows, the tokens every component reads, the shared components, motion, density and the rules for words on screen. It is the reference for anyone changing the Svelte frontend. The values live in `frontend/src/app.css`; `frontend/src/lib/tokens.test.mjs` holds them in place.
+
+The interface is partway through a redesign. Everything below describes what the code does today, except where a paragraph is marked **Planned**: those describe the layout and screens the redesign is building towards, so a change made now can head the same way.
+
+## Principles
+
+Concord should read like a well-set page. The conversation is the reason the window is open, so it gets the width and the attention, and everything around it is quiet.
+
+1. **Content first.** Chrome never takes room the content needs. If a panel and the conversation compete for width, the panel gives way.
+2. **One accent, for state.** The accent colour marks focus, selection, the primary action, mentions of you, your own reactions, links and the "New" divider. It is never decoration: not a heading colour, not an icon at rest, not a glow.
+3. **A number means "this needs you".** Counts appear for mentions, direct messages and replies to you. Anything else that is unread is shown by weight or a dot.
+4. **Type does the hierarchy.** Size and weight first, then the two ink tiers, borders last. Labels are sentence case. Nothing is set in capitals for emphasis.
+5. **Three surfaces.** The sidebar, the canvas, and things that float. Hover, selection and fields take one more step. That is all the depth there is.
+6. **Only floating things have shadows.** A menu, a dialog, a sheet or a toast casts one shadow. Nothing laid out in the page does.
+7. **Interaction never moves what you are reading.** Toolbars and indicators float or use space reserved for them.
+8. **One of each.** One dialog frame, one empty state, one nudge on screen at a time, one call surface at a time, one way to show an error.
+9. **Say it like a person.** No raw error from the core ever reaches the screen.
+10. **The keyboard reaches everything.** Menus take focus on their first row that is not destructive, a popover card (a profile, the status picker) takes it on the card itself so Tab walks it from the top, Escape closes the top layer, and focus returns to whatever opened it. F6 and Shift+F6 move between the shell's regions (sidebar, header, feed, composer, inspector; `lib/regions.js`), and a focused message opens its menu from Enter, the menu key or Shift+F10. The channel list and the member list are one Tab stop each (`lib/listnav.js`): ↑/↓, Home/End and typing a name move between rows, and the menu key or Shift+F10 opens the focused row's menu, which holds everything its hover controls (chevron, bell, ⋯) do. F6 into the sidebar lands on the selected row, and Tab past the last control wraps to it rather than onto the page.
+
+Light and dark are designed separately — paper and graphite — rather than one being the inverse of the other. Every word that carries information clears 4.5:1 against the surface it sits on, in both; a disabled control is exempt and says why it is disabled.
+
+## Tokens
+
+Components read tokens and never repeat their values. A literal that is byte-identical to a token fails `npm test`.
+
+### Surfaces and lines
+
+| Token | Dark | Light | Used for |
+|---|---|---|---|
+| `--bg-0` | `#0d0f10` | `#e4e6e1` | wells: code blocks, slider grooves |
+| `--bg-1` | `#121516` | `#eaece6` | sidebar, member panel, tab bar |
+| `--bg-2` | `#171a1c` | `#fcfcfb` | the canvas: conversations and pages |
+| `--bg-3` | `#212528` | `#dcdfd9` | hover, selected rows, quiet buttons |
+| `--bg-input` | `--bg-3` | `#ffffff` | text fields |
+| `--bg-elevated` | `#1d2124` | `#ffffff` | dialogs, menus, popovers, sheets, toasts; always opaque |
+| `--border` | `#30363a` | `#d3d7d1` | the edges of floating surfaces, outlined chips |
+| `--border-strong` | `#6a7277` | `#7a817d` | edges that identify a control: fields, the switch's off track, the selected segment (3:1 or better) |
+| `--hairline` | `--border` at 62% | same | dividers between regions and rows |
+| `--scrim` | `rgba(4,6,7,.62)` | `rgba(22,25,26,.32)` | behind dialogs; `--scrim-sheet` (`.40` in light) behind phone sheets |
+
+### Ink
+
+| Token | Dark | Light | Lowest contrast where it is allowed |
+|---|---|---|---|
+| `--text` | `#eceeef` | `#16191a` | 12.0:1 / 13.1:1 |
+| `--text-muted` | `#a4abb0` | `#474f54` | 6.0:1 / 6.2:1 |
+| `--text-faint` | `#8f979d` | `#576064` | 4.7:1 / 4.8:1 |
+| `--accent-hover` (the accent as ink) | teal mixed toward white | teal mixed toward black | 5.9:1 / 5.5:1 |
+
+`--text-faint` is a text tier: timestamps, metadata and hints use it. The token test measures it on every surface, the hover fill included, in both themes and in every theme pack. Placeholders use `--text-muted`.
+
+### Accent and status
+
+`--accent` is the user's own accent: the brand teal, `#14a394` in dark and `#0e7c70` in light (where it carries white text), or a preset they chose. It does not follow the profile colour unless the user picks "Match my profile colour", and then a hue in the red–orange band is desaturated so a "you" signal never reads as an alert. Badges and counts wear it and are never red: red is for danger and errors, and the token test fails a count filled with `--danger`.
+
+`--danger`, `--ok` and `--warn` are fills with their own `-fg` inks; `--danger-text`, `--ok-text` and `--warn-text` are the same colours mixed toward `--text` for use as ink. `--mention-wash` is the tint for a message that mentions you, and is never drawn without an accent bar beside it.
+
+A guild's own colour is `--guild-accent` (`lib/guildaccent.js`), set only on that guild's own marks — its strip tile, its switcher row, its place-header icon — so it never changes how your own mentions, badges and focus look. Your accent is held legible: `applyAccent` walks a weak or greyish choice toward white (dark) or black (light), keeping its hue, until the accent as ink clears 4.5:1 on the canvas and the badge fill clears 3:1 on the sidebar.
+
+### Shape, elevation and focus
+
+Radii: `--radius-sm` 6px, `--radius-md` 10px, `--radius-lg` 14px, and `--radius-sheet` 18px; the Shape setting in Appearance moves all of them. `--shadow-pop` is the one shadow for floating surfaces. There are no glows: `--accent-glow` resolves to `none` and `--float-shadow` to `--shadow-pop`, and the token test fails any component that paints with either. `--focus-ring` is `2px solid var(--accent-hover)`. It is drawn only once the person has moved through the app with the keyboard (Tab, F6, Escape, arrows outside a text field, or a shortcut; `lib/inputmode.js` marks `<html data-kbd>`), and a pointer press turns rings off again, so a dialog opened with the mouse moves focus without painting one. Typing in a field does not count.
+
+### Type
+
+The default face is Inter, served from the app's own `public/fonts`; no font is ever fetched from anywhere else, and "System" remains a choice in Appearance. Code uses JetBrains Mono. `--display-font` is the bundled Source Serif 4, for headlines that name a place (the empty states use it today). Its stack ends in a sans-serif generic on purpose: a serif generic breaks keycap emoji on Android. Choosing a typeface in Appearance, or a theme pack, replaces the display face with the interface face. Arabic falls through to the bundled Noto faces.
+
+| Token | Desktop | Phone | Use |
+|---|---|---|---|
+| `--fs-micro` | 11px | 11px | badges, counters, key chips |
+| `--fs-tiny` | 11.5px | 12px | timestamps, metadata |
+| `--fs-small` | 12px | 12.5px | section labels, secondary lines |
+| `--fs-compact` | 12.5px | 13px | descriptions, toasts, nudges |
+| `--fs-ui` | 13px | 14px | default interface text |
+| `--fs-body` | 15.5px | 16px | message and post content |
+| `--fs-title` | 17px | 19px | pane titles |
+| `--fs-display` | 22px | 24px | empty-state headlines |
+
+Nothing is set below 11px. Times, counts and tables use tabular figures.
+
+### Space, layout and layers
+
+Spacing is the 4px rhythm `--sp-1` to `--sp-6` (4 to 32px), with `--sp-edge` 16px on desktop and 14px on a phone. `--header-h` (60px; 52px on a phone), `--sidebar-w` (280px) and `--inspector-w` (320px) are the layout defaults the redesigned shell is built on. The header row's names sit on one line 26px down: the conversation header keeps `--header-pad-b` (8px) clear under its single row, and the sidebar's place header starts its two lines (the guild's name in a `--place-name-h` row, "N reachable" under it) `--place-pad-t` down, so the guild's and the channel's names share a baseline with their cap tops about 20px from the window's edge, and the hairlines under the sidebar, the conversation and a docked inspector stay level (its tab row sits on the hairline). The desktop shell's native title bar adds nothing to this; on a phone the row is the unchanged 52px with nothing reserved. Message text is capped at `--measure`, 76 characters. Stacking uses the layer scale in `lib/layers.js` (`--z-sticky` to `--z-tooltip`); a menu opened from inside a dialog takes the dialog's layer plus one.
+
+### Breakpoints
+
+The layout is chosen by width alone. `detectMobile()` in `lib/state.svelte.js` is `(max-width: 768px)`, and every phone rule in the stylesheets uses exactly that query, so the script and the CSS never disagree. A coarse pointer — a tablet, a touchscreen laptop — at a wider window keeps the desktop layout: `(pointer: coarse)` may enlarge targets (`--tap-min` is 44px there, 48px on a phone) and show controls that would otherwise wait for hover, and the token test fails a coarse query that changes `display`, `grid-template`, `flex-direction` or `width`. The other tiers are `(max-width: 1150px)` for the squeezed desktop column and `(max-width: 400px)` for the narrowest phones.
+
+### Theme packs
+
+A theme pack may set surfaces, lines (including `--border-strong`), ink, accent and status colours, the three font tokens, radii, the avatar shape, tracking, the floating shadow, the scrim, the message personality tokens (`--msg-surface`, `--msg-surface-hover`, `--msg-pad-x`, `--msg-rule`, `--msg-rule-pad`), the feed rhythm and its own backdrop tokens. It may not set the type scale, motion, the layer scale, layout sizes, `--mention-wash` or the focus ring. Every pack keeps `--bg-elevated` opaque and both lighter ink tiers at 4.5:1 on all of its own surfaces. `frontend/scripts/pack-retune.mjs` measures that; run with `--write`, it walks a short tier toward `--text` (keeping its hue) until it clears, and gives a pack without one its own `--border-strong`. A pack's backdrop art lives behind the conversation only: under an animated or textured pack the sidebar, the guild rail, the inspector and the call stage keep the pack's `--bg-1` colour at 96% opacity, so nothing moves behind the rows you aim at. A pack whose accent sits within 30° of its danger hue sets `--badge-bg`, `--badge-fg` and `--badge-edge`, and its counts become a neutral chip with an edge instead of a red-looking dot; the pack test enforces the list.
+
+## Components
+
+**Buttons** come in six kinds, as classes on a `<button>`: `primary` (accent fill, one per surface), `quiet` (a `--bg-3` fill), `ghost` (an outline, for Cancel; `ghost danger` outlines it in the danger ink), `danger` (for a destructive action that has been confirmed), `link` (accent text inside a sentence) and `iconbtn` (a lone glyph, 32px; 40px under a coarse pointer, 44px on a phone). `sm` and `lg` make a kind 28 or 40px tall. A bare `<button>` has no fill and takes its ink from where it sits; give it a kind. Disabled buttons are at 45% and should say why, next to them or in a tooltip; a disabled `primary` instead rests as a `--bg-3` chip in `--text-muted` (the resting state of most forms, so it must read as waiting, not broken).
+
+**Fields** sit on `--bg-input` with a `--border-strong` edge. Focus turns the edge to the accent with a soft halo of it; `aria-invalid="true"` turns the edge red. Put the reason under the field and tie it with `aria-describedby`. `Select.svelte` is the same field with a chevron, opening a menu.
+
+**Menus** — `Menu.svelte`, `Select.svelte` and `ContextMenu.svelte` — share one look: an opaque raised surface, 32px rows with a 16px muted icon and the label in ink, hairline separators, destructive rows in the danger ink. A menu has exactly one active row: the pointer's row and the keyboard's row are the same highlight, and a menu driven from the keyboard also rings its active row in the accent. A context-menu item may carry a `kbd` hint, drawn with `Kbd`. A dropdown is at most 640px tall (less when the window has less room); one whose rows run past its edge fades its last 40px, so a list that continues never reads as one that ends.
+
+**Checkboxes and radios** are drawn by the app, not the platform: a 16px box (radius 4) or circle on `--bg-input` with a 1.5px `--text-faint` edge; a ticked box fills with the accent and an `--accent-fg` check, a chosen radio is a 4px `--accent-hover` ring. **Sliders** are a 4px track with the filled run in the accent and a 16px knob. **Tooltips** (`lib/tooltip.js`) are a small raised label (`--fs-small`, radius sm) that waits 500ms, then answers at once while the pointer moves between controls.
+
+**Switches** (`Switch.svelte`) are 36×20: off is a recessed track with a `--border-strong` edge and a muted knob, on is the accent with a white knob. A settings row is a label for its switch, never a button that contains other buttons.
+
+**Segmented controls** (`Segmented.svelte`) choose one of two to four options, all visible. The chosen segment is lighter than the track in both themes, ringed in `--border-strong` and set in full ink at 600, so it never relies on colour alone. It is a radio group: one tab stop, and the arrow keys move and choose.
+
+```svelte
+<Segmented label="Message density" value={density} onChange={setDensity}
+  options={[{ value: "compact", label: "Compact" }, { value: "cozy", label: "Cosy" }]} />
+```
+
+**Tabs** (`Tabs.svelte`) are words over a hairline, with a 2px ink underline under the selected one, which is also set in full ink. An optional count after a label is quiet. One tab stop; the arrow keys move between tabs.
+
+```svelte
+<Tabs label="Sounds" value={tab} onChange={(id) => (tab = id)}
+  tabs={[{ id: "shelf", label: "Shelf" }, { id: "make", label: "Make one" }]} />
+```
+
+**Badges** (`Badge.svelte`): a count is the accent with `--accent-fg` ink, 16px high, "99+" past its maximum; a quiet unread mark is a 6px dot in `--text`; a muted place with a mention gets an outlined count; under a warm theme pack the count is a neutral chip (see Theme packs). `ring` cuts the mark out of the surface beneath it.
+
+```svelte
+<Badge count={mentions} ring="var(--bg-1)" />   <Badge dot />   <Badge count={2} muted />
+```
+
+**Keys** (`Kbd.svelte`) are small outlined chips: faint at the end of a menu row, full ink (`strong`) in the shortcut sheet, monospaced with their spaces kept (`typed`) for things you type rather than press.
+
+**Avatars** are circles unless a theme pack says otherwise. Presence is told by shape as well as colour, cut into the corner in the colour of the surface beneath (`--avatar-cut`, the sidebar's by default): a filled disc for online, a crescent for away, a barred disc for do not disturb, and a hollow ring for offline — which is also how an invisible member looks to everyone else.
+
+**Sheets** (`BottomSheet.svelte`) rise from the bottom of a phone with a handle and grouped rows, over their own lighter scrim, and settle without bouncing.
+
+**Toasts** sit at the bottom right on a desktop, clear of the composer, and under the top bar on a phone, at most three at once. Every kind uses the same raised surface; the kind is carried by the icon's ink alone. A change made in one press with no confirm (taking a role off from a profile card) toasts what it did with an Undo, and that toast stays eight seconds.
+
+**Nudges** (`Nudge.svelte`) ask for one thing: an icon, one sentence, one action and a dismiss. One is shown at a time. In a list it is a 40px row on `--bg-3`; `floating` gives it the raised surface for a caller that has to lay it over the app. The sidebar's nudge row, at the top of its list, holds the one on screen, chosen by priority: the recovery phrase, then a guild owner's setup steps (and, when you own a guild nobody else can manage, naming an heir; when you are a guild's named heir, that you are), then tips (notifications, an update). In a sidebar-wide row the action wraps under the sentence, with × beside it. Losing the connection is not a nudge: it is the one full-width bar above the app.
+
+**Empty states** (`EmptyState.svelte`) are one pattern: an outlined mark, a headline that names the place, a sentence or two about what goes here, up to two actions and an optional meta line. They are left-aligned; where they sit is the parent's choice. `compact` is the size for panels and small dialogs. A click on a voice room joins it at once (as it always has) and leaves you where you were; its landing — the room's chat with Join and who is in there — is what right-click › Open chat shows for a room you are not in. The one centred empty state (`center`) is a voice room's landing: it opens into the call stage, whose tiles and controls are centred, so its headline, Join (or Open the call) and the line saying who is in there sit on the same centre line as the stage, before you join, once you are in and with the stage minimised (`voice-stage-centred` checks it at every width).
+
+**Events** say their time once: on the card's meta line ("19:00 – 21:00 · weekly · Community hall"). In the feed a date tile and the weekday sit above it; in an agenda the day heading owns the date, so the row has neither. Edit and Delete are in the row's ⋯, and on a phone Going, Maybe, No and Who share one row.
+
+**Forum boards** are lists of rows by default: each post is a 72–88px row with its title, one line of excerpt and a meta line (author, replies, last activity, tags as quiet grey chips carrying their colour as a dot, or the emoji its maker chose in the dot's place — never both), split by hairlines. Unread is a heavier title and "2 new" in the accent ink; pinned is a faint pin before the title. "New post" is the one primary, at the end of the board's toolbar on every size. The toolbar's sort is a three-way control where the row has room and folds into one "Sort" menu where it does not (a phone, a tablet), so search keeps at least 160px. Beside the sort a layout button (in the folded Sort menu where the row is narrow) offers List, Gallery (cards in a grid, the picture or a flat tile of the post's colour on top) and Cover (the picture or that colour filling the card, the words on a flat scrim at `SCRIM_FLOOR`); the choice is device-local. A forum's header picture is an uploaded image on the channel record, drawn under the same flat scrim; a gradient preset chosen by an older build draws as a flat tint. Board settings hold the description, Board look (the three layouts as drawn mini-boards, and the header picture: upload, replace, remove) and the tag palette, with one Save for the tags. An open post sits beside the board only when the inspector is not docked; otherwise it takes the conversation column, with the board kept behind it.
+
+**The conversation.** A message row is avatar, then the author line (name in text ink, time in the faint tier), then a reply's quote under the author line, then the body capped at `--measure`. Names take their role's colour only when Appearance's "Colour names by role" is on, mixed toward the ink until they clear 4.5:1. A message that mentions you gets the `--mention-wash` and a 2px accent bar on its start edge. Dividers are left-aligned labels with a hairline: days in the display face (with the year for any day outside this one), and "New" in your accent. The hover toolbar floats over the row's corner and moves nothing: three reactions, Add reaction, Reply, Start a thread and ⋯; holding Shift adds Edit, Pin and Delete. A focused row answers R, T, E, P, S and Delete. Messages longer than thirty lines fold to twenty behind "Show more". A message that a thread was started from carries a chip naming the thread; the pairing is read back from the thread's opening link (`lib/threadlinks.js`, the twenty most recently active threads of the channel), so nothing new crosses the wire.
+
+**The composer** is one surface: + (everything you can add: a file, a GIF, a voice message, a poll, a doodle, a sound, a game, a thread, scheduling, sealing, the full formatting bar, the advanced composer — one list, read by both the desktop menu and the phone's sheet, so they carry the same labels), the text, emoji and Send. There is no permanent formatting bar; selecting text raises a small toolbar for bold, italic, strike, code, spoiler and link, and the format chords work everywhere; on a phone, where there is no selection toolbar, + › Formatting raises the bar as one sideways-scrolling row of finger-sized buttons above the text. The reply bar and the attachment tray sit inside the surface. A 24px strip above it holds "Juno is typing…" and is there, empty, when nobody is. Editing an older message turns its body into a plain box. New post and the Advanced composer are the same calm surface: standard fields on the dialog's own ground, the same selection toolbar, and three quiet icons trailing inside the body field ("Aa" for every mark, link and colour, with the markdown note at its foot; emoji; attach). Preview is one quiet word under the field, there is no side-by-side preview by default, and the length (and the title's byte budget) speaks up only near its limit.
+
+**The header** has at most five controls: search (a field in place once used), Pinned messages (from a 1024px-wide window up; below that it is a row in ⋯; it opens the inspector on Pins), the call button (in direct messages, meetings and voice channels; a guild text channel's call is in ⋯; once you are in a call the header carries none of it, because the call has one surface: in the call's own room the sidebar's dock; anywhere else (another channel, guild, direct message or Settings) the floating call window — room, clock, faces with their mute marks, the five controls, and a peer's shared screen live with its name — while the sidebar's dock folds to one line, "In call · Room · m:ss — Return"; with the sidebar hidden the window also covers the call's own room and the header shows "Return to call · m:ss" when you are elsewhere; and while the call stage is the main column neither, since the stage has its own controls and says "Connecting…" once, on the tile of whoever is not through yet. The window stays inside the conversation, clear of the inspector and the composer, and remembers where it was dragged on this device. In a meeting's call the stage has a Meeting button and the window a ⋯, each with Copy guest link and Meeting details: the same link, asked for again with no new lifetime, so nothing is minted), the inspector toggle (people glyph and member count, Ctrl+U) and ⋯ for everything else, which opens with the channel's notification level and ends with Guild settings and Leave. **The inspector** has Members, Pins, Files and Threads tabs, and the Members tab is only the roster: a guild's Moments are in its menu, always as both "View moments" (with how many are new) and "Share a moment", and the viewer has its own Share a moment; a guild with moments you have not watched wears a thin accent ring just outside its tile and its place-header mark (`lib/momentsunseen.svelte.js`), and a moment counts as watched once the viewer has shown it; docked it is a flat column on `--bg-1`, as an overlay it is a lifted panel below the header. **The palette** (Ctrl+K) shows Unread, Recent and four actions when empty (its actions include Instant meeting, New event, Guild settings, Invite people, the three layouts and, in a meeting, Copy guest link), and one ranked list with the matched characters in bold once you type; scattered letters match only from a word's start, and only when nothing matches as a run. A typed scope prefix (`#`, `@`, `!`, `*`, `>`) becomes a removable chip in front of the field. Search results are grouped by conversation, and a docked inspector steps aside while they are open.
+
+**Dialogs** are one frame, `modals/Modal.svelte`, in four sizes: S 420px (a question, a rename — the default), M 560px (most forms), L 720px (lists and tables) and XL 900px (a workspace, and every dialog with a side rail, such as Settings and Guild settings, whose rail is 224px). Text in a dialog starts at `--fs-ui`, and every kind of button in it is the 32px control (`--fs-compact`) unless it asks for `sm` or `lg`. On a desktop Guild settings is one railed surface: the hub's destinations are the rail, and the guild menu's Roles, Banned members and Guild emoji open on their page of it; on a phone the hub is a page of rows. The header is 60px: the title in the display face on the leading side, × on the trailing side, ‹ before the title when there is a pane to go back to. The body scrolls under the header; a form's footer (`.actions`) is pinned to the bottom with its buttons on the trailing side — Cancel, then the one primary, named after what it does — and gains a hairline only while the body scrolls. In a railed pane that footer sits on the pane's bottom edge however short the form is, and no railed pane carries a Done or Close: the × is the close. Settings-type panes save as you change them and have no footer. A caution is one line in the warn ink behind an alert icon (`modals/Caution.svelte`), with any reasoning behind an ⓘ — never a tinted paragraph, and never the danger red unless the action destroys something. `ConfirmDialog` is the S dialog for a question: Cancel is focused, the verb is `danger` when it destroys. On a phone every dialog is a bottom sheet with a grip, and a railed dialog is a full page. Settings rows (`SettingRow`) are 58px lines separated by hairlines — label and description on the leading side, the control on the trailing side, dropping below the label on a phone — grouped under a sentence-case label with no card around them.
+
+## The shell
+
+One sidebar (`ChannelList.svelte`, 280px by default, 264 between 769 and 1150px, dragged within 240–360) holds, top to bottom: the **place header** (the guild's icon and name in the display face — a click opens the guild switcher (in the Rail layout, Guild settings, as the classic arrangement did), a right-click the guild's menu — and on a second line under the name "N reachable", how many other members this device can reach right now — "Nobody reachable" at none, in words at every sidebar width and folded to its glyph and number only below 240px; its popover also holds the Local peers network log — and Invite and a settings gear, beside both lines: the gear opens Guild settings for anyone who can change the guild, and for everyone else a short menu of Notifications, Mark as read, Invite people where allowed and Leave guild); the **guild strip** (`GuildRail.svelte`): Messages, a shelf of every guild, and **+** (Add a guild: Create a guild, Join with an invite code, Instant meeting); the jump field (it opens the palette), Your calendar (its header leads with New event, which asks which guild, and Instant meeting) and the Inbox; the nudge row; the place's list; the **unread messages** block when a direct message waits; the call dock in a call (flush with the list, a hairline above it; its hang-up says End call in a 1:1 and Leave call elsewhere; one line while the floating call window is up); and you. The selected row is whatever the main column shows, so with the call stage up it is the voice room, not the text channel behind it; being in a room is said by its "2 in call" label and the roster under it, never by a fill.
+
+The strip is a **shelf of every guild**: Messages fixed at the leading end, **+** fixed at the trailing end (right after the last guild when they all fit), and between them every guild in the one order the switcher uses too (`sharedOrder` in `lib/rail.js`: pins first, then your rail order), never by what is unread, so reading a guild moves nothing. The row scrolls sideways and snaps to tiles. A mouse wheel's notch moves it exactly one tile and a trackpad's vertical stream moves it in proportion (`wheelNotch`); either way the strip drives one animation-frame glide toward the accumulated target (`glideStep`: a quarter of the remaining way per frame, so it moves on the first frame and a run of notches keeps its speed), with snap off while it glides, and lands on the nearest tile when the wheel is quiet. A sideways trackpad gesture is the platform's own scroll, with its momentum; nothing scrolls the page. Where more tiles wait, that end fades out over 36px, and if a guild past it holds something for you a small chip on the faded end's own ground says so — a chevron pointing that way and a dot, in your accent when something there is aimed at you (`edgeNews`); the count is in its caption and label, and a click glides to that guild. **Moving along the shelf never switches guild.** The tile under the pointer lifts 3px and grows to 1.14×, and a **caption** under the strip names it (with its mentions or unread, if any) — it slides along to whichever tile is lit and floats over the row below, so nothing reflows; scrolling under a still pointer walks the lift and the caption along. The strip is one Tab stop (`lib/listnav.js`, sideways): ←/→ move the highlight — the same lift and caption, plus the focus ring — Home and End jump to Messages and +, a letter jumps by name, the menu key opens the tile's menu, and the shelf glides the highlighted tile clear of the faded edge. Only a click, Enter or Space switches. (A dwell — switching after resting on a tile — was tried and dropped: you stop to read a name, and it switched.) The open guild's tile rests larger (1.12×) inside its ring, and the tiles either side ease 2px aside to make room; all of it is transform only, inside room the strip reserves (46px tall, padded ends), so nothing reflows. The open guild is brought into view when the strip draws and whenever you change guild by any road (switcher, palette, link, keys). Drag a tile among the pins to reorder them, or an unpinned one to pin it there. On a phone the same shelf swipes sideways with the same snap; a tile sinks slightly under a press, and there is no caption (there is no pointer to follow). A guild without an icon shows one letter in the display face on an 18% tint of its colour, or, when an earlier guild (by id) already has that letter, a glyph chosen from its id (`guildMarks`). A guild tile (strip and rail alike) has at most one mark per spot: **current** — the guild you are in — is a 2px ink ring inside the tile; **unread** is a count at the top-right corner when something is aimed at you, else a dot just under the tile; unwatched moments are a thin accent ring just outside the tile. Rings and dots are only ever state. **Ownership is not state**, so it is never a ring, a dot or a count: it is one small filled crown (`OwnerMark.svelte`, `ownsPlace` in `lib/ownermark.js`) beside the name of everything you own — a guild, an instant meeting's guild, and a group conversation you started — in the switcher row, the place header (after the guild's name), the message list's row and the conversation header (for a group), the bottom-left corner of a Rail-layout tile, and beside the owner's name in the member list and a group's People list. The 28px strip tiles carry no owner mark at all (at that size any mark reads as a notification); their description still says "you own this guild". A one-to-one conversation has no owner and Notes is yours by definition, so neither is marked, and the Rail's unread direct-message faces are shortcuts to what is waiting, so they carry none either. The **guild switcher** (`GuildSwitcher.svelte`) is the inventory: every guild, searchable, pinned ones first, then your order with folders opening in place; a row menu (pin, guild settings, mute, mark read, leave, rearrange), drag or Alt+↑/↓ to reorder, and Create and Join in its footer.
+
+Settings → Appearance opens on **Layout**, three drawn cards (`lib/layout.js`): **Sidebar** (the default, the strip above the list), **Rail** (`navModel: "rail"`: the classic four zones — a column of guilds with its + beside the channel list, the conversation, the member list docked) and **Compact** (the sidebar with compact messages and the inspector closed). The same three are palette actions ("Layout: …"), and a desktop's first visit gets one nudge pointing at them. `navModel` (a device-local pref, `"sidebar"` by default) can put the classic slim guild rail beside the list instead of the strip. The rail carries its own Inbox, Your calendar and unread direct-message faces, so the sidebar's jump row then holds only the jump field and the Unread messages block is not drawn. The inspector docks beside the conversation only when the conversation keeps 640px with it there, measured on the app's own box so the app's zoom counts; otherwise it overlays the conversation below its header. `.app` carries `data-inspector="docked"` or `"overlay"`. On a phone (≤ 768px) the sidebar is the Guilds page, the conversation and the inspector are pages pushed over it, and the tab bar reads Guilds · Messages · Inbox · You. All four are pages under the tab bar, which stays on screen with the current one lit: Inbox and You are dialogs stamped `tab`, which `Modal` draws as a page ending at the tab bar, with no ×, grip or dim. A page drilled into from them (You → Appearance) keeps the stamp, so it stays inside the tab with only its ‹, and a tap on the lit tab goes back to the tab's first page; a confirmation is raised over them as a sheet as usual. Appearance has no Layout block on a phone, which has one arrangement. In a call, a phone's sheets and pages sit under a band of their own under the status bar (the room's name, mute and leave), where the desktop floats a small pill at the corner.
+
+## Motion
+
+Motion says that something arrived, moved or left, and is over before you think about it. It is small, quick and moves things rather than re-laying them out.
+
+Three verbs, each with its curve, and three durations for chrome:
+
+| Token | Value | For |
+|---|---|---|
+| `--ease-lift` | `cubic-bezier(0.3, 1.25, 0.4, 1)` | arrive / lift: a tile rising under the pointer, a mark landing |
+| `--ease-out` | `cubic-bezier(0.2, 0.9, 0.3, 1)` | move: a state change, a thumb travelling, neighbours easing aside |
+| `--ease-in` | `cubic-bezier(0.4, 0, 1, 1)` | leave: accelerates out, and is quicker than its arrival |
+| `--ease-spring` | `cubic-bezier(0.16, 1, 0.3, 1)` | an arrival that must not pass its mark at all (sheets, popovers) |
+| `--dur-quick` | 120ms | hover, focus, tints, a press, anything leaving |
+| `--dur-standard` | 150ms | a lift, a reveal, a dialog arriving |
+| `--dur-move` | 180ms | a thing travelling: a thumb, a row easing aside, a pane |
+| `--dur-calm` | 200ms | the events surface |
+
+`--ease-lift` is the one curve allowed past its target in chrome, and only just: its peak is 2% over, which on a 28px tile growing to 1.1× is 0.06px and on a 2px lift 0.04px — a settle you feel, not a bounce. The token test allows it by name and forbids its literal, and keeps `--ease-overshoot` (the old springy curve) for celebrations: reaction bursts and the effects messages can carry.
+
+The amounts are tokens too: `--lift-y` (−2px), `--lift-scale` (1.06), `--current-scale` (1.1), `--aside-x` (2px), `--press-scale` (0.97; `--press-scale-wide` 0.98 for a primary or danger button, often the width of its dialog), `--rise-y` (6px) and `--enter-scale` (0.98), and the guild strip's bolder own, `--shelf-lift-y` (−3px), `--shelf-lift-scale` (1.14) and `--shelf-current-scale` (1.12). Transitions that use the verbs animate transform, translate, scale and opacity — never width, height, an inset, a margin or padding — and the token test fails the build on one that does. The micro-interactions, each small and each once: a button gives a little under a press (`--press-scale`, the call buttons and the strip's tiles too); a list row's hover and selection settle as a background fade; switching channel fades the new channel's rows in from 0.35 over 120ms as they arrive (opacity only, so content is legible from the first frame and the virtualised list and its scroll anchoring are untouched; the loading skeleton waits 150ms before it shows, so a quick switch never flashes it, and nothing on a channel's first page slides in); a message you send eases into place once — its pending row's 3px rise and fade, never a size change — and the stored row replaces it without moving; someone else's message arriving while you watch makes the same 3px rise; a reaction that arrives lands from 0.9 on the lift curve and a count that changes ticks, but a pill already there when a row is drawn (the feed redraws rows as you scroll) holds still; a dialog and the floating call window arrive with a fade, a 6px rise and 0.98 to full size, and leave at once; (the floating call window opens at the conversation's top-right corner — moved right off the text when that takes no more than the inspector's 24px of padding — keeps its 280px width with a shared screen as a 16:9 picture, and stays where you drag it); a menu fades in while rising 4px; a toast rises 8px; a sheet settles without bouncing; an unread dot or a count (`Badge`) scales in once when it appears and never pulses; the inspector fades in when docked. Loops are kept for something in progress or live — a spinner, a recording, someone speaking, a call that is live — and decoration never loops or breathes.
+
+**Reduced motion** is one switch. Appearance › Effects › Motion offers Full (the default) and Reduced, a device-local pref (`motion`); either that or the operating system's setting stamps `data-motion="reduced"` on `<html>` (`lib/motion.js`), and every stand-down keys off that attribute, never the media query directly, so the in-app choice reaches everything the OS one does. Under it every amount is identity (nothing rests transformed: the open guild's tile is its plain size), the global stand-down zeroes transition and animation durations and delays, scripted motion (Svelte transitions, smooth scrolls, the celebration bursts, the sheet physics) asks `reducedMotion()` and goes instant, and the cosmetic effects stop.
+
+## Density
+
+Appearance offers Compact, Cosy (the default) and Comfortable. One attribute on `<html>` moves the whole feed rhythm together. Groups are made in the markup: the row that starts a group carries `--msg-gap` above it and a continuation row carries nothing, so a group reads as one block. Compact draws no avatars; Cosy's are 36px and Comfortable's 40px.
+
+| | Compact | Cosy | Comfortable |
+|---|---|---|---|
+| `--fs-body` | 14.5px | 15.5px | 16.5px |
+| `--msg-gap` | 6px | 16px | 22px |
+| `--msg-pad-y` | 1px | 2px | 3px |
+| `--feed-pad` | 10px | 16px | 22px |
+
+Density changes the feed; it never moves the header, the sidebar's width or the composer. UI scale (Ctrl+= and Ctrl+−) is the control for making everything bigger.
+
+## Words on screen
+
+1. Write for the person looking at the screen: what happened, and what they can do about it. Two sentences at most.
+2. Never show a raw error from the core — no package prefixes, addresses, status codes or paths. `humanError()` in `lib/errors.js` is where they are turned into words: it maps the errors people actually meet to a sentence each, passes the core's own sentences that were written for a person, and shows anything else that still looks like plumbing as "Something went wrong on this device. Try again — if it keeps happening, restart Concord.", logging the raw text to the console.
+3. Be specific: name the person, the guild and the channel.
+4. Don't alarm. Never say something was lost unless it was.
+5. Buttons say what they will do: "Leave guild", "Copy invite", "Retry". Never "OK".
+6. Sentence case everywhere. No exclamation marks or emoji in interface copy.
+7. A guild is a guild. A voice channel is not written with `#`.
+8. Times read "just now", "2 min ago", "yesterday at 18:02", with the exact time on hover.
+
+## Checking your work
+
+`npm --prefix frontend test` runs the token rules: font sizes, radii, spacing and durations must use tokens; the phone and narrow breakpoints must be on their contracts, and a coarse pointer may change sizes but never the layout; floating surfaces must be opaque; a button that paints its own ground must say its ink; every ink tier must reach 4.5:1 on the surfaces it is allowed on, in both themes and every theme pack; nothing glows, and only celebrations overshoot; counts are never red. The end-to-end suite in `scripts/e2e` must stay green. Then look at the change at 1440×900, 820×1180 and 390×844, in dark and light, before calling it done.

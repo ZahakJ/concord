@@ -10,7 +10,7 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import { S, memberByFpr } from "./lib/state.svelte.js";
-  import { renderMarkdown } from "./lib/markdown.js";
+  import { renderMarkdown, emojiOnly } from "./lib/markdown.js";
   import { previewText } from "./lib/attachments.js";
   import { stripEphemeral } from "./lib/ephemeral.svelte.js";
   import { stripTimestamp } from "./lib/timestamp.js";
@@ -21,6 +21,7 @@
   const me = $derived(memberByFpr(S.identity.fingerprint));
   const myName = $derived(S.displayName || me?.name || "You");
   const failed = $derived(entry.state === "failed");
+  const avSize = $derived(S.isMobile ? 34 : S.prefs.density === "comfortable" ? 40 : 36);
 
   // A slow-mode refusal carries the MOMENT it lifts, not the number the core
   // happened to say. The number was captured once and never ticked: read at
@@ -46,9 +47,12 @@
   // Deliberately no mention table and no link previews: a row that is not a
   // message yet must not ping anybody or fetch anything on its behalf.
   const html = $derived(bodyText ? renderMarkdown(bodyText, [], null, null) : "");
+  // The feed draws an emoji-only message jumbo; so does this row, or the
+  // emoji would jump in size the moment the message is stored.
+  const jumbo = $derived(!!bodyText && emojiOnly(bodyText));
 </script>
 
-<div class="pmsg" class:compact={!first} class:failed role="article" aria-busy={!failed}>
+<div class="pmsg" class:compact={!first} class:failed role="article" aria-busy={!failed} style:--av="{avSize}px">
   {#if first}
     <span class="pav" aria-hidden="true">
       <Avatar
@@ -57,7 +61,7 @@
         color={me?.color}
         color2={me?.color2}
         image={me?.avatar}
-        size={38}
+        size={avSize}
         frame={me?.frame}
         decoration={me?.style?.dec || ""}
         dc={me?.style?.dc || ""}
@@ -89,7 +93,7 @@
       </div>
     {:else if html}
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-      <div class="pbody">{@html html}</div>
+      <div class="pbody" class:jumbo>{@html html}</div>
     {:else}
       <div class="pbody muted">{previewText(entry.body || "")}</div>
     {/if}
@@ -129,16 +133,35 @@
     border-radius: var(--radius-sm);
     /* The whole point: it is here, and it is not landed yet. */
     opacity: 0.6;
+    /* It eases into its place: a 3px rise and a fade, no size change — the
+       emoji in it are the size they will settle at from the first frame. */
+    animation: pmsg-in var(--dur-standard) var(--ease-out);
+  }
+  @keyframes pmsg-in {
+    from {
+      opacity: 0;
+      translate: 0 3px;
+    }
+  }
+  /* Groups are made in the markup (see Message.svelte): the first row of a
+     run carries the group's space, the rest sit flush. */
+  .pmsg:not(.compact) {
+    margin-top: var(--msg-gap, 16px);
   }
   .pmsg.failed {
     opacity: 1;
+    box-shadow: inset 2px 0 0 var(--danger-soft);
+  }
+  :global(:root[data-density="compact"]) .pav,
+  :global(:root[data-density="compact"]) .pgutter {
+    display: none;
   }
   .pav {
     flex: none;
     align-self: flex-start;
   }
   .pgutter {
-    width: 38px;
+    width: var(--av);
     flex: none;
     display: flex;
     justify-content: flex-end;
@@ -160,11 +183,32 @@
     align-items: center;
     gap: var(--sp-1);
     color: var(--text-faint);
-    font-size: var(--fs-micro);
+    font-size: var(--fs-tiny);
   }
+  .phdr strong {
+    font-weight: 600;
+  }
+  /* The feed's reading size, named, as Message.svelte's body names it: the
+     row inherited the document's size instead, so a jumbo emoji measured 48px
+     here and 46.5px in the stored row that replaces it. */
   .pbody {
+    font-size: var(--fs-body);
+    line-height: 1.5;
     word-break: break-word;
     white-space: pre-wrap;
+  }
+  /* Message.svelte's sizes, so promotion to a stored row changes nothing. */
+  .pbody :global(img.emoji) {
+    margin: 0 0.5px;
+  }
+  .pbody.jumbo :global(img.emoji) {
+    width: 3em;
+    height: 3em;
+    vertical-align: bottom;
+    margin: 0 1.5px;
+  }
+  .pbody.jumbo :global(img.cemoji) {
+    height: 2.6em;
   }
   .patt img {
     max-width: 220px;
@@ -193,22 +237,22 @@
     gap: var(--sp-2);
     margin-top: var(--sp-1);
     color: var(--danger-text);
-    font-size: var(--fs-compact);
+    font-size: var(--fs-small);
   }
+  /* Text buttons in the sentence, the way an inline action reads. */
   .pbtn {
-    padding: 2px 8px;
-    border: 1px solid var(--border);
+    padding: 0 2px;
+    border: none;
     border-radius: var(--radius-sm);
-    background: var(--bg-2);
-    color: var(--text);
-    font-size: var(--fs-compact);
+    background: transparent;
+    color: var(--accent-hover);
+    font-size: var(--fs-small);
+    font-weight: 500;
   }
   .pbtn:hover {
-    background: var(--bg-3);
+    text-decoration: underline;
   }
   .pbtn.quiet {
-    border-color: transparent;
-    background: transparent;
     color: var(--text-muted);
   }
 </style>

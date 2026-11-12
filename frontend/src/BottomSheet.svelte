@@ -46,6 +46,7 @@
 </script>
 
 <button
+  type="button"
   bind:this={scrimEl}
   class="bs-scrim"
   style:z-index={400 + depth * 2}
@@ -82,7 +83,9 @@
   .bs-scrim {
     position: fixed;
     inset: 0;
-    background: var(--scrim);
+    /* Sheets have their own veil: a touch lighter than a dialog's in the
+       paper theme, the same in dark. */
+    background: var(--scrim-sheet, var(--scrim));
     z-index: 400;
     border: none;
     animation: bs-fade var(--dur-standard) ease;
@@ -105,7 +108,7 @@
        dvh value and is simply dropped there, leaving this one standing. */
     max-height: calc(72 * var(--vh));
     box-shadow: var(--shadow-pop);
-    animation: bs-up 0.22s var(--ease-out);
+    animation: bs-up 0.24s var(--ease-spring);
   }
   .bs-grab {
     flex-shrink: 0;
@@ -125,7 +128,7 @@
   }
   .bs-handle {
     display: block;
-    width: 38px;
+    width: 36px;
     height: 4px;
     margin: 0 auto;
     border-radius: 2px;
@@ -153,7 +156,7 @@
        remainder is handed to the message feed behind the scrim, which is the
        classic "the wrong thing moved" feeling. */
     overscroll-behavior: contain;
-    padding: 0 10px calc(12px + var(--safe-bottom));
+    padding: 0 10px calc(18px + var(--safe-bottom));
   }
   /* The same fade the dialog sheets get: long content should look like it is
      running out under the gesture pill, not like it was cut with scissors. */
@@ -161,9 +164,9 @@
     content: "";
     display: block;
     position: sticky;
-    bottom: calc(-12px - var(--safe-bottom));
+    bottom: calc(-18px - var(--safe-bottom));
     height: calc(22px + var(--safe-bottom));
-    margin: 0 -10px calc(-12px - var(--safe-bottom));
+    margin: 0 -10px calc(-18px - var(--safe-bottom));
     pointer-events: none;
     background: linear-gradient(transparent, var(--bg-elevated, var(--bg-1)));
   }

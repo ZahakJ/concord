@@ -760,7 +760,10 @@
 
 <svelte:window onpaste={onPaste} onkeydown={onKey} />
 
-<Modal title={edit ? "Edit meme" : "Meme"} {onClose} size="xl">
+<!-- The workspace is the XL box; the opening picker, when it holds nothing
+     but "Your own image" (no template library on this build), is not a
+     workspace yet, and a 900x700 frame round one 130px tile read as empty. -->
+<Modal title={edit ? "Edit meme" : "Meme"} {onClose} size={browsing && manifestDone && !templates.length ? "m" : "xl"}>
   <div
     class="wrap"
     class:dropping
@@ -1294,7 +1297,7 @@
     color: var(--text-muted);
   }
   .name {
-    font-size: 12px;
+    font-size: var(--fs-small);
     line-height: 1.25;
     color: var(--text);
     padding: 0 2px;
@@ -1398,10 +1401,9 @@
     padding-right: 2px;
   }
   .lbl {
-    font-size: var(--fs-tiny);
-    font-weight: 700;
+    font-size: var(--fs-small);
+    font-weight: 600;
     letter-spacing: 0.4px;
-    text-transform: uppercase;
     color: var(--text-muted);
   }
   .caphead {
@@ -1417,7 +1419,7 @@
     display: inline-flex;
     align-items: center;
     gap: var(--sp-1);
-    font-size: 12px;
+    font-size: var(--fs-small);
     padding: var(--sp-1) var(--sp-2);
     border-radius: var(--radius-sm);
     background: var(--bg-3);
@@ -1487,7 +1489,7 @@
   }
   .seg button {
     flex: 1;
-    font-size: 12px;
+    font-size: var(--fs-small);
     padding: 5px 4px;
     border-radius: calc(var(--radius-sm) - 2px);
     background: transparent;
@@ -1499,7 +1501,7 @@
     font-weight: 600;
   }
   .seg.tight button {
-    font-size: 11px;
+    font-size: var(--fs-micro);
     padding: 3px 2px;
   }
   /* Each chip is set in the face it selects — the only honest preview of a
@@ -1510,7 +1512,7 @@
     gap: var(--sp-1);
   }
   .font {
-    font-size: 12px;
+    font-size: var(--fs-small);
     padding: 6px 2px;
     border-radius: var(--radius-sm);
     background: var(--bg-3);
@@ -1546,14 +1548,14 @@
   .row em {
     font-style: normal;
     font-variant-numeric: tabular-nums;
-    font-size: 11px;
+    font-size: var(--fs-micro);
     min-width: 24px;
     text-align: right;
   }
   .em-btn {
     background: transparent;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--fs-micro);
     font-variant-numeric: tabular-nums;
     padding: 2px 4px;
     min-width: 34px;
@@ -1605,7 +1607,7 @@
   /* Phone: one column with the picture on top and the controls scrolling under
      it. The template gallery keeps its grid — on a 390px screen that is two
      named columns, which still beats a nameless strip. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* The bottom sheet is the scroll container here, and it has no height of
        its own, so nothing inside may claim a share of it: `flex: 1` against an
        auto-height parent resolves to nothing and collapses the picture to a

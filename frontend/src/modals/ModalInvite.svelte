@@ -99,11 +99,15 @@
 </script>
 
 <RailShell title="Invite a friend" {onClose}>
-  <p class="muted lead">
+  <p class="lead">
     This code carries everything your friend needs — the guild, how to reach you, and your
     relay. They pick a passphrase, paste it into <strong>Join with invite</strong>, and they're in.
   </p>
 
+  <!-- The QR on white with its own quiet zone, and beside it the code as a
+       read-only field you can select. The one action, Copy invite, is the
+       footer's primary — it was an outlined button inside a boxed well, with
+       Done as the only footer action and no primary at all. -->
   <div class="code-well">
     {#if qr}
       <figure class="qr">
@@ -111,29 +115,24 @@
         <figcaption>Point a camera at it</figcaption>
       </figure>
     {/if}
-    <div class="give">
-      {#if canShare}
-        <button class="share" onclick={share}>
-          <Icon name="spark" size={14} /> Share code…
-        </button>
-      {/if}
-      <button class="copy" class:copied class:secondary={canShare} onclick={copy}>
-        <Icon name={copied ? "check" : "spark"} size={14} />
-        {copied ? "Copied" : "Copy code"}
+    <div class="code-col">
+      <span class="lbl">Invite code</span>
+      <code class="code-line" title="Copy takes the whole code">{shown || "Fetching this guild's code…"}</code>
+      <p class="hint">
+        Anyone with this code can join, so share it directly with people you trust.
+      </p>
+      <!-- A troubleshooting question, so a quiet link under the code it is
+           about rather than a third button in the footer. -->
+      <button class="link check" onclick={() => openPanel("reach", "invite")}>
+        Can people reach me?
       </button>
     </div>
-    <code class="code-line" title="Copy takes the whole code">{shown || "Fetching this guild's code…"}</code>
   </div>
-
-  <p class="hint muted">
-    <Icon name="spark" size={12} /> Anyone with this code can join, so share it directly with people
-    you trust.
-  </p>
 
   {#if candidates.length}
     <div class="divider"></div>
     <strong class="add-head">Or add a verified contact directly</strong>
-    <p class="hint muted">No code needed. They get an invite; they won't appear in the room until they accept.</p>
+    <p class="hint">No code needed. They get an invite; they won't appear in the room until they accept.</p>
     <div class="add-list">
       {#each candidates as c (c.fingerprint)}
         <div class="add-row">
@@ -142,7 +141,7 @@
             image={c.avatar || ""}
             emoji={c.emoji || ""}
             color={c.color || ""}
-            size={30}
+            size={28}
           />
           <span class="who">
             <strong>{nameFor(c.fingerprint)}</strong>
@@ -151,7 +150,7 @@
           {#if added.has(c.fingerprint)}
             <span class="done tiny"><Icon name="check" size={12} /> Invited</span>
           {:else}
-            <button class="add-btn" disabled={busy === c.fingerprint} onclick={() => add(c)}>
+            <button class="quiet sm" disabled={busy === c.fingerprint} onclick={() => add(c)}>
               {busy === c.fingerprint ? "Adding…" : "Add"}
             </button>
           {/if}
@@ -161,36 +160,34 @@
   {/if}
 
   <div class="actions">
-    <!-- Demoted from a bordered button in the middle of the flow to a link at
-         the end of it. The question it answers — "will that actually work from
-         their network?" — is a real one and worth reaching from here, but it is
-         a troubleshooting question, and putting it between the code and the
-         Copy button implied that inviting someone normally requires a
-         diagnostic first. -->
-    <button class="check" onclick={() => openPanel("reach", "invite")}>
-      Can people reach me?
-    </button>
-    <button class="ghost" onclick={onClose}>Done</button>
+    {#if canShare}
+      <button class="quiet" class:copied onclick={copy}>{copied ? "Copied" : "Copy"}</button>
+      <button class="primary" onclick={share}>Share invite…</button>
+    {:else}
+      <button class="primary" class:copied onclick={copy}>
+        {#if copied}<Icon name="check" size={14} />{/if}
+        {copied ? "Copied" : "Copy invite"}
+      </button>
+    {/if}
   </div>
 </RailShell>
 
 <style>
   .lead {
     margin: 0;
-    font-size: var(--fs-ui);
     line-height: 1.55;
   }
   .divider {
-    border-top: 1px solid var(--border);
-    margin: 4px 0;
+    border-top: 1px solid var(--hairline);
+    margin: var(--sp-1) 0;
   }
   .add-head {
-    font-size: var(--fs-ui);
+    font-size: var(--fs-compact);
+    font-weight: 600;
   }
   .add-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
     max-height: 240px;
     overflow-y: auto;
   }
@@ -198,10 +195,11 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 7px 9px;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    min-height: 44px;
+    padding: 6px 0;
+  }
+  .add-row + .add-row {
+    border-top: 1px solid var(--hairline);
   }
   .who {
     display: flex;
@@ -211,26 +209,16 @@
   }
   .who strong {
     font-size: var(--fs-ui);
+    font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .mono {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono-font);
   }
   .tiny {
     font-size: var(--fs-small);
-  }
-  .add-btn {
-    flex-shrink: 0;
-    padding: 6px 14px;
-    background: var(--accent);
-    color: var(--accent-fg);
-    border-radius: var(--radius-sm);
-    font-size: var(--fs-ui);
-  }
-  .add-btn:disabled {
-    opacity: 0.6;
   }
   .done {
     flex-shrink: 0;
@@ -240,188 +228,82 @@
     color: var(--ok-text);
   }
   .code-well {
-    position: relative;
-    background: var(--bg-0);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: var(--sp-3);
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-5);
+  }
+  .code-col {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    overflow: hidden;
+    gap: 6px;
   }
-  /* One shimmer sweep on open — "here's the valuable thing". */
-  .code-well::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      105deg,
-      transparent 30%,
-      color-mix(in srgb, var(--accent) 14%, transparent) 50%,
-      transparent 70%
-    );
-    transform: translateX(-100%);
-    animation: shimmer 1.1s ease 0.25s 1 forwards;
-    pointer-events: none;
+  .lbl {
+    font-size: var(--fs-compact);
+    font-weight: 500;
   }
-  @keyframes shimmer {
-    to {
-      transform: translateX(100%);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .code-well::after {
-      animation: none;
-      opacity: 0;
-    }
-  }
-  /* The picture is the share surface — a few hundred characters of reach-me
-     addresses is not a thing anyone reads, and wrapping it into a wall next to
-     the QR made the dialog look like a dump. Copy still takes every byte. */
+  /* The code as a read-only field: one line, mono, scrolls sideways. A few
+     hundred characters of reach-me addresses is not a thing anyone reads;
+     Copy takes every byte. */
   .code-line {
+    display: block;
     min-width: 0;
-    font-family: ui-monospace, monospace;
-    font-size: var(--fs-tiny);
+    padding: var(--sp-2) var(--sp-3);
+    font-family: var(--mono-font);
+    font-size: var(--fs-small);
     line-height: 1.4;
-    color: var(--text-muted);
+    color: var(--text);
+    background: var(--bg-input);
+    box-shadow: inset 0 0 0 1px var(--border);
+    border-radius: var(--radius-md);
     white-space: nowrap;
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: thin;
+    user-select: all;
   }
   .qr {
     margin: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
+    flex: none;
   }
   .qr img {
     /* White quiet zone regardless of theme — a dark-mode QR with a dark margin
-       is one a camera will not lock onto. */
+       is one a camera will not lock onto. 168px with a 12px quiet zone. */
     width: 168px;
     height: 168px;
+    box-sizing: border-box;
     display: block;
     border-radius: var(--radius-sm);
     background: #fff;
-    padding: 5px;
+    padding: var(--sp-3);
   }
   .qr figcaption {
-    font-size: var(--fs-tiny);
-    color: var(--text-faint);
-    text-align: center;
-    max-width: 168px;
-  }
-  .give {
-    display: flex;
-    gap: var(--sp-2);
-    justify-content: stretch;
-  }
-  .share {
-    flex: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    font-size: var(--fs-ui);
-    font-weight: 600;
-    padding: 7px 16px;
-  }
-  .copy {
-    flex: 1;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    font-size: var(--fs-ui);
-    font-weight: 600;
-    padding: 7px 16px;
-    transition:
-      transform var(--dur-quick) ease,
-      background var(--dur-calm) ease,
-      box-shadow var(--dur-calm) ease;
-  }
-  .copy:active {
-    transform: scale(0.97);
-  }
-  .copy.copied {
-    background: var(--ok);
-    color: var(--ok-fg);
-    box-shadow: 0 0 14px color-mix(in srgb, var(--ok) 45%, transparent);
-    animation: copied-pop 0.3s var(--ease-spring);
-  }
-  @keyframes copied-pop {
-    40% {
-      transform: scale(1.06);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .copy.copied {
-      animation: none;
-    }
+    font-size: var(--fs-small);
+    color: var(--text-muted);
   }
   .hint {
-    display: flex;
-    align-items: center;
-    gap: 6px;
     margin: 0;
-    font-size: var(--fs-compact);
-  }
-  /* Quiet by design: it sits beside a warning about who may join, and must not
-     compete with Copy for the eye. */
-  /* A link in the footer, not a control in the flow: no border, no fill, and
-     pushed to the left so it reads as an aside to Done rather than a choice
-     alongside it. */
-  .check {
-    margin-right: auto;
-    padding: 6px 0;
-    background: transparent;
-    border: none;
+    font-size: var(--fs-small);
+    line-height: 1.45;
     color: var(--text-muted);
+  }
+  .check {
+    align-self: flex-start;
     font-size: var(--fs-compact);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    text-decoration-color: var(--border);
   }
-  .check:hover,
-  .check:focus-visible {
-    color: var(--text);
-    text-decoration-color: var(--accent);
+  .copied {
+    background: var(--ok);
+    color: var(--ok-fg);
   }
-  /* Phone: handing the code over is the whole point — make it unmissable, and
-     demote Copy to a quiet partner once the OS share sheet is available. */
-  @media (pointer: coarse), (max-width: 768px) {
-    .copy {
-      align-self: stretch;
-      flex: 1;
-      min-height: 48px;
-    }
-    .share {
-      min-height: 48px;
-    }
-    .copy.secondary {
-      flex: 0 0 auto;
-      background: var(--bg-3);
-      color: var(--text);
-    }
-    .qr img {
-      width: 148px;
-      height: 148px;
-    }
-    .qr figcaption {
-      max-width: 148px;
-    }
-    /* The footer stacks into full-width buttons here; a bare link in that stack
-       would look like a third button that forgot its chrome. */
-    .check {
-      margin-right: 0;
-      min-height: 0;
-      order: -1;
-    }
-    .add-list {
-      max-height: none;
-      overflow-y: visible;
+  @media (max-width: 768px) {
+    .code-well {
+      flex-direction: column;
+      align-items: stretch;
     }
   }
 </style>

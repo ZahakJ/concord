@@ -8,7 +8,7 @@ A guild is a shared, end-to-end-encrypted space with its own channels and member
 
 ## Creating a guild
 
-1. Click **+** (**Add a guild**) at the bottom of the guild rail on the left, then **Create a guild**. On a fresh install the welcome screen offers the same choice.
+1. Click **+** (**Add a guild**) at the end of the guild shortcuts at the top of the sidebar (at the bottom of the guild column in the Rail layout), then **Create a guild**. The guild switcher (click the guild's name) has **Create a guild** too. On a fresh install the welcome screen offers the same choice.
 2. Type a name (up to 48 characters). Click the round bubble above it to choose an icon, and add an optional **Description**.
 3. Under **Start with**, pick a starter layout. Each tile draws the sidebar it will build.
 
@@ -51,7 +51,7 @@ Things to know:
 
 ## Joining a guild
 
-1. Click **+** in the guild rail, then **Join with an invite code** (or **Join a guild** on the welcome screen).
+1. Click **+** (**Add a guild**), then **Join with an invite code** (or **Join a guild** on the welcome screen).
 2. Paste the code. The dialog shows the guild's name once the code reads as complete.
 3. Click **Join**.
 
@@ -59,7 +59,7 @@ The person who made the code must be online and reachable while you join. If the
 
 ## Guild settings
 
-Click the guild's name at the top of the channel list, or choose **Guild settings** from the menu in the chat header. On a desktop the settings open as one window with every section listed on the left; on a phone they are a list you drill into. You see only the sections you can use.
+Click the gear beside the guild's name at the top of the sidebar, right-click the guild's name, or choose **Guild settings** from the ⋯ menu in the chat header. In the Rail layout, clicking the guild's name opens them too. If you cannot change the guild, the gear opens a short menu instead: notifications, **Mark as read**, **Invite people** (where you may) and **Leave guild**. On a desktop the settings open as one window with every section listed on the left; on a phone they are a list you drill into. You see only the sections you can use.
 
 | Group | Sections |
 |---|---|
@@ -182,7 +182,7 @@ In a text channel, **Start thread** on a message (or **+ → Start a thread**) o
 
 ## Events
 
-**Guild settings → Events & calendar** (or the calendar button in the chat header) holds the guild's shared calendar. Any member can create an event with a title, details, start time, duration, location (a place or one of the guild's channels) and a repeat rule: **Never**, **Every day**, **Every week**, **Every other week** or **Every month**. Members answer **Going**, **Maybe** or **No**, and the event's menu offers **Add to calendar (.ics)**. The author can edit or delete an event, and so can anyone with **Manage messages**.
+**Guild settings → Events & calendar** (or **Events** in the chat header's ⋯ menu) holds the guild's shared calendar. **New event** in the calendar beside the sidebar's jump field, or in the command palette, starts one and asks which guild it belongs to. Any member can create an event with a title, details, start time, duration, location (a place or one of the guild's channels) and a repeat rule: **Never**, **Every day**, **Every week**, **Every other week** or **Every month**. Members answer **Going**, **Maybe** or **No**, and the event's menu offers **Add to calendar (.ics)**. The author can edit or delete an event, and so can anyone with **Manage messages**.
 
 ## Leaving a guild
 

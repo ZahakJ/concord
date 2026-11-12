@@ -1,4 +1,5 @@
 <script>
+  import Caution from "./Caution.svelte";
   // Export history — a PAGE, because of what it does.
   //
   // It used to be a chevron row in the hub, identical in shape to the ten rows
@@ -131,13 +132,10 @@
   </div>
 
   <!-- The sentence the row never said. It is the whole reason this is a page. -->
-  <p class="warn-line">
-    <Icon name="alert" size={14} />
-    <span>
-      This writes an <strong>unencrypted</strong> copy of everything to your disk. Anyone who can
-      read that file can read the guild, and no retention setting reaches it once it is written.
-    </span>
-  </p>
+  <Caution
+    text="The file is not encrypted: anyone who can read it can read the guild."
+    detail="This writes a plain copy of everything to your disk, and no retention setting reaches it once it is written."
+  />
 
   {#if err}
     <p class="err">{err}</p>
@@ -145,7 +143,7 @@
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button disabled={building || !!err || saving} onclick={run}>
+    <button class="primary" disabled={building || !!err || saving} onclick={run}>
       <Icon name="download" size={14} />
       {saving ? "Saving…" : building ? "Preparing…" : `Export ${fmtBytes(bytes)}`}
     </button>
@@ -157,11 +155,10 @@
     margin: 0;
     line-height: 1.55;
   }
+  /* Facts as rows split by hairlines, not a boxed table. */
   .card {
-    background: var(--bg-0);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    overflow: hidden;
+    border-top: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--hairline);
   }
   .rows {
     display: flex;
@@ -171,18 +168,16 @@
     display: grid;
     grid-template-columns: 92px minmax(0, 1fr);
     gap: var(--sp-3);
-    padding: 10px 14px;
+    padding: 10px 0;
     align-items: baseline;
   }
   .r + .r {
-    border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+    border-top: 1px solid var(--hairline);
   }
   .k {
-    font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--text-faint);
+    font-size: var(--fs-compact);
+    font-weight: 500;
+    color: var(--text-muted);
   }
   .v {
     min-width: 0;
@@ -201,23 +196,7 @@
     line-height: 1.45;
     color: var(--text-muted);
   }
-  .warn-line {
-    display: flex;
-    gap: var(--sp-2);
-    align-items: flex-start;
-    margin: 0;
-    padding: 10px 12px;
-    border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--warn) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent);
-    color: var(--warn-text);
-    font-size: var(--fs-small);
-    line-height: 1.5;
-  }
-  .warn-line :global(svg) {
-    flex: none;
-    margin-top: 2px;
-  }
+
   .err {
     margin: 0;
     color: var(--danger-text);

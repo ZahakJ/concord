@@ -11,15 +11,15 @@
   import { fly } from "svelte/transition";
   import { S, jumpToChannel } from "./lib/state.svelte.js";
   import { RADAR, dismissNudge } from "./lib/radar.svelte.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   // onJoinVoice is App's joinVoice — knock-if-locked, mic capture, call view —
   // the exact path EventCard's Join uses, threaded here so the banner's Join
   // is the same door, not a fork.
   let { onJoinVoice } = $props();
 
-  const reducedMotion =
-    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const dur = reducedMotion ? 0 : 180;
+  // Read at each entrance, so Appearance › Motion applies without a reload.
+  const dur = () => (reducedMotion() ? 0 : 180);
 
   async function join(n) {
     dismissNudge(n.id);
@@ -42,8 +42,8 @@
         class:live={n.kind === "live"}
         role="status"
         aria-live="polite"
-        in:fly={{ y: -16, duration: dur }}
-        out:fly={{ y: -10, duration: dur / 2 }}
+        in:fly={{ y: -16, duration: dur() }}
+        out:fly={{ y: -10, duration: dur() / 2 }}
       >
         {#if n.kind === "live"}
           <span class="live-dot" aria-hidden="true"></span>
@@ -93,22 +93,11 @@
     border: 1px solid var(--border);
     box-shadow: var(--shadow-pop);
   }
-  /* Live is the loud one: --ok frame + a slow breathing glow, the same
-     temperature EventCard gives the one live card in a list. */
+  /* Live is the loud one: an --ok frame, the same temperature EventCard
+     gives the one live card in a list. It no longer breathes a glow:
+     decoration never loops, and nothing glows. */
   .nudge.live {
     border-color: color-mix(in srgb, var(--ok) 55%, var(--border));
-    animation: nudge-breathe 2.8s ease-in-out infinite;
-  }
-  @keyframes nudge-breathe {
-    0%,
-    100% {
-      box-shadow: var(--shadow-pop);
-    }
-    50% {
-      box-shadow:
-        var(--shadow-pop),
-        0 0 14px color-mix(in srgb, var(--ok) 28%, transparent);
-    }
   }
   .live-dot {
     width: 9px;
@@ -186,14 +175,12 @@
     background: var(--bg-3);
     color: var(--text);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .nudge.live,
-    .live-dot {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .nudge.live,
+  :global(:root[data-motion="reduced"]) .live-dot {
+    animation: none;
   }
   /* One-handed at 393px: the actionable pills reach the 44px floor. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* And below the phone's top bar, not across it: `10px + safe-top` clears
        the status bar and lands squarely on the shell's own header, which is
        52px tall after that inset. --mchrome is the number MobileShell keeps

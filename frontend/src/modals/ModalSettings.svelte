@@ -21,27 +21,107 @@
   import { SETTINGS_GROUPS } from "../lib/settingsnav.js";
   import { haptic } from "../lib/touch.js";
   import { selfUpdateAllowed } from "../lib/installsource.js";
+  import PassphraseField from "../PassphraseField.svelte";
+  import { samePassphrase } from "../lib/passphrase.js";
+  import { errorField, humanError } from "../lib/errors.js";
+  import { bioEnrolled, disableBiometric } from "../lib/biometric.js";
 
   let { onClose } = $props();
   let phrase = $state("");
   let copiedPhrase = $state(false);
   let phraseOpen = $state(false);
 
-  // Recovery phrase disclosure: first open fetches the words, later opens just
-  // collapse/expand what's already revealed.
-  async function togglePhrase() {
-    if (!phraseOpen && !phrase) {
-      try {
-        phrase = await api.revealMnemonic();
-      } catch (err) {
-        flash(err);
-        return;
-      }
-      // Coming here and reading them is the thing the nudge was asking for, so
-      // reaching this line is the answer — no second confirmation to click.
-      if (S.prefs.backupPending) setPref("backupPending", false);
+  // Recovery phrase disclosure. The words ARE the account — the row itself
+  // says anyone who reads them can become you — and they used to appear on one
+  // click (on a phone, one tap anywhere on the row, easy to hit while
+  // scrolling). An unlocked laptop left on a desk is the realistic threat, so
+  // the first reveal asks for the passphrase again; the core checks it too.
+  let phraseAsk = $state(false);
+  let phrasePass = $state("");
+  let phraseErr = $state("");
+  function togglePhrase() {
+    if (phraseOpen) {
+      phraseOpen = false;
+      return;
     }
-    phraseOpen = !phraseOpen;
+    if (phrase) {
+      phraseOpen = true;
+      return;
+    }
+    phraseAsk = !phraseAsk;
+    phraseErr = "";
+  }
+  async function revealPhrase(e) {
+    e?.preventDefault();
+    if (!phrasePass) return;
+    try {
+      phrase = await api.revealMnemonic(phrasePass);
+    } catch (err) {
+      phraseErr = humanError(err);
+      return;
+    }
+    phrasePass = "";
+    phraseAsk = false;
+    phraseOpen = true;
+    // Coming here and reading them is the thing the nudge was asking for, so
+    // reaching this line is the answer — no second confirmation to click.
+    if (S.prefs.backupPending) setPref("backupPending", false);
+  }
+  // The backup nudge's "Show me" lands here with the reveal already asked for,
+  // rather than on the generic page with the row somewhere among four cards.
+  if (S.modal?.focus === "phrase") phraseAsk = true;
+
+  // ---- change passphrase ----
+  // There was no way to do this while signed in: the meter nudges toward a
+  // stronger passphrase on day one and then nothing could act on it, and the
+  // only other routes (recovery phrase, re-link) rebuild the device. The core
+  // re-seals the keystore beside the old one and renames it into place, so a
+  // failure part-way leaves the old passphrase working.
+  let changeOpen = $state(false);
+  let curPass = $state("");
+  let newPass = $state("");
+  let newPass2 = $state("");
+  let changeErr = $state("");
+  let changeField = $state("");
+  let changing = $state(false);
+  $effect(() => {
+    void [curPass, newPass, newPass2];
+    changeErr = "";
+    changeField = "";
+  });
+  async function changePassphrase(e) {
+    e?.preventDefault();
+    if (changing) return;
+    if (!curPass) return void ((changeErr = "Enter your current passphrase."), (changeField = "cur"));
+    if (!newPass) return void ((changeErr = "Choose a new passphrase."), (changeField = "new"));
+    if (!samePassphrase(newPass, newPass2)) {
+      changeErr = "The new passphrases don't match.";
+      changeField = "confirm";
+      return;
+    }
+    changing = true;
+    try {
+      await api.changePassphrase(curPass, newPass);
+      // A biometric unlock stores the OLD passphrase; it would now fail on
+      // every launch. Turn it off and say so rather than leave it broken.
+      let bioNote = "";
+      if (bioEnrolled()) {
+        try {
+          await disableBiometric();
+        } catch {
+          /* best effort */
+        }
+        bioNote = " Biometric unlock was turned off — turn it on again after your next unlock.";
+      }
+      curPass = newPass = newPass2 = "";
+      changeOpen = false;
+      flash(`Passphrase changed. Use the new one from now on.${bioNote}`, "success");
+    } catch (err) {
+      changeErr = humanError(err);
+      changeField = errorField(err) === "pass" ? "cur" : "";
+    } finally {
+      changing = false;
+    }
   }
   function copyPhrase() {
     navigator.clipboard?.writeText(phrase);
@@ -195,7 +275,7 @@
 
 </script>
 
-<RailShell title={S.isMobile ? "Settings" : "Account"} here="settings" {onClose}>
+<RailShell title={S.isMobile ? (S.modal?.tab === "you" ? "You" : "Settings") : "Account"} here="settings" {onClose}>
   <!-- WHO. It leads on both surfaces: on the desktop this page has no other way
        of saying which account it is about, and on a phone the list under it is
        all the ways of changing exactly this. On a phone the whole card is the
@@ -222,7 +302,7 @@
     {#if S.isMobile}
       <span class="chev">›</span>
     {:else}
-      <button class="who-edit" onclick={() => openPanel("profile", "settings")}>Edit profile</button>
+      <button class="quiet who-edit" onclick={() => openPanel("profile", "settings")}>Edit profile</button>
     {/if}
   </svelte:element>
 
@@ -261,11 +341,22 @@
       title="Recovery phrase"
       sub={phraseOpen
         ? "On screen now — anyone who reads them can become you."
-        : "24 words that ARE your account. Reveal them, write them down."}
+        : "24 words that are your account — reveal them and write them down."}
       onclick={togglePhrase}
     >
       <span class="reveal" class:open={phraseOpen}>{phraseOpen ? "Hide" : "Reveal"}</span>
     </SettingRow>
+    {#if phraseAsk && !phraseOpen}
+      <form class="inline-form" onsubmit={revealPhrase}>
+        <span class="row-sub">Enter your passphrase to show the 24 words.</span>
+        <PassphraseField placeholder="Passphrase" bind:value={phrasePass} invalid={!!phraseErr} autofocus />
+        {#if phraseErr}<span class="form-err" role="alert">{phraseErr}</span>{/if}
+        <div class="form-actions">
+          <button type="button" class="ghost small-btn" onclick={() => ((phraseAsk = false), (phrasePass = ""))}>Cancel</button>
+          <button type="submit" class="primary small-btn" disabled={!phrasePass}>Show the words</button>
+        </div>
+      </form>
+    {/if}
     {#if phraseOpen && phrase}
       <div class="phrase-body">
         <div class="phrase">
@@ -281,16 +372,50 @@
         </div>
       </div>
     {/if}
+    <SettingRow
+      icon="lock"
+      title="Passphrase"
+      sub="What unlocks Concord on this device. Change it any time."
+      onclick={() => (changeOpen = !changeOpen)}
+    >
+      <span class="reveal" class:open={changeOpen}>{changeOpen ? "Close" : "Change"}</span>
+    </SettingRow>
+    {#if changeOpen}
+      <form class="inline-form" onsubmit={changePassphrase}>
+        <PassphraseField placeholder="Current passphrase" bind:value={curPass} invalid={changeField === "cur"} autofocus />
+        <PassphraseField
+          placeholder="New passphrase"
+          autocomplete="new-password"
+          meter
+          bind:value={newPass}
+          invalid={changeField === "new"}
+        />
+        <PassphraseField
+          placeholder="Confirm new passphrase"
+          autocomplete="new-password"
+          bind:value={newPass2}
+          invalid={changeField === "confirm"}
+        />
+        {#if changeErr}<span class="form-err" role="alert">{changeErr}</span>{/if}
+        <span class="row-sub">
+          Only this device changes. Each of your devices has its own passphrase, and your
+          recovery phrase stays the same.
+        </span>
+        <div class="form-actions">
+          <button type="button" class="ghost small-btn" onclick={() => (changeOpen = false)}>Cancel</button>
+          <button type="submit" class="primary small-btn" disabled={changing}>
+            {changing ? "Changing…" : "Change passphrase"}
+          </button>
+        </div>
+      </form>
+    {/if}
   </SettingGroup>
 
   <!-- THIS INSTALL. Version and update are one statement, not two sections. -->
   <SettingGroup label="This install">
     <div class="upd">
       <div class="upd-head">
-        <span
-          class="chip"
-          class:spin-chip={upd.phase === "downloading" || upd.phase === "verifying"}
-        >
+        <span class="chip" class:spin-chip={upd.phase === "downloading" || upd.phase === "verifying"}>
           <Icon name="download" size={16} />
         </span>
         <span class="row-text">
@@ -312,7 +437,7 @@
               {peerInfo.latest} is available from
               {peerInfo.peers === 1 ? "a peer" : `${peerInfo.peers} peers`} on your network.
             {:else if updInfo}
-              You're on the latest version. ✨
+              You're on the latest version.
             {:else}
               Updates install in place — one click, no downloads to juggle.
             {/if}
@@ -370,18 +495,15 @@
   /* ---- who this account is ------------------------------------------------
      The one thing on this page that is not a control. It leads because every
      other row here is about protecting or replacing exactly this. */
+  /* A line, not a card (no boxed cards in a settings pane): the avatar, the
+     name and the status, with Edit profile on the trailing side. */
   .who {
     display: flex;
     align-items: center;
     gap: var(--sp-3);
-    padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-2);
-    border-radius: var(--radius-md);
-    background: linear-gradient(
-      120deg,
-      color-mix(in srgb, var(--accent) 10%, var(--bg-1)),
-      var(--bg-1) 62%
-    );
-    border: 1px solid var(--border);
+    padding: var(--sp-1) 0 var(--sp-3);
+    border-bottom: 1px solid var(--hairline);
+    background: transparent;
     flex: none;
   }
   .who-text {
@@ -393,7 +515,7 @@
   }
   .who-name {
     font-size: var(--fs-title);
-    font-weight: 700;
+    font-weight: 600;
     line-height: 1.15;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -423,16 +545,6 @@
   }
   .who-edit {
     flex: none;
-    font-size: var(--fs-compact);
-    padding: 7px 14px;
-    border-radius: 999px;
-    background: var(--bg-3);
-    color: var(--text);
-    border: 1px solid var(--border);
-  }
-  .who-edit:hover {
-    background: var(--bg-2);
-    border-color: var(--accent);
   }
 
   /* The recovery row's trailing control. A chevron would promise another page;
@@ -447,6 +559,21 @@
     color: var(--text-muted);
   }
 
+  .inline-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: 0 14px 14px;
+  }
+  .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--sp-2);
+  }
+  .form-err {
+    font-size: var(--fs-small);
+    color: var(--danger-text);
+  }
   .phrase-body {
     display: flex;
     flex-direction: column;
@@ -496,7 +623,7 @@
   }
   .row-title {
     font-size: var(--fs-ui);
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1.3;
   }
   .small-btn {
@@ -510,26 +637,29 @@
   }
 
   /* ---- this install -------------------------------------------------------- */
+  /* The same line as a SettingRow: a muted 16px icon in the leading column,
+     the version and its state, the one action on the trailing side. It was a
+     card in the right half of a two-column grid, which squeezed "Updates
+     install in place" into a 70px column one word per line. */
   .upd {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 12px 14px;
+    gap: var(--sp-1);
+    padding: 10px 0 0;
   }
   .upd-head {
     display: flex;
     align-items: center;
-    gap: var(--sp-3);
+    gap: var(--sp-5);
+    min-height: 38px;
   }
   .chip {
     display: grid;
     place-items: center;
-    width: 34px;
-    height: 34px;
+    width: 16px;
     flex-shrink: 0;
-    border-radius: var(--radius-md);
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+    margin-right: calc(-1 * var(--sp-2));
+    color: var(--text-muted);
   }
   .spin-chip :global(svg) {
     animation: upd-bob 1.1s ease-in-out infinite;
@@ -543,22 +673,24 @@
       transform: translateY(2px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .spin-chip :global(svg) {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .spin-chip :global(svg) {
+    animation: none;
   }
+  /* The md button: primary when there is an update to take, quiet to check. */
   .upd-btn {
     flex: none;
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
     font-size: var(--fs-compact);
-    padding: 7px 14px;
-    border-radius: 999px;
+    font-weight: 600;
+    padding: 0 14px;
+    border-radius: var(--radius-sm);
     border: none;
     background: var(--accent);
     color: var(--accent-fg);
     cursor: pointer;
     text-decoration: none;
-    box-shadow: var(--accent-glow);
   }
   .upd-btn:hover {
     background: var(--accent-hover);
@@ -569,12 +701,13 @@
     box-shadow: none;
   }
   .upd-btn.ghosted {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+    background: var(--bg-3);
+    color: var(--text);
+    font-weight: 500;
     box-shadow: none;
   }
   .upd-btn.ghosted:hover {
-    background: color-mix(in srgb, var(--accent) 26%, transparent);
+    background: var(--border);
   }
   .upd-btn.link {
     display: inline-flex;
@@ -596,21 +729,14 @@
     display: block;
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    background: var(--accent);
     /* Progress, not a state change — see ModalChronicle. */
     transition: width 0.3s ease;
   }
 
+  /* One column: the safety net, then this install, as groups of rows. */
   .desk-cols {
     display: contents;
-  }
-  @media (min-width: 769px) {
-    .desk-cols {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: var(--sp-3);
-      align-items: start;
-    }
   }
   .signout {
     display: inline-flex;
@@ -635,7 +761,7 @@
 
   /* Phone: the word grid drops to two columns so long mnemonic words never
      collide, and sign-out goes full-width. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .phrase {
       grid-template-columns: repeat(2, 1fr);
       gap: 7px;

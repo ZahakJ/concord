@@ -20,10 +20,11 @@
   import { haptic } from "./lib/touch.js";
   import { emoteText } from "./lib/emote.js";
   import { plainSnippet } from "./lib/snippet.js";
-  import { S, activeChannel, activeGuild, react, flash, flashSlot, nameColorFor, mentionRefs, focusFeed } from "./lib/state.svelte.js";
+  import { S, activeChannel, activeGuild, react, flash, flashSlot, nameColorFor, mentionRefs, customEmojiMap } from "./lib/state.svelte.js";
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
+  import { typingSignal } from "./lib/typing.js";
   import { tooltip } from "./lib/tooltip.js";
   import { scheduleMessage } from "./lib/scheduled.svelte.js";
   import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
@@ -32,9 +33,14 @@
   import { resampleEnvelope, voiceFileName } from "./lib/voicemsg.js";
   import { encodeFx, FX_EFFECTS } from "./lib/fxtoken.js";
   import { noteDraft } from "./lib/drafts.svelte.js";
+  import { stashStaged, takeStaged, addStaged, isBlankText } from "./lib/compose.js";
   import Avatar from "./Avatar.svelte";
   import { stagedImage, dataUrlBytes } from "./lib/attachopts.js";
+  import { displayFileName } from "./lib/attachments.js";
   import { fmtBytes } from "./lib/chronicle.js";
+  import { midTrunc, fileLabel } from "./lib/attachments.js";
+  import { wantsTypeToFocus } from "./lib/typetofocus.js";
+  import { isPttKey } from "./lib/shortcuts.js";
 
   let draft = $state("");
   // The draft's BASE DIRECTION, when the writer has asked for one: "" (decide
@@ -61,7 +67,9 @@
   // Staged attachments: pasting/dropping/picking a file adds a PREVIEW to the
   // composer, sent together with the text on submit.
   // Each: { id, dataUrl, w, h, name, isImage }
-  let pending = $state([]);
+  // A tray parked by an earlier mount of the composer (the phone and desktop
+  // shells each have one, and a forum board has none) comes back with it.
+  let pending = $state(takeStaged(S.activeChannelId));
   let composerEl = $state(null);
   let fileInput = $state(null);
   let cameraInput = $state(null);
@@ -77,8 +85,8 @@
     // thing that knew, and the refusal arrived afterwards from the core.
     if (slowLeft > 0) return `Slow mode — you can send in ${slowLeft}s`;
     const g = activeGuild();
-    if (g?.dmNotes) return "Write a note to yourself…";
-    if (g?.kind === "dm") return `Message ${g.name || "your friend"}…`;
+    if (g?.dmNotes) return "Write a note to yourself";
+    if (g?.kind === "dm") return `Message ${g.name || "your friend"}`;
     // A post is not a channel you message: "Message #Weekly meetup logistics
     // thread…" put a channel sigil on a sentence and then truncated it. What
     // you are doing in a post is replying to it — and in a thread started from
@@ -86,9 +94,9 @@
     // rather than a question somebody asked.
     if (ch.parent) {
       const parent = (g?.channels || []).find((c) => c.id === ch.parent);
-      return parent?.type === "forum" ? "Reply to this post…" : "Reply in this thread…";
+      return parent?.type === "forum" ? "Reply to this post" : "Reply in this thread";
     }
-    return `Message #${ch.name}…`;
+    return `Message #${ch.name}`;
   });
 
   const ch = $derived(activeChannel());
@@ -241,7 +249,18 @@
   const ephTTL = $derived(ch ? channelTTL(S.activeChannelId) : 0);
   // Mobile markdown lives behind a toggle rather than an always-on toolbar row.
   let showFmt = $state(false);
-  const showFmtBar = $derived(!mobile || showFmt);
+  // The permanent bar is gone: selecting text raises the selection toolbar,
+  // the chords work everywhere, and the full bar is one + › Formatting away.
+  const showFmtBar = $derived(showFmt);
+  // Whether the draft has a non-empty selection — what raises the selection
+  // toolbar. Read off the textarea on the events that can change it.
+  let hasSel = $state(false);
+  // Names are ink unless the reader turned on "Colour names by role".
+  const inkFor = (f) => (S.prefs.roleNameColors ? nameColorFor(f) : "");
+  function trackSel() {
+    const el = composerEl;
+    hasSel = !!el && document.activeElement === el && el.selectionEnd > el.selectionStart;
+  }
   // The phone composer is ONE row — "+", the text, emoji, and mic-or-send. The
   // other five controls (GIF, poll, formatting, advanced compose, schedule) live
   // in this sheet. Eight 44px targets came to 352px, which wrapped to a second
@@ -310,12 +329,22 @@
     const cur = S.activeChannelId;
     untrack(() => {
       if (cur === prevChannel) return;
+      // Leaving with a typing line up: end it now, not on the 4 s timer.
+      if (lastTypingSent && prevChannel) api.stopTyping(prevChannel).catch(() => {});
+      lastTypingSent = 0;
       saveDraft(prevChannel, draft);
       draft = loadDraft(cur);
+      // The tray travels with the text: see lib/compose.js for what sending
+      // it into whichever conversation came next cost.
+      stashStaged(prevChannel, pending);
+      pending = takeStaged(cur);
+      editingAtt = "";
       prevChannel = cur;
       queueAutosize();
     });
   });
+
+  $effect(() => () => untrack(() => stashStaged(prevChannel, pending)));
 
   // Size to a restored draft once the textarea mounts.
   $effect(() => {
@@ -573,7 +602,7 @@
   const SUGGEST_HEADS = {
     slash: "Commands",
     emoji: "Emoji",
-    mention: "Members & roles",
+    mention: "Members and roles",
     channel: "Channels",
   };
 
@@ -606,7 +635,7 @@
     }
     const emoji = activeShortcode(draft, caret);
     if (emoji) {
-      const items = searchEmoji(emoji.query, 8);
+      const items = searchEmoji(emoji.query, 8, customEmojiMap());
       suggest = items.length
         ? { kind: "emoji", start: emoji.start, items, sel: 0 }
         : null;
@@ -643,8 +672,14 @@
       if ("everyone".startsWith(q)) {
         items.push({ key: "e:everyone", name: "everyone", kind: "everyone" });
       }
-      suggest = items.length ? { kind: "mention", start: mention.start, items, sel: 0 } : null;
-      return;
+      if (items.length) {
+        suggest = { kind: "mention", start: mention.start, items, sel: 0 };
+        return;
+      }
+      // Nobody matches, so this "@" is not a mention being typed — a query may
+      // run on past spaces (names have them), and "@Ali see #ran" read as one
+      // long @-query that ended the search here before the #channel after it
+      // was ever looked at. Fall through to the later trigger.
     }
     const chref = activeChannelRef(draft, caret);
     if (chref) {
@@ -811,7 +846,7 @@
     // which may well be a picker this composer opened.
   }
 
-  function onInput() {
+  function onInput(e) {
     // The wall-of-text offer lives exactly as long as the paste is the last
     // thing you did. That is what makes Tab safe to borrow for it below.
     if (wrapPending) {
@@ -821,10 +856,17 @@
     } else {
       wrapOffer = null;
     }
-    const now = Date.now();
-    if (now - lastTypingSent > 2000 && S.activeChannelId) {
-      lastTypingSent = now;
+    // What this edit tells the channel (lib/typing.js): insertions start the
+    // line, emptying the draft ends it, deleting alone says nothing.
+    const signal = S.activeChannelId
+      ? typingSignal({ inputType: e?.inputType || "", draft, sentAt: lastTypingSent })
+      : null;
+    if (signal === "start") {
+      lastTypingSent = Date.now();
       api.sendTyping(S.activeChannelId).catch(() => {});
+    } else if (signal === "stop") {
+      lastTypingSent = 0;
+      api.stopTyping(S.activeChannelId).catch(() => {});
     }
     saveDraft(S.activeChannelId, draft);
     queueAutosize();
@@ -854,7 +896,9 @@
       queueAutosize();
       return;
     }
-    const text = replaceShortcodes(applySlash(raw).trim());
+    const typed = replaceShortcodes(applySlash(raw).trim());
+    // Only invisible characters is nothing typed — see lib/compose.js.
+    const text = isBlankText(typed) ? "" : typed;
     const atts = pending;
     if ((!text && atts.length === 0) || !S.activeChannelId) return;
     // The Send button has been disabled all along; Enter went straight past it
@@ -873,6 +917,8 @@
     playLaunch();
     playSend();
     const chId = S.activeChannelId;
+    // The message itself ends the line on every receiver (lib/typing.js).
+    lastTypingSent = 0;
     draft = "";
     pending = [];
     saveDraft(chId, "");
@@ -991,6 +1037,12 @@
     pending = pending.filter((p) => p.id !== id);
     if (editingAtt === id) editingAtt = "";
   }
+  // Reading a file takes a moment; the conversation may have changed by the
+  // time it is done, and the file belongs to the one it was picked in.
+  function stageInto(channelId, item) {
+    if (channelId === prevChannel) pending = [...pending, item];
+    else addStaged(channelId, item);
+  }
   const uid = () =>
     (crypto?.randomUUID?.() ?? String(Date.now()) + Math.random());
 
@@ -1000,6 +1052,7 @@
   // rather than dropping it.
   async function stageImage(file) {
     if (!file || !S.activeChannelId) return true;
+    const into = S.activeChannelId;
     uploading++;
     try {
       let dataUrl, w, h;
@@ -1017,10 +1070,7 @@
       // Defaults come from stagedImage (lib/attachopts.js), which keeps `name`
       // empty so an unedited image still goes out as the v1 token older peers
       // can render. See that file for why prefilling it here is a trap.
-      pending = [
-        ...pending,
-        stagedImage({ id: uid(), dataUrl, w, h, fileName: file.name || "" }),
-      ];
+      stageInto(into, stagedImage({ id: uid(), dataUrl, w, h, fileName: displayFileName(file.name) }));
     } catch (err) {
       const msg = String(err?.message || err);
       flash(
@@ -1039,6 +1089,14 @@
   // other files alike are STAGED; nothing sends until submit.
   export async function attachFile(file) {
     if (!file || !S.activeChannelId) return;
+    // An empty file reads as a data URL with nothing in it, which the core
+    // refuses ("attachment must be a data URL") — after the row was already in
+    // the feed, with a Retry that could only fail the same way. Said here,
+    // before anything is staged.
+    if (file.size === 0) {
+      flash(`${displayFileName(file.name) || "That file"} is empty — there's nothing in it to send`, "error");
+      return;
+    }
     if (file.type.startsWith("image/")) {
       if (await stageImage(file)) return;
       // Fell through: it is named as an image and is not one this renderer can
@@ -1048,14 +1106,12 @@
       flash("File too large (max 25 MB)", "error");
       return;
     }
+    const into = S.activeChannelId;
     uploading++;
     try {
       const dataUrl = await readAsDataURL(file);
       const isVideo = file.type.startsWith("video/");
-      pending = [
-        ...pending,
-        { id: uid(), dataUrl, name: file.name || "file", isImage: false, isVideo, bytes: file.size || dataUrlBytes(dataUrl) },
-      ];
+      stageInto(into, { id: uid(), dataUrl, name: displayFileName(file.name) || "file", isImage: false, isVideo, bytes: file.size || dataUrlBytes(dataUrl) });
     } catch (err) {
       flash(err);
     } finally {
@@ -1440,10 +1496,8 @@
   // down for as long as it is open — one rule, not one exception per surface.
   function typeToFocus(e) {
     if (!ch || S.modal || S.contextMenu || S.editing || S.keySurfaces) return;
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key.length !== 1) return; // printable characters only
-    const t = e.target;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    // Which keys may pull the caret in, and from where: lib/typetofocus.js.
+    if (!wantsTypeToFocus(e, e.target, { ptt: isPttKey(e) })) return;
     composerEl?.focus();
   }
 
@@ -1508,19 +1562,43 @@
     moreOpen = false;
     run();
   }
+
+  // Everything + offers, ONCE: the desktop menu and the phone's sheet both
+  // read this list. They used to be two hand-written lists that had drifted
+  // into two vocabularies ("Upload a file" here, "Photo or file" there;
+  // "Start a thread" / "Thread"; seal and voice only on one of them).
+  // `glyph` is a text tile for the sheet; `pressed` marks a switch.
+  function toggleSeal() {
+    sealNext = !sealNext;
+    if (sealNext) haptic("light");
+    composerEl?.focus();
+  }
+  const addItems = $derived(
+    [
+      { id: "file", label: "Photo or file", icon: "attach", title: "Up to 5 MB images, 25 MB files", disabled: !ch || uploading > 0, run: () => fileInput.click() },
+      // coarse, not mobile: the sheet also shows in a narrowed desktop window,
+      // where "take a photo" would open a file picker and shrug.
+      coarse && { id: "camera", label: "Camera", icon: "camera", title: "Straight from the camera", disabled: !ch, run: () => cameraInput.click() },
+      // No vendor named: which service the Search tab reaches is the
+      // rendezvous operator's choice, and the picker reports it.
+      { id: "gif", label: "GIF", icon: "image", glyph: "GIF", title: "This guild's pack, or a search via your rendezvous", disabled: !ch, run: () => (S.modal = { kind: "gifs" }) },
+      // The phone records from the bar's own mic button.
+      canRecord && !mobile && { id: "voice", label: "Voice message", icon: "mic", disabled: !ch, run: startRecording },
+      { id: "poll", label: "Poll", icon: "poll", disabled: !ch, run: () => (S.modal = { kind: "poll" }) },
+      canStartThread && { id: "thread", label: "Thread", icon: "forum", title: "A side conversation with its own unread count", run: () => (S.modal = { kind: "newPost", forum: ch }) },
+      { id: "doodle", label: "Doodle", icon: "edit", title: "Draw — sent as strokes, not a picture", disabled: !ch, run: () => (S.modal = { kind: "doodle" }) },
+      { id: "sound", label: "Sound", icon: "speaker", title: "A recipe, not a file — a few dozen bytes each", disabled: !ch, run: () => (S.modal = { kind: "soundboard" }) },
+      { id: "game", label: "Game", icon: "die", title: "Play in the channel — the board is folded from the messages", disabled: !ch, run: () => (S.modal = { kind: "game" }) },
+      { id: "later", label: draft.trim() ? "Send later" : "Scheduled", icon: "clock", title: draft.trim() ? "Pick a time for this message" : "See what's queued", disabled: !ch, run: scheduleSend },
+      { id: "seal", label: "Seal time", icon: "stamp", title: "Prove when it was sent: seal the send time onto the next message", pressed: sealNext, disabled: !ch, run: toggleSeal },
+      { id: "fmt", label: "Formatting", icon: "bold", glyph: "Aa", title: "Bold, italics, code, quotes, links", pressed: showFmt, disabled: !ch, run: () => { showFmt = !showFmt; composerEl?.focus(); } },
+      { id: "advanced", label: "Advanced", icon: "docpen", title: "Colours, rich embeds, preview", disabled: !ch, run: openAdvanced },
+    ].filter(Boolean),
+  );
   // Hardware back closes the sheet before it reaches the drawers or exits.
   $effect(() => {
     if (moreOpen) return pushLayer("sheet", () => (moreOpen = false));
   });
-
-  // Tab out of the composer's last toolbar goes to the message feed, not past
-  // it. See focusFeed(): the rows are earlier in the DOM than the composer, so
-  // forward Tab skipped them and landed in the Moments tray. Shift+Tab is left
-  // alone — backwards out of the cluster is the textarea, which is right.
-  function onClusterKeydown(e) {
-    if (e.key !== "Tab" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (focusFeed()) e.preventDefault();
-  }
 
   function openAdvanced() {
     S.modal = {
@@ -1540,34 +1618,6 @@
 
 <svelte:window onkeydown={typeToFocus} />
 
-{#if S.replyingTo}
-  <div class="reply-banner">
-    <!-- The name alone cannot tell you WHICH message you picked, and in a
-         channel where somebody has just said three things in a row that is the
-         only question the banner is asked. The reply is committed before you
-         find out. Same snippet the sent quote strip prints, from the same
-         function, so the banner and the result cannot disagree. -->
-    <span class="rb-label">
-      <span class="rb-icon"><Icon name="reply" size={12} /></span>
-      Replying to <strong>{S.replyingTo.senderName || S.replyingTo.sender.slice(0, 9)}</strong>
-      {#if replySnippet}<span class="rb-snip">{replySnippet}</span>{/if}
-    </span>
-    <button class="mini" aria-label="Cancel reply" onclick={() => (S.replyingTo = null)}>
-      <Icon name="close" size={11} />
-    </button>
-    {#if mobile}
-      <!-- Swipe-to-reply is the gesture people trigger by accident, and Escape —
-           the only other way out — isn't on a phone keyboard. The whole banner
-           cancels, so the 23x15 pill isn't the sole escape. -->
-      <button
-        class="rb-cancel-all"
-        aria-hidden="true"
-        tabindex="-1"
-        onclick={() => (S.replyingTo = null)}
-      ></button>
-    {/if}
-  </div>
-{/if}
 <div class="typing-line muted">
   {#if uploading > 0}
     <span class="up-dot"></span> Adding {uploading > 1 ? `${uploading} attachments` : "attachment"}…
@@ -1576,21 +1626,21 @@
     {#if S.typingList.length === 1}
       <span
         class="typer"
-        style={nameColorFor(S.typingList[0].from) ? `color:${nameColorFor(S.typingList[0].from)}` : ""}
+        style={inkFor(S.typingList[0].from) ? `color:${inkFor(S.typingList[0].from)}` : ""}
         >{S.typingList[0].label}</span
       > is typing…
     {:else if S.typingList.length === 2}
       <span
         class="typer"
-        style={nameColorFor(S.typingList[0].from) ? `color:${nameColorFor(S.typingList[0].from)}` : ""}
+        style={inkFor(S.typingList[0].from) ? `color:${inkFor(S.typingList[0].from)}` : ""}
         >{S.typingList[0].label}</span
       > and <span
         class="typer"
-        style={nameColorFor(S.typingList[1].from) ? `color:${nameColorFor(S.typingList[1].from)}` : ""}
+        style={inkFor(S.typingList[1].from) ? `color:${inkFor(S.typingList[1].from)}` : ""}
         >{S.typingList[1].label}</span
       > are typing…
     {:else}
-      {S.typingList.length} people are typing…
+      Several people are typing…
     {/if}
   {/if}
 </div>
@@ -1627,7 +1677,13 @@
     oninput={onInput}
     onkeydown={onKeydown}
     onpaste={onPaste}
-    onblur={() => setTimeout(() => (suggest = null), 150)}
+    onselect={trackSel}
+    onkeyup={trackSel}
+    onmouseup={trackSel}
+    onblur={() => {
+      hasSel = false;
+      setTimeout(() => (suggest = null), 150);
+    }}
   ></textarea>
   <!-- Shown only while an override is in force. Off by default it costs the
        people who never write bidirectional text nothing at all, and the ones
@@ -1664,7 +1720,12 @@
       {#each suggest.items as item, i (suggest.kind === "emoji" ? item[0] : suggest.kind === "slash" ? item.name : item.key)}
         <button class="suggest-item" class:sel={i === suggest.sel} onclick={() => accept(i)}>
           {#if suggest.kind === "emoji"}
-            <span class="s-emoji">{item[1]}</span> :{item[0]}:
+            {#if item[2]}
+              <img class="s-emoji s-cemoji" src={item[2]} alt="" />
+            {:else}
+              <span class="s-emoji">{item[1]}</span>
+            {/if}
+            :{item[0]}:
           {:else if suggest.kind === "slash"}
             <span class="s-slash" aria-hidden="true"><Icon name="code" size={13} /></span>
             <span class="s-cmd">{item.usage}</span>
@@ -1709,7 +1770,7 @@
       <Icon name={evicted ? "door" : closedPost ? "lock" : muted ? "micOff" : "megaphone"} size={14} />
       <span>{lockedNote}</span>
       {#if closedPost && canReopen}
-        <button class="reopen" onclick={reopenPost}>Reopen</button>
+        <button class="primary reopen" onclick={reopenPost}>Reopen</button>
       {/if}
     </div>
   {:else}
@@ -1765,6 +1826,35 @@
       </div>
     {/if}
     <div class="input-shell" class:active={!!ch}>
+    {#if S.replyingTo}
+      <div class="reply-banner">
+        <!-- The name alone cannot tell you WHICH message you picked, and in a
+             channel where somebody has just said three things in a row that is the
+             only question the banner is asked. The reply is committed before you
+             find out. Same snippet the sent quote strip prints, from the same
+             function, so the banner and the result cannot disagree. -->
+        <span class="rb-label">
+          <span class="rb-icon"><Icon name="reply" size={14} /></span>
+          Replying to <strong>{S.replyingTo.senderName || S.replyingTo.sender.slice(0, 9)}</strong>
+          {#if replySnippet}<span class="rb-snip">{replySnippet}</span>{/if}
+        </span>
+        <button type="button" class="mini" aria-label="Cancel reply" onclick={() => (S.replyingTo = null)}>
+          <Icon name="close" size={11} />
+        </button>
+        {#if mobile}
+          <!-- Swipe-to-reply is the gesture people trigger by accident, and Escape —
+               the only other way out — isn't on a phone keyboard. The whole banner
+               cancels, so the 23x15 pill isn't the sole escape. -->
+          <button
+            type="button"
+        class="rb-cancel-all"
+            aria-hidden="true"
+            tabindex="-1"
+            onclick={() => (S.replyingTo = null)}
+          ></button>
+        {/if}
+      </div>
+    {/if}
     {#if pending.length || uploading > 0}
       <div class="attach-tray">
         {#each pending as p (p.id)}
@@ -1774,7 +1864,18 @@
               <img src={p.dataUrl} alt="" class:blur={p.spoiler} />
               {#if p.spoiler}<span class="att-tag">SPOILER</span>{/if}
             {:else}
-              <span class="att-file"><Icon name={p.isVideo ? "play" : "attach"} size={16} /><span class="att-name">{p.name}</span></span>
+              <!-- The posted file card's own shape (FileAttachment): a 36px
+                   tile, the name once on one line cut from the middle so the
+                   extension survives, and "TXT · 13 B" under it. The staged
+                   one used to cut the name mid-word with no ellipsis, lay the
+                   remove button over it, and print it again underneath. -->
+              <span class="att-file" title={p.name}>
+                <span class="af-tile"><Icon name={p.isVideo ? "play" : "attach"} size={16} /></span>
+                <span class="af-meta">
+                  <span class="att-name"><bdi>{midTrunc(p.name, 30)}</bdi></span>
+                  <span class="af-sub">{fileLabel(p.name, p.bytes)}</span>
+                </span>
+              </span>
             {/if}
             {#if mobile}
               <!-- Touch gets ONE target — the chip itself — instead of three
@@ -1830,19 +1931,16 @@
                client that refuses images over 5 MB and files over 25 MB. "How
                big is this?" is a question to answer BEFORE Enter, not after the
                send fails. -->
+          {#if p.isImage}
           <span class="att-meta" title={p.name || p.origName || ""}>
-            {#if p.isImage}
               <!-- Shape before weight: the dimensions decide whether the
                    picture lands as a postage stamp or eats the pane, and the
                    size decides whether it goes through at all. -->
               <span class="am-name">{p.name || p.origName || "image"}</span>
               <span class="am-num">{p.w ? `${p.w}×${p.h} · ` : ""}{fmtBytes(p.bytes)}</span>
-            {:else}
-              <span class="am-name">{p.name}</span>
-              <span class="am-num">{fmtBytes(p.bytes)}</span>
-            {/if}
             {#if p.spoiler}<span class="am-spoil">spoiler</span>{/if}
           </span>
+          {/if}
           </div>
         {/each}
         {#if uploading > 0}<div class="att-chip loading"><span class="att-spin"></span></div>{/if}
@@ -1892,6 +1990,19 @@
     {/if}
     {#if showFmtBar}
       <FormatBar onFormat={applyFormat} disabled={!ch} {dirMode} onCycleDir={cycleDir} />
+    {:else if hasSel && !mobile}
+      <!-- Over the composer's top edge, never over the feed's last line: it
+           floats into the reserved typing strip above the surface. -->
+      <div class="sel-pop">
+        <FormatBar
+          selection
+          label="Format the selection"
+          onFormat={(k) => {
+            applyFormat(k);
+            trackSel();
+          }}
+        />
+      </div>
     {/if}
     <div class="input-box" class:focused={ch} class:recording={recording || !!preview}>
       {#if recording}
@@ -2010,7 +2121,7 @@
                wait. -->
           <button
             type="button"
-            class="iconbtn"
+            class="iconbtn mic-round"
             use:tooltip
             aria-label="Record a voice message"
             disabled={!ch}
@@ -2037,101 +2148,35 @@
           </button>
         {/if}
       {:else}
-        <button
-          type="button"
-          class="iconbtn"
-          use:tooltip={"Attach a file or image (or paste / drop one)"}
-          aria-label="Attach a file"
-          disabled={!ch || uploading > 0}
-          onclick={() => fileInput.click()}
-        >
-          <Icon name="attach" size={20} />
-        </button>
+        <!-- One calm surface: the + menu at the start (everything you can add
+             or do), the text, then emoji and Send. Attach, GIF and the voice
+             message moved into + with the rest; the chords and drag-and-drop
+             still attach directly. -->
+        <Menu label="Add to your message" icon="plus" align="left" up>
+          {#each addItems as it (it.id)}
+            <button
+              type="button"
+              class="menu-item"
+              disabled={it.disabled}
+              aria-pressed={it.pressed ?? undefined}
+              title={it.title}
+              onclick={it.run}
+            >
+              <Icon name={it.icon} size={14} />
+              {it.label}
+              {#if it.pressed}<span class="add-on"><Icon name="check" size={14} /></span>{/if}
+            </button>
+          {/each}
+        </Menu>
         {@render draftBox()}
-        <!-- One tab stop, not nine. These are a toolbar and now say so with
-             their behaviour as well as their role: ←/→ walk the cluster, Tab
-             leaves it. Getting past the composer used to cost fifteen presses.
-             -->
+        <!-- One tab stop, not several: ←/→ walk the cluster, Tab leaves it. -->
         <div
           class="icon-cluster"
           role="toolbar"
           aria-label="Composer actions"
           tabindex="-1"
           use:roving
-          onkeydown={onClusterKeydown}
         >
-        {#if canRecord && !draft.trim() && pending.length === 0}
-          <!-- Mic replaces nothing; it appears when there's no text/attachment to
-               send, the way messengers surface record-vs-send. -->
-          <button
-            type="button"
-            class="iconbtn"
-            use:tooltip
-            aria-label="Record a voice message"
-            disabled={!ch}
-            onclick={startRecording}
-          >
-            <Icon name="mic" size={20} />
-          </button>
-        {/if}
-          <!-- The guild's own GIF pack. A word, not a glyph: there is no icon
-               for "GIF" that anyone reads correctly, and this is the label
-               every other client uses.
-
-               No vendor named in the tooltip: which GIF service the Search tab
-               reaches is the rendezvous operator's choice, and the picker
-               itself reports it. A hardcoded "Tenor" here went stale the day
-               Google shut that API down (30 June 2026). -->
-          <button
-            type="button"
-            class="iconbtn gifbtn"
-            use:tooltip={"GIFs — this guild's pack, or a web search via your rendezvous"}
-            aria-label="Open the GIF picker"
-            disabled={!ch}
-            onclick={() => (S.modal = { kind: "gifs" })}
-          >GIF</button>
-          <!-- One door for the occasional controls, at every width. The wide
-               desktop strip used to lay nine glyphs flat with no grouping and
-               no overflow, so finding the emoji button meant reading nine
-               shapes; the squeezed column already folded them away and the only
-               reason the wide one did not was that it had the room. Room is not
-               a reason. Attach, GIF and emoji stay out — they are the three
-               people reach for constantly — and the rest are words in a menu,
-               which is what they wanted to be all along. -->
-          <Menu label="Add to your message" icon="plus" up>
-            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "poll" })}>
-              <Icon name="poll" size={14} /> Poll
-            </button>
-            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "doodle" })}>
-              <Icon name="edit" size={14} /> Doodle
-            </button>
-            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "soundboard" })}>
-              <Icon name="speaker" size={14} /> Sound
-            </button>
-            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "game" })}>
-              <Icon name="die" size={14} /> Game
-            </button>
-            {#if canStartThread}
-              <button class="menu-item" onclick={() => (S.modal = { kind: "newPost", forum: ch })}>
-                <Icon name="forum" size={14} /> Start a thread
-              </button>
-            {/if}
-            <button class="menu-item" disabled={!ch} onclick={openAdvanced}>
-              <Icon name="docpen" size={14} /> Advanced composer
-            </button>
-            <button
-              class="menu-item"
-              disabled={!ch}
-              onclick={() => { sealNext = !sealNext; if (sealNext) haptic("light"); composerEl?.focus(); }}
-            >
-              <Icon name="stamp" size={14} />
-              {sealNext ? "Don't seal the send time" : "Seal the send time"}
-            </button>
-            <button class="menu-item" disabled={!ch} onclick={scheduleSend}>
-              <Icon name="clock" size={14} />
-              {draft.trim() ? "Schedule this message" : "Scheduled messages"}
-            </button>
-          </Menu>
           <!-- Armed seal stays VISIBLE. Folding it into the menu is right while
                it is off — it is a rare control — but once it is armed it is a
                claim being made about the next message you send, and a claim you
@@ -2202,58 +2247,24 @@
        for anybody who long-presses to ask. -->
   <BottomSheet title="Add to your message" onClose={() => (moreOpen = false)} maxHeight="calc(76 * var(--vh))">
     <div class="sheet-grid">
-      <button type="button" class="tile" title="Up to 5 MB images, 25 MB files" onclick={() => fromSheet(() => fileInput.click())}>
-        <span class="tile-ic"><Icon name="attach" size={22} /></span>
-        <span class="tile-lbl">Photo or file</span>
-      </button>
-      {#if coarse}
-        <!-- coarse, not mobile: the sheet also shows in a narrowed desktop
-             window, where "take a photo" would open a file picker and shrug. -->
-        <button type="button" class="tile" title="Straight from the camera" onclick={() => fromSheet(() => cameraInput.click())}>
-          <span class="tile-ic"><Icon name="camera" size={22} /></span>
-          <span class="tile-lbl">Camera</span>
+      {#each addItems as it (it.id)}
+        <button
+          type="button"
+          class="tile"
+          class:on={it.pressed}
+          aria-pressed={it.pressed ?? undefined}
+          disabled={it.disabled}
+          title={it.title}
+          onclick={() => fromSheet(it.run)}
+        >
+          {#if it.glyph}
+            <span class="tile-ic" class:tile-gif={it.glyph === "GIF"} class:tile-aa={it.glyph === "Aa"}>{it.glyph}</span>
+          {:else}
+            <span class="tile-ic"><Icon name={it.icon} size={22} /></span>
+          {/if}
+          <span class="tile-lbl">{it.label}</span>
         </button>
-      {/if}
-      <!-- No vendor named: which service the Search tab reaches is the
-           rendezvous operator's choice, and the picker reports it. -->
-      <button type="button" class="tile" title="This guild's pack, or a search via your rendezvous" onclick={() => fromSheet(() => (S.modal = { kind: "gifs" }))}>
-        <span class="tile-ic tile-gif">GIF</span>
-        <span class="tile-lbl">GIF</span>
-      </button>
-      <button type="button" class="tile" onclick={() => fromSheet(() => (S.modal = { kind: "poll" }))}>
-        <span class="tile-ic"><Icon name="poll" size={22} /></span>
-        <span class="tile-lbl">Poll</span>
-      </button>
-      {#if canStartThread}
-        <button type="button" class="tile" title="A side conversation with its own unread count" onclick={() => fromSheet(() => (S.modal = { kind: "newPost", forum: ch }))}>
-          <span class="tile-ic"><Icon name="forum" size={22} /></span>
-          <span class="tile-lbl">Thread</span>
-        </button>
-      {/if}
-      <button type="button" class="tile" title="Draw with a finger — sent as strokes, not a picture" onclick={() => fromSheet(() => (S.modal = { kind: "doodle" }))}>
-        <span class="tile-ic"><Icon name="edit" size={22} /></span>
-        <span class="tile-lbl">Doodle</span>
-      </button>
-      <button type="button" class="tile" title="A recipe, not a file — a few dozen bytes each" onclick={() => fromSheet(() => (S.modal = { kind: "soundboard" }))}>
-        <span class="tile-ic"><Icon name="speaker" size={22} /></span>
-        <span class="tile-lbl">Sound</span>
-      </button>
-      <button type="button" class="tile" title="Play in the channel — the board is folded from the messages" onclick={() => fromSheet(() => (S.modal = { kind: "game" }))}>
-        <span class="tile-ic"><Icon name="die" size={22} /></span>
-        <span class="tile-lbl">Game</span>
-      </button>
-      <button type="button" class="tile" class:on={showFmt} aria-pressed={showFmt} title="Bold, italics, code, quotes, links" onclick={() => fromSheet(() => (showFmt = !showFmt))}>
-        <span class="tile-ic tile-aa">Aa</span>
-        <span class="tile-lbl">Formatting</span>
-      </button>
-      <button type="button" class="tile" title="Colours, rich embeds, preview" onclick={() => fromSheet(openAdvanced)}>
-        <span class="tile-ic"><Icon name="docpen" size={22} /></span>
-        <span class="tile-lbl">Advanced</span>
-      </button>
-      <button type="button" class="tile" title={draft.trim() ? "Pick a time for this message" : "See what's queued"} onclick={() => fromSheet(scheduleSend)}>
-        <span class="tile-ic"><Icon name="clock" size={22} /></span>
-        <span class="tile-lbl">{draft.trim() ? "Send later" : "Scheduled"}</span>
-      </button>
+      {/each}
     </div>
   </BottomSheet>
 {/if}
@@ -2348,18 +2359,23 @@
       text-decoration: underline;
     }
   }
+  /* Inside the composer's own surface, above the text, with a hairline under
+     it: the reply is part of what you are writing, not a banner over it. */
   .reply-banner {
     position: relative; /* anchors the phone-wide cancel overlay */
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: var(--sp-2);
-    padding: 6px 16px;
-    font-size: var(--fs-ui);
-    border-top: 1px solid var(--border);
-    /* Faint accent wash ties the banner to the reply you're composing. */
-    background: color-mix(in srgb, var(--accent) 7%, transparent);
-    animation: rb-in var(--dur-standard) var(--ease-out);
+    min-height: 32px;
+    padding: 0 6px 0 10px;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .reply-banner strong {
+    color: var(--text);
+    font-weight: 600;
   }
   @keyframes rb-in {
     from {
@@ -2415,11 +2431,17 @@
   /* Fixed height, not min-height: the strip is always in the DOM, so anything
      that grows with its content shifts the whole composer the moment someone
      starts typing. The phone value is the larger --fs-compact plus its padding. */
+  /* A reserved strip between the feed and the composer: empty, it keeps its
+     24px, so a typing notice never pushes the conversation or covers it. */
   .typing-line {
-    height: 20px;
-    font-size: var(--fs-compact);
-    font-style: italic;
-    padding: 3px 16px 1px;
+    height: 24px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--fs-small);
+    color: var(--text-muted);
+    padding: 0 var(--sp-edge);
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -2432,6 +2454,7 @@
     }
   }
   .typing-line .typer {
+    color: var(--text);
     font-weight: 600;
     font-style: normal;
     /* Truncate the NAME, not the sentence. The line already ellipsed as a
@@ -2479,12 +2502,10 @@
   }
   /* The global reduced-motion rule only shortens durations — an infinite loop
      would still churn, so stop the dots entirely and hold a steady frame. */
-  @media (prefers-reduced-motion: reduce) {
-    .t-dots span,
-    .up-dot {
-      animation: none;
-      opacity: 0.7;
-    }
+  :global(:root[data-motion="reduced"]) .t-dots span,
+  :global(:root[data-motion="reduced"]) .up-dot {
+    animation: none;
+    opacity: 0.7;
   }
   .up-dot {
     display: inline-block;
@@ -2601,6 +2622,11 @@
   .s-emoji {
     font-size: 16px;
   }
+  .s-cemoji {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+  }
   .s-face {
     display: inline-flex;
     flex: none;
@@ -2618,10 +2644,8 @@
     opacity: 0.9;
   }
   .suggest-head {
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
     padding: 4px 10px 3px;
   }
@@ -2675,18 +2699,19 @@
   /* One seamless input shell: toolbar, attach, text, and emoji all live
      INSIDE a single rounded well — no borders between the pieces. */
   .input-shell {
+    position: relative;
     background: var(--bg-input);
-    border: 1px solid transparent;
+    border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     transition:
       border-color var(--dur-standard) ease,
       background var(--dur-standard) ease,
       box-shadow var(--dur-standard) ease;
   }
+  /* The composer is the default focus target, so a ring would be permanent:
+     focus only firms up the edge. */
   .input-shell.active:focus-within {
-    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
-    background: color-mix(in srgb, var(--accent) 3%, var(--bg-input));
+    border-color: var(--text-faint);
   }
   .attach-tray {
     display: flex;
@@ -2827,7 +2852,6 @@
   /* The 34px right padding held the hover tools clear of the filename; with the
      tools gone on touch it's just a truncated name for no reason. */
   .composer.mobile .att-file {
-    padding-right: var(--sp-3);
     min-height: var(--tap-min);
   }
   /* Full-width rows in the edit panel — spoiler and, last and tinted, remove. */
@@ -2899,10 +2923,8 @@
     min-width: 130px;
   }
   .att-edit label span {
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    letter-spacing: 0.3px;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
   }
   .att-edit input {
@@ -2939,24 +2961,59 @@
       font-size: var(--fs-ui);
     }
   }
+  /* A staged file is a row, not a thumbnail: the card it will become once
+     posted, with its controls in a trailing column of their own rather than
+     laid over the name. */
+  .att-wrap:has(.att-chip.file) {
+    max-width: 320px;
+  }
   .att-chip.file {
     display: flex;
     align-items: center;
-    min-height: 40px;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-2) var(--sp-2) 10px;
+    background: var(--bg-2);
+    border-color: var(--border);
   }
   .att-file {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 34px 8px 10px;
-    max-width: 220px;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    color: var(--text);
+  }
+  .af-tile {
+    flex: none;
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-sm);
+    background: var(--bg-3);
     color: var(--text-muted);
+  }
+  .af-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
   }
   .att-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: var(--fs-ui);
+    font-weight: 500;
+  }
+  .af-sub {
+    font-size: var(--fs-small);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .att-chip.file .att-tools {
+    position: static;
+    flex: none;
   }
   .att-chip.loading {
     width: 64px;
@@ -2989,11 +3046,18 @@
   .input-box {
     display: flex;
     align-items: flex-end;
-    gap: 3px;
+    gap: 2px;
+    min-height: 46px;
     background: transparent;
     border: none;
     border-radius: 0;
-    padding: 3px 8px;
+    padding: 6px 6px 6px 6px;
+  }
+  .sel-pop {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 40px;
+    z-index: 20;
   }
   .input-box.recording {
     align-items: center;
@@ -3071,10 +3135,8 @@
   .prev-bar.on {
     background: var(--accent);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .rec-fill {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .rec-fill {
+    transition: none;
   }
   @keyframes rec-pulse {
     0%,
@@ -3085,10 +3147,8 @@
       opacity: 0.35;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .rec-dot {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .rec-dot {
+    animation: none;
   }
   /* (Focus ring moved up to .input-shell — the whole well glows as one.) */
   /* The base-direction indicator. Deliberately small and quiet: it is a mode
@@ -3146,6 +3206,18 @@
     box-sizing: border-box;
     width: auto;
   }
+  /* An empty box is one line whatever the placeholder says: "Message
+     #brainstorm" wrapped to two lines in the phone's pill and made the bar
+     taller than the text it was waiting for. It ends in an ellipsis instead. */
+  .draft:placeholder-shown {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .draft::placeholder {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
   /* Where the engine supports it, the box grows to fit its own value and JS is
      left holding only the cap — see AUTOFIT in autosize(). `auto` rather than
      the `hidden` above because the height is no longer a rounded number of ours
@@ -3177,15 +3249,10 @@
     inset: -2px;
     border-radius: inherit;
     border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-    animation: seal-breathe 2.4s ease-in-out infinite;
+    /* Armed is a state, so it holds still: the ring used to breathe beside
+       the text you were typing. */
+    opacity: 0.8;
     pointer-events: none;
-  }
-  @keyframes seal-breathe {
-    0%, 100% { opacity: 0.45; transform: scale(1); }
-    50% { opacity: 1; transform: scale(1.06); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .sealbtn.armed::after { animation: none; opacity: 0.8; }
   }
 
   /* The overflow trigger wears the composer's own icon-button clothes rather
@@ -3236,11 +3303,9 @@
   }
   /* app.css already zeroes transition durations under reduced motion; also
      drop the scale so hover doesn't snap the glyph around. */
-  @media (prefers-reduced-motion: reduce) {
-    .iconbtn:hover:not(:disabled),
-    .iconbtn:active:not(:disabled) {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .iconbtn:hover:not(:disabled),
+  :global(:root[data-motion="reduced"]) .iconbtn:active:not(:disabled) {
+    transform: none;
   }
   .mini {
     padding: 2px 6px;
@@ -3301,20 +3366,29 @@
      selector here cannot reach a child component's element. */
   .composer.mobile :global(.fmt-bar) {
     opacity: 1;
-    flex-wrap: wrap;
-    padding-bottom: 6px;
     gap: var(--sp-1);
+    padding-bottom: var(--sp-1);
+    /* ONE row that scrolls sideways, the way a keyboard's accessory row does.
+       It used to wrap, and with ten buttons the "two rows of four" were three
+       rows: 150px of bar, which with the keyboard up left about a hundred
+       pixels of conversation above the text being formatted. */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
   }
-  /* Two rows of four rather than eight abreast: eight shared 322px gave each
-     button 33px, side by side with its neighbours, in a row where hitting the
-     wrong one silently inserts the wrong markers into the message. */
+  .composer.mobile :global(.fmt-bar)::-webkit-scrollbar {
+    display: none;
+  }
+  /* Full finger targets, side by side: a wrong neighbour silently inserts the
+     wrong markers into the message. */
   .composer.mobile :global(.fmtbtn) {
-    flex: 1 1 21%;
+    flex: 1 0 var(--tap-min);
     width: auto;
     height: var(--tap-min);
   }
-  /* The separators are a desktop grouping cue; in a wrapped grid they'd land
-     mid-row and eat 22px that the buttons need. */
+  /* The separators are a desktop grouping cue; at finger size they only push
+     the last buttons further out of reach. */
   .composer.mobile :global(.fmt-sep) {
     display: none;
   }
@@ -3323,15 +3397,42 @@
     min-width: var(--tap-min);
     min-height: var(--tap-min);
   }
-  .composer.mobile .sendbtn {
-    width: var(--tap-min);
-    height: var(--tap-min);
-    margin: 2px 0;
-  }
   /* The one control that opens something rather than doing something — tinted
      so the row reads as [more] [text] [emoji] [send] rather than four glyphs. */
-  .composer.mobile .morebtn {
-    color: var(--accent-hover);
+  /* The phone bar (prototype phone-channel): a hairline above, a round +,
+     the text in a pill, emoji beside it, and mic-or-send in a round button.
+     The visible circles are 40px; the hit areas stay at --tap-min. */
+  .composer.mobile .input-shell {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+  }
+  .composer.mobile .input-box {
+    align-items: center;
+    gap: var(--sp-1);
+    min-height: 0;
+  }
+  .composer.mobile .draft {
+    /* Beats the base rule's !important transparent ground: on the phone the
+       text sits in its own pill. */
+    background: var(--bg-3) !important;
+    border-radius: 20px;
+    min-height: 40px;
+    padding: 9px 14px;
+  }
+  .composer.mobile .morebtn,
+  .composer.mobile .mic-round {
+    color: var(--text-muted);
+    /* A 40px disc inside the 44px target: the ground stops at the padding. */
+    padding: 2px;
+    background: var(--bg-3);
+    background-clip: content-box;
+    border-radius: 50%;
+  }
+  .composer.mobile .sendbtn {
+    width: 40px;
+    height: 40px;
+    margin: 2px;
   }
   /* The recording transport is a different child set, and the row rules above
      were written for the composing one: with align-items:flex-end the 44px send
@@ -3351,7 +3452,7 @@
      optical weight as a 20px glyph instead of shouting. Not tokenised — this is
      an optical match to a specific glyph size, not a step on the type scale. */
   .gifbtn {
-    font-size: 11px;
+    font-size: var(--fs-micro);
     font-weight: 800;
     font-family: inherit;
     letter-spacing: 0.02em;
@@ -3425,6 +3526,13 @@
   }
 
   /* ---- the "+" sheet: a tray of tiles ---- */
+  /* A switch in the + menu (seal, formatting) says it is on with a tick at
+     the row's end, the menu's own idiom for a toggled item. */
+  .add-on {
+    margin-left: auto;
+    display: inline-flex;
+    color: var(--accent-hover);
+  }
   .sheet-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);

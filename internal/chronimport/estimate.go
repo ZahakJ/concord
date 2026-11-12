@@ -108,6 +108,12 @@ type Policy struct {
 	Source string `json:"source,omitempty"`
 	// Description is free text carried on the manifest.
 	Description string `json:"description,omitempty"`
+
+	// ReplaceArchive is the owner's say-so that this import may take the place
+	// of the archive the guild already carries. A guild holds one archive, and
+	// a second import used to replace the first without a word on any step of
+	// the wizard; now the core refuses unless it was asked to.
+	ReplaceArchive bool `json:"replaceArchive,omitempty"`
 }
 
 // DefaultPolicy is the generous starting point the wizard offers: everything,

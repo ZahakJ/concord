@@ -83,15 +83,14 @@
       <div class="way-text">
         <strong>Point it at a rendezvous first</strong>
         <span class="muted">
-          Yours, or one a friend runs. It's a tiny relay — see docs/RENDEZVOUS.md
-          for the twenty-minute version.
+          Yours, or one a friend runs — the person who set it up can give you its address.
         </span>
       </div>
     </div>
     <textarea
       class="code-box"
       rows="2"
-      placeholder="/dns4/relay.example.org/tcp/4001/p2p/12D3Koo…"
+      placeholder="Paste the rendezvous address"
       bind:value={addr}
     ></textarea>
     {#if lines.length && !ok}
@@ -112,16 +111,16 @@
     line-height: 1.55;
     color: var(--text-muted);
   }
+  /* Each way is a group, told apart by a hairline — not a bordered card
+     with a tinted ground for the recommended one. */
   .way {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: var(--sp-3);
+    padding: var(--sp-3) 0;
     display: flex;
     flex-direction: column;
     gap: 9px;
   }
   .way + .way {
-    margin-top: 10px;
+    border-top: 1px solid var(--hairline);
   }
   .way-head {
     display: flex;
@@ -131,11 +130,9 @@
   .chip {
     display: grid;
     place-items: center;
-    width: 30px;
-    height: 30px;
+    width: 16px;
+    height: 20px;
     flex: none;
-    border-radius: var(--radius-md);
-    background: var(--bg-3);
     color: var(--text-muted);
   }
   .way-text {
@@ -173,10 +170,6 @@
     opacity: 0.5;
   }
   /* The answer that needs no infrastructure is the one the eye lands on. */
-  .primary-way {
-    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-    background: color-mix(in srgb, var(--accent) 6%, transparent);
-  }
   .ghost:disabled {
     opacity: 0.5;
   }

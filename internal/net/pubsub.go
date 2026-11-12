@@ -8,6 +8,7 @@ import (
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
 // PubSub is Concord's group message bus, built on libp2p gossipsub. Each
@@ -22,7 +23,74 @@ type PubSub struct {
 	mu     sync.Mutex
 	topics map[string]*pubsub.Topic
 	subs   map[string]*pubsub.Subscription
+
+	// overflow is told about every message from someone else that arrived
+	// while our reader was too far behind to take it; see OnOverflow.
+	overflowMu sync.Mutex
+	overflow   func(topic string, via peer.ID)
 }
+
+// subBuffer is how many messages a topic's subscription holds for its reader.
+//
+// The reader decrypts and stores each message before taking the next, and
+// gossipsub DROPS whatever arrives while the buffer is full. The library's
+// default is 32, which a burst outruns in about a second: at 25 messages a
+// second an online member silently missed a quarter of a channel, and only
+// got it back from the anti-entropy sync a minute or two later. A deeper
+// buffer rides out a burst instead; the memory is spent only while one is
+// happening. A phone gets less of it, and leans on OnOverflow for the rest.
+func subBuffer(mobile bool) int {
+	if mobile {
+		return 256
+	}
+	return 2048
+}
+
+// subBufferSize is subBuffer for this platform; a variable so a test can make
+// a subscription small enough to overflow on purpose.
+var subBufferSize = subBuffer(onMobile)
+
+// OnOverflow registers fn to hear of a message from another peer that gossipsub
+// had to drop because this node's reader was behind, with the topic and the
+// peer that forwarded it — the one to ask for what was missed. Called from
+// gossipsub's event loop, so fn must not block.
+func (p *PubSub) OnOverflow(fn func(topic string, via peer.ID)) {
+	p.overflowMu.Lock()
+	p.overflow = fn
+	p.overflowMu.Unlock()
+}
+
+// overflowTracer is the gossipsub tracer that reports dropped deliveries to
+// OnOverflow. Every other event is ignored.
+type overflowTracer struct{ p *PubSub }
+
+func (t overflowTracer) UndeliverableMessage(m *pubsub.Message) {
+	if m.GetFrom() == t.p.self || m.Topic == nil {
+		return // our own message, delivered to our own reader: nothing lost
+	}
+	t.p.overflowMu.Lock()
+	fn := t.p.overflow
+	t.p.overflowMu.Unlock()
+	if fn != nil {
+		fn(*m.Topic, m.ReceivedFrom)
+	}
+}
+func (overflowTracer) AddPeer(peer.ID, protocol.ID)             {}
+func (overflowTracer) RemovePeer(peer.ID)                       {}
+func (overflowTracer) Join(string)                              {}
+func (overflowTracer) Leave(string)                             {}
+func (overflowTracer) Graft(peer.ID, string)                    {}
+func (overflowTracer) Prune(peer.ID, string)                    {}
+func (overflowTracer) ValidateMessage(*pubsub.Message)          {}
+func (overflowTracer) DeliverMessage(*pubsub.Message)           {}
+func (overflowTracer) RejectMessage(*pubsub.Message, string)    {}
+func (overflowTracer) DuplicateMessage(*pubsub.Message)         {}
+func (overflowTracer) ThrottlePeer(peer.ID)                     {}
+func (overflowTracer) RecvRPC(*pubsub.RPC)                      {}
+func (overflowTracer) SendRPC(*pubsub.RPC, peer.ID)             {}
+func (overflowTracer) DropRPC(*pubsub.RPC, peer.ID)             {}
+func (overflowTracer) OnNewOutboundStream(peer.ID, protocol.ID) {}
+func (overflowTracer) OnClosedOutboundStream(peer.ID)           {}
 
 // TopicHandler receives a decrypted-elsewhere payload published to a topic,
 // along with the peer that authored it.
@@ -89,16 +157,18 @@ func (n *Host) NewPubSub(ctx context.Context) (*PubSub, error) {
 	if params, tuned := gossipsubParams(onMobile); tuned {
 		opts = append(opts, pubsub.WithGossipSubParams(params))
 	}
+	out := &PubSub{
+		self:   n.h.ID(),
+		topics: map[string]*pubsub.Topic{},
+		subs:   map[string]*pubsub.Subscription{},
+	}
+	opts = append(opts, pubsub.WithRawTracer(overflowTracer{out}))
 	ps, err := pubsub.NewGossipSub(ctx, n.h, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("net: start gossipsub: %w", err)
 	}
-	return &PubSub{
-		ps:     ps,
-		self:   n.h.ID(),
-		topics: map[string]*pubsub.Topic{},
-		subs:   map[string]*pubsub.Subscription{},
-	}, nil
+	out.ps = ps
+	return out, nil
 }
 
 // Subscribe joins a topic (if not already joined) and delivers every message
@@ -115,7 +185,7 @@ func (p *PubSub) Subscribe(ctx context.Context, topic string, handler TopicHandl
 		p.mu.Unlock()
 		return nil // already subscribed
 	}
-	sub, err := t.Subscribe()
+	sub, err := t.Subscribe(pubsub.WithBufferSize(subBufferSize))
 	if err != nil {
 		p.mu.Unlock()
 		return fmt.Errorf("net: subscribe %s: %w", topic, err)
@@ -146,6 +216,19 @@ func (p *PubSub) Subscribed(topic string) bool {
 	defer p.mu.Unlock()
 	_, ok := p.subs[topic]
 	return ok
+}
+
+// TopicPeers lists the peers this node has heard announce a subscription to a
+// topic: the peers a publish there can reach right now. A peer missing from it
+// may still be connected, just not (yet) listening.
+func (p *PubSub) TopicPeers(topic string) []peer.ID {
+	p.mu.Lock()
+	t, ok := p.topics[topic]
+	p.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	return t.ListPeers()
 }
 
 // Unsubscribe stops delivery for a topic: the subscription is cancelled and the

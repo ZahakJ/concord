@@ -26,7 +26,7 @@
   let title = $state("");
   let body = $state("");
   let pending = $state([]);
-  let mode = $state("split");
+  let mode = $state("write");
   let tags = $state([]); // selected tag ids
   let busy = $state(false);
   let step = $state(""); // what the submit is doing right now
@@ -214,19 +214,17 @@
         aria-describedby="titlebudget"
         autofocus={!S.isMobile} />
       <div class="budget" id="titlebudget">
-        <!-- Silent until the last stretch. A counter that is always on turns a
-             title field into a form field, and there is nothing to say while
-             there are 170 bytes left. -->
-        <span
-          class="bnum"
-          class:warn={fit.tone === "warn"}
-          class:over={fit.tone === "full"}
-          class:quiet={fit.tone === "ok"}>{fit.left}</span>
-        <span class="bunit" class:quiet={fit.tone === "ok"}>{fit.unit} left</span>
-        <span class="btrack" aria-hidden="true">
-          <span class="bfill" class:warn={fit.tone === "warn"} class:over={fit.tone === "full"} style="transform:scaleX({Math.min(1, fit.bytes / fit.max)})"
-          ></span>
-        </span>
+        <!-- Silent until the last stretch, bar included. A counter that is
+             always on turns a title field into a form field, and an empty grey
+             track at the end of an empty title read as a stray control. -->
+        {#if fit.tone !== "ok"}
+          <span class="bnum" class:warn={fit.tone === "warn"} class:over={fit.tone === "full"}>{fit.left}</span>
+          <span class="bunit">{fit.unit} left</span>
+          <span class="btrack" aria-hidden="true">
+            <span class="bfill" class:warn={fit.tone === "warn"} class:over={fit.tone === "full"} style="transform:scaleX({Math.min(1, fit.bytes / fit.max)})"
+            ></span>
+          </span>
+        {/if}
       </div>
     </div>
 
@@ -261,10 +259,7 @@
       previewTitle={title.trim()}
       attachNote="Files post into the thread right after your opening message."
       placeholder="Start the discussion…"
-      hint={S.isMobile
-        ? "The toolbar and markdown both work: **bold**, > quote, - list, ## heading."
-        : "The toolbar and markdown both work: **bold**, > quote, - list, ## heading, ```code```, ||spoiler||. Paste or drop an image to attach it."}
-      hintKey="newpost-md"
+      hint="Select text to format it, or type markdown: **bold**, *italic*, > quote, - list, ## heading, `code`, ||spoiler||. Every mark is also under Aa. Paste or drop an image to attach it."
       onSubmit={create}
       onInput={persist}
       submitHint={S.isMobile ? "" : "⌘/Ctrl + ↵ to post"} />
@@ -291,7 +286,7 @@
           </span>
         {/if}
         <button type="button" class="ghost" onclick={requestClose}>Cancel</button>
-        <button type="button" class="go" onclick={create} disabled={!canPost}>
+        <button type="button" class="primary go" onclick={create} disabled={!canPost}>
           {#if busy}
             <span class="spin" aria-hidden="true"></span> {step || "Posting…"}
           {:else}
@@ -403,16 +398,18 @@
     align-items: center;
     gap: var(--sp-3);
     padding: 4px 14px 4px 16px;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
+    /* The standard field (app.css input/textarea), drawn on the wrapper
+       because the budget shares the box. */
+    background: var(--bg-input);
+    border: 1px solid var(--border-strong);
     border-radius: var(--radius-md);
     transition:
       border-color var(--dur-standard) ease,
       box-shadow var(--dur-standard) ease;
   }
   .titlefield:focus-within {
-    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+    border-color: var(--accent-hover);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-hover) 22%, transparent);
   }
   .titlefield.full {
     border-color: color-mix(in srgb, var(--warn) 55%, transparent);
@@ -455,17 +452,10 @@
   .bnum.warn {
     color: var(--warn-text);
   }
-  /* The unit, and the number itself, only speak up near the end. The bar is the
-     always-on readout; a running byte count beside a two-word title is noise. */
   .bunit {
     font-size: var(--fs-compact);
     color: var(--text-faint);
     white-space: nowrap;
-  }
-  .bnum.quiet,
-  .bunit.quiet {
-    opacity: 0;
-    pointer-events: none;
   }
   .bnum.over {
     color: var(--danger-text);
@@ -497,10 +487,8 @@
   .bfill.over {
     background: var(--danger);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .bfill {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .bfill {
+    transition: none;
   }
 
   /* ---- tags ------------------------------------------------------------- */
@@ -585,7 +573,7 @@
     font-size: var(--fs-ui);
     color: var(--text);
   }
-  .guard .danger {
+  .guard .ghost.danger {
     color: var(--danger-text);
   }
   .go {
@@ -611,7 +599,7 @@
      under that query, which a component rule cannot outrank — and the button's
      own "Sending…"/"Posting…" label is what carries the meaning anyway. */
 
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .titlefield {
       flex-wrap: wrap;
       padding: 4px 14px;
@@ -619,7 +607,7 @@
     .titlefield .titleinput {
       font-size: 19px;
     }
-    .budget {
+    .budget:not(:empty) {
       width: 100%;
       justify-content: flex-end;
       padding-bottom: 6px;

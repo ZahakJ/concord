@@ -3,10 +3,9 @@
   // Positioning mirrors ProfilePopover: measure the card, place it above the
   // anchor (below when there's no room), clamped to the viewport. Every change
   // applies via api.setProfile while preserving the rest of the profile.
+  import { popoverFocus } from "./lib/popoverfocus.js";
   import Icon from "./Icon.svelte";
-  import GameShelf from "./GameShelf.svelte";
   import { S, flash, refreshRightPanel, patchProfile } from "./lib/state.svelte.js";
-  import { api } from "./lib/api.js";
   import { PRESENCE_OPTIONS, splitStatus, joinStatus } from "./lib/presence.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import { place as placeCard, rectOf, sizeOf } from "./lib/place.js";
@@ -79,14 +78,6 @@
     await save({ status: "" });
   }
 
-  // Game collection: editable right from your own card (same shelf as the
-  // profile popover). Saving re-announces the profile to every guild.
-  async function saveGames(next) {
-    await api.setGames(next);
-    S.identity = await api.identity();
-    await refreshRightPanel();
-  }
-
   // Measure then place (see ProfilePopover): above the anchor if it fits,
   // else below; clamp to the viewport with an 8px margin. (Desktop only —
   // the mobile presentation is a bottom sheet and ignores the anchor.)
@@ -150,6 +141,7 @@
   role="dialog"
   aria-label="Set status"
   use:fieldEscape
+  use:popoverFocus
 >
   {#if S.isMobile}
     <!-- This sheet had no grip at all — no handle, and nothing to pull. The
@@ -166,7 +158,7 @@
   <div class="sec-label muted">Presence</div>
   {#each PRESENCE_OPTIONS as p (p.id)}
     <button class="presence" class:sel={myPresence === p.id} onclick={() => pickPresence(p.id)} disabled={busy}>
-      <span class="dot" style="--pc:{p.color};background:var(--pc)"></span>
+      <span class="dot p-{p.id}" style="--pc:{p.color}" aria-hidden="true"></span>
       <span class="p-text">
         <strong>{p.label}</strong>
         <span class="muted p-desc">{p.desc}</span>
@@ -195,7 +187,7 @@
       maxlength="80"
       disabled={busy}
     />
-    <button type="submit" class="st-save" disabled={busy || !dirty} aria-label="Save status">
+    <button type="submit" class="primary st-save" disabled={busy || !dirty} aria-label="Save status">
       <Icon name="check" size={14} />
     </button>
   </form>
@@ -209,9 +201,8 @@
       <Icon name="close" size={12} /> Clear status
     </button>
   {/if}
-
-  <div class="divider"></div>
-  <GameShelf games={S.identity.games || []} editable={true} onchange={saveGames} />
+  <!-- The game collection is part of your profile, edited on your own card
+       and in Edit profile; a "set your status" popover is not where it goes. -->
 </div>
 
 <style>
@@ -235,7 +226,7 @@
     max-height: calc(100 * var(--dvh) - 16px);
     overflow-y: auto;
     overscroll-behavior: contain;
-    animation: pop-in 0.18s var(--ease-spring);
+    animation: pop-in var(--dur-move) var(--ease-spring);
   }
   @keyframes pop-in {
     from {
@@ -243,15 +234,11 @@
       transform: translateY(6px) scale(0.96);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .status-pop {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .status-pop {
+    animation: none;
   }
   .sec-label {
     font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
     margin: 2px 4px 3px;
   }
   .presence {
@@ -272,11 +259,7 @@
     .presence:hover {
       background: var(--bg-3);
     }
-    /* The dot answers the hover: grows and glows in its own presence color. */
-    .presence:hover .dot {
-      transform: scale(1.35);
-      box-shadow: 0 0 8px 1px color-mix(in srgb, var(--pc) 65%, transparent);
-    }
+
     .em:hover {
       background: var(--bg-3);
       transform: scale(1.18);
@@ -288,15 +271,35 @@
   .presence.sel {
     background: var(--accent-soft);
   }
+  /* The presence marks, shaped as Avatar.svelte draws them: a disc, a
+     crescent, a disc with a bar, a hollow ring. Colour alone told them apart. */
   .dot {
-    width: 10px;
-    height: 10px;
+    position: relative;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     flex-shrink: 0;
-    transition: transform var(--dur-standard) var(--ease-spring), box-shadow var(--dur-standard) ease;
+    background: var(--pc);
   }
-  .presence.sel .dot {
-    box-shadow: 0 0 6px 1px color-mix(in srgb, var(--pc) 55%, transparent);
+  /* Masked, not painted over: the row under it changes ground on hover and
+     when selected, and a painted bite would show as a patch. */
+  .dot.p-idle {
+    mask: radial-gradient(circle at 28% 28%, transparent 0 36%, #000 38%);
+  }
+  .dot.p-dnd::after {
+    content: "";
+    position: absolute;
+    left: 20%;
+    right: 20%;
+    top: 50%;
+    height: 2px;
+    margin-top: -1px;
+    border-radius: 1px;
+    background: var(--danger-fg);
+  }
+  .dot.p-invisible {
+    background: transparent;
+    box-shadow: inset 0 0 0 2px var(--pc);
   }
   .p-text {
     flex: 1;
@@ -350,12 +353,9 @@
   }
   /* After the hover rules, not before them: this block used to sit above the
      transforms it was meant to cancel, at the same specificity, so it lost. */
-  @media (prefers-reduced-motion: reduce) {
-    .presence:hover .dot,
-    .em:hover,
-    .em:active {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .em:hover,
+  :global(:root[data-motion="reduced"]) .em:active {
+    transform: none;
   }
   .st-box {
     display: flex;
@@ -374,10 +374,6 @@
     display: grid;
     place-items: center;
     transition: box-shadow var(--dur-calm) ease, opacity var(--dur-standard) ease;
-  }
-  /* A ready-to-save glow the moment the draft differs from the saved status. */
-  .st-save:not(:disabled) {
-    box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent);
   }
   .st-save:disabled {
     opacity: 0.45;
@@ -420,8 +416,8 @@
     border-radius: var(--radius-sm);
   }
   .clear:hover {
-    color: var(--danger-text);
-    background: var(--danger-soft);
+    color: var(--text);
+    background: var(--bg-3);
   }
   .sp-scrim {
     position: fixed;
@@ -484,10 +480,8 @@
       transform: translateY(100%);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .status-pop.sheet {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .status-pop.sheet {
+    animation: none;
   }
   @media (pointer: coarse), (max-width: 768px) {
     .presence {

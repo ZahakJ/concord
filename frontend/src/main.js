@@ -4,6 +4,10 @@ import App from "./App.svelte";
 import { configureTransport } from "./lib/api.js";
 import { themePacksReady } from "./lib/state.svelte.js";
 import { loadAnimatedEmoji } from "./lib/markdown.js";
+import { installInputMode } from "./lib/inputmode.js";
+
+// Focus rings answer the keyboard, not the mouse (lib/inputmode.js).
+installInputMode();
 
 // Which emoji have an animated version is needed by the FIRST message that
 // renders, and the answer must not arrive later: markup that changes once the

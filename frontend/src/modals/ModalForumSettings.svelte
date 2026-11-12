@@ -1,43 +1,28 @@
 <script>
-  // A forum's own settings: the tag palette everyone shares, and the board's
-  // look, which is yours alone.
+  // A forum's own settings: its description and the tag palette everyone
+  // shares (guild state, announced over the guild-meta topic, gated on Manage
+  // Channels).
   //
-  // The split is the point. Tags are guild state (announced over the guild-meta
-  // topic, gated on Manage Channels) and every member sees the same palette. The
-  // layout and the header art are device-local reading preferences — a support
-  // queue wants a dense list on a laptop and a gallery on a tablet, and neither
-  // choice is anyone else's business. Sections say which is which, out loud,
-  // because a setting that silently affects other people is a trap.
+  // And the board's look: how this device lays its posts out (List, Gallery,
+  // Cover — device-local) and the forum's header picture (shared, on the
+  // channel record, set by whoever can manage channels). The picture is an
+  // image someone uploads; the gradient presets the old grid offered are not
+  // offered, and one already chosen is drawn as a flat tint.
   import { tick } from "svelte";
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
-  import Banner from "../Banner.svelte";
-  import { BANNER_BY_ID } from "../lib/banners.js";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
+  import { humanError } from "../lib/errors.js";
   import { api } from "../lib/api.js";
   import { tooltip } from "../lib/tooltip.js";
   import { PERM, has } from "../lib/perms.js";
-  import {
-    LAYOUTS,
-    TAG_LIMITS,
-    validateTag,
-    normalizeHex,
-    runeLen,
-    washFor,
-    readBoardPrefs,
-    writeBoardPrefs,
-  } from "../lib/forum.js";
+  import { TAG_LIMITS, LAYOUTS, validateTag, normalizeHex, runeLen, readBoardPrefs, writeBoardPrefs } from "../lib/forum.js";
 
   let { forum: forumProp, onClose } = $props();
 
-  // The LIVE channel record, not the snapshot the opener handed us.
-  //
-  // A prop is the object as it was when the modal opened. Saving the header art
-  // updates the channel on the backend and refreshes the guild list, but that
-  // prop keeps its old value forever — so every tile stayed unselected no matter
-  // what you clicked, and the picker looked broken while the setting was in fact
-  // being saved. Read it back out of the guild each time instead; the prop is
-  // only the fallback for the instant before the first refresh lands.
+  // The LIVE channel record, not the snapshot the opener handed us: a prop is
+  // the object as it was when the modal opened, and an edit made from here (the
+  // description) refreshes the guild list, not the prop.
   const forum = $derived(
     (activeGuild()?.channels || []).find((c) => c.id === forumProp.id) || forumProp,
   );
@@ -47,90 +32,43 @@
     !!guild && (guild.isOwner || has(guild.myPerms || 0, PERM.MANAGE_CHANNELS)),
   );
 
-  // ---- device-local board look -------------------------------------------
-  // Applied immediately, not on Save: the board is right there behind the
-  // dialog, so a look you pick is a look you see. writeBoardPrefs announces the
-  // change so the board adopts it live.
+  // ---- board look ---------------------------------------------------------
   // svelte-ignore state_referenced_locally
-  let prefs = $state(readBoardPrefs(forum.id));
-  const save = (patch) => (prefs = writeBoardPrefs(forum.id, patch, prefs));
-
-  const wash = $derived(washFor(forum.id));
-
-  // ---- header art: SHARED, on the channel record --------------------------
-  // This used to live in the same device-local store as the layout, so a banner
-  // was a personal preference nobody else could see — decoration, not identity.
-  // Layout stays local (how YOU like the posts arranged is your business); the
-  // art is the forum's, so it rides the channel and every member gets it.
+  let prefs = $state(readBoardPrefs(forumProp.id));
+  const saveLook = (patch) => (prefs = writeBoardPrefs(forum.id, patch, prefs));
   const art = $derived(forum.banner || "");
-  const isUploaded = $derived(!!art && !art.startsWith("preset:"));
+  const artImage = $derived(/^data:image\//.test(art) ? art : "");
   const MAX_ART = 384 * 1024; // must match maxForumBannerBytes in internal/app/forum.go
-
   async function setArt(banner) {
     try {
       await api.setForumBanner(guild.id, forum.id, banner);
       await refreshGuilds();
-    } catch (err) {
-      flash(err);
+    } catch (e) {
+      flash(e);
     }
   }
-
-  function applyArtFile(file) {
-    if (!file || !file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result);
-      // Checked here as well as in Go so the answer is instant and specific:
-      // a rejection that arrives after an upload round trip reads as a failure
-      // rather than as a size limit.
-      if (url.length > MAX_ART) {
-        flash(`That image is ${Math.round(url.length / 1024)} KB — the limit is ${MAX_ART / 1024} KB`, "error");
-        return;
-      }
-      setArt(url);
-    };
-    reader.readAsDataURL(file);
-  }
-
-  function pickBanner() {
+  function pickArt() {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*";
-    input.onchange = () => applyArtFile(input.files?.[0]);
+    input.accept = "image/png,image/jpeg,image/gif,image/webp";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file || !file.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result);
+        // Said here as well as by the core so the answer is the limit, not a
+        // failure after a round trip.
+        if (url.length > MAX_ART) {
+          flash(`That image is ${Math.round(url.length / 1024)} KB — the limit is ${MAX_ART / 1024} KB`, "error");
+          return;
+        }
+        setArt(url);
+      };
+      reader.readAsDataURL(file);
+    };
     input.click();
   }
-
-  // Paste or drop anywhere on the panel — the two gestures people try before
-  // they look for a button.
-  function onPaste(e) {
-    if (!canManage) return;
-    const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
-    if (!item) return;
-    e.preventDefault();
-    applyArtFile(item.getAsFile());
-  }
-
-  // A curated dozen, not the whole catalogue. The full library is a profile
-  // picker's job; a forum header wants art that a title can sit on, and offering
-  // thirty of them would be the wall of choices this redesign is trying not to
-  // be. Looked up rather than hardcoded, so a preset that gets renamed or
-  // retired in lib/banners.js drops out of the grid instead of rendering an
-  // empty tile.
-  const PICKS = [
-    "galaxy",
-    "aurora",
-    "nebula",
-    "meteors",
-    "sunrise",
-    "ocean",
-    "forest",
-    "campfire",
-    "sakura",
-    "synthwave",
-    "circuit",
-    "rain",
-  ];
-  const artChoices = $derived(PICKS.map((id) => BANNER_BY_ID[id]).filter(Boolean));
 
   // ---- tag palette --------------------------------------------------------
   // A draft copy. Nothing is sent until Save, because SetForumTags replaces the
@@ -228,116 +166,72 @@
       await refreshGuilds();
       flash(payload.length ? "Tags saved" : "Tags cleared", "success");
     } catch (e) {
-      err = e?.message || String(e);
+      err = humanError(e);
     } finally {
       busy = false;
     }
   }
 </script>
 
-<svelte:window onpaste={onPaste} />
-
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  ondragover={(e) => e.preventDefault()}
-  ondrop={(e) => {
-    if (!canManage) return;
-    e.preventDefault();
-    applyArtFile(e.dataTransfer?.files?.[0]);
-  }}
->
 <Modal title="Forum board" {onClose} wide>
-  <!-- A live sample, not a description. Every choice below changes this strip,
-       so the header you are designing is the header you are looking at. -->
-  <div class="preview">
-    <!-- `art` is the forum's shared banner off the live channel record — the
-         prefs never carry the art any more, and a preview wired to them showed
-         Auto forever. -->
-    <Banner
-      banner={art}
-      color={art ? "" : wash.color}
-      color2={art ? "" : wash.color2}
-      style={{ angle: wash.angle }}
-      scale={0.5}
-    />
-    <span class="pv-scrim" aria-hidden="true"></span>
-    <div class="pv-in">
-      <span class="pv-glyph"><Icon name="forum" size={14} /></span>
-      <div class="pv-words">
-        <strong>{forum.name}</strong>
-        <span>{forum.topic || "No description yet"}</span>
-      </div>
+  <!-- The description is edited where every channel's is; here it is a row
+       that says what it is now and opens that editor. -->
+  <section>
+    <div class="sec-head"><h4>Description</h4></div>
+    <div class="desc-row">
+      <p class="desc" class:none={!forum.topic}>{forum.topic || "No description yet"}</p>
+      {#if canManage}
+        <button
+          class="link"
+          onclick={() => (S.modal = { kind: "channelTopic", channel: forum, from: "forumSettings" })}
+        >
+          Edit
+        </button>
+      {/if}
     </div>
-  </div>
+  </section>
 
   <section>
     <div class="sec-head">
       <h4>Board look</h4>
-      <span class="only">On this device</span>
+      <span class="shared">Layout on this device</span>
     </div>
-    <div class="layouts">
+    <div class="looks" role="radiogroup" aria-label="Board layout">
       {#each LAYOUTS as l (l.id)}
         <button
-          class="lay"
+          class="look"
           class:on={prefs.layout === l.id}
-          aria-pressed={prefs.layout === l.id}
-          onclick={() => save({ layout: l.id })}
+          role="radio"
+          aria-checked={prefs.layout === l.id}
+          onclick={() => saveLook({ layout: l.id })}
         >
-          <!-- Diagrams, not icons: three abstract mini-boards say what changes
-               far faster than three nouns do. -->
-          <span class="dia {l.id}" aria-hidden="true">
-            <i></i><i></i><i></i>
-          </span>
+          <!-- A drawn mini-board, not an icon: what changes is the shape. -->
+          <span class="dia {l.id}" aria-hidden="true"><i></i><i></i><i></i></span>
           <b>{l.label}</b>
           <em>{l.hint}</em>
         </button>
       {/each}
     </div>
-
-    <div class="sub-head">
-      Header art
-      {#if canManage}<span class="shared">Everyone in {guild?.name || "this guild"}</span>{/if}
-    </div>
-    <div class="arts">
-      <button class="art" class:on={!art} onclick={() => setArt("")}>
-        <Banner color={wash.color} color2={wash.color2} style={{ angle: wash.angle }} scale={0.3} />
-        <span class="art-name">Auto</span>
-      </button>
-      {#if canManage}
-        <!-- Your own picture. Offered FIRST after Auto because it is what people
-             come here for; a preset is the fallback when you have no art. -->
-        <button class="art up" class:on={isUploaded} onclick={pickBanner} title="Upload an image">
-          {#if isUploaded}
-            <span class="thumb" style="background-image:url('{art}')"></span>
-          {:else}
-            <span class="up-mark"><Icon name="plus" size={16} /></span>
-          {/if}
-          <span class="art-name">{isUploaded ? "Your image" : "Upload…"}</span>
-        </button>
+    <div class="art-row">
+      {#if artImage}
+        <span class="art-thumb" style="background-image:url('{artImage}')" aria-hidden="true"></span>
       {/if}
-      {#each artChoices as b (b.id)}
-        <button
-          class="art"
-          class:on={art === `preset:${b.id}`}
-          title={b.name}
-          onclick={() => setArt(`preset:${b.id}`)}
-        >
-          <Banner banner={`preset:${b.id}`} scale={0.3} />
-          <span class="art-name">{b.name}</span>
-        </button>
-      {/each}
-    </div>
-    <p class="note">
+      <span class="art-words">
+        <b>Header picture</b>
+        <span class="muted small">
+          {#if artImage}Everyone in {guild?.name || "this guild"} sees it.
+          {:else if art}A colour, from an older pick.
+          {:else}None — the board's header is plain.{/if}
+        </span>
+      </span>
       {#if canManage}
-        “Auto” colours the header from this forum's own id, so it looks the same
-        for everyone with nothing stored. Anything else you pick here — a preset
-        or your own image — is the forum's, and every member sees it. Drop or
-        paste an image anywhere on this panel to use it.
-      {:else}
-        The header art belongs to the forum, and changing it needs permission to
-        manage channels.
+        <button class="ghost" onclick={pickArt}>{artImage ? "Replace…" : "Upload a picture…"}</button>
+        {#if art}<button class="ghost" onclick={() => setArt("")}>Remove</button>{/if}
       {/if}
-    </p>
+    </div>
+    {#if !canManage}
+      <p class="note">The header picture belongs to the forum; changing it needs Manage channels.</p>
+    {/if}
   </section>
 
   <section>
@@ -446,123 +340,15 @@
     {/if}
   </section>
 
-  <div class="actions">
-    {#if canManage}
-      <button
-        class="ghost"
-        onclick={() => (S.modal = { kind: "channelTopic", channel: forum, from: "forumSettings" })}
-      >
-        Edit description
-      </button>
-    {/if}
-    <span class="spacer"></span>
-    <button class="ghost" onclick={onClose}>Close</button>
-    {#if canManage}
-      <button disabled={busy || !valid} onclick={saveTags}>Save tags</button>
-    {/if}
-  </div>
+  {#if canManage}
+    <div class="actions">
+      <button class="ghost" onclick={onClose}>Cancel</button>
+      <button class="primary" disabled={busy || !valid} onclick={saveTags}>Save</button>
+    </div>
+  {/if}
 </Modal>
-</div>
 
 <style>
-  /* The upload tile matches the preset tiles so the row reads as one set of
-     choices rather than a grid with a button wedged into it. */
-  .art.up {
-    display: grid;
-    place-items: center;
-  }
-  .art.up .up-mark {
-    display: grid;
-    place-items: center;
-    width: 100%;
-    aspect-ratio: 16 / 5;
-    border: 1px dashed var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text-muted);
-  }
-  .art.up .thumb {
-    display: block;
-    width: 100%;
-    aspect-ratio: 16 / 5;
-    border-radius: var(--radius-sm);
-    background-size: cover;
-    background-position: center;
-  }
-  /* ---- live preview ----------------------------------------------------- */
-  .preview {
-    position: relative;
-    isolation: isolate;
-    height: 84px;
-    /* The dialog is a flex column that scrolls; without this the preview is the
-       one item with a fixed height and gets shrunk to nothing by everything
-       below it. */
-    flex: none;
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    border: 1px solid var(--border);
-    display: flex;
-    align-items: flex-end;
-  }
-  .preview :global(.bnr) {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-  }
-  /* Same measured floor as the board's own hero (see lib/forum.js SCRIM_FLOOR):
-     the preview has to be honest about legibility, not flatter the art. */
-  .pv-scrim {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    background: linear-gradient(
-      180deg,
-      rgba(0, 0, 0, 0.15) 0%,
-      rgba(0, 0, 0, 0.62) 42%,
-      rgba(0, 0, 0, 0.8) 100%
-    );
-  }
-  .pv-in {
-    position: relative;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    padding: 10px 12px;
-    min-width: 0;
-    width: 100%;
-  }
-  .pv-glyph {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 26px;
-    height: 26px;
-    border-radius: var(--radius-md);
-    color: #fff;
-    background: rgba(0, 0, 0, 0.34);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-  }
-  .pv-words {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .pv-words strong {
-    font-size: var(--fs-ui);
-    color: #fff;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .pv-words span {
-    font-size: var(--fs-small);
-    color: rgba(255, 255, 255, 0.88);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 
   /* ---- sections --------------------------------------------------------- */
   section {
@@ -572,6 +358,21 @@
     padding-top: var(--sp-1);
     border-top: 1px solid var(--border);
   }
+  .desc-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-3);
+  }
+  .desc {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .desc.none {
+    color: var(--text-muted);
+  }
   .sec-head {
     display: flex;
     align-items: baseline;
@@ -580,12 +381,10 @@
   h4 {
     margin: 0;
     font-size: var(--fs-ui);
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0.02em;
-    text-transform: uppercase;
     color: var(--text-muted);
   }
-  .only,
   .shared {
     font-size: var(--fs-small);
     padding: 2px 7px;
@@ -597,11 +396,100 @@
     background: var(--accent-soft);
     color: var(--accent-hover);
   }
-  .sub-head {
-    font-size: var(--fs-compact);
-    font-weight: 600;
+  /* Board look: three drawn mini-boards, one ring for the chosen one. */
+  .looks {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--sp-2);
+  }
+  .look {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+    padding: var(--sp-2) 10px;
+    border-radius: var(--radius-md);
+    background: var(--bg-3);
+    border: 1px solid transparent;
     color: var(--text-muted);
-    margin-top: 2px;
+    text-align: start;
+  }
+  .look.on {
+    border-color: var(--accent-hover);
+    color: var(--text);
+  }
+  .look b {
+    font-size: var(--fs-compact);
+    color: var(--text);
+  }
+  .look em {
+    font-size: var(--fs-small);
+    font-style: normal;
+    line-height: 1.35;
+  }
+  .dia {
+    display: grid;
+    gap: 3px;
+    width: 100%;
+    height: 30px;
+    padding: 3px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-1);
+  }
+  .dia i {
+    display: block;
+    border-radius: 2px;
+    background: var(--text-faint);
+  }
+  .dia.list {
+    grid-template-rows: repeat(3, 1fr);
+  }
+  .dia.gallery {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .dia.cover {
+    grid-template: 1fr / 1fr;
+  }
+  .dia.cover i {
+    grid-area: 1 / 1;
+  }
+  .dia.cover i:nth-child(2) {
+    align-self: end;
+    height: 5px;
+    margin: 0 4px 4px;
+    background: var(--bg-1);
+  }
+  .dia.cover i:nth-child(3) {
+    display: none;
+  }
+  .look.on .dia i {
+    background: var(--accent);
+  }
+  .look.on .dia.cover i:nth-child(2) {
+    background: var(--bg-1);
+  }
+  .art-row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-top: var(--sp-3);
+  }
+  .art-thumb {
+    flex: none;
+    width: 72px;
+    height: 40px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-3) center / cover no-repeat;
+    border: 1px solid var(--border);
+  }
+  .art-words {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .art-words b {
+    font-size: var(--fs-compact);
   }
   .note {
     margin: 0;
@@ -621,145 +509,6 @@
     font-size: var(--fs-small);
   }
 
-  /* ---- layout picker ---------------------------------------------------- */
-  .layouts {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--sp-2);
-  }
-  .lay {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 5px;
-    padding: 9px 10px;
-    border-radius: var(--radius-md);
-    background: var(--bg-3);
-    border: 1px solid transparent;
-    color: var(--text-muted);
-    text-align: left;
-    transition:
-      transform var(--dur-standard) var(--ease-spring),
-      border-color var(--dur-standard) ease;
-  }
-  @media (pointer: fine) {
-    .lay:hover {
-      transform: translateY(-1px);
-    }
-  }
-  .lay.on {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-    color: var(--text);
-  }
-  .lay b {
-    font-size: var(--fs-compact);
-    color: var(--text);
-  }
-  .lay em {
-    font-size: var(--fs-small);
-    font-style: normal;
-    line-height: 1.35;
-  }
-  /* The diagrams: three bars in three arrangements. */
-  .dia {
-    display: grid;
-    gap: 3px;
-    width: 100%;
-    height: 30px;
-    padding: 3px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-1);
-  }
-  .dia i {
-    display: block;
-    background: var(--text-faint);
-    border-radius: 2px;
-    opacity: 0.55;
-  }
-  .dia.list {
-    grid-template-rows: repeat(3, 1fr);
-  }
-  .dia.gallery {
-    grid-template-columns: repeat(3, 1fr);
-    align-items: end;
-  }
-  .dia.gallery i {
-    height: 70%;
-  }
-  .dia.cover {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr;
-  }
-  .dia.cover i {
-    grid-area: 1 / 1;
-    opacity: 0.85;
-  }
-  .dia.cover i:nth-child(2) {
-    align-self: end;
-    height: 5px;
-    margin: 0 4px 4px;
-    opacity: 0.45;
-  }
-  .dia.cover i:nth-child(3) {
-    display: none;
-  }
-  .lay.on .dia i {
-    background: var(--accent);
-    opacity: 0.85;
-  }
-
-  /* ---- art picker ------------------------------------------------------- */
-  .arts {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
-    gap: 7px;
-    max-height: 188px;
-    overflow-y: auto;
-    padding: 2px;
-  }
-  .art {
-    position: relative;
-    isolation: isolate;
-    height: 50px;
-    padding: 0;
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-    border: 2px solid transparent;
-    background: var(--bg-3);
-    color: var(--text);
-    transition: transform var(--dur-standard) var(--ease-spring);
-  }
-  @media (pointer: fine) {
-    .art:hover {
-      transform: translateY(-2px);
-    }
-  }
-  .art.on {
-    border-color: var(--accent);
-  }
-  .art :global(.bnr) {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-  }
-  .art-name {
-    position: absolute;
-    z-index: 2;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    padding: 8px 5px 3px;
-    font-size: var(--fs-tiny);
-    font-weight: 600;
-    color: #fff;
-    /* Same guarantee as everywhere else: the label carries its own floor rather
-       than hoping the tile behind it is dark. */
-    background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.72) 55%, rgba(0, 0, 0, 0.82));
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
 
   /* ---- tag rows --------------------------------------------------------- */
   .rows {
@@ -882,29 +631,8 @@
     color: var(--text);
   }
 
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    margin-top: var(--sp-1);
-  }
-  .spacer {
-    flex: 1;
-  }
 
-  @media (pointer: coarse), (max-width: 768px) {
-    .layouts {
-      grid-template-columns: 1fr;
-    }
-    .lay {
-      flex-direction: row;
-      align-items: center;
-      gap: 10px;
-    }
-    .dia {
-      width: 44px;
-      flex: none;
-    }
+  @media (max-width: 768px) {
     /* 56px for the emoji, not 48: the sheet forces 16px type into this field and
        it accepts up to TAG_LIMITS.emojiChars characters — at 48px minus 18px of
        padding a single emoji filled it and a second one clipped. */
@@ -932,29 +660,9 @@
        end of either chained straight into the sheet's own drag-to-dismiss, and
        three-and-a-half visible rows hid the rest behind a scroll with no hint
        that it existed. On a phone the sheet is the only scroller. */
-    .rows,
-    .arts {
+    .rows {
       max-height: none;
       overflow-y: visible;
-    }
-    /* Four rows of 84px thumbnails at 393px is a lot of tiny art. Three columns
-       of taller tiles reads as a picker rather than a contact sheet. */
-    .arts {
-      grid-template-columns: repeat(3, 1fr);
-      gap: var(--sp-2);
-    }
-    .art {
-      height: 62px;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .lay,
-    .art {
-      transition: none;
-    }
-    .lay:hover,
-    .art:hover {
-      transform: none;
     }
   }
 </style>

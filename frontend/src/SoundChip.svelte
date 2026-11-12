@@ -244,15 +244,13 @@
     color: var(--accent);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .play.ringing .glyph,
-    .play.ringing .wave span,
-    .sound.ringing::after {
-      animation: none;
-    }
-    /* Still says "playing", without moving: the bars stand up and stay up. */
-    .play.ringing .wave span {
-      transform: scaleY(0.7);
-    }
+  :global(:root[data-motion="reduced"]) .play.ringing .glyph,
+  :global(:root[data-motion="reduced"]) .play.ringing .wave span,
+  :global(:root[data-motion="reduced"]) .sound.ringing::after {
+    animation: none;
+  }
+  /* Still says "playing", without moving: the bars stand up and stay up. */
+  :global(:root[data-motion="reduced"]) .play.ringing .wave span {
+    transform: scaleY(0.7);
   }
 </style>

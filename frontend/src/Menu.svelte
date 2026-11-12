@@ -12,7 +12,10 @@
   import { syncLayer } from "./lib/navstack.svelte.js";
   import { portal } from "./lib/portal.js";
   import { rectOf, sizeOf, viewport } from "./lib/place.js";
+  import { zAbove } from "./lib/layers.js";
+  import { menuKeyTarget, moveFocusFrom } from "./lib/menukeys.js";
   import { S } from "./lib/state.svelte.js";
+  import { untrack } from "svelte";
 
   // `up` opens the dropdown ABOVE the trigger — for a trigger that lives at the
   // bottom of the window (the composer's overflow), where a menu hanging below
@@ -29,6 +32,10 @@
     compact = false,
     up = false,
     wide = false,
+    // The trigger's accessible name when it must say more than `label` — a
+    // picker has to announce what is currently chosen, which its visible
+    // text shows and `label` alone ("Microphone") hides.
+    name = "",
     trigger,
     children,
   } = $props();
@@ -80,6 +87,20 @@
   // through lib/place.js, which divides out the UI-scale zoom. Mixing the two
   // spaces put every dropdown opened low in a zoomed window off the bottom of
   // the screen; see the coordinate-space note in that file.
+  // Tall enough for the composer's + menu (a dozen rows) to show whole: at
+  // 340 its last row sat half-cut at the panel's edge, which read as the menu
+  // running off the screen rather than as a list that scrolls. Option lists
+  // longer than this still scroll. 440 was too short for the chat header's ⋯,
+  // whose Guild settings row sat below the cut at every window size with
+  // nothing to say the list went on; 640 shows it whole down to a 720px-tall
+  // window, and anything that still scrolls fades at the edge it continues
+  // past (`more`).
+  const MAX_H = 640;
+  let more = $state(false);
+  function measureMore() {
+    if (!panel) return;
+    more = panel.scrollHeight - panel.clientHeight - panel.scrollTop > 2;
+  }
   function place() {
     if (!open || S.isMobile || !panel || !root) return;
     const t = rectOf(root);
@@ -88,17 +109,33 @@
     const above = t.y - GAP - EDGE;
     // Honour `up` while there is room for it; otherwise take whichever side has
     // more, so a trigger with 40px under it does not open into 40px.
-    const wantUp = up ? above > 120 || above >= below : below < Math.min(panel.scrollHeight, 340) && above > below;
+    const wantUp = up ? above > 120 || above >= below : below < Math.min(panel.scrollHeight, MAX_H) && above > below;
     const room = Math.max(120, wantUp ? above : below);
     // Measure at the height it will actually get, or a panel that is currently
     // taller than the room reports a width shrunk by its own scrollbar.
-    panel.style.maxHeight = `${Math.min(340, room)}px`;
+    panel.style.maxHeight = `${Math.min(MAX_H, room)}px`;
     const { w, h } = sizeOf(panel);
     let left = align === "left" ? t.x : t.x + t.w - w;
     left = Math.max(EDGE, Math.min(left, vp.w - w - EDGE));
     const top = wantUp ? Math.max(EDGE, t.y - GAP - h) : Math.min(t.y + t.h + GAP, vp.h - h - EDGE);
-    pos = { left, top, up: wantUp, width: wide ? t.w : 0 };
+    // The z-index is read once per opening (untracked: place() runs inside an
+    // effect, and reading `pos` there would make it re-run on its own write).
+    const z = untrack(() => pos?.z) ?? zAbove(root);
+    // The height goes into `pos` too: the style attribute below is rewritten
+    // from `pos`, which wiped the maxHeight set above and left the panel at the
+    // stylesheet's 70% of the window.
+    pos = { left, top, up: wantUp, width: wide ? t.w : 0, z, maxH: Math.min(MAX_H, room) };
   }
+
+  // Whether rows run past the edge is asked again whenever the panel's box
+  // changes: measured once at placement, it saw the stylesheet's height
+  // before the measured one landed and faded a menu that fits.
+  $effect(() => {
+    if (!open || S.isMobile || !panel || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measureMore);
+    ro.observe(panel);
+    return () => ro.disconnect();
+  });
 
   // Re-place on anything that can move the trigger. `scroll` is captured
   // because the movers are inner scrollers (the channel list, a settings
@@ -134,15 +171,36 @@
     for (const el of panel.querySelectorAll(".menu-sep")) el.setAttribute("role", "separator");
   }
 
+  // The dropdown is `visibility: hidden` until place() has measured it, and a
+  // hidden element cannot take focus — focus() on it is a silent no-op. Running
+  // this the moment the panel mounted is why every Menu-built dropdown opened
+  // with the caret still on its trigger and the arrows doing nothing: the
+  // first row was asked for focus one frame before it could accept it. So the
+  // desktop panel waits for its placement; the sheet is visible from the start.
+  const ready = $derived(open && !!panel && (S.isMobile || !!pos));
   $effect(() => {
-    if (!open || !panel) return;
+    if (!ready) return;
     decorate();
     prevFocus = document.activeElement;
-    // preventScroll: an `up` menu sits on the bottom edge of the window, and
-    // focusing its first row without this scrolls the page out from under it.
-    panel.querySelector(".menu-item:not(:disabled)")?.focus({ preventScroll: true });
+    // The current choice if the menu is a picker (Select marks it .active),
+    // else the first row. preventScroll: an `up` menu sits on the bottom edge
+    // of the window, and focusing a row without it scrolls the page away.
+    //
+    // A frame later, not now: the effect that wrote `pos` runs in the same
+    // flush as this one, before the template has applied `.placed` — so the
+    // panel is still hidden at this instant.
+    const el = panel;
+    // Never a destructive row (see ContextMenu): with no safe one, the panel.
+    const raf = requestAnimationFrame(() => (el.querySelector(".menu-item.active:not(:disabled)") || el.querySelector(".menu-item:not(:disabled, .danger)") || el).focus({ preventScroll: true }));
     return () => {
-      if (prevFocus?.isConnected) prevFocus.focus();
+      cancelAnimationFrame(raf);
+      // Only hand focus back if it is still ours to hand: an item that opened
+      // a dialog has already moved it, and Tab out of the menu moved it on
+      // purpose. Focus left on a row that is about to unmount, or dropped to
+      // the body, goes back to the trigger.
+      const now = document.activeElement;
+      const lost = !now || now === document.body || panel?.contains(now) || root?.contains(now);
+      if (lost && prevFocus?.isConnected) prevFocus.focus({ preventScroll: true });
       prevFocus = null;
     };
   });
@@ -150,19 +208,34 @@
   // Roving focus. Enter/Space need no handling — the rows are real <button>s.
   // DOM order is visual order in both presentations, `up` included: that
   // variant repositions the whole panel, it does not reverse it.
+  //
+  // Tab closes the menu and lets the key carry on from the trigger: the panel
+  // is portalled to <body>, so the browser's own "next" after its last row is
+  // the end of the document, not the control after the trigger.
   function onMenuKey(e) {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const from = root?.querySelector(".trigger");
+      open = false;
+      from?.focus({ preventScroll: true });
+      if (from) moveFocusFrom(from, e.shiftKey ? -1 : 1);
+      return;
+    }
     const items = [...e.currentTarget.querySelectorAll(".menu-item:not(:disabled)")];
-    if (!items.length) return;
-    const n = items.length;
-    const i = items.indexOf(document.activeElement);
-    let next = null;
-    if (e.key === "ArrowDown") next = items[i < 0 ? 0 : (i + 1) % n];
-    else if (e.key === "ArrowUp") next = items[i < 0 ? n - 1 : (i - 1 + n) % n];
-    else if (e.key === "Home") next = items[0];
-    else if (e.key === "End") next = items[n - 1];
+    const next = menuKeyTarget(items, document.activeElement, e);
     if (!next) return;
     e.preventDefault();
     next.focus();
+  }
+
+  // Arrow keys on the CLOSED trigger open it, the way a native select does.
+  // Enter and Space need nothing: the trigger is a real button.
+  function onTriggerKey(e) {
+    if (open || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      open = true;
+    }
   }
 </script>
 
@@ -170,11 +243,12 @@
 
 <div class="menu-root" class:wide bind:this={root}>
   {#if trigger}
-    <button class="trigger own" aria-label={label} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)}>
+    <button type="button" class="trigger own" aria-label={name || label} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)} onkeydown={onTriggerKey}>
       {@render trigger()}
     </button>
   {:else}
     <button
+      type="button"
       class="trigger"
       class:ghost={!compact}
       class:compact
@@ -183,6 +257,7 @@
       aria-haspopup="menu"
       aria-expanded={open}
       onclick={() => (open = !open)}
+      onkeydown={onTriggerKey}
     >
       <Icon name={icon} size={compact ? 12 : 16} />
     </button>
@@ -208,12 +283,14 @@
         class="menu {align}"
         class:up={pos ? pos.up : up}
         class:placed={!!pos}
+        class:more
         role="menu"
         tabindex="-1"
         bind:this={panel}
+        onscroll={measureMore}
         use:portal
         style={pos
-          ? `left:${pos.left}px;top:${pos.top}px;${pos.width ? `width:${pos.width}px;min-width:0;` : ""}`
+          ? `left:${pos.left}px;top:${pos.top}px;z-index:${pos.z};max-height:${pos.maxH}px;${pos.width ? `width:${pos.width}px;min-width:0;` : ""}`
           : ""}
         onclick={() => (open = false)}
         onkeydown={onMenuKey}
@@ -292,7 +369,7 @@
     /* A menu used to hold a handful of verbs. Select.svelte hands it option
        lists — thirty-one days, twelve months — which without a ceiling grow a
        thousand-pixel panel that runs off both ends of the window. */
-    max-height: min(340px, 62 * var(--vh));
+    max-height: min(640px, 70 * var(--vh));
     overflow-y: auto;
     /* Floating chrome is opaque — a menu of verbs over a wall of text is
        unreadable at the 0.7 alpha most packs give --bg-1. ContextMenu and the
@@ -300,28 +377,35 @@
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    padding: 5px;
+    padding: var(--sp-1);
     box-shadow: var(--shadow-pop);
-    z-index: 80;
+    /* The floor of the layer band. place() writes the real value inline, read
+       off the opener's own stacking chain (lib/layers.js zAbove), which is what
+       puts a picker opened inside a dialog above that dialog. */
+    z-index: var(--z-layer);
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 0;
     transform-origin: top;
     animation: menu-in var(--dur-quick) var(--ease-out);
   }
   .menu.placed {
     visibility: visible;
   }
+  /* More rows below the edge: the last visible ones fade out, so the list
+     reads as continuing rather than ending. */
+  .menu.more {
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 40px), transparent);
+  }
+  /* Opacity and 4px toward the anchor; no scale, nothing overshoots. */
   @keyframes menu-in {
     from {
       opacity: 0;
-      transform: translateY(-6px) scale(0.97);
+      transform: translateY(-4px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .menu {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .menu {
+    animation: none;
   }
   .menu.right {
     transform-origin: top right;
@@ -344,15 +428,13 @@
   @keyframes menu-in-up {
     from {
       opacity: 0;
-      transform: translateY(6px) scale(0.97);
+      transform: translateY(4px);
     }
   }
   /* After the .menu.up rule above, not with the other reduced-motion block: a
      media query adds no specificity, so at equal weight the later rule wins. */
-  @media (prefers-reduced-motion: reduce) {
-    .menu.up {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .menu.up {
+    animation: none;
   }
   /* Sheet presentation: the dropdown's positioning and chrome come off, the
      rows stay. Same markup, same consumer classes. */
@@ -371,33 +453,48 @@
   .menu :global(.menu-item) {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 10px;
+    min-height: 32px;
     background: transparent;
     color: var(--text);
     text-align: left;
-    padding: 8px 10px;
+    padding: 0 8px 0 10px;
     border-radius: var(--radius-sm);
     font-size: var(--fs-ui);
+    font-weight: 400;
     width: 100%;
   }
+  .menu :global(.menu-item > .icon),
+  .menu :global(.menu-item > svg) {
+    color: var(--text-muted);
+    flex: none;
+  }
+  /* Exactly one active row. The pointer's row and the keyboard's row are the
+     same highlight (--bg-3), and while the pointer is over a row the keyboard's
+     row stops painting, so a menu never shows two current items. A menu the
+     keyboard is driving also rings its row, inset, in the accent. Not inside
+     (pointer: fine) for the focus half: a desktop window under 768px gets the
+     sheet, and a real keyboard with it. */
   @media (pointer: fine) {
     .menu :global(.menu-item:hover) {
       background: var(--bg-3);
     }
-    .menu :global(.menu-item.danger:hover) {
-      background: var(--danger-soft);
+    .menu:has(:global(.menu-item:hover)) :global(.menu-item:focus-visible:not(:hover)) {
+      background: transparent;
+      box-shadow: none;
     }
   }
-  /* The keyboard's highlight is the mouse's highlight. Without this the arrow
-     keys moved a focus ring around rows that gave no other sign of being the
-     current one, which is a different-looking menu depending on which hand you
-     opened it with. Not inside the (pointer: fine) block above: a desktop
-     window under 768px gets the sheet, and a real keyboard with it. */
   .menu :global(.menu-item:focus-visible) {
     background: var(--bg-3);
+    outline: none;
   }
-  .menu :global(.menu-item.danger:focus-visible) {
-    background: var(--danger-soft);
+  :global(:root[data-kbd]) .menu :global(.menu-item:focus-visible) {
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
+  }
+  .menu :global(.menu-item.danger),
+  .menu :global(.menu-item.danger > .icon),
+  .menu :global(.menu-item.danger > svg) {
+    color: var(--danger-text);
   }
   .menu :global(.menu-item:active) {
     background: var(--bg-3);
@@ -405,9 +502,6 @@
   .menu :global(.menu-item:disabled) {
     opacity: 0.45;
     pointer-events: none;
-  }
-  .menu :global(.menu-item.danger) {
-    color: var(--danger-text);
   }
   /* Sheet rows are finger-sized and spaced like the action sheet's, so the two
      menu surfaces on a phone don't feel like different apps. */
@@ -420,8 +514,8 @@
   }
   .menu :global(.menu-sep) {
     height: 1px;
-    background: var(--border);
-    margin: 4px 2px;
+    background: var(--hairline);
+    margin: 4px 6px;
   }
   .menu.sheet :global(.menu-sep) {
     margin: 5px 10px;

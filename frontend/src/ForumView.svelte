@@ -24,10 +24,10 @@
   import { flip } from "svelte/animate";
   import { cubicOut } from "svelte/easing";
   import Icon from "./Icon.svelte";
+  import { humanError } from "./lib/errors.js";
   import { tooltip } from "./lib/tooltip.js";
   import Avatar from "./Avatar.svelte";
   import EmptyState from "./EmptyState.svelte";
-  import Banner from "./Banner.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import { syncLayer } from "./lib/navstack.svelte.js";
   import { api, on } from "./lib/api.js";
@@ -56,14 +56,15 @@
     relTime,
     absTime,
     isPending,
-    washFor,
     tileFor,
+    SCRIM_FLOOR,
     hueOfCss,
     BOARD_PREFS_EVENT,
     readBoardPrefs,
     writeBoardPrefs,
     normalizeBoardPrefs,
   } from "./lib/forum.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   let { forum } = $props();
 
@@ -74,8 +75,7 @@
 
   // Motion is read once: the CSS handles the rest through media queries, this is
   // only for the JS-driven FLIP duration (which has no CSS to opt out of).
-  const reduceMotion =
-    typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reduceMotion = reducedMotion();
   const flipMs = reduceMotion ? 0 : 260;
 
   // ---- device-local board preferences ------------------------------------
@@ -108,7 +108,7 @@
       errMsg = "";
     } catch (err) {
       if (mine !== gen || forumId !== forum.id) return;
-      errMsg = err?.message || String(err);
+      errMsg = humanError(err);
       // A refresh that fails behind an already-painted board must not blank it:
       // the cards on screen are still true, they're just not the newest truth.
       if (!board) phase = "error";
@@ -443,6 +443,20 @@
     );
   }
 
+  const layoutIcon = (id) => (id === "list" ? "list" : id === "gallery" ? "imagetext" : "screen");
+  const layoutItems = () => [
+    { header: true, label: "Layout" },
+    ...LAYOUTS.map((l) => ({
+      label: l.label,
+      sub: l.hint,
+      icon: layoutIcon(l.id),
+      active: layout === l.id,
+      onClick: () => savePrefs({ layout: l.id }),
+    })),
+  ];
+  function layoutMenu(el) {
+    menuAt(el, layoutItems());
+  }
   function boardMenu(el) {
     menuAt(el, [
       { header: true, label: "Sort" },
@@ -452,19 +466,12 @@
         active: prefs.sort === s.id,
         onClick: () => savePrefs({ sort: s.id }),
       })),
-      { header: true, label: "Layout" },
-      ...LAYOUTS.map((l) => ({
-        label: l.label,
-        icon: layoutIcon(l.id),
-        active: prefs.layout === l.id,
-        onClick: () => savePrefs({ layout: l.id }),
-      })),
+      ...layoutItems(),
       { sep: true },
       { label: "Board settings…", icon: "gear", onClick: () => (S.modal = { kind: "forumSettings", forum }) },
     ]);
   }
 
-  const layoutIcon = (id) => (id === "list" ? "list" : id === "gallery" ? "imagetext" : "screen");
 
   // ---- per-post tag picker -----------------------------------------------
   // A popover, not a dialog: choosing two chips is not a task that deserves a
@@ -494,13 +501,6 @@
     }
   }
 
-  // ---- header art ---------------------------------------------------------
-  // "Auto" derives a two-tone wash from the forum's ID: every forum is
-  // recognisably its own place with nothing stored and nothing synced. A chosen
-  // banner overrides it — read from the CHANNEL record, not from the board
-  // prefs: the art moved onto the channel when it became shared (SetForumBanner),
-  // and the settings dialog stopped writing prefs.banner, so a hero that kept
-  // reading the prefs showed every pick as doing nothing.
   // The accent this board is actually being drawn under — the guild's tint when
   // "use guild colours" is on, the user's preset otherwise. Read off the live
   // element rather than from a pref, because that is where the cascade has
@@ -515,8 +515,22 @@
     const el = root || document.querySelector(".app") || document.documentElement;
     return hueOfCss(getComputedStyle(el).getPropertyValue("--accent"));
   });
-  const wash = $derived(washFor(forum.id, accentHue));
+  // How this device lays the board out (List by default, Gallery, Cover) is
+  // a device-local board pref, chosen here or in Board settings.
+  const layout = $derived(LAYOUTS.some((l) => l.id === prefs.layout) ? prefs.layout : "list");
+  // The forum's header art is shared, on the channel record: an image someone
+  // uploaded, drawn under a flat scrim so the words on it keep their contrast
+  // (SCRIM_FLOOR), or, for a banner an older build chose from its gradient
+  // presets, a flat tint of the board's own colour in its place.
   const art = $derived(forum.banner || "");
+  const artImage = $derived(/^data:image\//.test(art) ? art : "");
+  const heroTile = $derived(tileFor(forum.id, forum.name, accentHue));
+  //
+  // The toolbar folds its sort into one "Sort" menu wherever the row is too
+  // narrow for the three-way control beside a usable search field: at tablet
+  // width it used to crush the field to a single visible letter.
+  let barW = $state(0);
+  const foldSort = $derived(S.isMobile || barW < 560);
 
   // The FAB opens a modal ~200ms later; without the tap confirmation the press
   // feels dropped.
@@ -532,22 +546,21 @@
   <!-- HEADER. The brief's "title needs to be cleaner": one identity block —
        art, glyph, name, description, and the three numbers that describe the
        place — instead of an icon, an h2 and a grey rule. -->
-  <header class="hero">
-    <Banner
-      banner={art}
-      color={art ? "" : wash.color}
-      color2={art ? "" : wash.color2}
-      style={{ angle: wash.angle }}
-      scale={0.7}
-    />
+  <!-- A banner, if the board has one, behind a scrim; otherwise a plain
+       header on the canvas — no generated gradient standing in for art. -->
+  <header class="hero" class:plain={!art} style={art && !artImage ? `--hero-tint:${heroTile.color}` : undefined}>
+    {#if artImage}
+      <img class="hero-img" src={artImage} alt="" />
+    {:else if art}
+      <span class="hero-tint" aria-hidden="true"></span>
+    {/if}
+    {#if art}<span class="hero-scrim" aria-hidden="true" style="--scrim:{SCRIM_FLOOR}"></span>{/if}
     <!-- Two layers over the art, in this order. The sheen lights one corner so a
          plain gradient reads as a designed surface; the scrim on top of it is the
          CONTRAST GUARANTEE, not decoration — white ink over SCRIM_FLOOR clears
          4.5:1 even if the art underneath is pure white, which forum.test.mjs
          composites and asserts. All hero text sits below the 38% stop, where the
          gradient has reached that floor. -->
-    <span class="hero-sheen" aria-hidden="true"></span>
-    <span class="hero-scrim" aria-hidden="true"></span>
     <div class="hero-in">
       <div class="hero-title">
         <span class="hero-glyph"><Icon name="forum" size={18} /></span>
@@ -598,11 +611,6 @@
           >
             <Icon name="gear" size={15} />
           </button>
-          {#if !S.isMobile}
-            <button class="cta" onclick={newPost}>
-              <Icon name="plus" size={14} /> <span>New post</span>
-            </button>
-          {/if}
         </div>
       </div>
     </div>
@@ -611,7 +619,7 @@
   <!-- TOOLBAR. Sticky, because a board is a place you scroll and losing the
        search box at post nine is the moment it stops being interactive. -->
   <div class="bar">
-    <div class="bar-row">
+    <div class="bar-row" bind:clientWidth={barW}>
       <div class="find">
         <Icon name="search" size={14} />
         <input
@@ -629,14 +637,22 @@
         {/if}
       </div>
 
-      {#if S.isMobile}
-        <!-- One control instead of six: on a 390px screen the knobs live behind
-             a menu that presents as a bottom sheet. -->
-        <button class="pill" onclick={(e) => boardMenu(e.currentTarget)}>
-          <Icon name={layoutIcon(prefs.layout)} size={14} />
-          <span>View</span>
+      {#if foldSort}
+        <!-- One control instead of three where the row is narrow; on a phone
+             the menu presents as a bottom sheet. -->
+        <button class="pill" aria-label="Sort posts" onclick={(e) => boardMenu(e.currentTarget)}>
+          <Icon name={SORTS.find((x) => x.id === prefs.sort)?.icon || "bolt"} size={14} />
+          <span>Sort</span>
         </button>
       {:else}
+        <button
+          class="pill lay"
+          aria-label="Layout: {LAYOUTS.find((l) => l.id === layout)?.label}"
+          use:tooltip={{ text: "Layout", side: "bottom" }}
+          onclick={(e) => layoutMenu(e.currentTarget)}
+        >
+          <Icon name={layoutIcon(layout)} size={14} />
+        </button>
         <div class="seg" role="group" aria-label="Sort posts">
           {#each SORTS as s (s.id)}
             <button
@@ -651,25 +667,15 @@
             </button>
           {/each}
         </div>
-        <div class="seg" role="group" aria-label="Card layout">
-          {#each LAYOUTS as l (l.id)}
-            <!-- The sort chips next door carry their word; these three carried
-                 only a glyph and a native title, which arrives a second late in
-                 the OS's own theme. The shared tooltip reads the aria-label, so
-                 the name and the tip cannot drift apart. -->
-            <button
-              class="seg-b icon"
-              class:on={prefs.layout === l.id}
-              aria-pressed={prefs.layout === l.id}
-              aria-label={`${l.label} layout`}
-              use:tooltip={{ text: `${l.label} — ${l.hint}`, side: "bottom" }}
-              onclick={() => savePrefs({ layout: l.id })}
-            >
-              <Icon name={layoutIcon(l.id)} size={14} />
-            </button>
-          {/each}
-        </div>
       {/if}
+      <!-- Starting a post is the board's one main action, so it is the one
+           primary, at the end of the toolbar — on a phone too. It used to be a
+           pill in the header on a desktop and a floating accent disc on a
+           phone, two looks for one verb, and the disc sat over the last row. -->
+      <button class="primary new-post" aria-label="New post" onclick={newPost}>
+        <Icon name="plus" size={14} />
+        <span class="np-label">{S.isMobile ? "Post" : "New post"}</span>
+      </button>
     </div>
 
     {#if palette.length || filtering || stats.unanswered}
@@ -696,6 +702,7 @@
             class="chip tag"
             class:on={tagFilter.includes(t.id)}
             aria-pressed={tagFilter.includes(t.id)}
+            class:has-em={!!t.emoji}
             style="--tc:{t.color}"
             onclick={() => toggleTag(t.id)}
           >
@@ -735,10 +742,11 @@
     </div>
   {:else if phase === "error"}
     <div class="state">
-      <div class="state-badge bad"><Icon name="alert" size={26} /></div>
-      <h3>This board didn't load</h3>
-      <p class="muted">{errMsg}</p>
-      <button onclick={() => refresh()}>Try again</button>
+      <EmptyState icon="alert" headline="This board didn't load" sub={errMsg}>
+        {#snippet actions()}
+          <button class="quiet" onclick={() => refresh()}>Try again</button>
+        {/snippet}
+      </EmptyState>
     </div>
   {:else if !posts.length}
     <div class="state">
@@ -746,21 +754,26 @@
         icon="forum"
         headline="Nothing here yet"
         sub="Start the first post — it becomes its own thread, with its own unread badge."
-      />
-      <button class="cta solid" onclick={newPost}><Icon name="plus" size={14} /> New post</button>
+      >
+        {#snippet actions()}
+          <button class="primary" onclick={newPost}>New post</button>
+        {/snippet}
+      </EmptyState>
     </div>
   {:else if !visible.length}
     <div class="state">
-      <div class="state-badge"><Icon name="search" size={24} /></div>
-      <h3>No posts match</h3>
-      <p class="muted">
-        {#if query}Nothing matches “{query}”{:else}No post carries those filters{/if}
-        — {posts.length} {posts.length === 1 ? "post is" : "posts are"} hidden.
-      </p>
-      <button onclick={clearFilters}>Clear filters</button>
+      <EmptyState
+        icon="search"
+        headline="No posts match"
+        sub={`${query ? `Nothing matches “${query}”` : "No post carries those filters"} — ${posts.length} ${posts.length === 1 ? "post is" : "posts are"} hidden.`}
+      >
+        {#snippet actions()}
+          <button class="quiet" onclick={clearFilters}>Clear filters</button>
+        {/snippet}
+      </EmptyState>
     </div>
   {:else}
-    <ul class="posts {prefs.layout}">
+    <ul class="posts {layout}">
       {#each visible as p, i (p.id)}
         {@const pv = postPreview(p.excerpt)}
         {@const tok = firstImage(p)}
@@ -818,7 +831,7 @@
                     image={author?.avatar || ""}
                     emoji={author?.emoji || ""}
                     color={author?.color || ""}
-                    size={prefs.layout === "list" ? 30 : 48}
+                    size={layout === "list" ? 30 : 44}
                   />
                 </span>
               {:else}
@@ -838,13 +851,12 @@
 
           <div class="body">
             <div class="head">
-              <h3 class="title">{p.title}</h3>
+              <h3 class="title">
+                {#if p.pinned}<span class="pin-mark" title="Pinned to the top of this board" aria-label="Pinned"
+                    ><Icon name="pin" size={12} /></span
+                  >{/if}{p.title}
+              </h3>
               <span class="flags">
-                {#if p.pinned}
-                  <span class="flag pin" title="Pinned to the top of this board">
-                    <Icon name="pin" size={10} /> Pinned
-                  </span>
-                {/if}
                 {#if p.solved}
                   <span class="flag ok" title="Marked answered">
                     <Icon name="check" size={10} /> Answered
@@ -884,16 +896,6 @@
                 <p class="excerpt faint">No preview available</p>
               {/if}
 
-              {#if tags.length}
-                <div class="tags">
-                  {#each tags as t (t.id)}
-                    <span class="chip tag sm" style="--tc:{t.color}">
-                      {#if t.emoji}<span class="chip-em">{t.emoji}</span>{/if}{t.name}
-                    </span>
-                  {/each}
-                </div>
-              {/if}
-
               <div class="meta">
                 <span class="who">
                   <Avatar
@@ -911,6 +913,15 @@
                 </span>
                 <span class="dot" aria-hidden="true">·</span>
                 <span class="mi" title={absTime(p.lastActivity)}>{relTime(p.lastActivity)}</span>
+                {#if tags.length}
+                  <span class="tags">
+                    {#each tags as t (t.id)}
+                      <span class="chip tag sm" class:has-em={!!t.emoji} style="--tc:{t.color}">
+                        {#if t.emoji}<span class="chip-em">{t.emoji}</span>{/if}{t.name}
+                      </span>
+                    {/each}
+                  </span>
+                {/if}
               </div>
             {/if}
           </div>
@@ -934,9 +945,7 @@
 <!-- …but not while a post is open over it. The board stays MOUNTED behind the
      post panel, which is what keeps its scroll position — so its own floating
      controls have to know they are behind something. -->
-{#if S.isMobile && S.activeChannelId === forum.id}
-  <button class="fab" aria-label="New post" onclick={newPost}><Icon name="plus" size={20} /></button>
-{/if}
+
 
 {#snippet pickBody()}
   <p class="pick-sub muted">{tagPick.post.title}</p>
@@ -958,7 +967,7 @@
   </div>
   <div class="pick-acts">
     <button class="ghost" onclick={() => (tagPick = null)}>Cancel</button>
-    <button disabled={tagPick.busy} onclick={saveTags}>Save</button>
+    <button class="primary" disabled={tagPick.busy} onclick={saveTags}>Save</button>
   </div>
 {/snippet}
 
@@ -991,6 +1000,17 @@
 
 <style>
   /* ---- shell ------------------------------------------------------------ */
+  /* An open post sits beside the board only when the board and the post have
+     the room between them. With the inspector docked as well, 1440px held the
+     sidebar, a 290px board whose toolbar clipped and whose titles wrapped per
+     word, the post, and the members: four columns, none readable. Then the
+     post takes the conversation column, and the board waits behind it with its
+     scroll kept (the panel is still a layer over a mounted board). */
+  :global(.app:has(.insp-slot:not(.overlay)) .pane-body .feedwrap.aspanel.overboard.beside) {
+    left: 0;
+    border-left: none;
+    box-shadow: none;
+  }
   .board {
     flex: 1;
     overflow-y: auto;
@@ -1009,46 +1029,111 @@
     padding-bottom: 28px;
   }
 
+  /* No banner: no box at all. The conversation header above already names
+     the board and says its topic, so what is left is one quiet line — the
+     board's numbers and its settings — on the canvas. A second boxed copy of
+     the name and topic was the "card on a card" this board was built of. */
+  .hero.plain {
+    min-height: 0;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+  }
+  .hero.plain .hero-title {
+    display: none;
+  }
+  .hero.plain .hero-in {
+    padding: var(--sp-2) var(--pad) 0;
+  }
+  .hero.plain .stat {
+    padding: 0;
+    border: none;
+    background: transparent;
+    font-size: var(--fs-small);
+  }
+  .hero.plain .stat + .stat::before {
+    content: "·";
+    margin-right: var(--sp-1);
+    color: var(--text-faint);
+  }
+  .hero.plain .stat b {
+    font-weight: 600;
+  }
+  .hero.plain button.stat.on {
+    background: transparent;
+    color: var(--accent-hover);
+  }
+  .hero.plain .hero-foot {
+    align-items: center;
+  }
+  .hero.plain .glass {
+    border: none;
+    background: transparent;
+  }
+  @media (pointer: fine) {
+    .hero.plain .glass:hover {
+      background: var(--bg-3);
+      color: var(--text);
+      transform: none;
+    }
+  }
+  .hero.plain .hero-glyph,
+  .hero.plain .stat,
+  .hero.plain .glass {
+    color: var(--text-muted);
+  }
+  .hero.plain h1,
+  .hero.plain .stat b {
+    color: var(--text);
+    text-shadow: none;
+  }
+  .hero.plain .hero-topic {
+    color: var(--text-muted);
+    text-shadow: none;
+  }
   /* ---- hero ------------------------------------------------------------- */
+  /* With a banner: a 96px strip at the head of the board, the description
+     over the scrim (spec: no gradient hero, no art per card). */
   .hero {
     position: relative;
     isolation: isolate;
     margin: var(--pad) var(--pad) 0;
     border-radius: var(--radius-lg);
     overflow: hidden;
-    min-height: 172px;
+    min-height: 96px;
     display: flex;
     align-items: flex-end;
     border: 1px solid var(--border);
+  }
+  /* The forum's own picture, or a flat tint where an older build chose a
+     gradient preset, under a flat scrim the white words are proven on. */
+  .hero-img,
+  .hero-tint,
+  .hero-scrim {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .hero-img {
+    z-index: 0;
+    object-fit: cover;
+  }
+  .hero-tint {
+    z-index: 0;
+    background: var(--hero-tint);
+  }
+  .hero-scrim {
+    z-index: 2;
+    background: rgb(0 0 0 / var(--scrim));
+    pointer-events: none;
   }
   /* Banner renders its own root; place it as the art layer. */
   .hero :global(.bnr) {
     position: absolute;
     inset: 0;
     z-index: 0;
-  }
-  /* Below the scrim on purpose: it brightens the ART, and the scrim on top of it
-     is what carries the measured contrast floor. Above the scrim it would eat
-     into that guarantee. */
-  .hero-sheen {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    pointer-events: none;
-    background:
-      radial-gradient(90% 120% at 8% -10%, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0) 62%),
-      radial-gradient(70% 90% at 100% 110%, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0) 70%);
-  }
-  .hero-scrim {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    pointer-events: none;
-    /* 0.62 by 38% of the height — the floor forum.test.mjs proves. Every word in
-       the hero sits below that stop. */
-    background:
-      linear-gradient(180deg, rgba(0, 0, 0, 0.18) 0%, rgba(0, 0, 0, 0.62) 38%, rgba(0, 0, 0, 0.8) 100%),
-      linear-gradient(90deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0) 62%);
   }
   .hero-in {
     position: relative;
@@ -1201,7 +1286,6 @@
     padding: 8px 15px;
     border-radius: 999px;
     font-weight: 600;
-    box-shadow: var(--accent-glow);
     transition: transform var(--dur-standard) var(--ease-spring);
   }
   @media (pointer: fine) {
@@ -1221,7 +1305,16 @@
     padding: 10px var(--pad);
     /* Opaque: it slides over cards. Matches the chat column's own surface. */
     background: var(--bg-2);
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .new-post {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+    min-height: 32px;
+    padding: 0 14px;
+    font-size: var(--fs-compact);
   }
   .bar-row {
     display: flex;
@@ -1238,20 +1331,20 @@
     align-items: center;
     gap: 7px;
     flex: 1;
-    min-width: 0;
+    min-width: 160px;
+    max-width: 320px;
     padding: 0 10px;
-    height: 34px;
-    border-radius: 999px;
-    background: var(--bg-3);
-    border: 1px solid transparent;
+    height: 32px;
+    border-radius: var(--radius-md);
+    background: var(--bg-input);
+    border: 1px solid var(--border);
     color: var(--text-muted);
     transition:
       border-color var(--dur-standard) ease,
       background var(--dur-standard) ease;
   }
   .find:focus-within {
-    border-color: var(--accent);
-    background: var(--bg-1);
+    border-color: var(--accent-hover);
   }
   .find input {
     flex: 1;
@@ -1291,30 +1384,30 @@
   .clear:hover {
     color: var(--text);
   }
+  /* The shared segmented control's look (Segmented.svelte): a 32px track,
+     the chosen segment lighter than the track with a ring, never the accent. */
   .seg {
     display: flex;
     flex: none;
+    height: 32px;
     padding: 2px;
     gap: 2px;
-    border-radius: 999px;
+    border-radius: calc(var(--radius-sm) + 2px);
     background: var(--bg-3);
   }
   .seg-b {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 5px 10px;
-    border-radius: 999px;
+    padding: 0 10px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--text-muted);
     font-size: var(--fs-compact);
-    font-weight: 600;
+    font-weight: 500;
     transition:
       background var(--dur-standard) ease,
       color var(--dur-standard) ease;
-  }
-  .seg-b.icon {
-    padding: 5px 8px;
   }
   .seg-b:hover {
     color: var(--text);
@@ -1324,22 +1417,31 @@
      most packs and none at all on the flat ones, which left a row of three
      unlabelled glyphs with no visible answer to "which of these am I on". */
   .seg-b.on {
-    background: var(--accent-soft);
+    background: color-mix(in srgb, var(--bg-3), white 8%);
     color: var(--text);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+  }
+  :global(:root[data-theme="light"]:not([data-theme-pack])) .seg-b.on {
+    background: #fff;
   }
   .pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     flex: none;
-    padding: 0 13px;
-    height: 34px;
-    border-radius: 999px;
+    padding: 0 12px;
+    height: 32px;
+    border-radius: var(--radius-sm);
     background: var(--bg-3);
     color: var(--text);
-    font-size: var(--fs-ui);
-    font-weight: 600;
+    font-size: var(--fs-compact);
+    font-weight: 500;
+  }
+  .pill.lay {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
   }
   /* ---- chips ----------------------------------------------------------- */
   /* A tag's colour IDENTIFIES the chip; the theme's ink READS it. A member picks
@@ -1350,10 +1452,11 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 4px 10px;
+    height: 28px;
+    padding: 0 10px;
     border-radius: 999px;
-    font-size: var(--fs-compact);
-    font-weight: 600;
+    font-size: var(--fs-small);
+    font-weight: 500;
     background: var(--bg-3);
     color: var(--text-muted);
     border: 1px solid transparent;
@@ -1365,36 +1468,41 @@
   @media (pointer: fine) {
     button.chip:hover {
       color: var(--text);
-      transform: translateY(-1px);
+      background: var(--border);
     }
   }
-  .chip.tag {
-    background: color-mix(in srgb, var(--tc) 16%, var(--bg-2));
-    color: var(--text);
+  /* Quiet: every tag the same grey chip in muted ink. A tag's own colour is
+     kept as a 6px dot, which is enough to tell "Beginner" from "Advanced" at a
+     glance without a row of green, orange and blue pills competing with the
+     titles. */
+  /* One marker per tag: its colour as the dot, or, where whoever made the
+     tag chose an emoji, the emoji in the dot's place. Both side by side was
+     two badges for one word. */
+  .chip.tag.has-em::before {
+    display: none;
   }
-  .chip.tag.on {
-    background: color-mix(in srgb, var(--tc) 22%, var(--bg-2));
-    border-color: color-mix(in srgb, var(--tc) 60%, transparent);
-  }
-  @media (pointer: fine) {
-    button.chip.tag:hover {
-      background: color-mix(in srgb, var(--tc) 22%, var(--bg-2));
-      border-color: color-mix(in srgb, var(--tc) 60%, transparent);
-    }
+  .chip.tag::before {
+    content: "";
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--tc);
   }
   .chip.on {
     background: var(--accent-soft);
-    color: var(--text);
-    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    color: var(--accent-hover);
+    border-color: transparent;
   }
   .chip.ghost {
     background: transparent;
     border-color: var(--border);
   }
   .chip.sm {
-    padding: 2px 8px;
-    font-size: var(--fs-small);
-    background: color-mix(in srgb, var(--tc) 20%, var(--bg-elevated));
+    height: 20px;
+    padding: 0 7px;
+    gap: var(--sp-1);
+    font-size: var(--fs-tiny);
   }
   .chip-em {
     font-size: var(--fs-small);
@@ -1411,12 +1519,6 @@
   }
   .posts.list {
     grid-template-columns: 1fr;
-  }
-  .posts.gallery {
-    grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
-  }
-  .posts.cover {
-    grid-template-columns: repeat(auto-fill, minmax(264px, 1fr));
   }
 
   .card {
@@ -1541,7 +1643,7 @@
   .media {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(var(--tile-ang), var(--tile-a), var(--tile-b));
+    background: var(--bg-3);
     display: grid;
     place-items: center;
   }
@@ -1646,21 +1748,27 @@
     letter-spacing: 0.02em;
     white-space: nowrap;
   }
-  .flag.pin {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+  /* Flags are words, not pills: "2 new" in accent ink (it is aimed at you),
+     answered in the ok ink, closed in faint ink with its lock. */
+  .flag {
+    padding: 0;
+    font-weight: 600;
+    letter-spacing: 0;
   }
   .flag.ok {
-    background: var(--ok-soft);
     color: var(--ok-text);
   }
   .flag.new {
-    background: var(--accent);
-    color: var(--accent-fg);
+    color: var(--accent-hover);
   }
   .flag.closed {
-    background: var(--warn-soft);
-    color: var(--warn-text);
+    color: var(--text-faint);
+  }
+  .pin-mark {
+    display: inline-flex;
+    vertical-align: -1px;
+    margin-right: 6px;
+    color: var(--text-faint);
   }
   /* A closed post is still readable and still worth finding, so this is a
      quieter card, not a greyed-out one: the title stays at full contrast and
@@ -1686,9 +1794,10 @@
     color: var(--text-faint);
   }
   .tags {
-    display: flex;
+    display: inline-flex;
     flex-wrap: wrap;
     gap: var(--sp-1);
+    margin-left: var(--sp-1);
   }
   .meta {
     display: flex;
@@ -1747,141 +1856,182 @@
   }
 
   /* ---- layout: list ---------------------------------------------------- */
+  /* Rows, not boxes: the list is the board's face, so it reads like every
+     other list in the app — 72–88px rows split by hairlines, the title, one
+     line of excerpt, one meta line. A picture earns a small thumbnail; a post
+     without one gets no side art at all (the author is already in the meta
+     line). Unread is a heavier title and "2 new", not an accent edge bar. */
+  .posts.list {
+    gap: 0;
+    padding-top: var(--sp-1);
+  }
   .posts.list .card {
-    grid-template-columns: 92px 1fr auto;
-    align-items: stretch;
-  }
-  .posts.list .media {
-    /* A fixed column, so twenty titles start on the same vertical line. */
-    width: 92px;
-    align-self: stretch;
-    min-height: 84px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    min-height: 72px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--hairline);
     border-radius: 0;
+    animation: none;
   }
-  /* Without a picture the column holds only the author's face, and at 92px
-     with a 48px avatar it outweighed the 13px title beside it — the widest,
-     loudest thing on every card was a repeat of the name in the meta row. A
-     thumbnail earns 92px; a face gets a strip sized to the card's type. */
-  .posts.list .card:not(.has-shot) {
-    grid-template-columns: 52px 1fr auto;
+  .posts.list .card:last-child {
+    border-bottom: none;
   }
   .posts.list .card:not(.has-shot) .media {
-    width: 52px;
-    min-height: 0;
+    display: none;
+  }
+  .posts.list .card.has-shot {
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+  }
+  .posts.list .card.has-shot .media {
+    width: 64px;
+    height: 48px;
+    margin: 12px 0 0 var(--sp-2);
+    border-radius: var(--radius-sm);
   }
   .posts.list .body {
-    /* The card is a grid with NO column gap and the media column is a
-       full-bleed image, so a zero left padding put the title literally against
-       the edge of the artwork. It reads as a rendering fault rather than a
-       layout — most visible on a narrow window, where the text column is
-       tightest, but it was wrong at every width. */
-    padding: 11px var(--sp-2) 11px var(--sp-3);
+    gap: var(--sp-1);
+    padding: 12px var(--sp-2);
+  }
+  .posts.list .title {
+    font-size: calc(var(--fs-ui) + 1px);
+    font-weight: 500;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+  .posts.list .card.unread .title {
+    font-weight: 650;
+  }
+  .posts.list .excerpt {
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+  .posts.list .card.unread::after {
+    display: none;
+  }
+  .posts.list .card.pinned {
+    border-color: var(--hairline);
+  }
+  /* The post that is open: the selected-row ground every list uses. */
+  .posts.list .card.open {
+    background: var(--bg-3);
+    border-color: var(--hairline);
+  }
+  @media (pointer: fine) {
+    .posts.list .card:hover {
+      transform: none;
+      border-color: var(--hairline);
+      background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+    }
+    .posts.list .card.open:hover {
+      background: var(--bg-3);
+    }
+  }
+  .posts.list .card:focus-within {
+    border-color: var(--hairline);
+    outline-offset: -2px;
+  }
+  .posts.list .more {
+    margin-top: 10px;
   }
 
   /* ---- layout: gallery ------------------------------------------------- */
+  /* Cards in a grid: the picture on top (or the author on a flat tile of the
+     post's colour), the title and two lines under it. */
+  .posts.gallery {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
   .posts.gallery .card,
   .posts.cover .card {
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: auto 1fr;
   }
   .posts.gallery .media {
-    /* Row 1 EXPLICITLY: .more owns row 1 / column 2, and a spanning item can't
-       auto-place into a row that is already partly taken — it silently fell to
-       row 2 and left a dead band across the top of every card. */
-    grid-area: 1 / 1 / 2 / -1;
-    aspect-ratio: 16 / 10;
-    width: 100%;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    aspect-ratio: 16 / 9;
+    background: color-mix(in srgb, var(--tile-a) 30%, var(--bg-3));
   }
   .posts.gallery .body {
-    grid-area: 2 / 1 / 3 / -1;
-    padding: 11px 12px 12px;
+    grid-column: 1;
+    grid-row: 2;
+    padding: 10px var(--sp-3) var(--sp-3);
   }
-  .posts.gallery .wname,
-  .posts.cover .wname {
-    max-width: 84px;
-  }
-  .posts.gallery .more,
-  .posts.cover .more {
+  .posts.gallery .more {
     grid-column: 2;
-    grid-row: 1;
-    margin: 8px 8px 0 0;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.42);
-    opacity: 0;
+    grid-row: 2;
+  }
+  .posts.gallery .title {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+  .posts.gallery .excerpt {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
   }
 
   /* ---- layout: cover --------------------------------------------------- */
-  /* The brief's "background images … so we have boxes". The art fills the card
-     and the words sit on it — which is only safe because the same measured scrim
-     as the hero goes between them. */
+  /* The picture is the card and the words sit on it, on a flat scrim at the
+     floor forum.test.mjs proves; a post without a picture is a flat tile of
+     its own colour. */
+  .posts.cover {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
   .posts.cover .card {
-    min-height: 188px;
-    grid-template-rows: 1fr;
+    grid-template-rows: minmax(84px, 1fr) auto;
+    min-height: 200px;
+    border-color: transparent;
   }
   .posts.cover .media {
-    grid-area: 1 / 1 / 2 / 3;
-    width: 100%;
-    height: 100%;
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    background: var(--tile-a);
   }
-  .posts.cover .media::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      180deg,
-      rgba(0, 0, 0, 0.1) 0%,
-      rgba(0, 0, 0, 0.62) 46%,
-      rgba(0, 0, 0, 0.82) 100%
-    );
-  }
-  .posts.cover .tile {
-    position: absolute;
-    right: -4px;
-    top: 46%;
-    transform: translateY(-50%);
-    font-size: 104px;
-    line-height: 0.8;
-    /* Faint enough to be a watermark: at 0.5 it fought the title it sits behind,
-       which is the one thing a cover card cannot afford. */
-    color: rgba(255, 255, 255, 0.16);
+  .posts.cover .tile-face {
+    align-self: start;
+    justify-self: start;
+    margin: var(--sp-3);
   }
   .posts.cover .body {
-    grid-area: 1 / 1 / 2 / 3;
-    z-index: 2;
+    position: relative;
+    z-index: 1;
+    grid-column: 1 / -1;
+    grid-row: 2;
     align-self: end;
-    padding: 12px 14px 13px;
-    /* The text has to sit ABOVE the art, which puts it above the full-bleed hit
-       button too — so it must not swallow the click. Nothing inside .body is
-       interactive, so this costs nothing and keeps the whole card clickable. */
+    padding: 10px var(--sp-3) var(--sp-3);
+    background: rgba(0, 0, 0, 0.62);
     pointer-events: none;
   }
+  .posts.cover .more {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    margin: 0;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.62);
+  }
+  /* On the scrim everything reads in white whatever the theme, chips and
+     flags included: their theme inks are tuned for the theme's own ground. */
   .posts.cover .title,
   .posts.cover .excerpt,
   .posts.cover .meta,
   .posts.cover .wname,
-  .posts.cover .dot {
+  .posts.cover .mi,
+  .posts.cover .muted,
+  .posts.cover .flag,
+  .posts.cover .pin-mark {
     color: #fff;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  }
+  .posts.cover .chip.tag {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
   }
   .posts.cover .excerpt {
-    color: rgba(255, 255, 255, 0.9);
+    opacity: 0.88;
   }
-  .posts.cover .excerpt.faint {
-    color: rgba(255, 255, 255, 0.72);
-  }
-  .posts.cover .chip.sm {
-    background: rgba(0, 0, 0, 0.44);
-    color: #fff;
-    border: 1px solid color-mix(in srgb, var(--tc) 70%, transparent);
-  }
-  .posts.cover .flag.ok,
-  .posts.cover .flag.pin {
-    background: rgba(0, 0, 0, 0.5);
-    color: #fff;
-  }
-  .posts.cover .card.unread::after {
-    z-index: 3;
-  }
+
+
 
   /* ---- skeletons + empty/error states ---------------------------------- */
   .card.skel {
@@ -1919,49 +2069,9 @@
     animation-delay: 0.3s;
   }
 
+  /* The one empty state, top-anchored in the board's column. */
   .state {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--sp-2);
-    text-align: center;
-    padding: 32px 24px 48px;
-  }
-  .state h3 {
-    margin: 4px 0 0;
-    font-size: var(--fs-title);
-  }
-  .state p {
-    margin: 0;
-    max-width: 42ch;
-    font-size: var(--fs-ui);
-    line-height: 1.55;
-  }
-  .state button {
-    margin-top: 6px;
-  }
-  .state .cta.solid {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 9px 18px;
-    border-radius: 999px;
-    box-shadow: var(--accent-glow);
-  }
-  .state-badge {
-    display: grid;
-    place-items: center;
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-  }
-  .state-badge.bad {
-    background: var(--danger-soft);
-    color: var(--danger-text);
+    padding: var(--sp-2) var(--pad) var(--sp-6);
   }
   /* ---- tag picker ------------------------------------------------------- */
   .pick-wrap {
@@ -2062,35 +2172,17 @@
   }
 
   /* ---- mobile ---------------------------------------------------------- */
-  .fab {
-    position: fixed;
-    right: 16px;
-    bottom: calc(18px + var(--safe-bottom));
-    z-index: 40;
-    display: grid;
-    place-items: center;
-    width: 54px;
-    height: 54px;
-    padding: 0;
-    border-radius: 50%;
-    box-shadow: var(--float-shadow);
-    transition: transform var(--dur-standard) var(--ease-spring);
-  }
-  .fab:active {
-    transform: scale(0.94);
-  }
-
   /* THE phone query — the same condition S.isMobile uses, so the FAB is never
      drawn under a layout that hasn't made room for it. It previously rendered
      from 768px down while its clearance lived at 620px, which left every
      viewport in between (a phone in landscape, a 768px tablet) with an opaque
      54px circle parked on the last card's ⋯ button. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .board {
       /* The FAB's own offset is 18px + the home indicator, and it is 54px tall,
          so a flat 88px left it sitting ~18px over the last card on any
          gesture-nav phone. Reserve what the FAB actually occupies. */
-      padding-bottom: calc(88px + var(--safe-bottom));
+      padding-bottom: calc(28px + var(--safe-bottom));
     }
     .hero {
       min-height: 148px;
@@ -2111,12 +2203,12 @@
       -webkit-line-clamp: 1;
       line-clamp: 1;
     }
-    .posts.list .card {
-      grid-template-columns: 72px 1fr auto;
+    .posts.list .card.has-shot {
+      grid-template-columns: 56px minmax(0, 1fr) auto;
     }
-    .posts.list .media {
-      width: 72px;
-      min-height: 76px;
+    .posts.list .card.has-shot .media {
+      width: 56px;
+      height: 42px;
     }
     .wname {
       max-width: 110px;
@@ -2134,9 +2226,7 @@
        those two layouts stayed at opacity 0 on a phone while remaining fully
        hit-testable, which is worse than hidden: an invisible control sitting on
        the corner of every card. */
-    .more,
-    .posts.gallery .more,
-    .posts.cover .more {
+    .more {
       opacity: 1;
     }
     .more {
@@ -2156,9 +2246,6 @@
        inside a sticky bar. The row is one flickable line now, so the targets can
        be the real size — and the bar's height stops growing as you add filters,
        which is what actually cost the board space. */
-    .chip {
-      min-height: var(--tap-min);
-    }
     .pick-row {
       min-height: var(--tap-min);
     }
@@ -2215,49 +2302,66 @@
     .card:active {
       transform: scale(0.985);
     }
+    .posts.list .card:active {
+      transform: none;
+      background: var(--bg-3);
+    }
+    /* The toolbar on a phone: field, View, Post on one line; the chips are a
+       flickable row of their own at the 32px chip height, not 44px pills. */
+    .bar-row .chip {
+      min-height: 32px;
+    }
+    /* One meta line: the author, replies and time hold their width and the
+       tags give way (clipped) rather than wrapping the row to three lines. */
+    .who,
+    .mi,
+    .meta > .dot {
+      flex: none;
+    }
+    .tags {
+      flex-wrap: nowrap;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .tags .chip {
+      flex: none;
+    }
+    .new-post {
+      min-height: var(--tap-min);
+    }
   }
   /* The genuine narrow floor: at 360px a 72px thumbnail leaves ~200px for a
      title, two lines of excerpt and a metadata row. */
-  @media (max-width: 400px) {
-    .posts.list .card {
-      grid-template-columns: 64px 1fr auto;
-    }
-    .posts.list .media {
-      width: 64px;
-    }
-  }
 
-  @media (prefers-reduced-motion: reduce) {
-    .card,
-    .card.skel,
-    .ghost-card,
-    .media img,
-    .tile-load,
-    .sk-media,
-    .sk-line,
-    .pend-bar,
-    .pick,
-    .pick-wrap {
-      animation: none;
-    }
-    .card,
-    .media img,
-    .cta,
-    .glass,
-    button.stat,
-    .chip,
-    .fab {
-      transition: none;
-    }
-    .card:hover,
-    .cta:hover,
-    .glass:hover,
-    button.stat:hover,
-    button.chip:hover {
-      transform: none;
-    }
-    .card:hover .media img {
-      transform: none;
-    }
+
+  :global(:root[data-motion="reduced"]) .card,
+  :global(:root[data-motion="reduced"]) .card.skel,
+  :global(:root[data-motion="reduced"]) .ghost-card,
+  :global(:root[data-motion="reduced"]) .media img,
+  :global(:root[data-motion="reduced"]) .tile-load,
+  :global(:root[data-motion="reduced"]) .sk-media,
+  :global(:root[data-motion="reduced"]) .sk-line,
+  :global(:root[data-motion="reduced"]) .pend-bar,
+  :global(:root[data-motion="reduced"]) .pick,
+  :global(:root[data-motion="reduced"]) .pick-wrap {
+    animation: none;
+  }
+  :global(:root[data-motion="reduced"]) .card,
+  :global(:root[data-motion="reduced"]) .media img,
+  :global(:root[data-motion="reduced"]) .cta,
+  :global(:root[data-motion="reduced"]) .glass,
+  :global(:root[data-motion="reduced"]) button.stat,
+  :global(:root[data-motion="reduced"]) .chip {
+    transition: none;
+  }
+  :global(:root[data-motion="reduced"]) .card:hover,
+  :global(:root[data-motion="reduced"]) .cta:hover,
+  :global(:root[data-motion="reduced"]) .glass:hover,
+  :global(:root[data-motion="reduced"]) button.stat:hover,
+  :global(:root[data-motion="reduced"]) button.chip:hover {
+    transform: none;
+  }
+  :global(:root[data-motion="reduced"]) .card:hover .media img {
+    transform: none;
   }
 </style>

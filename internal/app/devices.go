@@ -172,6 +172,35 @@ func (s *Service) noteOwnDevice(cert *identity.DeviceCert, name, appVersion stri
 	s.saveDeviceRegistry(append(recs, rec))
 }
 
+// markDeviceLeft stamps "last seen" on one of our own devices as it
+// disconnects. The stamp was otherwise written only by a hello, at most once a
+// minute, so a device online for an hour read "last seen 59m ago" the moment
+// it dropped — or was unlinked — instead of "just now".
+func (s *Service) markDeviceLeft(p peer.ID) {
+	s.regMu.Lock()
+	defer s.regMu.Unlock()
+	recs := s.deviceRegistry()
+	if stampLastSeen(recs, p, time.Now().Unix()) {
+		s.saveDeviceRegistry(recs)
+	}
+}
+
+// stampLastSeen sets LastSeen on the record whose device key is p's, reporting
+// whether one matched.
+func stampLastSeen(recs []ownDevice, p peer.ID, now int64) bool {
+	for i := range recs {
+		raw, err := hex.DecodeString(recs[i].Key)
+		if err != nil {
+			continue
+		}
+		if id, ok := devicePeerID(raw); ok && id == p {
+			recs[i].LastSeen = now
+			return true
+		}
+	}
+	return false
+}
+
 // ownDeviceCerts is the certificate view of the registry, kept for the callers
 // (and tests) that only want the certs.
 func (s *Service) ownDeviceCerts() []*identity.DeviceCert {

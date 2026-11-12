@@ -132,6 +132,21 @@ come from. No family in the set declares a Reserved Font Name.
   - `storage/file/file.go` — `syncDir` skips the directory `fsync` on Windows,
     which rejects it with "Access is denied"; the temp file is already synced
     and atomically renamed, so nothing is lost.
+  - Added `secrettree/pastsecrets.go`, `Group.TakePastSecrets` /
+    `AdoptPastSecrets` in `group/messaging.go`, and a `past` field plus a few
+    lines in `Client.ReceiveMessage` (`client.go`): an out-of-order window
+    that survives the reload a `CacheNone` client does on every operation.
+    Upstream keeps past generations only in the in-memory tree, and a
+    `CacheNone` client discards that tree after each message, so a message
+    arriving after a later one from the same sender could never be decrypted.
+    Security consequence: per sender leaf, at most 2048 ratchet secrets (the
+    library's own past-generation cap) of
+    generations whose messages have not arrived yet are kept in memory (never
+    on disk) until they arrive or the epoch changes; a generation's secret is
+    zeroed the moment its message decrypts. Forward secrecy within an epoch is
+    therefore weaker only for those not-yet-delivered messages, exactly as
+    RFC 9420 §9.2 allows for out-of-order delivery. Test:
+    `client_outoforder_test.go`.
   - Removed `interop/server` and `interop/testrunner` (upstream's cross-library
     interop harness, which Concord does not build).
 

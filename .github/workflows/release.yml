@@ -163,7 +163,7 @@ jobs:
       - uses: actions/setup-java@v6
         with: { distribution: temurin, java-version: "21" }
       # Third-party actions are pinned by commit, not by tag: a tag is mutable,
-      # and this job holds the signing keystore. (v3)
+      # and this job holds the signing keystore. (v4.0.4)
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
       - name: Install NDK + gomobile
         # gomobile/gobind are pinned to the golang.org/x/mobile revision in
@@ -329,7 +329,7 @@ jobs:
       # with `permissions: contents: write` is enough — no personal access token
       # is involved, so a fork's release works with no secrets configured.
       - name: Publish GitHub Release
-        # Pinned by commit (v2): this step runs with contents: write.
+        # Pinned by commit (v3.0.3): this step runs with contents: write.
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64
         with:
           files: release-assets/*

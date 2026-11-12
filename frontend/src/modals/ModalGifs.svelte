@@ -23,6 +23,7 @@
   //   `source`, and every sentence below is built from that. Do not put a vendor
   //   name back into this file.
   import Modal from "./Modal.svelte";
+  import Tabs from "../Tabs.svelte";
   import Icon from "../Icon.svelte";
   import EmptyState from "../EmptyState.svelte";
   import { S, activeGuild, flash, refreshGuilds, setOffDeviceSearch } from "../lib/state.svelte.js";
@@ -532,21 +533,16 @@
   }
 </script>
 
-<Modal title="GIFs — {g?.name ?? ''}" {onClose} wide>
-  <div class="tabs" role="tablist">
-    <button
-      role="tab"
-      aria-selected={tab === "pack"}
-      class:on={tab === "pack"}
-      onclick={() => (tab = "pack")}>This guild</button
-    >
-    <button
-      role="tab"
-      aria-selected={tab === "search"}
-      class:on={tab === "search"}
-      onclick={() => (tab = "search")}>Search</button
-    >
-  </div>
+<Modal title="GIFs" subtitle={g?.name ?? ""} {onClose} size="l">
+  <Tabs
+    label="GIF source"
+    value={tab}
+    onChange={(id) => (tab = id)}
+    tabs={[
+      { id: "pack", label: "This guild" },
+      { id: "search", label: "Search" },
+    ]}
+  />
 
   {#if tab === "pack"}
     <div class="bar">
@@ -562,7 +558,7 @@
         aria-label="Search this guild's GIFs"
       />
       {#if canManage}
-        <button class="addbtn" onclick={() => (adding = !adding)} title="Add a GIF to this guild">
+        <button class="primary addbtn" onclick={() => (adding = !adding)} title="Add a GIF to this guild">
           <Icon name="plus" size={14} /> Add
         </button>
       {/if}
@@ -591,7 +587,7 @@
           <input dir="auto" bind:value={newName} maxlength="64" placeholder="Name (e.g. cat vibing)" />
           <input bind:value={newTags} placeholder="Tags, space or comma separated" />
         </div>
-        <button class="go" onclick={add} disabled={busy || !pending || !newName.trim()}>Add</button>
+        <button class="primary go" onclick={add} disabled={busy || !pending || !newName.trim()}>Add</button>
       </div>
     {/if}
 
@@ -650,7 +646,7 @@
         >
           {#snippet actions()}
             {#if canManage}
-              <button onclick={() => (adding = true)}><Icon name="plus" size={14} /> Add a GIF</button>
+              <button class="primary" onclick={() => (adding = true)}><Icon name="plus" size={14} /> Add a GIF</button>
             {/if}
             <button class="ghost" onclick={() => (tab = "search")}>Search instead →</button>
           {/snippet}
@@ -690,7 +686,7 @@
           }
         }}
       />
-      <button class="go" onclick={() => runSearch(false)} disabled={!usable || searching || !sq.trim()}>
+      <button class="primary go" onclick={() => runSearch(false)} disabled={!usable || searching || !sq.trim()}>
         {searching ? "Searching…" : "Search"}
       </button>
     </div>
@@ -750,7 +746,7 @@
             {/each}
           </div>
           {#if next}
-            <button class="more" use:autopage onclick={() => runSearch(true)} disabled={searching}>
+            <button class="quiet more" use:autopage onclick={() => runSearch(true)} disabled={searching}>
               {searching ? "Loading…" : "More results"}
             </button>
           {/if}
@@ -794,25 +790,6 @@
 </Modal>
 
 <style>
-  .tabs {
-    display: flex;
-    gap: var(--sp-1);
-    margin-bottom: var(--sp-2);
-    border-bottom: 1px solid var(--border);
-  }
-  .tabs button {
-    padding: 6px 10px;
-    font-size: var(--fs-compact);
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-muted);
-    border-radius: 0;
-  }
-  .tabs button.on {
-    color: var(--text);
-    border-bottom-color: var(--accent);
-  }
   .bar {
     display: flex;
     align-items: center;
@@ -963,10 +940,8 @@
       opacity: 0.45;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .shimmer {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .shimmer {
+    animation: none;
   }
   .rm {
     position: absolute;

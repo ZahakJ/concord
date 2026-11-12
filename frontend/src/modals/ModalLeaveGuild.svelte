@@ -1,4 +1,5 @@
 <script>
+  import Caution from "./Caution.svelte";
   // Leave and delete my copy.
   //
   // The row used to say "Delete guild", in a section headed DANGER ZONE, to the
@@ -14,12 +15,10 @@
   // says the consequence out loud with the two doors that answer it beside the
   // sentence rather than three panels away.
   import RailShell from "./RailShell.svelte";
-  import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
   import {
     S,
     activeGuild,
-    leaveGuildCopy,
     leaveGuildLabel,
     leaveGuildNow,
     switchPanel,
@@ -29,9 +28,6 @@
   let { onClose } = $props();
 
   const g = $derived(activeGuild());
-  // Raised INSIDE the page rather than by swapping S.modal for it: a page that
-  // replaces itself with its own question cannot be cancelled back to.
-  let asking = $state(false);
   const others = $derived(Math.max(0, (S.members || []).filter((m) => !m.isSelf).length));
   const heirNamed = $derived(!!g?.heir);
 </script>
@@ -47,27 +43,22 @@
     {#if g.isOwner}
       <!-- The owner-specific consequence, and the two things that answer it. -->
       <div class="consequence">
-        <p>
-          <Icon name="crown" size={14} />
-          <span>
-            You own this guild.
-            {#if heirNamed}
-              You have named an heir, so somebody can take it over after you go — but until they
-              do, nobody can add or remove members.
-            {:else}
-              <strong>Nobody will be able to add or remove members after you go</strong>, and there
-              is no way to appoint anyone once you are gone.
-            {/if}
-          </span>
-        </p>
+        {#if heirNamed}
+          <Caution
+            text="You own this guild: until your heir takes over, nobody can add or remove members."
+            detail="You have named an heir, so somebody can take the guild over after you go."
+          />
+        {:else}
+          <Caution
+            text="You own this guild: after you go, nobody can add or remove members."
+            detail="There is no way to appoint anyone once you are gone. Name an heir or transfer ownership first if the guild should carry on."
+          />
+        {/if}
         <div class="doors">
-          <button class="ghost" onclick={() => switchPanel("ownership")}>
-            <Icon name="crown" size={13} />
+          <button class="link" onclick={() => switchPanel("ownership")}>
             {heirNamed ? "Change the heir" : "Name an heir first"}
           </button>
-          <button class="ghost" onclick={() => switchPanel("ownership")}>
-            <Icon name="members" size={13} /> Transfer ownership
-          </button>
+          <button class="link" onclick={() => switchPanel("ownership")}>Transfer ownership</button>
         </div>
       </div>
     {/if}
@@ -83,7 +74,7 @@
       </li>
       <li>Rejoining takes a new invite — leaving does not hold your place.</li>
       <li>
-        If you want to keep the words, <button class="linkish" onclick={() => switchPanel("exportGuild")}
+        If you want to keep the words, <button class="link" onclick={() => switchPanel("exportGuild")}
           >export the history</button
         > before you go.
       </li>
@@ -91,7 +82,9 @@
 
     <div class="actions">
       <button class="ghost" onclick={onClose}>Cancel</button>
-      <button class="danger" onclick={() => (asking = true)}>
+      <!-- This page IS the question: its words, Cancel and the verb. A second
+           confirm repeating the same sentence was asking twice. -->
+      <button class="danger" onclick={() => leaveGuildNow(g)}>
         <Icon name={g.isOwner ? "trash" : "door"} size={14} />
         {leaveGuildLabel(g)}
       </button>
@@ -99,53 +92,26 @@
   {/if}
 </RailShell>
 
-{#if asking && g}
-  {@const copy = leaveGuildCopy(g)}
-  <ConfirmDialog
-    title={copy.title}
-    body={copy.body}
-    confirmLabel={copy.confirmLabel}
-    onConfirm={() => leaveGuildNow(g)}
-    onClose={() => (asking = false)}
-  />
-{/if}
 
 <style>
   .lead {
     margin: 0;
     line-height: 1.55;
   }
+  /* The owner's consequence: one warning line and the two ways to answer
+     it as links under it — not an amber box with buttons inside. */
   .consequence {
-    border: 1px solid color-mix(in srgb, var(--warn) 34%, transparent);
-    background: color-mix(in srgb, var(--warn) 10%, transparent);
-    border-radius: var(--radius-md);
-    padding: 12px 14px;
     display: flex;
     flex-direction: column;
-    gap: var(--sp-3);
-  }
-  .consequence p {
-    display: flex;
-    gap: var(--sp-2);
-    align-items: flex-start;
-    margin: 0;
-    line-height: 1.5;
-    font-size: var(--fs-small);
-    color: var(--warn-text);
-  }
-  .consequence p :global(svg) {
-    flex: none;
-    margin-top: 2px;
+    gap: var(--sp-1);
   }
   .doors {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--sp-2);
+    gap: var(--sp-4);
+    padding-left: 19px;
   }
   .doors button {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
     font-size: var(--fs-small);
   }
   .facts {
@@ -157,14 +123,6 @@
     font-size: var(--fs-small);
     line-height: 1.5;
     color: var(--text-muted);
-  }
-  .linkish {
-    background: none;
-    border: 0;
-    padding: 0;
-    font: inherit;
-    color: var(--accent-hover);
-    text-decoration: underline;
   }
   .actions {
     display: flex;
@@ -182,6 +140,5 @@
   .actions .danger {
     background: var(--danger);
     color: var(--danger-fg);
-    box-shadow: 0 0 12px color-mix(in srgb, var(--danger) 35%, transparent);
   }
 </style>

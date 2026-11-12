@@ -1,6 +1,8 @@
 <script>
   // Chat column header: channel name, search, pins, voice, guild actions.
   import Icon from "./Icon.svelte";
+  import OwnerMark from "./OwnerMark.svelte";
+  import { ownsPlace, ownerLabel } from "./lib/ownermark.js";
   import Menu from "./Menu.svelte";
   import {
     S,
@@ -19,10 +21,15 @@
     openGuildHub,
     openCallStage,
     channelShort,
-    callRoster,
+    markRead,
+    setPref,
+    setChannelNotifs,
+    guildNotifLevel,
     callHealth,
   } from "./lib/state.svelte.js";
   import { callClock } from "./lib/calltimer.svelte.js";
+  import { LEVELS, levelLabel } from "./lib/notifs.js";
+  import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
   import { saveText } from "./lib/savefile.js";
   // Operator parsing (from:/in:/has:/before:/after:) + the backend call live
@@ -34,9 +41,12 @@
   // tip's text unless the tip needs richer wording than the label.
   import { tooltip } from "./lib/tooltip.js";
   import { fitText } from "./lib/fittext.js";
+  import { insp } from "./lib/inspector.svelte.js";
 
-  let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } =
-    $props();
+  let { onJoinVoice, onLeaveVoice } = $props();
+
+  const callState = $derived(callHealth());
+  const clock = $derived(callClock());
 
   // Handed to lib/search.js so a filter chip clicked in the results panel can
   // type its prefix here and put the caret back after it.
@@ -66,7 +76,18 @@
       (voiceMembersFor(ch.id) || []).some((m) => !m.self),
   );
   const peerSharing = $derived(peerInCall && (voiceMembersFor(ch.id) || []).some((m) => !m.self && m.sharing));
-  const pinnedCount = $derived(S.messages.filter((m) => m.pinned && !m.deleted).length);
+  // The inspector toggle wears the member count (tabular figures): the people
+  // glyph alone said nothing about how many were in here.
+  const memberCount = $derived(S.members.length);
+  const canManageChannels = $derived(!!g && (g.isOwner || has(g.myPerms || 0, PERM.MANAGE_CHANNELS)));
+  async function copyChannelLink() {
+    try {
+      await navigator.clipboard.writeText(`concord://channel?id=${encodeURIComponent(S.activeChannelId)}`);
+      flash("Copied channel link", "success");
+    } catch {
+      flash("Couldn't copy the link");
+    }
+  }
   // ---- how much room this header actually has -----------------------------
   //
   // Every tier here used to be a viewport media query, and a viewport is the
@@ -110,7 +131,6 @@
   // which the tier above it has run out of slack, measured on the real thing.
   //
   //   narrow  the topic leaves, and the buttons drop their word labels
-  //   tight   disappearing / events / invite fold into the ⋯ menu
   //   stub    the search field becomes a 32px magnifier
   //   packed  pins and the member-list toggle fold in too
   //
@@ -121,14 +141,19 @@
   // which puts this header at 864, 733, 624, 576, 532 and 384px in turn. 700 is
   // the last width at which the full row still fits — at 624 it overflowed by
   // 86px and put Invite and the ⋯ menu itself off the right edge.
-  const narrow = $derived(headW <= 700);
-  const tight = $derived(!S.isMobile && narrow);
+  const narrow = $derived(headW <= 640);
   const stub = $derived(headW <= 460);
   const packed = $derived(headW <= 380);
-  const clock = $derived(callClock());
+
+  // Pins, one click from the header again, while the window is wide enough
+  // for it to be the fifth control at most; below that it is a row in ⋯.
+  let winW = $state(window.innerWidth);
+  const showPins = $derived(winW >= 1024 && !packed);
+  function openPins() {
+    insp.tab = "pins";
+    if (!S.prefs.memberPanel) setPref("memberPanel", true);
+  }
   const callLabel = $derived(S.voice ? channelShort(S.voice.channelId) : "");
-  // One state machine for the call — see callHealth in state.svelte.js.
-  const callState = $derived(callHealth());
 
   async function showInvite() {
     S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) };
@@ -155,6 +180,8 @@
 
 </script>
 
+<svelte:window bind:innerWidth={winW} />
+
 <header
   class="chat-head"
   class:narrow
@@ -168,6 +195,7 @@
            is what it means everywhere else in this app. -->
       <Icon name="bubble" size={15} />
       <strong>{g.name}</strong>
+      {#if ownsPlace(g)}<OwnerMark size={12} label={ownerLabel(g)} />{/if}
     {:else if ch?.parent}
       <!-- A forum post: breadcrumb back to its board. -->
       <button
@@ -230,6 +258,15 @@
         bind:value={S.searchQuery}
         oninput={() => queueSearch()}
         onkeydown={(e) => {
+          // ↓ walks into the results (SearchPanel answers the arrows there).
+          if (e.key === "ArrowDown" && !e.altKey) {
+            const hit = document.querySelector(".search-panel .sp-hit");
+            if (hit) {
+              e.preventDefault();
+              hit.focus();
+            }
+            return;
+          }
           if (e.key === "Escape") {
             // blur FIRST: closeSearch homes focus to the composer, and a blur
             // after it would take that away again and land on <body>.
@@ -265,53 +302,13 @@
          name wins. -->
     {#if packed}
       <!-- nothing: see the ⋯ menu -->
-    {:else if S.voice && S.voice.channelId === S.activeChannelId && (g?.kind === "dm" || g?.kind === "meeting")}
-      <!-- In a DM the conversation stays; the tiles are a layer you open. -->
-      <button class="ghost iconbtn" use:tooltip aria-label="Open the call" onclick={() => openCallStage()}>
-        <Icon name="screen" /> <span class="n">Open the call</span>
-      </button>
-      <button class="ghost iconbtn endcall" use:tooltip aria-label="Leave call" onclick={onLeaveVoice}>
-        <Icon name="door" /> <span class="n">End call</span>
-      </button>
     {:else if S.voice && S.voice.channelId === S.activeChannelId}
-      <!-- Active voice collapses to one pill with mute + leave inside it. -->
-      <span class="voice-pill" class:trouble={!callState.live}>
-        <!-- callRoster, not a second count: this is the same list the stage
-             draws its tiles from, so the number and the picture cannot drift
-             apart while somebody is arriving or leaving. -->
-        <button
-          type="button"
-          class="pill-label"
-          title="Open the call"
-          aria-label="Open the call"
-          onclick={() => openCallStage()}
-        >
-          <Icon name="speaker" size={12} />
-          {callRoster().length}
-        </button>
-        <span class="pill-sep"></span>
-        <!-- The same controls, the same two colours, on every surface that
-             carries them: mic and deafen light DANGER when they are stopping
-             something, camera and screen light OK when they are sending
-             something. This pill used to have no lit state for the mic at all —
-             the glyph swapped and nothing else did — while the sidebar bar lit
-             the SAME state green, which is this row's colour for "on the air". -->
-        <button class="callbtn xs cut" class:on={S.muted} title={S.muted ? "Unmute mic" : "Mute mic"} aria-label={S.muted ? "Unmute mic" : "Mute mic"} aria-pressed={S.muted} onclick={onToggleMute}>
-          <Icon name={S.muted ? "micOff" : "mic"} size={15} />
-        </button>
-        <button class="callbtn xs cut" class:on={S.deafened} title={S.deafened ? "Undeafen" : "Deafen"} aria-label={S.deafened ? "Undeafen" : "Deafen"} aria-pressed={S.deafened} onclick={onToggleDeafen}>
-          <Icon name={S.deafened ? "deafened" : "speaker"} size={15} />
-        </button>
-        <button class="callbtn xs" class:on={S.cameraOn} title={S.cameraOn ? "Turn off camera" : "Turn on camera"} aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"} aria-pressed={S.cameraOn} onclick={onToggleCamera}>
-          <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={15} />
-        </button>
-        <button class="callbtn xs" class:on={S.sharing} title={S.sharing ? "Stop sharing" : "Share screen"} aria-label={S.sharing ? "Stop sharing" : "Share screen"} aria-pressed={S.sharing} onclick={onToggleShare}>
-          <Icon name={S.sharing ? "screenOff" : "screen"} size={15} />
-        </button>
-        <button class="callbtn xs hang" title="Leave voice" aria-label="Leave voice" onclick={onLeaveVoice}>
-          <Icon name="door" size={15} />
-        </button>
-      </span>
+      <!-- Nothing: you are in this conversation's call, and the call has one
+           surface (§8, one of each). The sidebar's dock carries the room, the
+           clock, the five controls and the hang-up; with the sidebar hidden
+           the small floating dock does. This header used to carry a third
+           copy — a pill with its own timer and hang-up, or "Open the call"
+           beside "End call" — so a call showed two timers and two hang-ups. -->
     {:else if ch && peerInCall}
       <!-- The other side is already on a call — make it obvious and one-click. -->
       <button class="ghost iconbtn live-join" use:tooltip={"Join the call"} onclick={() => onJoinVoice()}>
@@ -322,12 +319,11 @@
            phone shell already withheld it (`!g.dmNotes`) and the desktop header
            did not, which left a Call button whose only possible outcome was
            ringing an empty room. -->
-    {:else if S.voice}
-      <!-- You are already in a call, somewhere else. This button used to read
-           "Voice" here — the same word as the button that STARTS one, two
-           channels away — and clicking it took you back to the call you were
-           in with no explanation. Same label, two meanings. The clock says
-           which of the two this is without needing the sentence. -->
+    {:else if S.voice && S.prefs.sidebarHidden}
+      <!-- In a call somewhere else with the sidebar put away: the bar that
+           names the call and takes you back is gone with it, so the way back
+           is said here too, beside the floating window. The dot and the clock
+           answer to the same state as the window's. -->
       <button
         class="ghost iconbtn return-call"
         class:trouble={!callState.live}
@@ -335,16 +331,18 @@
         onclick={() => openCallStage()}
       >
         <span class="live-dot"></span>
-        <!-- The dot and the clock are the same claim the sidebar bar and the
-             dock make, so they answer to the same state — a green dot beside a
-             running number over a call that is not carrying is the whole of the
-             bug this button used to share with them. -->
-        <span class="n">
-          {callState.live ? `Return to call${clock ? ` · ${clock}` : ""}` : callState.label}
-        </span>
+        <span class="n">{callState.live ? `Return to call${clock ? ` · ${clock}` : ""}` : callState.label}</span>
       </button>
-    {:else if ch && !g?.dmNotes}
-      <!-- No colour. Green means one thing in this app — the call is live — and
+    {:else if S.voice}
+      <!-- In a call somewhere else: the sidebar's call line and the floating
+           window say which and take you back. A "Start a call" here would
+           mean leaving that one, so it waits. -->
+    {:else if ch && !g?.dmNotes && !g?.evicted && (g?.kind === "dm" || g?.kind === "meeting" || ch.type === "voice")}
+      <!-- A guild text channel shows no call button: a speaker glyph there
+           read as "join voice" and started a call in the text channel
+           instead. Starting one is still in ⋯.
+
+           No colour. Green means one thing in this app — the call is live — and
            this is the button that has not started one yet, in either place. It
            used to be success-green in a DM and neutral grey in a channel: the
            same button, the same label, the same icon, the same action, painted
@@ -355,73 +353,43 @@
            elsewhere (ok). -->
       <button
         class="ghost iconbtn"
+        aria-label={g?.kind === "dm" || g?.kind === "meeting" ? "Start a call" : "Start a call in this channel"}
         use:tooltip={{ text: g?.kind === "dm" || g?.kind === "meeting" ? "Start a call" : "Start a call in this channel" }}
         onclick={() => onJoinVoice()}
       >
-        <Icon name="speaker" /> <span class="n">Start a call</span>
+        <Icon name="speaker" />{#if g?.kind === "dm" || g?.kind === "meeting"}
+          <span class="n">Start a call</span>{/if}
       </button>
     {/if}
 
-    {#if ch && !packed}
+    {#if ch && g?.kind !== "dm" && showPins}
       <button
         class="ghost iconbtn"
-        class:pin-active={S.showPins}
-        use:tooltip
+        class:pin-active={S.prefs.memberPanel && insp.tab === "pins"}
+        use:tooltip={{ text: "Pinned messages" }}
         aria-label="Pinned messages"
-        onclick={() => (S.showPins = !S.showPins)}
+        onclick={openPins}
       >
-        <Icon name="pin" />{#if pinnedCount}<span class="n count">{pinnedCount}</span>{/if}
+        <Icon name="pin" />
       </button>
     {/if}
-
-    {#if ch && !tight}
-      <button
-        class="ghost iconbtn"
-        class:pin-active={ephTTL > 0}
-        use:tooltip={{ text: ephTTL > 0 ? `Disappearing after ${ttlLabel(ephTTL)}` : "Disappearing messages" }}
-        aria-label="Disappearing messages"
-        onclick={() => (S.modal = { kind: "disappear", channelId: S.activeChannelId })}
-      >
-        <Icon name="clock" />
-      </button>
-    {/if}
-
-    {#if g && !tight}
-      <!-- The calendar — the thing that replaces "so when are we on?"
-           scroll-back. Every room gets one: a guild's is the crew's shared
-           board, a DM's is "when are we hopping on?" between its people, and
-           Notes' is your private list (a single-member group, so private by
-           construction). Mounted like Pins: a button here, a sheet entry on
-           phones (MobileShell's ⋯, since this header never renders there). -->
-      <button
-        class="ghost iconbtn"
-        use:tooltip={{ text: g.dmNotes ? "Private events" : "Events" }}
-        aria-label={g.dmNotes ? "Private events" : g.kind === "dm" ? "Events in this conversation" : "Guild events"}
-        onclick={() => (S.modal = { kind: "events" })}
-      >
-        <Icon name="calendar" />
-      </button>
-    {/if}
-
     {#if ch && g?.kind !== "dm" && !packed}
+      <!-- The inspector: members, pins, files and threads beside the
+           conversation. People glyph + the member count; Ctrl+U as before. -->
       <button
-        class="ghost iconbtn"
+        class="ghost iconbtn insp-toggle"
         class:pin-active={S.prefs.memberPanel}
-        use:tooltip={{ text: "Toggle member list (Ctrl+U)" }}
-        aria-label="Toggle member list"
+        use:tooltip={{ text: "Members, pins and files · Ctrl+U" }}
+        aria-label="Members, pins and files"
         aria-pressed={S.prefs.memberPanel}
         onclick={toggleMemberPanel}
       >
-        <Icon name="members" />
+        <Icon name="members" />{#if memberCount}<span class="n count">{memberCount}</span>{/if}
       </button>
     {/if}
 
-    {#if g?.canManage && g?.kind !== "dm" && !tight}
-      <button class="ghost iconbtn invite" onclick={showInvite}><span class="invite-label">Invite</span></button>
-    {/if}
-
     {#if g}
-      <Menu label="More" icon="chevron">
+      <Menu label="More" icon="dots">
         <!-- The overflow well. Everything that leaves the bar arrives here, in
              the order it left, so a squeezed header hides nothing — it moves
              things. Before this the last tier simply clipped: at 150% zoom
@@ -443,45 +411,93 @@
           <button class="menu-item" onclick={() => openCallStage()}>
             <Icon name="speaker" size={14} /> Open {callLabel || "the call"}
           </button>
-        {:else if packed && ch && !g?.dmNotes}
+        {:else if packed && ch && !g?.dmNotes && !g?.evicted}
           <button class="menu-item" onclick={() => onJoinVoice()}>
             <Icon name="speaker" size={14} /> Start a call
-          </button>
-        {/if}
-        {#if packed && ch}
-          <button class="menu-item" onclick={() => (S.showPins = !S.showPins)}>
-            <Icon name="pin" size={14} />
-            {pinnedCount ? `Pinned messages (${pinnedCount})` : "Pinned messages"}
           </button>
         {/if}
         {#if packed && ch && g.kind !== "dm"}
           <button class="menu-item" onclick={toggleMemberPanel}>
             <Icon name="members" size={14} />
-            {S.prefs.memberPanel ? "Hide the member list" : "Show the member list"}
+            {S.prefs.memberPanel ? "Hide members, pins and files" : "Members, pins and files"}
           </button>
         {/if}
-        {#if tight && ch}
+        <div class="menu-sep"></div>
+        {#if ch && !g.dmNotes}
+          <!-- First in ⋯, as the channel's own menu has it: the level in force
+               ticked, and "Use guild default" as its own answer. Flat, because
+               menus here have no fly-outs. -->
+          <div class="menu-head">Notifications</div>
+          {#if g.kind !== "dm"}
+            <button class="menu-item" class:active={!S.notifs.channels[ch.id]} onclick={() => setChannelNotifs(ch.id, null)}>
+              <Icon name="bell" size={14} /> Use guild default ({levelLabel(guildNotifLevel(g.id))})
+              {#if !S.notifs.channels[ch.id]}<span class="tick"><Icon name="check" size={13} /></span>{/if}
+            </button>
+          {/if}
+          {#each LEVELS as l (l.id)}
+            <button
+              class="menu-item"
+              class:active={S.notifs.channels[ch.id] === l.id}
+              onclick={() => setChannelNotifs(ch.id, g.kind === "dm" && l.id === "all" ? null : l.id)}
+            >
+              <Icon name={l.id === "none" ? "bellOff" : "bell"} size={14} />
+              {l.label}
+              {#if S.notifs.channels[ch.id] === l.id || (g.kind === "dm" && l.id === "all" && !S.notifs.channels[ch.id])}<span class="tick"><Icon name="check" size={13} /></span>{/if}
+            </button>
+          {/each}
+          <div class="menu-sep"></div>
+        {/if}
+        {#if !packed && ch && !g.dmNotes && !g.evicted && g.kind !== "dm" && g.kind !== "meeting" && ch.type !== "voice" && !S.voice && !peerInCall}
+          <button class="menu-item" onclick={() => onJoinVoice()}>
+            <Icon name="speaker" size={14} /> Start a call in this channel
+          </button>
+        {/if}
+        {#if ch && g.kind !== "dm" && !showPins}
+          <button class="menu-item" onclick={openPins}>
+            <Icon name="pin" size={14} /> Pinned messages
+          </button>
+        {/if}
+        {#if ch}
+          <button class="menu-item" onclick={() => markRead(S.activeChannelId)}>
+            <Icon name="check" size={14} /> Mark as read
+          </button>
+          <button class="menu-item" onclick={() => (S.modal = { kind: "scheduled" })}>
+            <Icon name="clock" size={14} /> Scheduled messages
+          </button>
+        {/if}
+        <button class="menu-item" onclick={() => (S.modal = { kind: "events" })}>
+          <Icon name="calendar" size={14} /> {g.dmNotes ? "Private events" : "Events"}
+        </button>
+        {#if g.canManage && g.kind !== "dm"}
+          <button class="menu-item" onclick={showInvite}>
+            <Icon name="personPlus" size={14} /> Invite people
+          </button>
+        {/if}
+        {#if ch}
           <button
             class="menu-item"
             onclick={() => (S.modal = { kind: "disappear", channelId: S.activeChannelId })}
           >
-            <Icon name="clock" size={14} />
+            <Icon name="eyeOff" size={14} />
             {ephTTL > 0 ? `Disappearing after ${ttlLabel(ephTTL)}` : "Disappearing messages"}
           </button>
         {/if}
-        {#if tight}
-          <button class="menu-item" onclick={() => (S.modal = { kind: "events" })}>
-            <Icon name="calendar" size={14} /> {g.dmNotes ? "Private events" : "Events"}
+        {#if ch && g.kind !== "dm" && canManageChannels && ch.type !== "voice" && !ch.parent}
+          <button class="menu-item" onclick={() => (S.modal = { kind: "channelTopic", channel: ch })}>
+            <Icon name="gear" size={14} /> Channel settings
           </button>
         {/if}
-        {#if tight && g.canManage && g.kind !== "dm"}
-          <button class="menu-item" onclick={showInvite}>
-            <Icon name="plus" size={14} /> Invite people
+        {#if ch && g.kind !== "dm"}
+          <button class="menu-item" onclick={copyChannelLink}>
+            <Icon name="link" size={14} /> Copy channel link
           </button>
         {/if}
-        {#if tight || packed}
-          <div class="menu-sep"></div>
+        {#if !S.isMobile}
+          <button class="menu-item" onclick={() => setPref("sidebarHidden", true)}>
+            <Icon name="menu" size={14} /> Hide sidebar
+          </button>
         {/if}
+        <div class="menu-sep"></div>
         {#if ch}
           <button class="menu-item" onclick={exportChannel}>
             <Icon name="download" size={14} /> Export history
@@ -532,11 +548,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 11px 16px;
+    min-height: var(--header-h);
+    box-sizing: border-box;
+    padding: 0 12px var(--header-pad-b) var(--sp-edge);
     border-bottom: 1px solid var(--border);
     gap: 10px;
-    /* Faint drop under the header: elevation over the feed it caps. */
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     position: relative;
     /* Above the message rows (which raise their hover bar / attachments to
        z-30): the header's dropdown menus overhang the feed, and a menu that
@@ -546,20 +562,6 @@
   }
   /* An accent thread under the channel name, fading out rightward — the
      header quietly points at where you are. */
-  .chat-head::after {
-    content: "";
-    position: absolute;
-    left: 16px;
-    bottom: -1px;
-    /* Clamped to the bar. A flat 180px starting 16px in is 196px of box, which
-       on a 189px header is 7px of horizontal overflow — invisible, because it
-       is a one-pixel hairline, and enough to make the header report itself as
-       scrollable at the tightest zoom. */
-    width: min(180px, calc(100% - 32px));
-    height: 1px;
-    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
-    pointer-events: none;
-  }
   /* Where you ARE outranks everything you can do here, and this is the third
      time that has had to be said in CSS. First the title was a plain flex item
      beside an action row of nowrap buttons, and flex handed the width to the
@@ -613,27 +615,25 @@
      the title, so the field narrows to its floor first and only then does the
      topic start to give. Focus still widens it: you get the room when you are
      actually typing. */
+  /* Search is a 32px control until it is used; then it becomes a 280px
+     field in place, and the topic is what gives way to it. */
   .search-wrap {
-    flex: 0 1 clamp(84px, 20 * var(--vw), 190px);
-    min-width: 96px;
-    transition: flex-basis var(--dur-calm) var(--ease-out);
+    flex: 0 0 32px;
+    min-width: 0;
   }
   .search-wrap:focus-within,
   .search-wrap.open {
-    flex-basis: clamp(84px, 28 * var(--vw), 260px);
-    flex-shrink: 0;
+    flex-basis: min(280px, 40 * var(--vw));
   }
   .chat-head:not(.stub) > .row:last-child {
     flex-shrink: 40;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .search-wrap {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .search-wrap {
+    transition: none;
   }
   /* The channel-type glyph carries the accent — a small "you are here" tint. */
   .title :global(svg) {
-    color: var(--accent-hover);
+    color: var(--text-faint);
     flex-shrink: 0;
   }
   /* The cap is the one concession: a channel someone named with a sentence
@@ -641,6 +641,9 @@
      shorter than the cap is immune to the squeeze. */
   .title strong {
     color: var(--text);
+    font-family: var(--display-font);
+    font-size: var(--fs-title);
+    font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -727,20 +730,43 @@
     /* Fills .search-wrap, which owns the width (see above). */
     width: 100%;
     min-width: 0;
-    padding: 5px 10px;
+    height: 32px;
+    padding: 0 10px;
     font-size: var(--fs-ui);
     transition: width var(--dur-calm) var(--ease-out), border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease, background var(--dur-standard) ease;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .search-box {
-      transition: border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease;
-    }
+  :global(:root[data-motion="reduced"]) .search-box {
+    transition: border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease;
   }
   /* Leave room for the clear button / spinner once there's something to show. */
   .search-box.busy {
     padding-right: 26px;
   }
+  /* Collapsed: the box is a bare magnifier button. */
+  .search-wrap:not(:focus-within):not(.open) .search-box {
+    background: transparent;
+    box-shadow: none;
+    border-color: transparent;
+    color: transparent;
+    cursor: pointer;
+    padding: 0;
+  }
+  .search-wrap:not(:focus-within):not(.open) .search-box::placeholder {
+    color: transparent;
+  }
+  .search-wrap:not(:focus-within):not(.open):hover .search-box {
+    background: var(--bg-3);
+  }
   .search-glyph {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    inset: 0;
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+  .search-wrap:focus-within .search-glyph,
+  .search-wrap.open .search-glyph {
     display: none;
   }
   /* At the `stub` tier there is no width left to share: giving the channel name
@@ -816,22 +842,34 @@
   .iconbtn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 5px;
-    padding: 6px 9px;
-    transition:
-      background var(--dur-standard) ease,
-      color var(--dur-standard) ease,
-      border-color var(--dur-standard) ease,
-      transform var(--dur-quick) ease;
+    height: 32px;
+    min-width: 32px;
+    padding: 0 7px;
+    box-shadow: none;
+    border-color: transparent;
+    color: var(--text-muted);
   }
   .iconbtn:hover {
-    transform: translateY(-1px);
+    color: var(--text);
+    background: var(--bg-3);
   }
-  .iconbtn:active {
-    transform: none;
+  /* The ⋯ trigger is the fourth control and wears the same quiet glyph look. */
+  .chat-head :global(.trigger) {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+  }
+  .chat-head :global(.trigger:hover) {
+    background: var(--bg-3);
+    color: var(--text);
   }
   .n {
     font-size: var(--fs-compact);
+    font-variant-numeric: tabular-nums;
     /* These labels are two and three words now ("Start a call", "Return to
        call · 12:34"), and a header button that wraps its own label is a header
        button that grows a second line and shoves the row taller. */
@@ -843,76 +881,17 @@
   .chat-head.narrow .n:not(.count) {
     display: none;
   }
+  /* Pressed: the selected-control look, ink on the hover ground. */
   .pin-active {
-    color: var(--accent-hover);
-    border-color: var(--accent);
-    background: var(--accent-soft);
+    color: var(--text);
+    background: var(--bg-3);
   }
-  .voice-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: var(--fs-compact);
+  .insp-toggle .count {
     font-weight: 600;
-    color: var(--ok-text);
-    padding: 3px 4px 3px 9px;
-    background: var(--ok-soft);
-    border-radius: var(--radius-lg);
-    white-space: nowrap;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 25%, transparent);
-    /* One quiet breath while the call is live (the pill only exists then). */
-    animation: pill-breathe 3.6s ease-in-out infinite;
   }
-  @keyframes pill-breathe {
-    0%,
-    100% {
-      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 25%, transparent);
-    }
-    50% {
-      box-shadow:
-        inset 0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent),
-        0 0 10px color-mix(in srgb, var(--ok) 30%, transparent);
-    }
+  :global(:root[data-motion="reduced"]) .iconbtn:hover {
+    transform: none;
   }
-  /* Green is the claim that the call is carrying. It stops making it. */
-  .voice-pill.trouble {
-    color: var(--warn-text);
-    background: var(--warn-soft);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 35%, transparent);
-    animation: none;
-  }
-  .voice-pill.trouble .pill-sep {
-    background: color-mix(in srgb, var(--warn) 35%, transparent);
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .voice-pill {
-      animation: none;
-    }
-    .iconbtn:hover {
-      transform: none;
-    }
-  }
-  .pill-label {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--sp-1);
-    line-height: 1;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-  }
-  .pill-sep {
-    width: 1px;
-    align-self: stretch;
-    margin: 2px 2px;
-    background: color-mix(in srgb, var(--ok) 35%, transparent);
-  }
-  /* The buttons are .callbtn (app.css) at their smallest size — the same
-     controls, in the same order, with the same on/cut/hang colours as the
-     stage bar, the sidebar bar and the dock. */
   /* Same type and box as "Start a call" beside it: it used to inherit the
      body's 16px and stand a size larger and a few pixels taller than every
      other button on the bar. */
@@ -933,9 +912,8 @@
   .iconbtn.live-join:hover {
     background: color-mix(in srgb, var(--danger) 20%, transparent);
   }
-  /* Your OWN call, running elsewhere. Green rather than the red of "somebody
-     else is live in here": one is a room you could join, the other is the room
-     you are already in. */
+  /* Your OWN call, running elsewhere: green, the room you are already in,
+     not the red of somebody else's live room you could join. */
   .iconbtn.return-call {
     color: var(--ok-text);
     border-color: color-mix(in srgb, var(--ok) 45%, transparent);
@@ -948,6 +926,7 @@
   }
   .iconbtn.return-call .live-dot {
     background: var(--ok);
+    animation: none;
   }
   .iconbtn.return-call.trouble {
     color: var(--warn-text);
@@ -955,7 +934,6 @@
   }
   .iconbtn.return-call.trouble .live-dot {
     background: var(--warn);
-    animation: none;
   }
   .live-dot {
     width: 7px;
@@ -973,17 +951,8 @@
       opacity: 0.35;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .live-dot {
-      animation: none;
-    }
-  }
-  .iconbtn.endcall {
-    color: var(--danger-text);
-    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
-  }
-  .iconbtn.endcall:hover {
-    background: var(--danger-soft);
+  :global(:root[data-motion="reduced"]) .live-dot {
+    animation: none;
   }
   /* The board's name is a breadcrumb, and a breadcrumb that line-breaks mid-word
      ("help-" / "desk") reads as a rendering fault. It wraps as a unit or it
@@ -1009,5 +978,16 @@
   }
   .tb-sep {
     color: var(--text-faint);
+  }
+  .menu-head {
+    padding: 6px 10px 2px;
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .tick {
+    margin-left: auto;
+    display: inline-flex;
+    color: var(--accent-hover);
   }
 </style>

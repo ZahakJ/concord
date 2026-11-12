@@ -38,8 +38,8 @@
 // landed — the core stores before it answers — so writing it down as something
 // to retry is how you send the same message twice.
 import { S, flash, scrollSoon, humanError, slowModeWait } from "./state.svelte.js";
-import { api } from "./api.js";
-import { unsettled, alreadySaid } from "./outbox.js";
+import { api, onTransportHealth } from "./api.js";
+import { unsettled, alreadySaid, toFlush, unheard } from "./outbox.js";
 
 let seq = 0;
 
@@ -64,6 +64,7 @@ function persist() {
         // next second: a slow-mode wait that expired while the app was closed
         // comes back already expired, which is the truth.
         retryAt: e.retryAt || 0,
+        offline: !!e.offline,
         at: e.at,
       }));
     if (keep.length) localStorage.setItem(STORE_KEY, JSON.stringify(keep));
@@ -195,28 +196,60 @@ export function sendAttachment(channelId, att, replyTo) {
   return run(entry);
 }
 
+// How long a send may go unanswered before its row stops saying "Sending…".
+// A wedged core (or a request lost on the way) used to leave the row clocked
+// forever, with no Retry and no Discard — the draft gone from the box and no
+// way to get it back short of a reload.
+export const SEND_TIMEOUT_MS = { text: 30000, att: 120000 };
+const TIMED_OUT = "No answer from Concord's core yet — it may still go out. Retry, or discard it.";
+
+function deliver(entry) {
+  if (entry.kind === "att") {
+    const a = entry.att;
+    if (a.isImage)
+      return api.sendAttachment(
+        entry.channelId,
+        a.dataUrl,
+        a.w,
+        a.h,
+        entry.replyTo,
+        !!a.spoiler,
+        a.name || "",
+        a.desc || "",
+      );
+    return api.sendFile(entry.channelId, a.dataUrl, a.name, entry.replyTo);
+  }
+  return api.sendMessage(entry.channelId, entry.body, entry.replyTo, entry.dir);
+}
+
 async function run(entry) {
+  const attempt = `${entry.id}:${Date.now()}`;
+  patch(entry.id, { attempt });
+  const call = deliver(entry);
+  // An answer that comes after the row gave up still counts: the message did
+  // go out, so the row goes and the real one takes its place. (A Retry pressed
+  // in between sends it twice; telling the two apart needs an idempotency key
+  // the core does not have.)
+  call.then(
+    () => {
+      const now = S.outbox.find((e) => e.id === entry.id);
+      if (now?.attempt === attempt && now.timedOut) drop(entry.id);
+    },
+    () => {},
+  );
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(TIMED_OUT), SEND_TIMEOUT_MS[entry.kind] || SEND_TIMEOUT_MS.text);
+  });
   try {
-    if (entry.kind === "att") {
-      const a = entry.att;
-      if (a.isImage)
-        await api.sendAttachment(
-          entry.channelId,
-          a.dataUrl,
-          a.w,
-          a.h,
-          entry.replyTo,
-          !!a.spoiler,
-          a.name || "",
-          a.desc || "",
-        );
-      else await api.sendFile(entry.channelId, a.dataUrl, a.name, entry.replyTo);
-    } else {
-      await api.sendMessage(entry.channelId, entry.body, entry.replyTo, entry.dir);
-    }
+    await Promise.race([call, deadline]);
     drop(entry.id);
     return true;
   } catch (err) {
+    if (err === TIMED_OUT) {
+      patch(entry.id, { state: "failed", error: TIMED_OUT, retryAt: 0, timedOut: true });
+      return false;
+    }
     // The row stays where it is and says so. It is NOT re-thrown: the caller
     // used to be the only thing that knew a send had failed, which is why the
     // recovery was "your draft is back, work out what happened".
@@ -231,15 +264,41 @@ async function run(entry) {
       state: "failed",
       error: humanError(err) || "Couldn't send",
       retryAt: wait ? Date.now() + wait * 1000 : 0,
+      // The core never heard it — see toFlush.
+      offline: unheard(err),
+      timedOut: false,
     });
     return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// flushOutbox sends again, in the order they were written, every row that failed
+// only because the core was gone. Called when the transport comes back and when
+// a session unlocks (a restarted core comes back locked, and a send into a
+// locked core fails the same way). Sequential, so a conversation's messages
+// keep their order; the first one that fails again stops the run — the core is
+// still not taking them, and the rest would only fail behind it.
+let flushing = false;
+export async function flushOutbox() {
+  if (flushing) return;
+  flushing = true;
+  try {
+    for (const e of toFlush(S.outbox)) {
+      if (!S.outbox.some((x) => x.id === e.id && x.state === "failed")) continue;
+      patch(e.id, { state: "sending", error: "" });
+      if (!(await run({ ...e, state: "sending" }))) break;
+    }
+  } finally {
+    flushing = false;
   }
 }
 
 export function retry(id) {
   const entry = S.outbox.find((e) => e.id === id);
   if (!entry || entry.state !== "failed") return;
-  patch(id, { state: "sending", error: "" });
+  patch(id, { state: "sending", error: "", timedOut: false });
   run({ ...entry, state: "sending" });
 }
 
@@ -254,3 +313,20 @@ export function discard(id) {
   }
   drop(id);
 }
+
+// The core answering again is the moment the banner's promise comes due. A
+// core that restarted comes back locked, so this finds nothing to say yet and
+// the unlock (App.svelte, on S.ready) flushes instead.
+//
+// Asked first, not assumed: a send into a locked core would fail, and the
+// page reloads to the lock screen on that answer — possibly while the row is
+// marked "sending", which is the one state never written down (see persist),
+// so the message would be lost in the reload. The identity call gets the same
+// answer without risking a row.
+onTransportHealth((up) => {
+  if (!up || !S.ready) return;
+  api
+    .identity()
+    .then(() => flushOutbox())
+    .catch(() => {});
+});

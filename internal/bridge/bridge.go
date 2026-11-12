@@ -36,6 +36,10 @@ type Bridge struct {
 
 	mu  sync.Mutex
 	svc *appsvc.Service
+	// lockReason says why there is no session, for a window that had one (a
+	// Lock* value; "" = nothing in this process ended a session, so the core
+	// must have started since). See SessionState.
+	lockReason string
 	// The visibility vote. See visibility.go: shellBackground is the native
 	// mobile lifecycle's answer, clientVisible is what each attached UI says
 	// about itself, and the two are ANDed. All three are remembered across a
@@ -44,6 +48,11 @@ type Bridge struct {
 	shellBackground bool
 	heardClient     bool
 	clientVisible   map[string]bool
+	// clientStreams counts the open /events streams per client id. A
+	// reconnect reuses the id, so the old stream's teardown can land after
+	// the new one attached; only the last stream to close means the client
+	// has gone. See DropClient.
+	clientStreams map[string]int
 	// wantMetered remembers the shell's last SetMetered call for the same
 	// reason: the network callback fires as soon as the process starts, long
 	// before anybody types a passphrase, and a service born after that must not
@@ -100,6 +109,7 @@ type TypingInfo struct {
 	From      string `json:"from"` // fingerprint
 	Name      string `json:"name"` // display name if known
 	ChannelID string `json:"channelId"`
+	Stop      bool   `json:"stop,omitempty"` // they emptied or left the draft
 }
 
 // VoicePresence reports a peer joining or leaving a channel's voice room.
@@ -110,6 +120,7 @@ type VoicePresence struct {
 	Action      string `json:"action"`           // join|leave|lock|unlock|knock|admit|move|disconnect
 	Target      string `json:"target,omitempty"` // the fingerprint being admitted/moved/disconnected
 	Dest        string `json:"dest,omitempty"`   // move: the voice channel to send them to
+	Reason      string `json:"reason,omitempty"` // leave: "unload" when a page went away rather than hanging up
 }
 
 // VoiceSignal carries an opaque WebRTC signaling blob from a peer.
@@ -132,7 +143,7 @@ func (b *Bridge) Close() {
 	}
 }
 
-var errLocked = errors.New("identity is locked; log in first")
+var errLocked = &CodedError{Code: CodeLocked, Msg: "identity is locked; log in first"}
 
 func (b *Bridge) service() (*appsvc.Service, error) {
 	b.mu.Lock()
@@ -352,7 +363,10 @@ type MemberView struct {
 	CanManage   bool             `json:"canManage"`  // owner or manage-members holder
 	RoleIDs     []string         `json:"roleIds"`    // assigned role IDs (highest-first from Roles())
 	MutedUntil  int64            `json:"mutedUntil"` // unix seconds muted-until (0 = not muted)
-	Pending     bool             `json:"pending"`    // added but not yet joined (shown greyed)
+	// Outranked: the viewer stands above this member (owner, or a strictly
+	// higher top role), so mute/kick/ban may be offered.
+	Outranked bool `json:"outranked"`
+	Pending   bool `json:"pending"` // added but not yet joined (shown greyed)
 }
 
 type ContactView struct {
@@ -379,6 +393,7 @@ func (b *Bridge) Logout() error {
 		_ = b.svc.Close()
 		b.svc = nil
 	}
+	b.lockReason = LockSignedOut
 	return nil
 }
 
@@ -390,16 +405,6 @@ func (b *Bridge) HasIdentity() (bool, error) {
 		return false, err
 	}
 	return appsvc.HasIdentity(dir), nil
-}
-
-// RevealMnemonic returns the unlocked identity's recovery phrase, for the user
-// to write down. Requires an unlocked session.
-func (b *Bridge) RevealMnemonic() (string, error) {
-	svc, err := b.service()
-	if err != nil {
-		return "", err
-	}
-	return svc.Mnemonic()
 }
 
 // RestoreFromMnemonic reconstructs the identity from a recovery phrase, sealing
@@ -430,7 +435,14 @@ func (b *Bridge) RestoreFromMnemonic(phrase, passphrase string) error {
 // The phrase is validated FIRST — a typo can never destroy data — and only then
 // is the old local keystore/data replaced. Account, guilds, and history re-sync
 // from peers on the next login.
-func (b *Bridge) RestoreOverExisting(phrase, passphrase string) error {
+//
+// It is NOT always the same account, and it used to erase whatever was here
+// whichever account the phrase belonged to. Now the same account on a
+// never-linked install keeps everything (only the keystore is re-sealed);
+// any other case erases the device, and is refused with CodeReplaceRefused
+// unless confirm is the fingerprint of the phrase's account — what the UI
+// sends after showing CheckRecoveryPhrase's answer and getting a yes.
+func (b *Bridge) RestoreOverExisting(phrase, passphrase, confirm string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.svc != nil {
@@ -441,18 +453,13 @@ func (b *Bridge) RestoreOverExisting(phrase, passphrase string) error {
 	}
 	// Validate the recovery phrase before touching anything on disk.
 	if _, err := identity.SeedFromMnemonic(phrase); err != nil {
-		return errors.New("that doesn't look like a valid 24-word recovery phrase — check the words and their order")
+		return errBadPhrase
 	}
 	dir, err := appsvc.DataDir()
 	if err != nil {
 		return err
 	}
-	if appsvc.HasIdentity(dir) {
-		if err := appsvc.ResetIdentity(dir); err != nil {
-			return err
-		}
-	}
-	return appsvc.RestoreIdentity(dir, phrase, passphrase)
+	return codeReplace(appsvc.RestoreOverExisting(dir, phrase, passphrase, confirm))
 }
 
 // ResetIdentity deletes the identity and all data tied to it so a new identity
@@ -581,7 +588,7 @@ func (b *Bridge) Login(passphrase string) error {
 	// rather than silently succeeding.
 	if b.svc != nil {
 		if !appsvc.VerifyPassphrase(dataDir, passphrase) {
-			return errors.New("wrong passphrase")
+			return wrongPassphrase()
 		}
 		return nil
 	}
@@ -594,6 +601,9 @@ func (b *Bridge) Login(passphrase string) error {
 	}
 	svc, err := appsvc.Start(b.ctx, cfg)
 	if err != nil {
+		if errors.Is(err, identity.ErrWrongPassphrase) {
+			return wrongPassphrase()
+		}
 		return err
 	}
 	svc.OnMessage(func(m domain.Message) {
@@ -626,6 +636,7 @@ func (b *Bridge) Login(passphrase string) error {
 		b.mu.Lock()
 		if b.svc == svc {
 			b.svc = nil
+			b.lockReason = LockUnlinked
 		}
 		b.mu.Unlock()
 		if b.OnPresence != nil {
@@ -634,7 +645,12 @@ func (b *Bridge) Login(passphrase string) error {
 	})
 	svc.OnVoicePresence(func(from, fingerprint, channelID, action, target, dest string) {
 		if b.OnVoicePresence != nil {
-			b.OnVoicePresence(VoicePresence{From: from, Fingerprint: fingerprint, ChannelID: channelID, Action: action, Target: target, Dest: dest})
+			p := VoicePresence{From: from, Fingerprint: fingerprint, ChannelID: channelID, Action: action, Target: target, Dest: dest}
+			// app.watchVoice hands a leave's reason over in the dest slot.
+			if action == "leave" {
+				p.Reason, p.Dest = dest, ""
+			}
+			b.OnVoicePresence(p)
 		}
 	})
 	svc.OnVoiceSignal(func(from string, data []byte) {
@@ -642,7 +658,7 @@ func (b *Bridge) Login(passphrase string) error {
 			b.OnVoiceSignal(VoiceSignal{From: from, Data: string(data)})
 		}
 	})
-	svc.OnTyping(func(from, channelID string) {
+	svc.OnTyping(func(from, channelID string, stop bool) {
 		// "Badr is typing…" for someone whose messages you will never see is
 		// the loudest thing a blocked account can still do to you: it names
 		// them, it moves, and it promises a message that never arrives.
@@ -658,7 +674,7 @@ func (b *Bridge) Login(passphrase string) error {
 			if name == "" && from == svc.Fingerprint() {
 				name = svc.DisplayName()
 			}
-			b.OnTyping(TypingInfo{From: from, Name: name, ChannelID: channelID})
+			b.OnTyping(TypingInfo{From: from, Name: name, ChannelID: channelID, Stop: stop})
 		}
 	})
 	svc.OnGuildUpdate(func() {
@@ -687,6 +703,7 @@ func (b *Bridge) Login(passphrase string) error {
 		}
 	})
 	b.svc = svc
+	b.lockReason = ""
 	// The shell may have declared the app backgrounded before the unlock
 	// happened; a service born after that call must not start on the eager
 	// foreground cadence.
@@ -706,12 +723,22 @@ func (b *Bridge) Login(passphrase string) error {
 
 // MarkRead records the user read a channel through at (UnixMilli) and fans the
 // new cursor out to every session/device.
-func (b *Bridge) MarkRead(channelID string, at int64) error {
+// It answers with the mark the channel holds afterwards (see app.MarkRead).
+func (b *Bridge) MarkRead(channelID string, at int64) (int64, error) {
 	svc, err := b.service()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	return svc.MarkRead(channelID, at)
+}
+
+// MarkReadLatest marks channels read through the newest message held in each.
+func (b *Bridge) MarkReadLatest(channelIDs []string) (map[string]int64, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.MarkReadLatest(channelIDs)
 }
 
 // ReadState returns every channel's read-through time (UnixMilli).
@@ -1272,6 +1299,15 @@ func (b *Bridge) RenameChannel(guildID, channelID, name string) error {
 	return svc.RenameChannel(guildID, channelID, name)
 }
 
+// StopTyping ends this user's typing line in a channel.
+func (b *Bridge) StopTyping(channelID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.StopTyping(channelID)
+}
+
 // SendTyping broadcasts an ephemeral typing hint for a channel.
 func (b *Bridge) SendTyping(channelID string) error {
 	svc, err := b.service()
@@ -1304,12 +1340,22 @@ func (b *Bridge) JoinVoiceFor(channelID, clientID string) error {
 
 // LeaveVoice leaves a channel's voice room.
 func (b *Bridge) LeaveVoice(channelID string) error {
+	return b.LeaveVoiceBecause(channelID, "")
+}
+
+// LeaveVoiceBecause is LeaveVoice with the goodbye's reason: "unload" from a
+// page being torn down (lib/api.js leaveVoiceOnUnload), "" otherwise. Any
+// other value is dropped rather than published.
+func (b *Bridge) LeaveVoiceBecause(channelID, reason string) error {
 	b.forgetVoiceOwner(channelID)
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.LeaveVoice(channelID)
+	if reason != appsvc.LeaveReasonUnload {
+		reason = ""
+	}
+	return svc.LeaveVoiceBecause(channelID, reason)
 }
 
 // SignalCall broadcasts a soft-lock control action
@@ -1526,7 +1572,7 @@ func (b *Bridge) InviteCode(guildID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return svc.InviteCode(guildID)
+	return svc.ShareableInviteCode(guildID)
 }
 
 func (b *Bridge) JoinViaInvite(code string) (GuildView, error) {
@@ -1714,6 +1760,16 @@ func (b *Bridge) SendCallNotice(channelID, kind, content string) error {
 	return err
 }
 
+// NoteCall writes this device's own record of a DM call (see app.NoteCall).
+func (b *Bridge) NoteCall(channelID, content string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	_, err = svc.NoteCall(channelID, content)
+	return err
+}
+
 // ScheduledSendView is one queued send-later message for the manager UI.
 // fireAt is unix seconds.
 type ScheduledSendView struct {
@@ -1887,6 +1943,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 		}
 		isOwner := svc.IsGuildOwner(guildID, fpr)
 		perms := uint32(svc.MemberPermission(guildID, fpr))
+		seen, seenOnline := seenAs(p, isSelf || online[fpr], isSelf)
 		out = append(out, MemberView{
 			Fingerprint: fpr,
 			Name:        cleanName(name),
@@ -1895,18 +1952,18 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			Emoji:       p.Emoji,
 			Color:       p.Color,
 			Avatar:      p.Avatar,
-			Activity:    p.Activity,
+			Activity:    seen.Activity,
 			Games:       p.Games,
 			Color2:      p.Color2,
 			Frame:       p.Frame,
 			Effect:      p.Effect,
 			Style:       p.Style,
 			Banner:      p.Banner,
-			Presence:    p.Presence,
+			Presence:    seen.Presence,
 			Bio:         p.Bio,
 			Birthday:    p.Birthday,
 			IsSelf:      isSelf,
-			Online:      isSelf || online[fpr],
+			Online:      seenOnline,
 			Verified:    isSelf || verified[fpr],
 			IsOwner:     isOwner,
 			IsHeir:      heir != "" && fpr == heir,
@@ -1914,6 +1971,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			CanManage:   isOwner || perms&uint32(appsvc.PermManageMembers) != 0,
 			RoleIDs:     svc.MemberRoleIDs(guildID, fpr),
 			MutedUntil:  svc.MutedUntil(guildID, fpr),
+			Outranked:   !isSelf && svc.Outranks(guildID, svc.Fingerprint(), fpr),
 		})
 	}
 	// The MLS library yields members in map order (random per call), which made
@@ -2500,6 +2558,22 @@ func (b *Bridge) ResolveSync(guildID string) error {
 	return nil
 }
 
+// seenAs is how someone else's presence is SHOWN. "Invisible" is a promise to
+// appear offline to everyone else, so a member who chose it is reported
+// exactly as a disconnected one: online false, no presence word, no
+// now-playing activity. The word still crosses the wire — an older peer reads
+// it to grey the dot, and one that did not know the word would paint the
+// member green — so this is where it stops: no view this node serves carries
+// it. Your own row (isSelf) keeps the truth.
+func seenAs(p appsvc.Profile, online, isSelf bool) (appsvc.Profile, bool) {
+	if isSelf || p.Presence != "invisible" {
+		return p, online
+	}
+	p.Presence = ""
+	p.Activity = nil
+	return p, false
+}
+
 func (b *Bridge) Contacts() ([]ContactView, error) {
 	svc, err := b.service()
 	if err != nil {
@@ -2612,7 +2686,11 @@ func (b *Bridge) CancelLinkOffer() error {
 // It is NOT an error: by the time it can be produced the device is linked and
 // logged in, and reporting that as a failure would be a lie that also leaves
 // the UI on the login screen in front of a working session.
-func (b *Bridge) RedeemLinkCode(code, passphrase string) (string, error) {
+//
+// confirm is the fingerprint of the account the user agreed may replace the
+// one on this device; a code from a different account than the one here is
+// refused with CodeReplaceRefused, before anything is written, until then.
+func (b *Bridge) RedeemLinkCode(code, passphrase, confirm string) (string, error) {
 	dataDir, err := appsvc.DataDir()
 	if err != nil {
 		return "", err
@@ -2623,9 +2701,9 @@ func (b *Bridge) RedeemLinkCode(code, passphrase string) (string, error) {
 	if hasSvc {
 		return "", errors.New("log out before linking this device to an account")
 	}
-	res, err := appsvc.RedeemLink(b.ctx, dataDir, code, passphrase)
+	res, err := appsvc.RedeemLink(b.ctx, dataDir, code, passphrase, confirm)
 	if err != nil {
-		return "", err
+		return "", codeReplace(err)
 	}
 	// Start the service in linked mode (the marker written by RedeemLink flips it).
 	if err := b.Login(passphrase); err != nil {
@@ -2845,8 +2923,13 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 			// A genuine 2-person DM (one other, nobody pending) shows that member's
 			// name + avatar + status dot. Otherwise it's a group: name it after its
 			// members, unless the user gave it a custom name.
-			if len(others) == 1 && len(pending) == 0 {
-				dmPeer = others[0]
+			//
+			// "One other" counts someone invited who has not joined yet. A DM
+			// opened to a contact who is offline holds only the invite until they
+			// come online, and it was called "Direct message" (bubble "DI")
+			// everywhere until then, though the contact was picked by name.
+			if len(intended) == 1 {
+				dmPeer = intended[0]
 				prof := svc.ProfileOf(dmPeer)
 				if prof.Name != "" {
 					name = prof.Name
@@ -2855,9 +2938,10 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 					// placeholder instead of a raw fingerprint stub.
 					name = "New conversation"
 				}
-				dmPeerPresence = prof.Presence
+				seen, on := seenAs(prof, vc.isOnline(dmPeer), false)
+				dmPeerPresence = seen.Presence
 				dmPeerAvatar = prof.Avatar
-				dmPeerOnline = vc.isOnline(dmPeer)
+				dmPeerOnline = on
 			} else if len(intended) > 1 {
 				if isCustomDMName(g.Name) {
 					name = g.Name // user renamed the group; keep it
@@ -3367,7 +3451,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "CancelLinkOffer":
 		return nil, b.CancelLinkOffer()
 	case "RedeemLinkCode":
-		return b.RedeemLinkCode(argStr(args, 0), argStr(args, 1))
+		return b.RedeemLinkCode(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "Logout":
 		return nil, b.Logout()
 	case "HasIdentity":
@@ -3379,11 +3463,19 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "ConfirmWipe":
 		return nil, b.ConfirmWipe(argStr(args, 0), argStr(args, 1))
 	case "RevealMnemonic":
-		return b.RevealMnemonic()
+		return b.RevealMnemonicWith(argStr(args, 0))
+	case "ChangePassphrase":
+		return nil, b.ChangePassphrase(argStr(args, 0), argStr(args, 1))
+	case "SessionState":
+		return b.SessionState(), nil
+	case "LockedAccount":
+		return b.LockedAccount()
+	case "CheckRecoveryPhrase":
+		return b.CheckRecoveryPhrase(argStr(args, 0))
 	case "RestoreFromMnemonic":
 		return nil, b.RestoreFromMnemonic(argStr(args, 0), argStr(args, 1))
 	case "RestoreOverExisting":
-		return nil, b.RestoreOverExisting(argStr(args, 0), argStr(args, 1))
+		return nil, b.RestoreOverExisting(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "Login":
 		return nil, b.Login(argStr(args, 0))
 	case "Identity":
@@ -3391,7 +3483,13 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "Guilds":
 		return b.Guilds()
 	case "MarkRead":
-		return nil, b.MarkRead(argStr(args, 0), argInt64(args, 1))
+		return b.MarkRead(argStr(args, 0), argInt64(args, 1))
+	case "MarkReadLatest":
+		var ids []string
+		if len(args) > 0 {
+			_ = json.Unmarshal(args[0], &ids)
+		}
+		return b.MarkReadLatest(ids)
 	case "ReadState":
 		return b.ReadState()
 	case "CreateGuild":
@@ -3434,6 +3532,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "SendCallNotice":
 		return nil, b.SendCallNotice(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	case "NoteCall":
+		return nil, b.NoteCall(argStr(args, 0), argStr(args, 1))
 	case "ScheduleSend":
 		return b.ScheduleSend(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt64(args, 3))
 	case "CancelScheduledSend":
@@ -3561,14 +3661,18 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		// The client id rides at the end. A caller built before it existed
 		// passes one argument and owns nothing, which is the old behaviour.
 		return nil, b.JoinVoiceFor(argStr(args, 0), argStr(args, 1))
+	case "VoiceHeldElsewhere":
+		return b.VoiceHeldElsewhere(argStr(args, 0)), nil
 	case "LeaveVoice":
-		return nil, b.LeaveVoice(argStr(args, 0))
+		return nil, b.LeaveVoiceBecause(argStr(args, 0), argStr(args, 1))
 	case "SignalCall":
 		return nil, b.SignalCall(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "RelaySignal":
 		return nil, b.RelaySignal(argStr(args, 0), argStr(args, 1))
 	case "SendTyping":
 		return nil, b.SendTyping(argStr(args, 0))
+	case "StopTyping":
+		return nil, b.StopTyping(argStr(args, 0))
 	case "SetProfile":
 		// birthday rides at the END of the positional list. A caller built
 		// before it existed stops at style (12 args) — for it the field is

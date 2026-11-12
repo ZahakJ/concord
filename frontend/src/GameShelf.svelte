@@ -318,9 +318,7 @@
     gap: var(--sp-2);
   }
   .sec-label {
-    font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    font-size: var(--fs-small);
   }
   .g-add {
     display: inline-flex;
@@ -444,12 +442,10 @@
       transform: translateY(10px) scale(0.96);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .gs-overlay,
-    .gs-card,
-    .g-tile {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .gs-overlay,
+  :global(:root[data-motion="reduced"]) .gs-card,
+  :global(:root[data-motion="reduced"]) .g-tile {
+    animation: none;
   }
   .gs-head {
     display: flex;
@@ -578,7 +574,7 @@
      and offers the switch, rather than leaving an empty box that looks broken. */
   .g-off {
     margin: 6px 2px 0;
-    font-size: 12px;
+    font-size: var(--fs-small);
     line-height: 1.5;
   }
   .g-off-on {
@@ -645,11 +641,9 @@
     position: relative;
     z-index: 1;
     padding: 10px 8px;
-    font-size: 11px;
-    font-weight: 800;
+    font-size: var(--fs-small);
+    font-weight: 600;
     line-height: 1.25;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
     text-align: center;
     color: rgba(255, 255, 255, 0.92);
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
@@ -786,7 +780,7 @@
   }
   /* Touch: "Add a game" is an 18px pill in a tight card header, so the tap area
      is padded out to 44px rather than the chip itself. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .g-add {
       position: relative;
     }

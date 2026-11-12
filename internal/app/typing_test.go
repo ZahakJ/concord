@@ -34,7 +34,7 @@ func TestTypingIndicatorsReciprocal(t *testing.T) {
 
 	var mu sync.Mutex
 	seenByB := 0
-	b.OnTyping(func(_, _ string) {
+	b.OnTyping(func(_, _ string, _ bool) {
 		mu.Lock()
 		seenByB++
 		mu.Unlock()

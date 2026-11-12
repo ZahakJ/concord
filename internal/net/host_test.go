@@ -147,10 +147,90 @@ func TestConcurrentConnectionsAnnouncePeerOnce(t *testing.T) {
 		t.Fatalf("peer announced %d times, want exactly 1", got)
 	}
 
-	if !h.markDisconnected(p) {
+	none := func() int { return 0 }
+	if !h.connClosed(p, none) {
 		t.Fatal("an announced peer must produce a disconnect")
 	}
-	if h.markDisconnected(p) {
+	if h.connClosed(p, none) {
 		t.Fatal("a peer nobody heard connect must not produce a disconnect")
+	}
+}
+
+// A connection that lands while the last one is closing. The close counted no
+// connections left, then the new one was marked as not-first (the peer was
+// still marked), then the close forgot the peer: upper layers heard it leave
+// while it was connected, and never heard about the new connection at all, so
+// its own close later went silent too. The count and the forget are one step
+// now, so the new connection waits for it and is announced.
+func TestAConnectionArrivingDuringTheLastCloseIsAnnounced(t *testing.T) {
+	id, _ := identity.Generate()
+	h := newTestHost(t, id)
+	other, _ := identity.Generate()
+	p := newTestHost(t, other).PeerID()
+
+	if !h.markConnected(p) {
+		t.Fatal("the first connection was not announced")
+	}
+	live := 0
+	var arrived bool
+	done := make(chan struct{})
+	gone := h.connClosed(p, func() int {
+		n := live // the closing connection is gone: nothing left
+		// The new connection lands right after the count.
+		go func() {
+			defer close(done)
+			live = 1
+			arrived = h.markConnected(p)
+		}()
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+		}
+		return n
+	})
+	<-done
+	if !gone {
+		t.Fatal("the last close of an announced peer was not reported")
+	}
+	if !arrived {
+		t.Fatal("a connection that landed during the last close was never announced")
+	}
+	if !h.connClosed(p, func() int { return 0 }) {
+		t.Fatal("the new connection's own close went unreported")
+	}
+}
+
+// A callback registered after a peer connected still hears about it. The app
+// registers its handlers well after the host starts dialling, and the
+// rendezvous connection that beat them used to go unannounced for the whole
+// session — no mailbox registration, no drain.
+func TestLateConnectCallbackHearsExistingPeers(t *testing.T) {
+	ctx := context.Background()
+	idA, _ := identity.Generate()
+	idB, _ := identity.Generate()
+
+	a := newTestHost(t, idA)
+	b := newTestHost(t, idB)
+
+	if err := a.Connect(ctx, b.AddrInfo()); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	waitFor(t, 5*time.Second, func() bool { return containsPeer(a.Peers(), b.PeerID()) })
+
+	connected := make(chan peer.ID, 4)
+	a.OnPeerConnected(func(p peer.ID) { connected <- p })
+
+	select {
+	case p := <-connected:
+		if p != b.PeerID() {
+			t.Fatalf("late callback fired for %s, want %s", p, b.PeerID())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a callback registered after the connection never heard about it")
+	}
+	select {
+	case p := <-connected:
+		t.Fatalf("late callback fired a second time, for %s", p)
+	case <-time.After(300 * time.Millisecond):
 	}
 }

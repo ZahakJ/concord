@@ -1,6 +1,7 @@
 <script>
   // The feed: date dividers, consecutive-sender grouping, drag-and-drop
   // attachments, pins/search panels, and the out-of-sync banner.
+  import { feedTabs } from "./lib/feedtabs.js";
   import Icon from "./Icon.svelte";
   import EmptyState from "./EmptyState.svelte";
   import { pushLayer } from "./lib/navstack.svelte.js";
@@ -21,14 +22,16 @@
     trimLoadedHistory,
     scrollSoon,
     feedNearBottom,
-    scrollToMessage,
+    jumpToMessage,
     memberByFpr,
+    leaveGuildNow,
     nameFor,
     voiceMembersFor,
     nameColorFor,
     flash,
     markRead,
     loadOlder,
+    retryHistory,
     clockOpts,
     nudge,
     refreshGuilds,
@@ -37,28 +40,38 @@
     openCallStage,
     archiveChannel,
     loadArchiveOlder,
+    toggleMemberPanel,
+    postParentOf,
+    setPref,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
+  import { evictedCopy } from "./lib/evicted.js";
   import { plainSnippet } from "./lib/snippet.js";
+  import { recordText } from "./lib/callflow.js";
   import { gameAt, isGameToken } from "./lib/games.js";
   import { msOf, rangeLabel } from "./lib/chronicle.js";
+  import { threadsBySource } from "./lib/threadlinks.js";
   import { entriesFor } from "./lib/outbox.svelte.js";
   import { untrack, tick } from "svelte";
   import { pointOf } from "./lib/place.js";
   import { isGuildSetupArmed } from "./lib/setup.js";
+  import { continuesGroup } from "./lib/grouping.js";
+  import { dayLabel } from "./lib/daylabel.js";
+  import { showInspectorTab } from "./lib/inspector.svelte.js";
 
   let { onDropFiles, onJoinVoice } = $props();
 
   let feedEl = $state(null);
   let atBottom = $state(true);
   let lastScrollTop = 0;
+  let layoutHold = 0; // until then, scroll events are the layout settling, not the reader
   $effect(() => registerFeed(feedEl));
 
   // Below this the full hover bar cannot be reserved without leaving the text a
-  // ribbon: 340px of gutter out of an 880px feed still reads at ~60 characters,
-  // out of a 483px forum panel it leaves 143px.
-  const NARROW_BAR = 880;
+  // ribbon: 250px of gutter out of a 640px feed still reads at ~45 characters,
+  // out of a 483px forum panel it would leave 180px.
+  const NARROW_BAR = 640;
   let barNarrow = $state(false);
 
   // Keep the feed pinned to the newest message while the user is at the bottom,
@@ -69,7 +82,30 @@
   // every size change as long as we were already at the bottom.
   $effect(() => {
     if (!feedEl) return;
+    let lastW = feedEl.clientWidth;
+    let lastH = feedEl.clientHeight;
     const repin = () => {
+      const w = feedEl.clientWidth;
+      const h = feedEl.clientHeight;
+      if (w !== lastW || h !== lastH) {
+        layoutHold = performance.now() + 500;
+        // Every cached height was measured at the old width. Kept, they
+        // described a different layout: crossing the phone breakpoint measured
+        // rows at a transient sliver of a width, cached advances of thousands
+        // of pixels, and the "known heights" fast path then never looked again
+        // — 128,000px of feed with two rows in it.
+        if (w !== lastW) {
+          const anchor = atBottom ? null : takeAnchor();
+          advance.clear();
+          typeMean.clear();
+          typeSamples.clear();
+          measure();
+          applyPads();
+          settle(atBottom, anchor);
+        }
+        lastW = w;
+        lastH = h;
+      }
       // The hover bar's gutter is reserved out of every row, so the pane has to
       // say which of the two reservations it can afford. Its OWN width, not the
       // window's: the same feed is 1290px wide in a maximised window and 483px
@@ -116,8 +152,13 @@
       const last = msgs[msgs.length - 1];
       // Append = same conversation AND the previous tail is still present
       // (a wholesale replacement — switch/jump — drops it).
-      const appended = ch === prevCh && (!prevLastId || ids.has(prevLastId));
-      if (last && appended && !prevIds.has(last.id)) animateId = last.id;
+      // An empty previous list is a channel loading, not a conversation:
+      // the first page arriving after a switch is not "a new message".
+      const appended = ch === prevCh && !!prevLastId && ids.has(prevLastId);
+      // Your own message has already arrived on screen as its pending row
+      // (PendingMessage eases in); the stored row replaces it in place.
+      const mine = last?.sender === S.identity.fingerprint;
+      if (last && appended && !mine && !prevIds.has(last.id)) animateId = last.id;
       else if (!appended) animateId = "";
       prevCh = ch;
       prevIds = ids;
@@ -167,8 +208,8 @@
   // Clicking a pinned message jumps to it in the feed and
   // closes the panel so the flash-highlighted row isn't hidden behind it.
   function jumpToPin(m) {
-    if (scrollToMessage(m.id)) S.showPins = false;
-    else flash("That message isn't loaded yet");
+    S.showPins = false;
+    jumpToMessage(S.activeChannelId, m.id);
   }
 
   // Unpinning is irreversible and changes the channel for everyone, and on a
@@ -222,6 +263,18 @@
   }
 
   const pinned = $derived(S.messages.filter((m) => m.pinned && !m.deleted));
+  // Pins live in the inspector's Pins tab wherever the inspector can show (a
+  // guild channel with room beside it). "Show pinned messages" from the
+  // palette or a shortcut opens that tab; the popover below remains for the
+  // places the inspector does not reach (DMs, a cramped window, the stage).
+  $effect(() => {
+    if (!S.showPins || S.isMobile || S.cramped || S.callStage || activeGuild()?.kind === "dm") return;
+    untrack(() => {
+      showInspectorTab("pins");
+      if (!S.prefs.memberPanel) toggleMemberPanel();
+      S.showPins = false;
+    });
+  });
   const byId = $derived(new Map(S.messages.map((m) => [m.id, m])));
   const isDMView = $derived(activeGuild()?.kind === "dm");
 
@@ -241,8 +294,8 @@
         icon: "smile",
         title: g.name || "New conversation",
         body: group
-          ? `This is the very start of ${g.name || "this group"}. Everything here is end-to-end encrypted. Say hi 👋`
-          : `This is the very beginning of your conversation with ${g.name || "your friend"}. It's end-to-end encrypted — just the two of you. Say hi 👋`,
+          ? `This is the start of ${g.name || "this group"}. Everything here is end-to-end encrypted.`
+          : `This is the start of your conversation with ${g.name || "your friend"}. It's end-to-end encrypted — just the two of you.`,
       };
     }
     const c = activeChannel();
@@ -252,15 +305,28 @@
     // ("Voice Lounge", not "voice-lounge"), so "#Voice Lounge" read as a typo.
     // The icon and the body already branched here; the title was the holdout.
     const voice = c?.type === "voice";
+    // One headline for an empty channel and for the top of a full one, the
+    // way the room is named everywhere else; no emoji in the app's own voice.
     return {
       icon: voice ? "speaker" : "hash",
-      title: voice ? `Welcome to ${name}` : `Welcome to #${name}`,
+      title: voice ? `This is the start of ${name}` : `This is the start of #${name}`,
       body: voice
-        ? `This is the chat alongside the ${name} voice channel. Drop a link or a note for whoever's on the call.`
-        : `This is the start of #${name}. Say hi 👋`,
+        ? `The chat alongside the ${name} voice channel. Drop a link or a note for whoever's on the call.`
+        : c?.topic || "Nothing has been said here yet.",
       voice,
       name,
     };
+  });
+  // The same block, compact, where a channel's history begins: it replaced a
+  // line of faint italic ("This is the beginning of the channel."), which was
+  // a second pattern beside the empty-channel one — and said "channel" about a
+  // forum post.
+  const startInfo = $derived.by(() => {
+    const g = activeGuild();
+    if (postParentOf(S.activeChannelId)) return { icon: "forum", title: "This is the start of the discussion", body: "" };
+    if (g?.dmNotes) return { icon: "edit", title: "This is the start of your notes", body: "" };
+    if (g?.kind === "dm") return { icon: "smile", title: "This is the start of your conversation", body: "" };
+    return { icon: emptyInfo.icon, title: emptyInfo.title, body: activeChannel()?.topic || "" };
   });
   // A channel you MADE never got the hero a fresh #general gets: CreateChannel
   // posts one "created this channel" system row, `rows.length` stops being 0,
@@ -343,31 +409,13 @@
       if (foldedGame(m)) continue;
       const day = new Date(m.sent).toDateString();
       const newDay = !prev || new Date(prev.sent).toDateString() !== day;
-      // Grouping follows the AUTHOR, not the signing key: a relayed guest is a
-      // different author even though the host signed their message, so their
-      // words never tuck under the host's name (and two lines from the same
-      // guest still group together).
-      const sameAuthor =
-        prev &&
-        prev.sender === m.sender &&
-        prev.kind === m.kind &&
-        (m.kind !== "guest" || prev.senderName === m.senderName);
-      const groupable = m.kind === "" || m.kind === "guest";
-      // An emote never groups. Its whole grammar is "this person is doing
-      // something", and a row with no name header cannot say who — which is
-      // exactly what tucking "*Amina Sadiq waves*" under the message above it
-      // did. Neither does the row AFTER one, or a plain sentence would inherit
-      // the emote's header.
       const selfEmote = isEmote(m.content, m.senderName);
-      const emote = selfEmote || isEmote(prev?.content, prev?.senderName);
-      const compact =
-        !newDay &&
-        sameAuthor &&
-        groupable &&
-        !emote &&
-        !m.replyTo &&
-        !prev.deleted &&
-        new Date(m.sent) - new Date(prev.sent) < GROUP_WINDOW_MS;
+      const compact = continuesGroup(prev, m, {
+        newDay,
+        emote: selfEmote || isEmote(prev?.content, prev?.senderName),
+        firstUnread: m.id === newLineId,
+        windowMs: GROUP_WINDOW_MS,
+      });
       // …and an emote carries the actor in its own text, which is the right
       // wire decision and left the name on screen twice, 40px apart, in two
       // weights. The row draws no header: the italic line is the whole message.
@@ -389,7 +437,9 @@
   // The welcome card is the room's introduction while nobody has said anything
   // yet: not while it loads, not over an archive (where "the start of #plans"
   // would be false), and not while the setup card has the spot.
-  const showHero = $derived(noConversation && !S.feedLoading && !arcChan && !setupOwnsHero);
+  const showHero = $derived(
+    noConversation && !S.feedLoading && !S.historyError && !arcChan && !setupOwnsHero,
+  );
   const arcRange = $derived(arcChan ? rangeLabel(arcChan.firstNano, arcChan.lastNano) : "");
   const showArchive = $derived(S.feedReachedStart && !!arcChan && !S.feedLoading);
 
@@ -505,7 +555,15 @@
   // grouped rows pull themselves up with a negative margin; the gap between two
   // rows belongs to the row above as far as this arithmetic is concerned.
   const advance = new Map();
-  const typeMean = new Map(); // item type -> mean measured advance
+  // item type -> the typical measured advance, as the MEDIAN of recent samples.
+  // It was a running mean, and one 10,000px message (a pasted log, a 500-line
+  // list) dragged every unmeasured row's guess into the thousands: the bottom
+  // window then held a single row, the screen above it was spacer, and nothing
+  // corrected it until the reader scrolled. A median does not care how tall
+  // the outlier was.
+  const typeSamples = new Map(); // type -> recent advances (bounded)
+  const typeMean = new Map(); // type -> median of typeSamples
+  const SAMPLE_CAP = 255;
   let headerH = 0; // the push + the loading/seam markers that sit above the top spacer
   let cum = [0]; // cum[i] = summed advance of items 0..i-1
 
@@ -572,25 +630,31 @@
     headerH = top.offsetTop;
     const els = [];
     for (let n = top.nextElementSibling; n && n !== bot; n = n.nextElementSibling) els.push(n);
-    const sums = new Map();
-    // The last rendered element is skipped: the bottom spacer cancels the gap
-    // above itself, so measuring against it would record an advance one gap
-    // short. It is measured on the next pass, when something follows it.
-    for (let i = 0; i + 1 < els.length; i++) {
+    const touched = new Set();
+    // The bottom spacer cancels the gap above itself (see .vs), so the last
+    // rendered element measured against it comes out one gap short; the gap is
+    // added back. It used to be skipped instead, and a window of ONE row — the
+    // shape a single very tall message forces at the bottom of a channel —
+    // then measured nothing at all and never corrected itself.
+    const gap = parseFloat(getComputedStyle(feedEl).rowGap) || 0;
+    for (let i = 0; i < els.length; i++) {
       const it = items[lo + i];
       if (!it) break;
-      const next = els[i + 1];
-      const h = next.offsetTop - els[i].offsetTop;
+      const next = els[i + 1] || bot;
+      const h = next.offsetTop - els[i].offsetTop + (next === bot ? gap : 0);
       if (h <= 0) continue; // mid-transition or display:none; keep the old value
+      if (advance.get(it.k) === h) continue;
       advance.set(it.k, h);
-      const s2 = sums.get(it.t) || [0, 0];
-      sums.set(it.t, [s2[0] + h, s2[1] + 1]);
+      let list = typeSamples.get(it.t);
+      if (!list) typeSamples.set(it.t, (list = []));
+      list.push(h);
+      if (list.length > SAMPLE_CAP) list.shift();
+      touched.add(it.t);
     }
     // Guesses for rows nobody has scrolled to yet come from the rows they have.
-    for (const [t, [total, n]] of sums) {
-      const seen = typeMean.get(t);
-      const fresh = total / n;
-      typeMean.set(t, seen == null ? fresh : Math.round(seen * 0.8 + fresh * 0.2));
+    for (const t of touched) {
+      const sorted = [...typeSamples.get(t)].sort((a, b) => a - b);
+      typeMean.set(t, sorted[sorted.length >> 1]);
     }
     rebuildCum();
   }
@@ -612,6 +676,14 @@
   }
 
   // The row under the top of the viewport, and how far under it is.
+  //
+  // Only a MESSAGE can be an anchor. Day dividers and the NEW line come and go
+  // with the rows around them: the divider over the oldest loaded message is
+  // exactly the item an older page removes (the day now starts further up), so
+  // anchoring on it lost the reader's place on every page-back and parked them
+  // at the very top of the new page — where no scroll event can ever fire to
+  // ask for the next one.
+  const stableItem = (it) => it?.t === "row" || it?.t === "arc" || it?.t === "pending";
   function takeAnchor() {
     const s = spacers();
     if (!s || !feedEl) return null;
@@ -619,7 +691,8 @@
     const st = feedEl.scrollTop;
     let i = lo;
     for (let n = top.nextElementSibling; n && n !== bot; n = n.nextElementSibling, i++) {
-      if (n.offsetTop + n.offsetHeight > st) return { k: items[i]?.k, delta: n.offsetTop - st };
+      if (n.offsetTop + n.offsetHeight > st && stableItem(items[i]))
+        return { k: items[i].k, delta: n.offsetTop - st };
     }
     return null;
   }
@@ -663,9 +736,8 @@
       if (atBottom) a = b - MAX_WINDOW;
       else b = a + MAX_WINDOW;
     }
-    // An edit in progress must not be unmounted: the textarea's blur handler
-    // commits, so scrolling away from it would silently save a half-written
-    // message and throw the rest of it away.
+    // An edit in progress must not be unmounted: the half-written text lives
+    // only in the mounted row, and scrolling away from it would throw it away.
     const pin = S.editing?.id;
     if (pin) {
       const p = items.findIndex((x) => x.k === pin);
@@ -758,6 +830,11 @@
     if (pin) feedEl.scrollTop = feedEl.scrollHeight;
     else restoreAnchor(anchor);
     checkLastRow();
+    // The measurements just taken can change the answer to "which rows belong
+    // on screen" — a first guess that was far too tall leaves the viewport half
+    // empty. Ask again rather than waiting for a scroll that may never come.
+    const [a, b] = windowFor();
+    if (a !== lo || b !== hi) scheduleWindow();
   }
 
   // Switching channel is the thing a person does a hundred times an hour, and
@@ -766,9 +843,34 @@
   // cheapest possible continuity — one opacity, on the compositor, over
   // --dur-quick — and it is a fade IN rather than a true cross-fade because
   // there is nothing to fade out against: the old rows are gone in the same
-  // flush that changes the id. Zeroed under prefers-reduced-motion by the CSS.
+  // flush that changes the id. It starts from 0.35, not from nothing, so the
+  // new channel is legible from its first frame: the fade is continuity, never
+  // a wait. Instant under reduced motion (the global stand-down).
+  //
+  // It is armed when the new channel's rows ARRIVE, not when the id changes:
+  // armed on the id it ran its whole course over an empty feed while history
+  // loaded, and nobody ever saw it. The step down to 0.35 is instant (no
+  // transition on the way down) and only the rise back is animated.
   let feedOpacity = $state(1);
+  let feedFadeUp = $state(false);
   let fadeRaf = 0;
+  let fadeArmed = false;
+  $effect.pre(() => {
+    const loading = S.feedLoading;
+    untrack(() => {
+      if (loading || !fadeArmed) return;
+      fadeArmed = false;
+      feedFadeUp = false;
+      feedOpacity = 0.35;
+      cancelAnimationFrame(fadeRaf);
+      fadeRaf = requestAnimationFrame(() => {
+        fadeRaf = requestAnimationFrame(() => {
+          feedFadeUp = true;
+          feedOpacity = 1;
+        });
+      });
+    });
+  });
 
   // A channel switch is a different thread: every measurement is about rows that
   // no longer exist.
@@ -781,6 +883,7 @@
     untrack(() => {
       advance.clear();
       typeMean.clear();
+      typeSamples.clear();
       headerH = 0;
       atBottom = true;
       lastScrollTop = 0;
@@ -789,11 +892,7 @@
       // Not on the first channel of the session: the app has its own entrance
       // and a second fade under it reads as a stutter.
       if (first) return;
-      feedOpacity = 0;
-      cancelAnimationFrame(fadeRaf);
-      fadeRaf = requestAnimationFrame(() => {
-        fadeRaf = requestAnimationFrame(() => (feedOpacity = 1));
-      });
+      fadeArmed = true;
     });
   });
 
@@ -882,7 +981,7 @@
   // is navigating onto nothing — the focus call finds no element, and the tab
   // stop it was pointing at disappears with it. Home landing on a guild's
   // "created this channel" notice is exactly how that happens.
-  const NAV_SKIP = new Set(["system", "call-missed", "device", "invite"]);
+  const NAV_SKIP = new Set(["system", "call-missed", "call", "device", "invite"]);
   const rowKeys = () =>
     items.filter((x) => x.t === "row" && !NAV_SKIP.has(x.row.m.kind)).map((x) => x.k);
 
@@ -950,7 +1049,8 @@
     // Enter and the menu key open the same context menu a right-click does, at
     // the row's own corner. Synthesising the event rather than reaching into
     // Message.svelte keeps one definition of what that menu contains.
-    if ((e.key === "Enter" || e.key === "ContextMenu") && at >= 0) {
+    // Shift+F10 is the menu key's chord on keyboards that have no menu key.
+    if ((e.key === "Enter" || e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) && at >= 0) {
       const el = feedEl?.querySelector(`[data-msg-id="${CSS.escape(cur)}"]`);
       if (!el) return;
       e.preventDefault();
@@ -971,6 +1071,55 @@
   function onFeedFocusIn(e) {
     const el = e.target?.closest?.("[data-msg-id]");
     if (el) focusKey = el.dataset.msgId;
+    barSrc = "focus";
+  }
+
+  // Pins have one home off the phone: the inspector's Pins tab (docked, or
+  // over the feed on a narrower window). A request for "the pins" that used to
+  // raise a separate popover on a tablet opens that tab instead.
+  $effect(() => {
+    if (!S.showPins || S.isMobile) return;
+    S.showPins = false;
+    showInspectorTab("pins");
+    if (!S.prefs.memberPanel) setPref("memberPanel", true);
+  });
+
+  // Threads started from messages in this channel, by the message they came
+  // from (lib/threadlinks.js): read back from the threads' own openers, the
+  // most recently active few only. Re-read when the channel or its set of
+  // threads changes.
+  let threadsBySrc = $state(new Map());
+  const childThreads = $derived.by(() => {
+    const id = S.activeChannelId;
+    const g = activeGuild();
+    if (!id || !g || g.kind === "dm") return [];
+    return (g.channels || [])
+      .filter((c) => c.parent === id)
+      .sort((a, b) => (b.lastActivity || 0) - (a.lastActivity || 0));
+  });
+  const childKey = $derived(S.activeChannelId + ":" + childThreads.map((c) => c.id + "/" + c.name).join(","));
+  $effect(() => {
+    void childKey;
+    const parent = S.activeChannelId;
+    const list = untrack(() => childThreads);
+    if (!list.length) {
+      threadsBySrc = new Map();
+      return;
+    }
+    let stale = false;
+    threadsBySource(list, parent, (cid) => api.messages(cid)).then((m) => {
+      if (!stale && S.activeChannelId === parent) threadsBySrc = m;
+    });
+    return () => (stale = true);
+  });
+
+  // One action bar at a time. A row shows its bar while hovered AND while it
+  // holds focus, so a focused row (Escape out of the composer lands on one)
+  // plus the row under the pointer drew two bars at once. Whichever moved last
+  // — the pointer or the focus — owns the bar; Message.svelte hides the other.
+  let barSrc = $state("hover");
+  function onFeedPointerOver(e) {
+    if (e.pointerType !== "touch") barSrc = "hover";
   }
 
   // The tab stop is chosen from the RENDERED rows, not from the whole thread,
@@ -1093,16 +1242,22 @@
   async function pageBack(fetchOlder) {
     if (!feedEl) return 0;
     const anchor = takeAnchor();
-    const firstKey = items[lo]?.k;
+    let firstKey = "";
+    let firstAt = 0; // how far into the window that row sat
+    for (let i = lo; i < hi && !firstKey; i++)
+      if (stableItem(items[i])) {
+        firstKey = items[i].k;
+        firstAt = i - lo;
+      }
     const added = await fetchOlder();
     if (added > 0) {
       await tick();
       if (!feedEl) return added;
       const moved = firstKey ? items.findIndex((x) => x.k === firstKey) : -1;
       if (moved >= 0) {
-        const shift = moved - lo;
-        lo += shift;
-        hi = Math.min(items.length, hi + shift);
+        const next = Math.max(0, moved - firstAt);
+        hi = Math.min(items.length, hi + (next - lo));
+        lo = next;
       }
       rebuildCum();
       applyPads();
@@ -1113,17 +1268,38 @@
       await settle(atBottom, anchor);
       scheduleWindow();
     }
+    // Still within reach of the top (a fast fling, or a page that did not
+    // fill the screen): carry on. Paging was only ever asked for by a scroll
+    // event, and at scrollTop 0 the browser sends none, so the reader sat on
+    // the first loaded page believing it was the start of the channel.
+    if (feedEl && !atBottom) queueMicrotask(() => pageMore());
     return added;
   }
 
-  function fmtDay(day) {
-    const d = new Date(day);
-    const today = new Date().toDateString();
-    const yesterday = new Date(Date.now() - 86400000).toDateString();
-    if (day === today) return "Today";
-    if (day === yesterday) return "Yesterday";
-    return d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+  // The one place that decides whether to fetch more history above, shared by
+  // the scroll handler, the wheel at the very top, and the follow-up after a
+  // page lands.
+  async function pageMore() {
+    if (!feedEl || feedEl.scrollTop >= 240) return;
+    if (!S.feedLoading && !S.loadingOlder && !S.feedReachedStart && !S.historyError) {
+      await pageBack(loadOlder);
+      return;
+    }
+    // Live history has run out and this channel has an archive above it: keep
+    // going, into pages fetched from whoever holds them. A metered refusal
+    // stops here until the reader answers the card offering to fetch anyway.
+    if (
+      S.feedReachedStart &&
+      arcChan &&
+      !S.archiveLoading &&
+      !S.archiveReachedStart &&
+      !S.archiveMetered
+    ) {
+      await pageBack(() => loadArchiveOlder(false));
+    }
   }
+
+  const fmtDay = (day) => dayLabel(day);
 
   // Missed-call lines carry their own small timestamp (regular messages get
   // theirs from Message.svelte; system join notices don't need one).
@@ -1232,18 +1408,18 @@
        the app is still working on it. The guild is not gone — the history is on
        this device and the rail still holds it — but it has stopped being a place
        you can speak in, and the composer below has been replaced to match. -->
+  {@const gone = evictedCopy(activeGuild()?.evicted)}
   <div class="gone-banner" role="status">
     <span class="gone-text">
-      You're no longer a member of <strong>{activeGuild()?.name}</strong>.
+      {gone.lead} <strong>{activeGuild()?.name}</strong>.
       {#if activeGuild()?.evictedReason}
         <span class="gone-why">“{activeGuild().evictedReason}”</span>
       {/if}
-      {#if activeGuild()?.evicted === "banned"}
-        You were banned, so an invite won't let you back in.
-      {:else}
-        An admin can let you back in from this guild's moderation log.
-      {/if}
+      {gone.next}
     </span>
+    <!-- The history stays on this device until the person says otherwise; this
+         is how they say it, from the place that told them. -->
+    <button class="oos-act" onclick={() => leaveGuildNow(activeGuild())}>Remove from my list</button>
   </div>
 {:else if activeGuild()?.outOfSync}
   <!-- A slim strip, not a wall of red. This appears while the app is WORKING —
@@ -1296,7 +1472,7 @@
         />
         <span class="pin-body">
           <span class="pin-meta">
-            <strong style={nameColorFor(m.sender) ? `color:${nameColorFor(m.sender)}` : ""}
+            <strong style={S.prefs.roleNameColors && nameColorFor(m.sender) ? `color:${nameColorFor(m.sender)}` : ""}
               >{nameFor(m.sender, m.senderName)}</strong
             >
             <span class="muted tiny">{fmtTime(m.sent)}</span>
@@ -1330,29 +1506,12 @@
 
 {#if S.showPins}
   {#if S.isMobile}
-    <!-- Same rows, native presentation. The popover below is anchored to the
-         top-right corner: on a phone that covers the newest messages you were
-         just reading and puts its only dismissal at the far corner. A sheet
-         comes up under the thumb and closes by backdrop tap or swipe-down. -->
+    <!-- The phone's presentation of the pins (elsewhere they are the
+         inspector's Pins tab, see the effect above): a sheet under the thumb
+         that closes by backdrop tap or swipe-down. -->
     <BottomSheet title="Pinned messages" onClose={() => (S.showPins = false)}>
       <div class="pins-list sheet">{@render pinRows()}</div>
     </BottomSheet>
-  {:else}
-    <div class="pins-anchor">
-      <section class="pins-pop" aria-label="Pinned messages">
-        <header class="pins-head">
-          <span class="pins-title">
-            <Icon name="pin" size={13} />
-            Pinned messages
-            {#if pinned.length}<span class="pins-count">{pinned.length}</span>{/if}
-          </span>
-          <button class="mini" title="Close" aria-label="Close pinned messages" onclick={() => (S.showPins = false)}>
-            <Icon name="close" size={12} />
-          </button>
-        </header>
-        <div class="pins-list">{@render pinRows()}</div>
-      </section>
-    </div>
   {/if}
 {/if}
 
@@ -1364,12 +1523,16 @@
 <div
   class="feed"
   class:bar-narrow={barNarrow}
+  class:fade-up={feedFadeUp}
   style:opacity={feedOpacity}
   bind:this={feedEl}
   role="log"
   aria-label="Messages"
+  use:feedTabs
   onkeydown={onFeedKeydown}
   onfocusin={onFeedFocusIn}
+  onpointerover={onFeedPointerOver}
+  data-bar-src={barSrc}
   ondragenter={onDragEnter}
   ondragleave={onDragLeave}
   ondragover={(e) => e.preventDefault()}
@@ -1391,7 +1554,11 @@
     // positions it passes through are not the reader deciding anything.
     if (!revealPending()) {
       const st = feedEl?.scrollTop ?? 0;
-      atBottom = st < lastScrollTop - 2 ? feedNearBottom() : atBottom || feedNearBottom();
+      // A scroll the LAYOUT caused — the pane resized (a rotation, a window
+      // dragged across the phone breakpoint) and the content reflowed under a
+      // clamped scrollTop — is not the reader scrolling up.
+      if (performance.now() >= layoutHold)
+        atBottom = st < lastScrollTop - 2 ? feedNearBottom() : atBottom || feedNearBottom();
       lastScrollTop = st;
     }
     if (S.newBelow && atBottom) S.newBelow = false;
@@ -1403,23 +1570,12 @@
     if (atBottom && trimLoadedHistory()) return;
     // Near the top: page in older history and hold the reader's position — the
     // prepended rows would otherwise jump the viewport.
-    if (!feedEl || feedEl.scrollTop >= 240) return;
-    if (!S.loadingOlder && !S.feedReachedStart) {
-      await pageBack(loadOlder);
-      return;
-    }
-    // Live history has run out and this channel has an archive above it: keep
-    // going, into pages fetched from whoever holds them. A metered refusal
-    // stops here until the reader answers the card offering to fetch anyway.
-    if (
-      S.feedReachedStart &&
-      arcChan &&
-      !S.archiveLoading &&
-      !S.archiveReachedStart &&
-      !S.archiveMetered
-    ) {
-      await pageBack(() => loadArchiveOlder(false));
-    }
+    await pageMore();
+  }}
+  onwheel={(e) => {
+    // Already at the very top, a wheel moves nothing and fires no scroll —
+    // the one gesture that most plainly means "older, please".
+    if (e.deltaY < 0 && feedEl && feedEl.scrollTop <= 0) pageMore();
   }}
 >
   {#if pullDist > 0 || pullRefreshing}
@@ -1461,7 +1617,7 @@
          channels an import has just created that are most likely to have no
          live history at all. -->
     <div class="empty">
-      <EmptyState icon={emptyInfo.icon} headline={emptyInfo.title} sub={emptyInfo.body}>
+      <EmptyState icon={emptyInfo.icon} headline={emptyInfo.title} sub={emptyInfo.body} center={!!emptyInfo.voice}>
         {#snippet actions()}
           {#if canSetTopic}
             <button
@@ -1483,7 +1639,7 @@
                 <Icon name="screen" size={15} />
                 Open the call
               </button>
-            {:else if !S.callStage}
+            {:else if !S.callStage && !activeGuild()?.evicted}
               <button class="join-call" onclick={() => onJoinVoice?.(S.activeChannelId)}>
                 <Icon name="speaker" size={15} />
                 Join {emptyInfo.name}
@@ -1517,7 +1673,27 @@
       </EmptyState>
     </div>
   {/if}
-  {#if S.loadingOlder}
+  {#if S.historyError}
+    <!-- Not the empty-channel welcome: a channel whose history failed to load
+         is not a channel nobody has spoken in. -->
+    <div class="feed-error" role="alert">
+      <span class="fe-text">
+        {S.historyError.older ? "Couldn't load older messages." : "Couldn't load this conversation's messages."}
+        <span class="fe-why">{S.historyError.msg}</span>
+      </span>
+      <button
+        type="button"
+        class="fe-retry"
+        onclick={async () => {
+          const older = S.historyError?.older;
+          await retryHistory();
+          if (older) pageMore();
+        }}
+      >
+        Try again
+      </button>
+    </div>
+  {:else if S.loadingOlder}
     <div class="older-loading"><span class="ol-spin"></span> Loading older messages…</div>
   {:else if showArchive}
     <!-- Above the seam: whatever of the archive has been paged in so far, and
@@ -1536,10 +1712,12 @@
         </button>
       </div>
     {:else if S.archiveReachedStart}
-      <div class="feed-start">This is the beginning of the archive.</div>
+      <div class="feed-start arc">This is the beginning of the archive.</div>
     {/if}
   {:else if S.feedReachedStart && S.messages.length > 0 && !S.feedLoading && !showHero}
-    <div class="feed-start">This is the beginning of {isDMView ? "the conversation" : "the channel"}.</div>
+    <div class="feed-start">
+      <EmptyState compact icon={startInfo.icon} headline={startInfo.title} sub={startInfo.body} />
+    </div>
   {/if}
   <!-- Everything between the two spacers is the window; the spacers hold the
        height of the rows on either side of it that are not rendered. -->
@@ -1563,7 +1741,7 @@
       <PendingMessage entry={it.entry} first={it.first} />
     {:else if it.t === "new"}
       <div class="new-divider" class:cleared={newCleared}>
-        <span>{newCleared ? "READ UP TO HERE" : "NEW"}</span>
+        <span>{newCleared ? "Read up to here" : "New"}</span>
         {#if !newCleared}
           <button
             class="mark-read"
@@ -1572,7 +1750,7 @@
               newCleared = true;
             }}
           >
-            Mark as read <Icon name="check" size={11} />
+            Mark as read
           </button>
         {/if}
       </div>
@@ -1622,17 +1800,28 @@
           {/if}
         </div>
       {/if}
-    {:else if it.row.m.kind === "call-missed"}
-      <!-- A DM ring that went unanswered. The caller's client emits it, both
-           sides render it; never pings (non-"" kinds are unread-exempt). -->
+    {:else if it.row.m.kind === "call-missed" || it.row.m.kind === "call"}
+      <!-- A call record, worded for this side (lib/callflow.js recordText).
+           "call-missed" travels — a ring nobody answered, or a decline — and
+           the caller's client emits it; "call" is this device's own record
+           and never left it. Neither pings (non-"" kinds are unread-exempt). -->
+      {@const mineCall = it.row.m.sender === S.identity.fingerprint}
       <div class="system-msg call-missed" class:enter={it.row.m.id === animateId}>
         <span>
           <span class="call-ic"><Icon name="phone" size={11} /></span>
-          {#if it.row.m.sender === S.identity.fingerprint}
-            You called — no answer
-          {:else}
-            Missed call from <strong>{it.row.m.senderName || it.row.m.sender.slice(0, 9)}</strong>
-          {/if}
+          {recordText({
+            kind: it.row.m.kind,
+            content: it.row.m.content,
+            mine: mineCall,
+            // The other side: the sender when it was them; in a 1:1 we
+            // posted, the person the conversation is with.
+            other: mineCall
+              ? isDMView && (activeGuild()?.dmMembers ?? 2) <= 2
+                ? activeGuild()?.name
+                : ""
+              : it.row.m.senderName || nameFor(it.row.m.sender),
+            nameOf: (f) => nameFor(f),
+          })}
           <span class="call-time">{fmtCallTime(it.row.m.sent)}</span>
         </span>
       </div>
@@ -1655,6 +1844,7 @@
         entering={it.row.m.id === animateId}
         tabbable={it.k === tabbableKey}
         replyRef={it.row.m.replyTo ? byId.get(it.row.m.replyTo) : null}
+        threads={threadsBySrc.get(it.row.m.id) || null}
       />
     {/if}
   {/each}
@@ -1709,13 +1899,12 @@
          in a separate visually-hidden region (below) so AT hears "new messages"
          without the button being demoted to a passive status region. -->
     <button class="new-below" aria-label="New messages below — jump to latest" onclick={scrollSoon}>
-      New messages <span class="arrow">↓</span>
+      New messages <span class="arrow" aria-hidden="true">↓</span>
     </button>
     <span class="sr-only" role="status" aria-live="polite">New messages below</span>
   {:else if !atBottom && !lastRowSeen}
     <button class="older-bar" aria-label="Viewing older messages — jump to latest" onclick={scrollSoon}>
-      <span class="ob-text">Viewing older messages</span>
-      <span class="ob-cta">Jump to latest</span>
+      <span class="ob-cta">Jump to latest</span> <span class="arrow" aria-hidden="true">↓</span>
     </button>
   {/if}
 </div>
@@ -1725,12 +1914,14 @@
      the composer. */
   .feed-dock {
     display: flex;
-    justify-content: center;
+    justify-content: flex-end;
     flex: none;
     line-height: 0;
+    padding: 0 var(--sp-edge);
   }
   .feed-dock:has(button) {
-    padding: 6px 0 2px;
+    padding-top: 6px;
+    padding-bottom: 2px;
   }
   .oos-banner {
     display: flex;
@@ -1818,10 +2009,8 @@
       padding-inline: var(--sp-3);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .oos-dot.spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .oos-dot.spin {
+    animation: none;
   }
   .side-panel {
     border-bottom: 1px solid var(--border);
@@ -1832,61 +2021,6 @@
     gap: 6px;
     max-height: 200px;
     overflow-y: auto;
-  }
-  /* Pinned-messages popover: floats below the header's pin button, over the
-     feed, via a zero-height positioning anchor (the chat column clips it). */
-  .pins-anchor {
-    position: relative;
-    height: 0;
-    z-index: 25;
-  }
-  .pins-pop {
-    position: absolute;
-    top: 8px;
-    right: 14px;
-    width: min(380px, calc(100 * var(--vw) - 48px));
-    max-height: min(420px, 60 * var(--vh));
-    display: flex;
-    flex-direction: column;
-    background: var(--bg-elevated, var(--bg-1));
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-pop);
-    overflow: hidden;
-    animation: pins-in var(--dur-standard) var(--ease-out);
-    transform-origin: top right;
-  }
-  @keyframes pins-in {
-    from {
-      opacity: 0;
-      transform: translateY(-4px) scale(0.98);
-    }
-  }
-  .pins-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--sp-2);
-    padding: 9px 8px 9px 12px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-1);
-  }
-  .pins-title {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--fs-compact);
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    color: var(--text);
-  }
-  .pins-count {
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    padding: 1px 6px;
-    border-radius: 999px;
-    background: var(--accent-soft);
-    color: var(--accent-hover);
   }
   .pins-list {
     overflow-y: auto;
@@ -1984,9 +2118,9 @@
   .feed {
     flex: 1;
     min-height: 0;
-    /* The channel-switch fade. Opacity only, so the whole thing is one
-       compositor property and never touches layout or paint. */
-    transition: opacity var(--dur-quick) var(--ease-out);
+    /* The channel-switch fade (only on its way up, see feedFadeUp). Opacity
+       only, so the whole thing is one compositor property and never touches
+       layout or paint. */
     overflow-y: auto;
     /* Never let one long unbroken string (URL, fingerprint, code) give the
        whole chat a horizontal scrollbar — content wraps or scrolls inside its
@@ -1998,14 +2132,17 @@
     padding: var(--feed-pad, 16px);
     display: flex;
     flex-direction: column;
-    --feed-gap: var(--msg-gap, 12px);
+    /* No gap between rows: a group's space is carried by the row that starts
+       it (Message.svelte), and dividers carry their own, so a continuation row
+       sits flush under the one above without pulling against anything. */
+    --feed-gap: 0px;
     gap: var(--feed-gap);
     position: relative;
     /* Room at the right edge of every row for the hover action bar, so the bar
        is never over text. Sized to the widest bar the row can build (three quick
-       emoji, add-reaction, reply, forward, pin, edit, delete, ⋯ — 317px
-       measured) plus its inset. Message.svelte carries the reasoning. */
-    --act-gutter: 340px;
+       emoji, add reaction, reply, thread, ⋯ — 238px measured) plus its inset.
+       Message.svelte carries the reasoning. */
+    --act-gutter: 250px;
   }
   /* One ⋯ button: 26px of glyph, 3px of padding either side, a hairline either
      side, and the 4px the bar is inset from the row's edge. */
@@ -2042,7 +2179,7 @@
     flex: 1 1 0;
     min-height: 0;
   }
-  /* Centering only. The illustration itself — badge, dashed orbit, drifting
+  /* Placement only. The illustration itself — badge, dashed orbit, drifting
      satellite, entrance — was extracted into EmptyState.svelte for the other
      panels and then left duplicated here, which is how the two drifted: this
      copy's headline sat at a literal 18px while the shared one was on the type
@@ -2050,7 +2187,6 @@
   /* Rests on the rows below it (the push spacer above takes the slack), so
      the welcome reads straight into the day divider and the join notice. */
   .empty {
-    margin: 0 auto;
     padding-bottom: var(--sp-4);
   }
   /* The way in, at the size of a decision. */
@@ -2085,7 +2221,6 @@
   }
   .join-call:hover {
     background: var(--accent-hover);
-    box-shadow: var(--accent-glow);
   }
   /* Who is already in there, under it. "Nobody's in there yet" is worth saying
      out loud too: it is the difference between a room and a decision. */
@@ -2109,110 +2244,81 @@
   .who-face :global(.avatar) {
     border: 2px solid var(--bg-2);
   }
+  /* Dividers are left-aligned labels with a hairline to the right — sentence
+     case, never a pill. Each carries its own space above (the feed has no
+     gap; see .feed), and a new group always starts under one. */
   .day-divider {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--sp-3);
     color: var(--text-muted);
-    font-size: var(--fs-small);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin: 6px 0 -4px;
+    font-family: var(--display-font);
+    font-size: var(--fs-ui);
+    font-style: italic;
+    font-weight: 600;
+    margin: 20px 0 4px;
   }
-  .day-divider::before,
   .day-divider::after {
     content: "";
     flex: 1;
     height: 1px;
-    /* rule fades out toward the edges — reads as a soft centered break */
-    background: linear-gradient(to right, transparent, var(--border));
+    background: var(--hairline);
   }
-  .day-divider::after {
-    background: linear-gradient(to left, transparent, var(--border));
-  }
-  .day-divider span {
-    padding: 2px 10px;
-    font-weight: 600;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-  }
+  /* The New line is YOUR accent, as ink, at every size and in both themes:
+     a hairline across and the word at the end. */
   .new-divider {
     display: flex;
     align-items: center;
-    gap: var(--sp-2);
+    gap: 10px;
     color: var(--accent-hover);
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    margin: 2px 0 -4px;
-    /* Its MARK AS READ is a real control and outranks any hover chrome that
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+    margin: 14px 0 0;
+    /* Its Mark as read is a real control and outranks any hover chrome that
        reaches for the same pixels. */
     position: relative;
     z-index: 6;
   }
-  .new-divider::before,
-  .new-divider::after {
+  .new-divider::before {
     content: "";
     flex: 1;
     height: 1px;
-    background: color-mix(in srgb, var(--accent) 55%, transparent);
-  }
-  .new-divider span {
-    padding: 1px 7px;
-    background: var(--accent);
-    color: var(--accent-fg);
-    border-radius: 999px;
-    /* one gentle pulse when the divider appears, then settle */
-    animation: new-pulse 1.5s ease-out 0.35s 1;
-  }
-  /* Flex-order the pseudo lines so "Mark as read" sits at the far right:
-     [line][NEW][line————————][mark as read] */
-  .new-divider::before {
-    order: 0;
-  }
-  .new-divider span {
-    order: 1;
-  }
-  .new-divider::after {
-    order: 2;
+    background: color-mix(in srgb, var(--accent-hover) 70%, transparent);
   }
   /* Acknowledged: same slot, same height, no jump — just quieter. */
   .new-divider.cleared {
     color: var(--text-faint);
   }
-  .new-divider.cleared span {
-    background: transparent;
-    color: var(--text-faint);
-    border: 1px solid var(--border);
-    animation: none;
-  }
-  .new-divider.cleared::before,
-  .new-divider.cleared::after {
-    background: color-mix(in srgb, var(--border) 70%, transparent);
+  .new-divider.cleared::before {
+    background: var(--hairline);
   }
   .new-divider .mark-read {
-    order: 3;
     display: inline-flex;
     align-items: center;
     gap: 3px;
     border: none;
     background: transparent;
-    color: var(--accent-hover);
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    color: var(--text-muted);
+    font-size: var(--fs-tiny);
+    font-weight: 500;
     padding: 1px 5px;
     border-radius: var(--radius-sm);
     cursor: pointer;
   }
   .new-divider .mark-read:hover,
   .new-divider .mark-read:active {
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    background: var(--bg-3);
+    color: var(--text);
   }
-  /* Loading shimmer while a channel switch fetches history. */
+  .feed.fade-up {
+    transition: opacity var(--dur-quick) var(--ease-out);
+  }
+  /* Loading shimmer while a channel switch fetches history. It waits 150ms
+     (--dur-standard)
+     before it shows: most switches have their rows by then, and a skeleton
+     that flashed for two frames before them read as a blink. */
   .feed-skeleton {
+    animation: sk-late var(--dur-standard) var(--ease-out) var(--dur-standard) both;
     display: flex;
     flex-direction: column;
     gap: 18px;
@@ -2256,11 +2362,9 @@
       background-position: -120% 0;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .sk-av,
-    .sk-line {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .sk-av,
+  :global(:root[data-motion="reduced"]) .sk-line {
+    animation: none;
   }
   @keyframes new-pulse {
     0% {
@@ -2270,30 +2374,51 @@
       box-shadow: 0 0 0 9px transparent;
     }
   }
+  /* System rows read as a line of the conversation, not a banner: the icon
+     sits right-aligned in the avatar column and the sentence starts where a
+     message's text starts. */
   .system-msg {
-    text-align: center;
+    text-align: start;
     font-size: var(--fs-compact);
     color: var(--text-muted);
-    padding: 2px 0;
+    padding: 4px 0;
+    margin-top: 10px;
   }
   /* Newest appended system row slides in like a message (zeroed under the
      global reduced-motion override in app.css). */
   .system-msg.enter {
-    animation: row-in 0.26s var(--ease-out) backwards;
+    animation: row-in var(--dur-standard) var(--ease-out) backwards;
+  }
+  @keyframes sk-late {
+    from {
+      opacity: 0;
+    }
   }
   @keyframes row-in {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      translate: 0 3px;
     }
   }
-  .system-msg span {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
+  .system-msg > span {
+    display: block;
+    position: relative;
+    padding-left: 48px;
+  }
+  .system-msg > span > :first-child {
+    position: absolute;
+    left: 20px;
+    top: 2px;
+    width: 16px;
+    height: 16px;
+    display: grid;
+    place-items: center;
+    color: var(--text-faint);
+    background: none;
   }
   .system-msg strong {
     color: var(--text);
+    font-weight: 600;
   }
   /* Missed-call line: same quiet centered stripe as system notices, with a
      red-tinted phone badge so it reads as a call event at a glance. */
@@ -2303,8 +2428,6 @@
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: color-mix(in srgb, var(--danger, #f04747) 16%, transparent);
-    color: var(--danger, #f04747);
   }
   .call-missed .call-time {
     color: var(--text-faint);
@@ -2314,7 +2437,6 @@
   .invite-note {
     display: flex;
     align-items: center;
-    justify-content: center;
     gap: var(--sp-2);
     flex-wrap: wrap;
   }
@@ -2324,16 +2446,14 @@
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: var(--accent-soft);
-    color: var(--accent);
   }
   .inv-join {
     padding: 2px 10px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: var(--accent);
-    color: var(--accent-fg);
-    font-size: var(--fs-tiny);
+    border-radius: var(--radius-sm);
+    border: none;
+    background: var(--bg-3);
+    color: var(--text);
+    font-size: var(--fs-small);
     font-weight: 600;
   }
   .inv-join:hover {
@@ -2347,49 +2467,71 @@
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: color-mix(in srgb, var(--warn) 16%, transparent);
-    color: var(--warn-text);
   }
-  .device-note span {
-    max-width: 60ch;
-    text-align: center;
-    display: inline-flex;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
+
   /* The return-to-latest cluster: both buttons share the accent-gradient
      "floating" look — a soft colored glow instead of the old flat chip. */
-  .new-below {
+  /* The return-to-now chip: right-aligned, one quiet lifted surface. */
+  .new-below,
+  .older-bar {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    padding: var(--sp-2) var(--sp-4);
+    gap: 6px;
+    height: 30px;
+    padding: 0 12px;
     border-radius: 999px;
-    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-    color: var(--accent-fg);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text);
     font-size: var(--fs-compact);
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    box-shadow: var(--float-shadow);
+    font-weight: 500;
+    box-shadow: var(--shadow-pop);
     z-index: 15;
-    animation: float-in 0.2s var(--ease-out);
-    transition: transform var(--dur-standard) ease;
+    animation: float-in var(--dur-quick) var(--ease-spring);
   }
   @media (pointer: fine) {
-    .new-below:hover {
-      transform: translateY(-2px);
+    .new-below:hover,
+    .older-bar:hover {
+      background: var(--bg-3);
     }
   }
   .new-below .arrow {
     font-size: var(--fs-ui);
   }
+  .feed-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-4) 12px;
+    text-align: center;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+  }
+  .fe-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: var(--text);
+  }
+  .fe-why {
+    color: var(--text-muted);
+  }
+  .fe-retry {
+    padding: 6px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: var(--accent-fg);
+    font: inherit;
+    font-weight: 600;
+  }
   .older-loading,
-  .feed-start {
+  .feed-start.arc {
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: var(--sp-2);
-    padding: 14px 12px 6px;
+    padding: 14px 0 6px;
     font-size: var(--fs-compact);
     color: var(--text-muted);
   }
@@ -2402,7 +2544,10 @@
     animation: att-spin 0.7s linear infinite;
   }
   .feed-start {
-    font-style: italic;
+    padding-top: var(--sp-3);
+  }
+  .feed-start :global(.empty) {
+    padding-inline: 0;
   }
   /* The seam between imported history and this channel's own. A day divider
      wearing a different coat: same centred rule, but the pill is filled and
@@ -2499,10 +2644,8 @@
       transform: rotate(360deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .ol-spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .ol-spin {
+    animation: none;
   }
   /* Pull-to-refresh chip: reuses .ol-spin, floats on a small elevated disc so
      it reads over message text. Position comes from an inline transform that
@@ -2520,60 +2663,22 @@
     border-radius: 50%;
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
-    box-shadow: var(--float-shadow);
+    box-shadow: var(--shadow-pop);
     pointer-events: none;
     will-change: transform, opacity;
   }
-  /* "You're scrolled up" indicator: a slim glassy bar above the composer —
-     quiet context plus one accent action, not a floating blob. */
-  .older-bar {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-3);
-    padding: 7px 16px;
-    border-radius: 999px;
-    /* 84% let the message underneath show through the words, and the blur only
-       smeared it — two lines of text on top of each other read as neither. The
-       pill is a control, not a pane of glass. */
-    background: color-mix(in srgb, var(--bg-1) 96%, transparent);
-    backdrop-filter: blur(16px) saturate(1.2);
-    -webkit-backdrop-filter: blur(16px) saturate(1.2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    font-size: var(--fs-compact);
-    box-shadow: var(--float-shadow);
-    z-index: 15;
-    animation: float-in 0.2s var(--ease-out);
-    transition: border-color var(--dur-standard) ease, transform var(--dur-standard) ease;
-  }
   .ob-cta {
-    color: var(--accent-hover);
-    font-weight: 600;
     white-space: nowrap;
-  }
-  @media (pointer: fine) {
-    .older-bar:hover {
-      background: var(--bg-1);
-      border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-      transform: translateY(-1px);
-    }
-  }
-  .older-bar:active {
-    transform: none;
   }
   @keyframes float-in {
     from {
       opacity: 0;
-      transform: translateY(10px) scale(0.85);
+      transform: translateY(4px);
     }
   }
-  @media (pointer: coarse), (max-width: 768px) {
-    .older-bar .ob-text {
-      display: none; /* phones: just the action, no caption */
-    }
+  @media (max-width: 768px) {
     .older-bar {
-      padding: 10px 18px;
-      min-height: var(--tap-min);
+      height: 40px;
     }
   }
   .pin-jump {
@@ -2640,18 +2745,13 @@
        app, and both of these landed ~8px under the minimum. They are already
        pill-shaped, so the height costs nothing visually. */
     .new-below {
-      padding: 10px 18px;
-      font-size: var(--fs-ui);
-      bottom: 10px;
-      min-height: var(--tap-min);
-      justify-content: center;
+      height: 40px;
     }
     /* A touch more air between message groups at arm's length — but the SIDE
        gutter caps at --sp-edge, because an airy theme pack's 22px on both sides
        of a 360px screen is 12% of the viewport spent displaying nothing. The
        vertical value still tracks the pack, so its rhythm survives. */
     .feed {
-      --feed-gap: calc(var(--msg-gap, 12px) + 4px);
       padding: var(--feed-pad, 16px) min(var(--feed-pad, 16px), var(--sp-edge));
       /* Keep a flick inside the feed instead of handing it to the page (which
          is where pull-to-refresh and rubber-banding come from). */
@@ -2659,10 +2759,7 @@
       -webkit-overflow-scrolling: touch;
     }
     .day-divider {
-      margin: 10px 0 -2px;
-    }
-    .day-divider span {
-      padding: 3px 12px;
+      margin: 16px 0 4px;
     }
     /* Clearing unread is one of the highest-frequency actions there is, and it
        was a 13px sliver of 10px uppercase wedged between two hairlines. */

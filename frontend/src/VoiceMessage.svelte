@@ -309,7 +309,7 @@
   /* The primary control of the component was 34px, and the scrub strip 30px.
      The bars keep their pixel heights (see WAVE_PX), so the strip grows into a
      finger-sized target without the waveform growing with it. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .vm-play {
       width: var(--tap-min);
       height: var(--tap-min);
@@ -318,9 +318,7 @@
       height: var(--tap-min);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .vm-play:hover {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .vm-play:hover {
+    transform: none;
   }
 </style>

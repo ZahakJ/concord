@@ -10,6 +10,8 @@ import {
   showsBadge,
   isLevel,
   levelLabel,
+  shouldNotify,
+  notificationTitle,
 } from "./notifs.js";
 
 let failures = 0;
@@ -91,6 +93,33 @@ assert(!wantsAlert("all", { mention: false, dnd: true }), "DND silences everythi
 // …but it must not hide where you'd got to.
 assert(showsBadge("all") && showsBadge("mentions"), "unread still shows at 'all' and 'mentions'");
 assert(!showsBadge("none"), "'none' hides the badge, exactly as muting used to");
+
+// ---- when an allowed alert becomes an OS notification ----
+const desk = { hidden: false, focused: true, mobile: false };
+assert(shouldNotify({ ...desk, hidden: true }), "hidden: chatter notifies");
+assert(shouldNotify({ ...desk, hidden: true, direct: true }), "hidden: a DM notifies");
+assert(!shouldNotify({ ...desk, focused: false }), "unfocused: chatter waits for the badge");
+assert(shouldNotify({ ...desk, focused: false, direct: true }), "unfocused: a DM notifies, exactly like a mention");
+assert(!shouldNotify({ ...desk, direct: true }), "focused: never — the app is in front of them");
+assert(!shouldNotify({ ...desk, focused: false, mobile: true, direct: true }), "a visible phone counts as focused");
+assert(shouldNotify({ hidden: true, focused: false, mobile: true }), "a backgrounded phone notifies");
+
+eq(notificationTitle({ sender: "Ada", kind: "dm" }), "Ada (direct message)", "a DM says so");
+eq(notificationTitle({ sender: "Ada", kind: "group", place: "Book club" }), "Ada in Book club", "a group DM names the group");
+eq(
+  notificationTitle({ sender: "Ada", channel: "general", place: "Dee Guild" }),
+  "Ada in #general · Dee Guild",
+  "a guild message names channel and guild",
+);
+eq(
+  notificationTitle({ sender: "Ada", mention: true, channel: "general", place: "Dee Guild" }),
+  "@ Ada in #general · Dee Guild",
+  "a mention keeps its lead",
+);
+assert(
+  notificationTitle({ sender: "Ada", kind: "dm" }) !== notificationTitle({ sender: "Ada", channel: "general", place: "G" }),
+  "a DM and a guild message are told apart",
+);
 
 if (failures) {
   console.error(`\n${failures} notifs test(s) failed`);

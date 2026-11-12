@@ -63,9 +63,9 @@
 
   // ---- audience ----
   const myGuilds = $derived(S.guilds.filter((g) => g.kind !== "dm"));
-  const ag = activeGuild();
-  // Active guild pre-checked; the tray only exists on non-DM guilds, but a
-  // DM-open edge (deep link) simply starts with nothing checked.
+  // The guild it was opened for (a guild's menu, its moments viewer), else the
+  // active one, pre-checked; a DM-open edge starts with nothing checked.
+  const ag = S.guilds.find((g) => g.id === S.modal?.guildId) || activeGuild();
   let selected = $state(ag && ag.kind !== "dm" ? { [ag.id]: true } : {});
 
   // Member counts for the honesty line. The active guild's roster is already
@@ -212,7 +212,7 @@
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button disabled={!canPost} onclick={post}>{posting ? "Posting…" : "Post"}</button>
+    <button class="primary" disabled={!canPost} onclick={post}>{posting ? "Posting…" : "Post"}</button>
   </div>
 </Modal>
 
@@ -261,10 +261,8 @@
   .tpl-toggle[aria-expanded="true"] :global(svg) {
     transform: rotate(90deg);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .tpl-toggle :global(svg) {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .tpl-toggle :global(svg) {
+    transition: none;
   }
   .tiny {
     font-size: var(--fs-tiny);
@@ -298,9 +296,7 @@
     }
   }
   .gtitle {
-    font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-size: var(--fs-small);
     color: var(--text-faint);
     margin: 9px 0 4px;
   }

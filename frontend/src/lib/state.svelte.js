@@ -2,9 +2,13 @@
 // that mutate it. Components import { S, ... } and read/mutate S's properties;
 // api.js stays the only transport layer underneath.
 import { tick } from "svelte";
-import { api, on, onTransportHealth } from "./api.js";
+import { closeGuildSwitcher } from "./guildswitch.svelte.js";
+import { MOM } from "./momentsunseen.svelte.js";
+import { api, on, onTransportHealth, probeCore } from "./api.js";
 import { notify, wantsPermissionPrompt } from "./notify.js";
+import { draftIn, noteDraft } from "./drafts.svelte.js";
 import { containsMention } from "./markdown.js";
+import { clampAccent, resolveAccent } from "./guildaccent.js";
 import { matchedWord as matchedAlertWord, normalize as normalizeAlertWords } from "./alertwords.js";
 import { awayLongEnough, guildLastSeen, buildDigest, worthShowing } from "./digest.js";
 import {
@@ -39,6 +43,21 @@ import { humanError } from "./errors.js";
 import { isGameToken } from "./games.js";
 import { plainSnippet } from "./snippet.js";
 import { typistsAfter } from "./typing.js";
+import { landsOnWelcome } from "./firstrun.js";
+import { momentsPlaylist } from "./moments.js";
+import { insertBySent } from "./feedorder.js";
+import { isBlankText } from "./compose.js";
+import { isReading, readThrough, attention, addressedToYou } from "./readstate.js";
+import {
+  step as callStep,
+  isRinging,
+  declineBlob,
+  parseDecline,
+  callPreview,
+  sharersOf,
+  ghostsToReap,
+} from "./callflow.js";
+import { startCallClock } from "./calltimer.svelte.js";
 import {
   LEVELS as NOTIF_LEVELS,
   normalize as normalizeNotifs,
@@ -49,6 +68,7 @@ import {
   wantsAlert,
   showsBadge,
 } from "./notifs.js";
+import { reducedMotion, motionMode, onOsMotionChange } from "./motion.js";
 
 export const S = $state({
   ready: false,
@@ -119,6 +139,9 @@ export const S = $state({
   // which is where the composer's icon row and the header's action row have to
   // fold away instead of eating the content they sit beside.
   narrow: detectNarrow(),
+  // cramped: too little room for the member panel beside the chat at all. See
+  // detectCramped.
+  cramped: detectCramped(),
 
   // Connectivity for the connection pill: { peers, bootstrapReached,
   // hasBootstrap, outOfSyncGuilds }, refreshed on presence events + a slow poll.
@@ -137,6 +160,12 @@ export const S = $state({
   // load is only the recent window; older rows are paged in on demand.
   loadingOlder: false,
   feedReachedStart: false,
+  // historyError: the last history fetch for the open channel failed —
+  // { msg, older } where `older` says it was a page of scrollback rather than
+  // the channel's first page. A failed first page used to leave an empty feed,
+  // which drew the brand-new-channel welcome ("Say hi") over a channel that
+  // has history: the reader was told it was empty.
+  historyError: null,
   // The imported archive that sits ABOVE live history. `chronicle` is the
   // active guild's index (null when it has none); the rest is the same
   // scroll-up pagination as loadingOlder/feedReachedStart, one channel at a
@@ -234,7 +263,17 @@ export const S = $state({
     // LINKED rather than created never sets it, because the phrase for that
     // account is already written down somewhere else.
     backupPending: false,
+    // Set while the signup's "save your recovery phrase" step is on screen and
+    // cleared when it is finished. The core is already unlocked by then, so a
+    // reload used to skip the step for good; while this is set App.svelte
+    // sends an open session back through Login to finish it.
+    backupGate: false,
     // Set the one time this install is told that its Web Audio reaches nothing
+    // Set while the signup's "save your recovery phrase" step is on screen and
+    // cleared when it is finished. The core is already unlocked by then, so a
+    // reload used to skip the step for good; while this is set App.svelte
+    // sends an open session back through Login to finish it.
+    backupGate: false,
     // (WebKitGTK with no GStreamer audio plugins: a context that reports
     // "running" and never renders a sample). One notice, ever — the fix is a
     // package to install, and repeating it every launch would be nagging about
@@ -368,9 +407,12 @@ export const S = $state({
   voiceRosters: {},
   // peers currently screen-sharing, keyed by peerId (surfaced as a share icon).
   voiceSharing: {},
-  // DM channels whose incoming call the user dismissed (declined) — suppressed
-  // until that call ends and the roster clears.
-  dismissedCalls: [],
+  // Each DM call as this side sees it — ringing, incoming, active, ended — by
+  // channel id. The machine and why it exists: lib/callflow.js.
+  calls: {},
+  // A DM call that ended on its own (declined, rang out, the other side hung
+  // up): the channel App.svelte should leave. App owns the mesh.
+  callEnd: "",
   muted: false,
   // Why we have no microphone in THIS call, as a getUserMedia error name, or ""
   // when we have one. A call you joined without a mic is a normal call with one
@@ -494,16 +536,15 @@ export function setVideoStream(key, stream, meta = {}) {
     videoMetaMap.delete(key);
   }
   S.videoTiles = [...videoStreams.keys()].map((k) => ({ key: k, ...videoMetaMap.get(k) }));
-  // Sidebar "sharing" icon: any live video from a remote peer marks them.
-  const sh = {};
-  for (const m of videoMetaMap.values()) if (m.peerId && !m.self) sh[m.peerId] = true;
-  S.voiceSharing = sh;
+  // Sidebar "LIVE — click to watch": a remote SCREEN share, not a camera.
+  S.voiceSharing = sharersOf(videoMetaMap.values());
 }
 
 export function clearVideoStreams() {
   videoStreams.clear();
   videoMetaMap.clear();
   S.videoTiles = [];
+  S.voiceSharing = {};
 }
 
 // faceFor: the same fallback chain nameFor walks, for the rest of the face.
@@ -598,14 +639,19 @@ const nameTable = $derived(
 );
 export const mentionNames = () => nameTable;
 
-// detectMobile reports whether to use the touch/drawer layout: a coarse pointer
-// (phone/tablet) or a narrow viewport. Re-evaluated on resize/orientation via
-// the listener below so a desktop window narrowed past the breakpoint adapts too.
+// detectMobile reports whether to use the phone layout, and it asks about
+// width alone. A coarse pointer used to count too, which put a landscape tablet
+// or a touchscreen laptop on the one-column phone shell with a desktop's worth
+// of room around it; a coarse pointer now only enlarges targets (app.css).
+// Re-evaluated on resize/orientation via the listener below.
+//
+// A media query, not innerWidth divided by the app's zoom like detectNarrow:
+// every phone rule in the stylesheets is `@media (max-width: 768px)`, which
+// cannot see that zoom, and the shell must flip at exactly the width the CSS
+// does or the two disagree about which layout this is.
 function detectMobile() {
   if (typeof window === "undefined") return false;
-  const coarse = window.matchMedia?.("(pointer: coarse)")?.matches;
-  const narrow = window.matchMedia?.("(max-width: 768px)")?.matches;
-  return !!(coarse || narrow);
+  return !!window.matchMedia?.("(max-width: 768px)")?.matches;
 }
 
 // detectNarrow reports the squeezed-desktop band. The number is measured, not
@@ -627,12 +673,27 @@ function detectNarrow() {
   return window.innerWidth / zoom <= 1150;
 }
 
+// detectCramped: the member panel no longer fits beside a usable chat column.
+// Same zoom-divided measure as detectNarrow, a step further down. Turning the
+// app's own zoom up is what someone who needs bigger text does, and at 150% in
+// a 1180px laptop window the four columns kept their widths and the composer's
+// text box was left 12px wide, its placeholder drawn one letter per line. The
+// panel stands aside below this width (the setting is not changed; it comes
+// back when there is room), and the chat column gets what it freed.
+function detectCramped() {
+  if (typeof window === "undefined") return false;
+  const zoom = Number(document.documentElement.style.getPropertyValue("--ui-zoom")) || 1;
+  return window.innerWidth / zoom < 1000;
+}
+
 if (typeof window !== "undefined") {
   const sync = () => {
     const now = detectMobile();
     if (now !== S.isMobile) S.isMobile = now;
     const tight = detectNarrow();
     if (tight !== S.narrow) S.narrow = tight;
+    const cramped = detectCramped();
+    if (cramped !== S.cramped) S.cramped = cramped;
   };
   window.addEventListener("resize", sync);
   window.matchMedia?.("(orientation: portrait)")?.addEventListener?.("change", sync);
@@ -653,8 +714,12 @@ export const modalNav = { dir: 0, lateral: false };
 // has nowhere to go.
 export function openPanel(kind, from) {
   modalNav.dir = 1;
+  // A page drilled into from a phone tab's own page (You → Appearance) is
+  // still that tab: it keeps the stamp, so it stops at the tab bar with the
+  // tab lit instead of covering the bar with a page that had both a ‹ and a ×.
+  const tab = S.isMobile ? S.modal?.tab : undefined;
   if (S.modal) S.modalStack = [...S.modalStack, S.modal];
-  S.modal = { kind, from };
+  S.modal = { kind, from, ...(tab ? { tab } : {}) };
 }
 
 // switchPanel moves BETWEEN the pages of a railed surface — the settings rail,
@@ -694,6 +759,20 @@ export function openGuildHub() {
   modalNav.lateral = false;
   S.modalStack = [];
   S.modal = S.isMobile ? { kind: "guildHub" } : { kind: "guildSettings", hub: g.id };
+}
+
+// openGuildPage opens one page of a guild's settings from outside the hub —
+// the guild menu's Roles, Banned members, Guild emoji. On a desktop that is
+// the rail, lit on that page, so the next errand (Members after Bans) is one
+// click along it instead of close, reopen, drill in: the menu used to raise
+// each of these as its own small dialog at its own width. A phone keeps the
+// sheet it has always had.
+export function openGuildPage(kind, g = activeGuild()) {
+  if (!g) return;
+  modalNav.dir = 0;
+  modalNav.lateral = false;
+  S.modalStack = [];
+  S.modal = S.isMobile ? { kind } : { kind, hub: g.id };
 }
 
 // backPanel walks one step out, the way you came in.
@@ -743,6 +822,7 @@ function rememberPlace(guildId, channelId) {
   if (lastPlace.guildId === guildId && lastPlace.channels[guildId] === channelId) return;
   lastPlace.guildId = guildId;
   lastPlace.channels[guildId] = channelId;
+  if (S.guilds.find((g) => g.id === guildId)?.kind === "dm") lastPlace.dm = guildId;
   saveJSON("concord.lastPlace", lastPlace);
 }
 
@@ -760,26 +840,40 @@ function channelToResume(guild) {
 // backend re-emitting a message (edit/reaction/pin/sync) doesn't double-count.
 const countedMsgIds = new Set();
 
-// markRead marks a channel read as of now. throughTime (the newest message's
-// `sent`, when known) guards against peer clock skew: if a message we've
-// actually seen is timestamped ahead of our clock, "now" alone would leave it
-// counting as unread forever, so we advance lastRead past it.
+// markRead marks a channel read through a message: `through` is that
+// message's own `sent` (see lib/readstate.js for the rule and for why it is
+// never this device's clock). Without one — "Mark as read" from a menu or a
+// key, on a channel whose rows are not loaded — the core marks through the
+// newest message it holds there, which is the same thing by another route.
 //
-// The cursor is also pushed to the backend, which fans it out to every other
+// The cursor is pushed to the backend, which fans it out to every other
 // session and linked device (they get a "read-state" event), so reading here
-// clears the badge everywhere.
-export function markRead(channelId, throughTime = "") {
+// clears the badge everywhere. Its answer is the mark it actually holds (it
+// caps marks too far ahead of its clock), and that is the one kept here.
+export function markRead(channelId, through = "") {
   if (!channelId) return;
-  let t = new Date().toISOString();
-  if (throughTime && new Date(throughTime) > new Date(t)) t = new Date(throughTime).toISOString();
-  lastRead[channelId] = t;
-  saveJSON("concord.lastRead", lastRead);
   if (S.unread[channelId]) {
     const u = { ...S.unread };
     delete u[channelId];
     S.unread = u;
   }
-  api.markRead(channelId, Date.parse(t)).catch(() => {});
+  const at = Date.parse(through);
+  if (Number.isFinite(at)) {
+    const local = lastRead[channelId] ? Date.parse(lastRead[channelId]) : 0;
+    if (at > local) {
+      lastRead[channelId] = new Date(at).toISOString();
+      saveJSON("concord.lastRead", lastRead);
+    }
+    api
+      .markRead(channelId, at)
+      .then((held) => adoptMarks({ [channelId]: held }))
+      .catch(() => {});
+  } else {
+    api
+      .markReadLatest([channelId])
+      .then(adoptMarks)
+      .catch(() => {});
+  }
   // Reading a channel retires the inbox entries it contained — that is the read
   // model, and the badge has to follow it or the bell keeps claiming a number
   // you just cleared by reading the thing. Coalesced, so scrolling a busy
@@ -787,18 +881,61 @@ export function markRead(channelId, throughTime = "") {
   refreshInbox();
 }
 
+// adoptMarks takes the core's word for where channels are read through. It
+// can be LOWER than what this page asked for — that is the cap on a mark from
+// a fast clock doing its job — so it replaces rather than maxes.
+function adoptMarks(held) {
+  let changed = false;
+  for (const [id, at] of Object.entries(held || {})) {
+    if (typeof at !== "number" || at <= 0) continue;
+    const iso = new Date(at).toISOString();
+    if (lastRead[id] !== iso) {
+      lastRead[id] = iso;
+      changed = true;
+    }
+  }
+  if (changed) saveJSON("concord.lastRead", lastRead);
+}
+
 // markAllRead clears unread across every channel (Shift+Esc).
 export function markAllRead() {
-  const now = new Date().toISOString();
-  const at = Date.parse(now);
-  for (const g of S.guilds)
-    for (const c of g.channels) {
-      lastRead[c.id] = now;
-      api.markRead(c.id, at).catch(() => {});
-    }
-  saveJSON("concord.lastRead", lastRead);
+  const ids = [];
+  for (const g of S.guilds) for (const c of g.channels) ids.push(c.id);
   S.unread = {};
+  api
+    .markReadLatest(ids)
+    .then(adoptMarks)
+    .catch(() => {});
   refreshInbox();
+}
+
+// readingNow applies the read rule (lib/readstate.js) to the open channel with
+// the live inputs. The message list counts as on screen unless something
+// covers it: on a phone, Home parked over the conversation page; anywhere, the
+// call stage without its chat pane.
+export function readingNow() {
+  const covered = S.isMobile ? S.drawerOpen : false;
+  const staged = S.callStage && !S.callStageChat;
+  return isReading({
+    open: !!S.activeChannelId,
+    onScreen: !covered && !staged,
+    hidden: typeof document !== "undefined" && document.hidden,
+    focused: typeof document !== "undefined" && document.hasFocus(),
+    mobile: !!S.isMobile,
+    atBottom: feedNearBottom(),
+  });
+}
+
+// syncReading marks the open channel read if it is being read and anything in
+// it is past the mark. Called on every edge that can make the rule true: the
+// window coming back or gaining focus, the phone pushing the conversation
+// page, the feed reaching the bottom, a channel's history landing.
+export function syncReading() {
+  const id = S.activeChannelId;
+  if (!id || !readingNow()) return;
+  const through = readThrough(S.messages.filter((m) => m.channelId === id || !m.channelId));
+  const behind = through && (!lastRead[id] || Date.parse(through) > Date.parse(lastRead[id]));
+  if (behind || S.unread[id]) markRead(id, through);
 }
 
 // ---- notification levels ----
@@ -1050,6 +1187,19 @@ export async function patchProfile(patch) {
   S.identity = await api.identity();
 }
 
+// openMoments plays a guild's moments from the first unseen one, or opens the
+// composer when there are none to play.
+export async function openMoments(guildId) {
+  let stories = [];
+  try {
+    stories = (await api.guildStories(guildId)) || [];
+  } catch {
+    /* locked or transport down: offer to share instead of an error */
+  }
+  const { list, start } = momentsPlaylist(stories);
+  S.modal = list.length ? { kind: "storyViewer", stories: list, start } : { kind: "storyCompose", guildId };
+}
+
 // guildMenuItems: everything you can do to a guild, in one list — so the rail's
 // right-click, the header's "More" menu and the mobile sheet can never drift
 // apart. Each entry is permission-gated the same way the backend gates the op:
@@ -1068,6 +1218,17 @@ export function guildMenuItems(g) {
       icon: "check",
       onClick: () => g.channels.forEach((c) => markRead(c.id)),
     },
+    // Moments used to be a tray squatting at the top of the member list; they
+    // belong to the guild, so they live in its menu. With nothing shared yet
+    // the entry goes straight to sharing one.
+    // Both, always: viewing them used to be the only way in once one existed,
+    // so a second person could never share theirs.
+    {
+      label: MOM.unseen[g.id] ? `View moments · ${MOM.unseen[g.id]} new` : "View moments",
+      icon: "imagetext",
+      onClick: () => openMoments(g.id),
+    },
+    { label: "Share a moment", icon: "plus", onClick: () => (S.modal = { kind: "storyCompose", guildId: g.id }) },
     { label: "Stats & diagnostics", icon: "poll", onClick: () => (S.modal = { kind: "stats", guildId: g.id }) },
     { sep: true },
     // The guild-wide default every channel falls back to. Flat, with a tick on
@@ -1080,10 +1241,10 @@ export function guildMenuItems(g) {
       onClick: () => setGuildNotifs(g.id, l.id),
     })),
     { sep: true },
-    { label: "Guild emoji", icon: "smile", onClick: () => (S.modal = { kind: "emoji" }) },
+    { label: "Guild emoji", icon: "smile", onClick: () => openGuildPage("emoji", g) },
     g.isOwner && { label: "Rename guild", icon: "edit", onClick: () => (S.modal = { kind: "rename" }) },
-    canRoles && { label: "Roles & permissions", icon: "spark", onClick: () => (S.modal = { kind: "roles" }) },
-    g.canManage && { label: "Banned members", icon: "door", onClick: () => (S.modal = { kind: "bans" }) },
+    canRoles && { label: "Roles & permissions", icon: "spark", onClick: () => openGuildPage("roles", g) },
+    g.canManage && { label: "Banned members", icon: "door", onClick: () => openGuildPage("bans", g) },
     { sep: true },
     {
       label: leaveGuildLabel(g),
@@ -1415,7 +1576,7 @@ async function recomputeUnread() {
   const since = {};
   for (const g of S.guilds) {
     for (const c of g.channels) {
-      if (c.id === S.activeChannelId) continue;
+      if (c.id === S.activeChannelId && readingNow()) continue;
       since[c.id] = lastRead[c.id] || "";
     }
   }
@@ -1427,7 +1588,7 @@ async function recomputeUnread() {
   }
   for (const g of S.guilds) {
     for (const c of g.channels) {
-      if (c.id === S.activeChannelId) continue;
+      if (c.id === S.activeChannelId && readingNow()) continue;
       // With a working cheap count, skip channels that have nothing past the
       // cursor without ever touching the DB's ciphertext.
       //
@@ -1452,20 +1613,13 @@ async function recomputeUnread() {
 }
 
 // syncReadState pulls the backend's account-wide read cursors (which include
-// reads from other sessions and linked devices) and merges them into the
-// local ones — newest wins per channel.
+// reads from other sessions and linked devices) and adopts them. The core's
+// mark wins even when it is LOWER than this page's copy: a page whose clock ran
+// fast stored marks hours ahead in localStorage, and merging newest-wins here
+// would have restored the very marks the core repairs (readstate.go).
 async function syncReadState() {
   try {
-    const remote = (await api.readState()) || {};
-    let changed = false;
-    for (const [chId, at] of Object.entries(remote)) {
-      const local = lastRead[chId] ? Date.parse(lastRead[chId]) : 0;
-      if (at > local) {
-        lastRead[chId] = new Date(at).toISOString();
-        changed = true;
-      }
-    }
-    if (changed) saveJSON("concord.lastRead", lastRead);
+    adoptMarks((await api.readState()) || {});
   } catch {
     /* backend without read-state support — local cursors still work */
   }
@@ -1483,9 +1637,15 @@ export const countsAsChat = (m) => (m.kind === "" || m.kind === "guest") && !isG
 // scroll-up pagination cursor (kept separate from S.messages so live inserts
 // can't move it).
 let feedOldest = "";
+// Which filling of the feed a history fetch is for. The channel id alone is
+// not enough: leave a channel and come back while its first page is still in
+// flight, and the old answer matches the id again and lands on the new feed,
+// with the cursor and the landing of a visit that is already over.
+let feedSeq = 0;
 
 // clearFeed empties everything scoped to "the channel currently on screen".
 export function clearFeed() {
+  feedSeq++;
   S.messages = [];
   feedOldest = "";
   clearArchive();
@@ -1694,8 +1854,12 @@ export async function markInboxRead() {
 // it is to find out what they have missed. It rides the modal stack rather than
 // being a place of its own: on a phone that makes it a sheet with the app's own
 // physics, and on desktop a dialog, from one component.
-export function openInbox() {
-  S.modal = { kind: "inbox" };
+//
+// `tab` opens it as the phone's Inbox TAB: a page under the tab bar rather than
+// a sheet over it (Modal.svelte reads the stamp; MobileShell lights the tab).
+export function openInbox({ tab = false } = {}) {
+  S.modalStack = [];
+  S.modal = tab ? { kind: "inbox", tab: "inbox" } : { kind: "inbox" };
   refreshInbox({ soon: true });
 }
 
@@ -1704,13 +1868,7 @@ export function openInbox() {
 export async function jumpToInboxEntry(entry) {
   if (!entry?.channelId) return;
   S.modal = null;
-  await jumpToChannel(entry.channelId);
-  await tick();
-  requestAnimationFrame(() =>
-    requestAnimationFrame(() => {
-      if (!scrollToMessage(entry.messageId)) flash("That message isn't loaded yet");
-    }),
-  );
+  await jumpToMessage(entry.channelId, entry.messageId);
 }
 
 // ---- the catch-up card -----------------------------------------------------
@@ -1827,16 +1985,23 @@ const refTables = $derived.by(() => {
 });
 export const mentionRefs = () => refTables;
 
+// guildUnread totals a guild's (or DM's) unread. `attention` is what a badge
+// NUMBER shows — mentions in a guild, every message in a DM (lib/readstate.js)
+// — and `count` is what a quiet unread dot shows.
 export function guildUnread(g) {
   let count = 0;
   let mentions = 0;
+  let attn = 0;
+  const dm = g.kind === "dm" && !g.dmNotes;
   for (const c of g.channels) {
     const u = S.unread[c.id];
     if (!u || isMuted(c.id, g.id)) continue;
     count += u.count;
     mentions += u.mentions;
+    // A DM set to "Only @mentions" counts like a guild channel.
+    attn += attention(u, addressedToYou(dm, notifLevel(c.id, g.id)));
   }
-  return { count, mentions };
+  return { count, mentions, attention: attn };
 }
 
 // ---- toasts ----
@@ -1861,13 +2026,16 @@ export function flashSlot(slot, msg, kind = "info") {
   return id;
 }
 
-export function flash(msg, kind = "info") {
+// `action` ({label, run}) puts one button on the toast, for an Undo: it runs
+// once, and the toast goes with it. A toast with a button stays a little
+// longer, since it now asks to be read and reached.
+export function flash(msg, kind = "info", action = null) {
   // Back-compat: flash(err) with an Error (or anything error-shaped) reads as
   // a failure without every existing call site having to opt in.
   if (kind === "info" && (msg instanceof Error || (typeof msg === "object" && msg?.message)))
     kind = "error";
   const id = ++toastSeq;
-  S.toasts.push({ id, kind, text: humanError(msg) });
+  S.toasts.push({ id, kind, text: humanError(msg), action });
   // Every failure and every confirmation in the app comes through here, which
   // is why the sound is wired here and not at a hundred call sites: one
   // decision, and the two of them arrive everywhere at once. "info" stays
@@ -1879,7 +2047,7 @@ export function flash(msg, kind = "info") {
   while (S.toasts.length > 8) dismissToast(S.toasts[0].id);
   toastTimers.set(
     id,
-    setTimeout(() => dismissToast(id), kind === "error" ? 5000 : 3000),
+    setTimeout(() => dismissToast(id), action ? 8000 : kind === "error" ? 5000 : 3000),
   );
   return id;
 }
@@ -1920,8 +2088,19 @@ export function dismissUpdate() {
 // ---- feed scroll (MessageList registers its element) ----
 
 let feedEl = null;
+let readScrollTimer = 0;
 export function registerFeed(el) {
+  if (feedEl === el) return;
+  feedEl?.removeEventListener("scroll", onFeedScrollRead);
   feedEl = el;
+  // Reaching the newest messages is one of the edges that makes a channel
+  // read (lib/readstate.js). Trailing and coarse: the rule only needs to be
+  // asked once the reader stops.
+  el?.addEventListener("scroll", onFeedScrollRead, { passive: true });
+}
+function onFeedScrollRead() {
+  clearTimeout(readScrollTimer);
+  readScrollTimer = setTimeout(syncReading, 250);
 }
 
 // focusFeed: put focus on the message list's roving tab stop.
@@ -2058,7 +2237,7 @@ function restoreReadingPosition(id) {
 let flashTimer = null;
 let flashEl = null;
 function landOn(el, instant = false) {
-  const reduceMotion = instant || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const reduceMotion = instant || reducedMotion();
   el.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
   clearTimeout(flashTimer);
   flashEl?.classList.remove("flash-highlight");
@@ -2130,6 +2309,53 @@ export function scrollToMessage(id) {
   return true;
 }
 
+// jumpToMessage opens a message wherever it is: in another conversation, and
+// further back than anything loaded. Search hits, pins, saved messages, the
+// inbox, replies and message links all said "That message isn't loaded yet"
+// for anything older than the newest page or two, which in a busy channel is
+// most of its history. The feed only ever holds a contiguous run ending at the
+// newest message, so reaching an old one means paging back to it — bounded,
+// with the usual "Loading older messages…" line showing while it goes.
+const JUMP_MAX_PAGES = 60; // 12,000 messages back
+let jumping = false;
+export async function jumpToMessage(channelId, id) {
+  if (!id) return false;
+  if (channelId && channelId !== S.activeChannelId) {
+    if (!(await jumpToChannel(channelId))) {
+      flash("You're not in that conversation");
+      return false;
+    }
+  }
+  const ch = S.activeChannelId;
+  // A channel switch is still fetching its first page.
+  for (let i = 0; i < 100 && S.feedLoading && S.activeChannelId === ch; i++) await sleep(50);
+  const have = () => S.messages.some((m) => m.id === id);
+  // Held until the feed has been told where to go: the history paged in here
+  // is exactly what the feed's at-the-bottom trim would otherwise drop again
+  // on the next scroll event, target and all.
+  jumping = true;
+  try {
+    for (let p = 0; p < JUMP_MAX_PAGES && !have() && !S.feedReachedStart && !S.historyError; p++) {
+      await loadOlder();
+      if (S.activeChannelId !== ch) return false;
+    }
+    if (!have()) {
+      flash(S.historyError ? S.historyError.msg : "That message is gone — it may have been deleted");
+      return false;
+    }
+    await tick();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const ok = scrollToMessage(id);
+    // Loaded but not drawn: a deleted row with "show deleted" off, or one you
+    // hid.
+    if (!ok) flash("That message isn't shown here — it was deleted or hidden");
+    return ok;
+  } finally {
+    jumping = false;
+  }
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 // ---- floating profile popover ----
 // Single shared timer gives hover-intent: a small open delay, and a close
 // grace period so the pointer can travel from the mention into the card.
@@ -2141,7 +2367,9 @@ export function openProfilePopover(fingerprint, anchorEl, { delay = 0 } = {}) {
   const r = anchorEl.getBoundingClientRect();
   const rect = { x: r.left, y: r.top, w: r.width, h: r.height };
   const show = () => {
-    S.profilePopover = { fingerprint, rect };
+    // `hover`: opened by resting the pointer on a mention, which must not
+    // take focus away from what the keyboard is doing.
+    S.profilePopover = { fingerprint, rect, hover: !!delay };
     popOpenedAt = Date.now();
   };
   if (delay) popTimer = setTimeout(show, delay);
@@ -2300,8 +2528,14 @@ export function applyAccent(color) {
   // leave --accent-fg wherever it happened to be — including whatever the last
   // accent needed. Fall through to the CSS accent and derive from that.
   if (!color) return syncAccentFg();
-  document.documentElement.style.setProperty("--accent", color);
-  document.documentElement.style.setProperty("--accent-fg", accentForeground(color));
+  // Held legible in the theme on screen: a weak colour would make the badges
+  // that mean "this needs you" vanish into the sidebar (lib/guildaccent.js).
+  // Measured against the ground actually painted (readInkGround), not the
+  // theme attribute: a dark pack under the light theme is a dark ground.
+  if (inkGroundL == null) readInkGround();
+  const held = clampAccent(color, inkGroundDark ? "dark" : "light");
+  document.documentElement.style.setProperty("--accent", held);
+  document.documentElement.style.setProperty("--accent-fg", accentForeground(held));
 }
 
 const DENSITIES = new Set(["compact", "cozy", "comfortable"]);
@@ -2309,7 +2543,7 @@ const DENSITIES = new Set(["compact", "cozy", "comfortable"]);
 // ---- appearance (theme / accent preset / density) ----
 // Device-local prefs, stamped onto <html>: data-theme picks the palette in
 // app.css, data-density the message spacing, and a non-empty accent pref
-// overrides the profile color (--accent-hover/-soft derive from it in CSS).
+// overrides the brand teal (--accent-hover/-soft derive from it in CSS).
 
 const sysDark = window.matchMedia?.("(prefers-color-scheme: dark)");
 
@@ -2360,8 +2594,28 @@ export function themePacksReady() {
   return packsCSS;
 }
 
+// rememberBootPaint records the colours the app is painted in, for the boot
+// splash in index.html to use on the next load before any of this has run. Not
+// while a theme pack's stylesheet is still on its way: the default palette on
+// screen in that moment is not the one the user chose.
+function rememberBootPaint() {
+  if (S.prefs.themePack && !packsLoaded) return;
+  requestAnimationFrame(() => {
+    try {
+      const bg = getComputedStyle(document.body).backgroundColor;
+      const fg = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+      if (bg) localStorage.setItem("concord.bootPaint", JSON.stringify({ bg, fg }));
+    } catch {
+      /* storage full or blocked: the splash falls back to the theme choice */
+    }
+  });
+}
+
 export function applyAppearance() {
   const el = document.documentElement;
+  // Appearance › Motion, or the OS asking: one attribute every stylesheet and
+  // every scripted animation reads (lib/motion.js).
+  el.dataset.motion = motionMode(S.prefs.motion);
   const t = S.prefs.theme || "dark";
   el.dataset.theme = t === "system" ? (sysDark && !sysDark.matches ? "light" : "dark") : t;
   // Three rungs now, and an unknown value still lands on the default rather
@@ -2420,15 +2674,22 @@ export function applyAppearance() {
   // whatever the last window resize decided.
   const tight = detectNarrow();
   if (tight !== S.narrow) S.narrow = tight;
+  const cramped = detectCramped();
+  if (cramped !== S.cramped) S.cramped = cramped;
   // The ground the name colours are measured against has just changed.
   readInkGround();
-  if (S.prefs.accent) applyAccent(S.prefs.accent);
-  else if (S.prefs.themePack) {
+  // The default ("" = teal) and a theme pack both leave the stylesheet's
+  // --accent alone; only an explicit preset, or the opt-in "match my profile
+  // colour", stamps one (lib/guildaccent.js resolveAccent).
+  const chosen = resolveAccent(S.prefs.accent, S.identity.color);
+  if (chosen) applyAccent(chosen);
+  else {
     document.documentElement.style.removeProperty("--accent");
     document.documentElement.style.removeProperty("--accent-fg");
-    // Let the pack's --accent apply, then derive a legible foreground from it.
+    // Let the theme's or pack's --accent apply, then derive a legible foreground from it.
     syncAccentFg();
-  } else applyAccent(S.identity.color);
+  }
+  rememberBootPaint();
 }
 
 // setAppearance persists one appearance pref and applies it under a brief
@@ -2448,6 +2709,8 @@ sysDark?.addEventListener?.("change", () => {
   if (S.prefs.theme === "system") setAppearance("theme", "system");
 });
 
+onOsMotionChange(() => applyAppearance());
+
 // Stamp saved theme/density at import time, so even the login screen (before
 // onLogin runs) honors them instead of flashing dark.
 applyAppearance();
@@ -2457,7 +2720,7 @@ applyAppearance();
 export async function onLogin() {
   S.identity = await api.identity();
   S.displayName = S.identity.displayName || "";
-  applyAppearance(); // profile color, unless an accent preset overrides it
+  applyAppearance(); // the profile colour matters only if the accent follows it
   await refreshGuilds();
   await refreshBlocked();
   await refreshRequests();
@@ -2495,6 +2758,13 @@ export async function refreshNetStatus() {
 // The transport's own verdict on whether anything is listening, raised into the
 // reconnecting bar. Coming back is worth a refresh: whatever happened while we
 // were blind (messages, members, presence) never reached this page.
+// While in a call, keep asking the core whether it is alive: a hung one is
+// otherwise invisible (see probeCore). Only in a call, because that is where
+// a silent core turns into a false statement about other people.
+setInterval(() => {
+  if (S.voice) probeCore().catch(() => {});
+}, 5000);
+
 onTransportHealth((up) => {
   const wasOffline = S.offline;
   S.offline = !up;
@@ -2503,8 +2773,16 @@ onTransportHealth((up) => {
   // the stage will go on rendering everybody's faces. The banner says it in
   // words; this says it to someone who is looking at the person, not the app.
   if (!up && !wasOffline && S.voice) playCallDropped();
+  // With the core gone nobody's presence is known — including our own — and
+  // dots frozen at their last colour told the reader everyone was still there.
+  // Shown as offline until the refresh below brings the truth back.
+  if (!up && !wasOffline) {
+    S.members = S.members.map((m) => ({ ...m, online: false }));
+    S.guilds = S.guilds.map((g) => (g.dmPeerOnline ? { ...g, dmPeerOnline: false } : g));
+  }
   if (up && wasOffline) {
     refreshGuilds().catch(() => {});
+    refreshRightPanel().catch(() => {});
     refreshNetStatus();
   }
 });
@@ -2587,10 +2865,11 @@ export function isBlocked(fingerprint) {
 // call against local SQLite.
 async function repaintAfterBlockChange() {
   const ch = S.activeChannelId;
+  const seq = feedSeq;
   if (ch) {
     try {
       const msgs = (await api.messages(ch)) || [];
-      if (S.activeChannelId === ch) S.messages = msgs;
+      if (S.activeChannelId === ch && seq === feedSeq) S.messages = msgs;
     } catch {
       /* channel unreadable right now — the next open will be correct */
     }
@@ -2684,7 +2963,20 @@ export function browsingGuild() {
   return browsing;
 }
 
+// carryDraft writes a draft into another conversation's slot (the composer's
+// storage key and the sidebar's index), reporting whether it took.
+function carryDraft(channelId, text) {
+  try {
+    localStorage.setItem(`concord.draft.${channelId}`, text);
+  } catch {
+    return false;
+  }
+  noteDraft(channelId, text);
+  return true;
+}
+
 export async function refreshGuilds() {
+  const before = S.guilds;
   S.guilds = (await api.guilds()) || [];
   if (!S.activeGuildId && S.guilds.length) {
     // Pick up where you left off — the guild you had open when you closed the
@@ -2694,6 +2986,9 @@ export async function refreshGuilds() {
     // No memory yet: land on the top GUILD in the rail rather than Notes/DMs,
     // which sort first in the raw list because they're usually the oldest.
     const first = resume || S.guilds.find((g) => g.kind !== "dm") || S.guilds[0];
+    // Nothing here but Notes: leave the welcome showing (lib/firstrun.js).
+    // The phone's Home list carries the same welcome, so it browses as before.
+    if (!resume && !S.isMobile && landsOnWelcome(S.guilds)) return;
     // With nothing remembered, a phone lands on its Home page (the guild's
     // channel list) rather than inside whichever channel the guild resumes to:
     // a first launch that opens straight into a conversation nobody chose is
@@ -2709,11 +3004,28 @@ export async function refreshGuilds() {
   // strand the user in a phantom channel that still renders + sends messages.
   const g = S.guilds.find((x) => x.id === S.activeGuildId);
   if (S.activeChannelId && !g?.channels?.some((c) => c.id === S.activeChannelId)) {
+    // Say so. The view used to swap to another channel with no word at all,
+    // and whatever was half-typed went with the channel.
+    const goneId = S.activeChannelId;
+    const gone = before.find((x) => x.id === S.activeGuildId)?.channels?.find((c) => c.id === goneId);
+    const unsent = draftIn(goneId);
     // A replacement nobody chose: browse to it, so a phone sitting on Home
     // when a channel is deleted remotely is not pushed into another one.
     if (g?.channels?.length) {
-      await raisedFor(setBrowsing, true, () => selectChannel(g.channels[0].id));
+      const next = g.channels[0];
+      // The unsent text moves with you when the channel you land in has none
+      // of its own; the composer reads it on the switch below.
+      const carried = !!unsent && !draftIn(next.id) && carryDraft(next.id, unsent);
+      await raisedFor(setBrowsing, true, () => selectChannel(next.id));
+      if (gone) {
+        flash(
+          carried
+            ? `#${gone.name} was deleted — your unsent message is in #${next.name}`
+            : `#${gone.name} was deleted`,
+        );
+      }
     } else {
+      if (gone) flash(`#${gone.name} was deleted`);
       S.activeChannelId = "";
       clearFeed();
     }
@@ -2775,13 +3087,16 @@ export function dmList() {
   return list;
 }
 
-// openDMs lands where you actually were: the DM you last had open, else the one
-// with the newest message, else Notes. Anything else means the button takes you
-// to a conversation you did not ask for and were not looking at.
+// openDMs lands where you actually were: the DM you last had open, else Notes.
+// It used to fall back to the conversation with the newest message — which is
+// usually the one that just arrived, so pressing Home opened it and marked it
+// read before you had chosen to read it, and the list you came to triage no
+// longer showed what was new. For the same reason the DM you were in is only
+// resumed while nothing new is waiting in it; Notes is yours and never unread.
 export async function openDMs({ browse = false } = {}) {
   const list = dmList();
-  const resume = list.find((d) => d.id === lastPlace.guildId);
-  const target = resume || list.find((d) => !d.dmNotes) || list[0];
+  const resume = list.find((d) => d.id === (lastPlace.dm || lastPlace.guildId) && !guildUnread(d).count);
+  const target = resume || list.find((d) => d.dmNotes);
   if (!target || target.id === "__notes__") {
     await selectNotes({ browse });
     return;
@@ -2809,6 +3124,9 @@ export async function startDM(fingerprint, text = "") {
 // after the guild, the channel and the call already exist, is the answer
 // arriving after the question stopped mattering. See ModalMeetingReady.
 export async function startMeeting() {
+  // Started from the switcher's menu, the switcher stayed open, dimmed,
+  // behind the meeting's dialog: a second, stale layer to get out of.
+  closeGuildSwitcher();
   let hasRendezvous = false;
   try {
     hasRendezvous = ((await api.getBootstrap()) || []).some((l) => l && l.trim());
@@ -2847,6 +3165,51 @@ async function openMeeting() {
   } catch (err) {
     flash(err);
   }
+}
+
+// The meeting's guest link again, after its dialog was closed. Asking the core
+// for a meeting's link with no lifetime returns the SAME url and leaves its
+// expiry alone, so this never mints a second link or shortens the first.
+export async function meetingGuestLink(guildId) {
+  return api.createGuestLink(guildId, 0);
+}
+// The meeting guild the call you are in belongs to, or null when the call is
+// not a meeting's.
+export function callMeetingGuild() {
+  const id = S.voice?.channelId;
+  if (!id) return null;
+  return S.guilds.find((g) => g.kind === "meeting" && (g.channels || []).some((c) => c.id === id)) || null;
+}
+export async function copyMeetingGuestLink(guildId) {
+  try {
+    const link = await meetingGuestLink(guildId);
+    await navigator.clipboard?.writeText(link);
+    flash("Guest link copied — anyone with it can join from a browser", "success");
+  } catch (err) {
+    flash(
+      /rendezvous|bootstrap/i.test(String(err?.message || err))
+        ? "Guest links need a rendezvous — add one in Settings → Connection"
+        : err,
+    );
+  }
+}
+export async function openMeetingDetails(guildId) {
+  let code = "";
+  let guestLink = "";
+  let expires = 0;
+  try {
+    code = await api.inviteCode(guildId);
+  } catch (err) {
+    flash(err);
+    return;
+  }
+  try {
+    guestLink = await meetingGuestLink(guildId);
+    expires = await api.meetingExpiry(guildId);
+  } catch {
+    /* no rendezvous: the dialog says so and offers the invite code */
+  }
+  S.modal = { kind: "meeting", code, guestLink, guildId, expires, reopened: true };
 }
 
 // Joining is App's lifecycle (it owns the mesh), so it registers the door and
@@ -2998,7 +3361,6 @@ export async function selectChannel(id) {
   // Snapshot where we left off BEFORE marking read, to place the "new messages"
   // divider for this viewing session.
   S.readAnchor = lastRead[id] || "";
-  markRead(id);
   S.typingList.forEach((t) => clearTimeout(t.timer));
   S.typingList = [];
   S.replyingTo = null;
@@ -3007,32 +3369,30 @@ export async function selectChannel(id) {
   // Clear the outgoing channel's rows right away — they must not linger under
   // the new channel's header while history loads.
   clearFeed();
+  const seq = feedSeq;
+  const current = () => seq === feedSeq && S.activeChannelId === id;
   S.feedLoading = true;
   S.loadingOlder = false;
   S.feedReachedStart = false;
+  S.historyError = null;
   let msgs;
   try {
     msgs = (await api.messages(id)) || [];
   } catch (err) {
-    if (S.activeChannelId === id) {
+    if (current()) {
       S.feedLoading = false;
-      flash(err);
+      S.historyError = { msg: humanError(err), older: false };
     }
     return;
   }
   // Guard against a stale fetch: if the user switched channels while this was in
   // flight, don't overwrite the now-active channel's messages/read-cursor.
-  if (S.activeChannelId !== id) return;
+  if (!current()) return;
   S.messages = msgs;
   feedOldest = msgs.length ? msgs[0].sent : "";
   S.feedLoading = false;
   // A short first page means there's nothing older to page back to.
   S.feedReachedStart = msgs.length < 200;
-  // Advance the read mark past the newest message actually loaded, so a peer's
-  // clock-skewed (future-dated) message we've now seen can't keep the badge lit.
-  let newest = "";
-  for (const m of S.messages) if (m.sent > newest) newest = m.sent;
-  if (newest) markRead(id, newest);
   // Land on the "NEW" divider when there's unread history, instead of dumping
   // the reader at the bottom past everything they missed.
   const hasUnread =
@@ -3044,6 +3404,20 @@ export async function selectChannel(id) {
   // an old scrollback session.
   if (hasUnread) scrollToNewDivider();
   else if (!restoreReadingPosition(id)) scrollSoon();
+  // Whether this counts as reading depends on where the feed lands, so ask
+  // once it has (the feed's own scroll listener covers the reader moving on).
+  tick().then(() => requestAnimationFrame(syncReading));
+}
+
+// retryHistory answers the feed's "Try again" after a failed history fetch.
+// The channel's first page goes through selectChannel again, so everything it
+// sets up (the NEW divider, the landing) happens as it would have; a failed
+// page of scrollback just clears, and the feed asks for it again.
+export async function retryHistory() {
+  const e = S.historyError;
+  if (!e) return;
+  S.historyError = null;
+  if (!e.older && S.activeChannelId) await selectChannel(S.activeChannelId);
 }
 
 // loadOlder pages in the messages just before the oldest row currently loaded.
@@ -3056,19 +3430,25 @@ const OLDER_PAGE_TRIES = 5;
 
 export async function loadOlder() {
   const id = S.activeChannelId;
-  if (!id || S.loadingOlder || S.feedReachedStart) return 0;
+  if (!id || S.loadingOlder || S.feedReachedStart || S.historyError) return 0;
   if (!feedOldest) return 0;
+  const seq = feedSeq;
   S.loadingOlder = true;
   let prepended = 0;
   for (let attempt = 0; attempt < OLDER_PAGE_TRIES && !prepended; attempt++) {
     let older;
     try {
       older = (await api.messagesBefore(id, feedOldest, 200)) || [];
-    } catch {
+    } catch (err) {
+      // Said in the feed with a retry, and it stops the scroll handler asking
+      // again on every frame until the reader does.
+      if (S.activeChannelId !== id || seq !== feedSeq) return prepended;
+      S.historyError = { msg: humanError(err), older: true };
       break;
     }
-    // Bail if the channel changed while the fetch was in flight.
-    if (S.activeChannelId !== id) break;
+    // Bail if the feed was refilled while the fetch was in flight (another
+    // channel, or this one opened afresh: its loading flag is no longer ours).
+    if (S.activeChannelId !== id || seq !== feedSeq) return prepended;
     if (older.length === 0) {
       S.feedReachedStart = true;
       break;
@@ -3103,7 +3483,7 @@ export async function loadOlder() {
 const MAX_LOADED_ROWS = 600;
 
 export function trimLoadedHistory() {
-  if (S.messages.length <= MAX_LOADED_ROWS) return false;
+  if (S.messages.length <= MAX_LOADED_ROWS || jumping) return false;
   if (S.loadingOlder || S.feedLoading || S.archiveLoading) return false;
   const keep = S.messages.slice(-MAX_LOADED_ROWS);
   if (S.editing && !keep.some((m) => m.id === S.editing.id)) return false;
@@ -3254,11 +3634,18 @@ export function scheduleRefresh({ guilds = false, panel = false } = {}) {
 export async function jumpToChannel(channelId) {
   for (const g of S.guilds) {
     if (g.channels.some((c) => c.id === channelId)) {
-      if (S.activeGuildId !== g.id) {
-        S.activeGuildId = g.id;
-        await refreshRightPanel();
-      }
-      await selectChannel(channelId);
+      // Guild and channel move in the same breath. Switching the guild and
+      // then waiting on its member list before selecting the channel left a
+      // gap as long as that fetch: the header and sidebar on the new guild
+      // while the old channel (a forum post, say) stayed active with its rows
+      // in the feed, and a composer that found no such channel in this guild
+      // and read "Select a channel". selectChannel moves the channel and
+      // empties the feed before its first await.
+      const moved = S.activeGuildId !== g.id;
+      S.activeGuildId = g.id;
+      const opened = selectChannel(channelId);
+      if (moved) await refreshRightPanel();
+      await opened;
       return true;
     }
   }
@@ -3330,7 +3717,10 @@ export function sourceLabelFor(channelId) {
 // a quoted attribution line. Attachment tokens forward too (the blob is served
 // P2P by anyone who holds it, including the forwarder).
 export async function forwardMessage(m, destChannelId) {
-  const attribution = `↪ Forwarded from ${sourceLabelFor(m.channelId)}`;
+  // Name who wrote it, not only where: forwarded on, the words otherwise
+  // read as the forwarder's own.
+  const author = m.kind === "guest" ? m.senderName : nameFor(m.sender, m.senderName);
+  const attribution = `↪ Forwarded from ${sourceLabelFor(m.channelId)}${author ? ` · ${author}` : ""}`;
   const body = `> ${attribution}\n${m.content}`;
   await api.sendMessage(destChannelId, body, "");
 }
@@ -3347,15 +3737,24 @@ export async function forwardMessage(m, destChannelId) {
 // A confirmation is also what every other destructive action here already does
 // — channel, category, kick, ban — and the hover bar's Delete is one stray
 // click from a message that is gone for everyone.
-export function deleteMsg(m) {
+// opts.now: Shift held on the delete button — the fast path deletes without
+// asking. opts.emptied: an edit cleared the whole text, and an empty message is
+// not something the core will store, so the honest offer is to delete it.
+export function deleteMsg(m, opts = {}) {
   const g = activeGuild();
   const isDM = g?.kind === "dm";
+  if (opts.now) {
+    api.deleteMessage(m.channelId, m.id).catch((err) => flash(err));
+    return;
+  }
   S.modal = {
     kind: "confirm",
-    title: "Delete this message?",
-    body: isDM
+    title: opts.emptied ? "Delete this message instead?" : "Delete this message?",
+    body: opts.emptied
+      ? "A message can't be empty. Deleting it removes it from the conversation."
+      : isDM
       ? "It is erased for both of you — the content is gone, not hidden."
-      : "It is hidden from members here, but moderators can still read the original. In a DM, deleting erases it for both people.",
+      : "It is hidden from members here, but moderators can still read the original.",
     confirmLabel: "Delete",
     onConfirm: async () => {
       S.modal = null;
@@ -3375,7 +3774,13 @@ export function deleteMsg(m) {
 export async function saveEdit(m, text, dir = "") {
   S.editing = null;
   text = text.trim();
-  if (!m || !text) return;
+  if (!m) return;
+  // Emptied (or left holding only invisible characters): the editor used to
+  // just close with the message unchanged and nothing said.
+  if (isBlankText(text)) {
+    deleteMsg(m, { emptied: true });
+    return;
+  }
   if (text === m.content && !dir) return;
   try {
     await api.editMessage(m.channelId, m.id, text, dir);
@@ -3390,6 +3795,11 @@ let eventsWired = false;
 function initEvents() {
   if (eventsWired) return;
   eventsWired = true;
+
+  // Coming back to a hidden window, or bringing a desktop window to the front,
+  // is an edge that makes the open channel read again (lib/readstate.js).
+  document.addEventListener("visibilitychange", syncReading);
+  window.addEventListener("focus", syncReading);
 
   on("message", (m) => {
     // Is this the FIRST time we've seen this message id? The backend re-emits the
@@ -3414,11 +3824,13 @@ function initEvents() {
     // live. A conversation whose first messages arrived after that fetch read
     // "No messages yet" next to a badge of 2. The newest message wins, by its
     // own timestamp, so a backfilled older one never overwrites a newer line.
-    if (owner?.kind === "dm" && countsAsChat(m)) {
+    // A call record is a line too, worded the way the backend words it.
+    const callLine = callPreview(m.kind, m.content, m.sender === S.identity.fingerprint);
+    if (owner?.kind === "dm" && (countsAsChat(m) || callLine)) {
       const at = m.sent ? new Date(m.sent).getTime() : Date.now();
       if (at >= (owner.dmPreviewAt || 0)) {
-        owner.dmPreview = m.deleted ? "" : plainSnippet(m.content || "", 160);
-        owner.dmPreviewMine = m.sender === S.identity.fingerprint;
+        owner.dmPreview = m.deleted ? "" : callLine || plainSnippet(m.content || "", 160);
+        owner.dmPreviewMine = !callLine && m.sender === S.identity.fingerprint;
         owner.dmPreviewAt = at;
         S.guilds = [...S.guilds];
       }
@@ -3446,7 +3858,8 @@ function initEvents() {
       if (i >= 0) {
         S.messages = S.messages.map((x) => (x.id === m.id ? m : x)); // update (edit/delete/react)
       } else {
-        S.messages = [...S.messages, m];
+        // In the store's order, not arrival order — see lib/feedorder.js.
+        S.messages = insertBySent(S.messages, m);
         // A sound for something already on screen. Off by default and it has
         // to be — but in a quiet room some people want to hear the room, and
         // the app had nothing at all for a message arriving in the channel you
@@ -3468,19 +3881,21 @@ function initEvents() {
         } else {
           S.newBelow = true;
         }
-        // Mark read when the channel is on-screen. Use visibility, not
-        // document.hasFocus(): the latter tracks keyboard focus and is unreliable
-        // in a mobile WebView (often false while you're actively reading), which
-        // left the unread badge stuck on the channel you were looking at.
-        if (!document.hidden) markRead(m.channelId, m.sent);
+        // The open channel is read only while someone is reading it (the
+        // rule is in lib/readstate.js). Otherwise this message is unread like
+        // any other — it falls through to the badge below — and syncReading
+        // marks it the moment the window, page or scroll comes back.
+        if (readingNow()) markRead(m.channelId, readThrough([m, ...S.messages]));
       }
-    } else if (
+    }
+    if (
       firstSeen &&
       m.channelId &&
       countsAsChat(m) &&
       !m.deleted &&
       // Our own key signs relayed guest messages, but a guest is not us.
-      (m.sender !== S.identity.fingerprint || m.kind === "guest")
+      (m.sender !== S.identity.fingerprint || m.kind === "guest") &&
+      !(m.channelId === S.activeChannelId && readingNow())
     ) {
       // Genuinely-new (first-seen) message in an unread channel bumps the badge.
       const since = lastRead[m.channelId];
@@ -3516,7 +3931,8 @@ function initEvents() {
     const alert =
       genuinelyNew &&
       wantsAlert(notifLevel(m.channelId), {
-        mention: isMention || isDMChannel(m.channelId),
+        // ...unless that DM was set to "Only @mentions", which then means it.
+        mention: isMention || addressedToYou(isDMChannel(m.channelId), notifLevel(m.channelId)),
         dnd: S.identity.presence === "dnd",
       });
     if (alert) {
@@ -3527,9 +3943,17 @@ function initEvents() {
       } else if (isMention) {
         playMention();
       }
+      const direct = isMention || addressedToYou(isDMChannel(m.channelId), notifLevel(m.channelId));
+      const where =
+        owner?.kind === "dm"
+          ? { kind: owner.dmPeer ? "dm" : "group", place: owner.name || "" }
+          : { channel: owner?.channels.find((c) => c.id === m.channelId)?.name || "", place: owner?.name || "" };
       notify(m, {
         selfFpr: S.identity.fingerprint,
+        direct,
         mention: isMention,
+        where,
+        mobile: !!S.isMobile,
         onClick: () => jumpToChannel(m.channelId),
       });
       // ...and if that notification went nowhere because the OS grant was never
@@ -3591,7 +4015,7 @@ function initEvents() {
     // A channel read on the phone retires its inbox entries here too — the mark
     // the inbox consults is the account's, not this session's.
     refreshInbox();
-    if (r.channelId === S.activeChannelId) return; // on-screen: nothing to badge
+    if (r.channelId === S.activeChannelId && readingNow()) return; // being read: nothing to badge
     try {
       const u = await countChannelUnread(r.channelId);
       const next = { ...S.unread };
@@ -3605,6 +4029,15 @@ function initEvents() {
 
   on("typing", (t) => {
     if (t.channelId !== S.activeChannelId) return;
+    // An explicit stop: they emptied the draft or left the channel.
+    if (t.stop) {
+      const gone = S.typingList.find((x) => x.from === t.from);
+      if (gone) {
+        clearTimeout(gone.timer);
+        S.typingList = S.typingList.filter((x) => x.from !== t.from);
+      }
+      return;
+    }
     // Your own typing, relayed from another of your devices, IS shown — typing
     // on your phone lighting up your name on your desktop is the proof the
     // devices are talking (suppressing it read as breakage; the user overruled
@@ -3771,6 +4204,7 @@ function initEvents() {
       S.voiceStates = next;
     }
     updateVoiceRoster(v.channelId, v.from, v.fingerprint, v.action);
+    dmRosterChanged(v.channelId, v);
 
     // A browser guest joined the call from their invite link. If we're not in
     // the call yet they'd be sitting there alone, so say so — one nudge per
@@ -3846,6 +4280,8 @@ function initEvents() {
     S.modal = { kind: "guildInvite", invite: inv };
   });
   on("voice-signal", (v) => {
+    const declined = parseDecline(v.data);
+    if (declined) return onDeclineSignal(declined, v.data);
     if (S.voice) S.voice.mesh.handleSignal(v.from, v.data);
   });
 
@@ -3871,7 +4307,10 @@ function initEvents() {
       if (Object.keys(kept).length) next[ch] = kept;
       else if (Object.keys(peers).length) changed = true;
     }
-    if (changed) S.voiceRosters = next;
+    if (changed) {
+      S.voiceRosters = next;
+      for (const ch of Object.keys(S.calls)) if (!next[ch]) dmRosterChanged(ch);
+    }
     // A peer whose heartbeat stopped has left the call, whatever their
     // RTCPeerConnection still believes. This is the third of three layers that
     // clear a departed participant — the beacon on their side, the node
@@ -3880,6 +4319,22 @@ function initEvents() {
     // it a crashed tab stayed on the stage as a healthy tile until WebRTC
     // finally gave up on the connection, which took eighteen seconds.
     for (const pid of gone) dropVoicePeer(pid);
+    // …and a connection to somebody presence has never listed, or stopped
+    // listing, goes too. The mesh opens one for any signalling blob from a
+    // peer it does not hold, so a window that closed while another window of
+    // the same account kept negotiating left a nameless "Joining…" tile on
+    // everybody's stage, and it never left: no heartbeat was ever going to
+    // expire for it, because none had ever arrived.
+    if (S.voice) {
+      const r = ghostsToReap(
+        [...S.voice.mesh.peers.keys()],
+        S.voiceRosters[S.voice.channelId] || {},
+        ghostSeen,
+        now,
+      );
+      ghostSeen = r.firstSeen;
+      for (const pid of r.reap) dropVoicePeer(pid);
+    } else ghostSeen = {};
   }, 3000);
 }
 
@@ -3899,6 +4354,8 @@ export const guestName = (fpr = "") => {
   return (cut > 0 ? s.slice(0, cut) : s) || "Guest";
 };
 const announcedGuests = new Set();
+// Mesh peers presence does not list, and since when. See ghostsToReap.
+let ghostSeen = {};
 // Knocking guests we have already nudged about, so a knock re-announced every
 // few seconds rings once rather than every tick.
 const announcedKnocks = new Set();
@@ -3935,15 +4392,13 @@ function updateVoiceRoster(channelId, peerId, fingerprint, action) {
   if (action === "leave") {
     delete room[peerId];
   } else {
-    room[peerId] = { fingerprint, ts: Date.now() };
+    // `since` survives the heartbeats, so "who was in the room first" — the
+    // person calling, on a ring card — is answerable.
+    room[peerId] = { fingerprint, ts: Date.now(), since: room[peerId]?.since || Date.now() };
   }
   if (Object.keys(room).length) rosters[channelId] = room;
   else {
     delete rosters[channelId];
-    // The call ended — a future call to this DM should ring again.
-    if (S.dismissedCalls.includes(channelId)) {
-      S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);
-    }
     // …but the lock survives if WE are the ones in the room. The roster counts
     // only other peers, so "empty" here also describes a host sitting alone in a
     // locked meeting waiting for people to knock — which is exactly office
@@ -4121,12 +4576,22 @@ export const CALL_STATE = {
   connecting: { label: "Connecting…", tone: "warn" },
   reconnecting: { label: "Reconnecting…", tone: "warn" },
   failed: { label: "Call not connected", tone: "bad" },
+  ringing: { label: "Calling…", tone: "warn" },
+  unreachable: { label: "They're offline", tone: "warn" },
 };
 export function callHealth() {
   if (!S.voice) return { state: "idle", ...CALL_STATE.connected, live: false };
   // Our own node is gone: nothing else we could say about the far side is
   // worth more than that.
   if (S.offline) return { state: "reconnecting", ...CALL_STATE.reconnecting, live: false };
+  // A DM call nobody has answered is not a connected call, and the clock does
+  // not run for it. "Voice connected" in green with ring time counting up was
+  // what every surface but the stage said while the other phone was ringing.
+  const dial = S.calls[S.voice.channelId];
+  if (dial?.phase === "reconnecting") return { state: "reconnecting", ...CALL_STATE.reconnecting, live: false };
+  if (isRinging(dial)) {
+    return { state: "ringing", ...(dial.phase === "unreachable" ? CALL_STATE.unreachable : CALL_STATE.ringing), live: false };
+  }
   const others = S.voiceParticipants;
   // Alone in the room is not a fault. The mesh is up; there is nobody on it.
   if (!others.length) return { state: "connected", ...CALL_STATE.connected, live: true };
@@ -4541,21 +5006,195 @@ export function clearCallState(channelId) {
   if (S.turnedAway === channelId) S.turnedAway = "";
 }
 
-// incomingCall reports a DM whose other member is in the voice channel while we
-// are not — i.e. someone is ringing us. Returns { guildId, channelId, name } or
-// null. Dismissed (declined) calls stay suppressed until the roster clears.
-export function incomingCall() {
-  for (const g of S.guilds) {
-    if (g.kind !== "dm" || g.name === "Notes") continue;
-    const ch = g.channels?.[0];
-    if (!ch) continue;
-    if (S.voice?.channelId === ch.id) continue; // already in this call
-    if (S.joiningVoice === ch.id) continue; // mid-join — stop ringing immediately
-    if (S.dismissedCalls.includes(ch.id)) continue;
-    const roster = S.voiceRosters[ch.id];
-    if (roster && Object.keys(roster).length > 0) {
-      return { guildId: g.id, channelId: ch.id, name: g.name };
+// ---- DM calls: the state machine in lib/callflow.js, wired to the app ----
+
+// The DM (or group DM) that owns a channel, or null for a guild channel.
+function dmOf(channelId) {
+  const g = S.guilds.find((x) => x.channels?.some((c) => c.id === channelId));
+  return g?.kind === "dm" && !g.dmNotes && g.name !== "Notes" ? g : null;
+}
+const isGroupDM = (g) => (g?.dmMembers ?? 2) > 2;
+
+// Distinct OTHER accounts in a room, from presence. Our own other devices do
+// not make a call answered, and do not ring us.
+function otherAccounts(channelId) {
+  const self = S.identity?.fingerprint;
+  const out = new Set();
+  for (const info of Object.values(S.voiceRosters[channelId] || {})) {
+    if (info.fingerprint && info.fingerprint !== self) out.add(info.fingerprint);
+  }
+  return out;
+}
+
+// callEvent feeds one event to a DM call's machine and carries out what it
+// says. The machine decides; this only has the hands.
+export function callEvent(channelId, ev) {
+  if (!channelId) return;
+  const prev = S.calls[channelId];
+  const { st, fx } = callStep(prev, ev);
+  if (st !== prev) S.calls = { ...S.calls, [channelId]: st };
+  for (const f of fx) {
+    if (f.leave && S.voice?.channelId === channelId) S.callEnd = channelId;
+    if (f.clock === "start") startCallClock(ev.now);
+    if (f.wire) api.sendCallNotice(channelId, "call-missed", f.wire).catch(() => {});
+    if (f.local) api.noteCall(channelId, f.local).catch(() => {});
+    if (f.sendDecline) {
+      const blob = declineBlob(channelId);
+      for (const pid of Object.keys(S.voiceRosters[channelId] || {})) {
+        if (pid !== S.identity?.peerId) api.relaySignal(pid, blob).catch(() => {});
+      }
     }
+    if (f.say) sayCallOutcome(channelId, f.say, ev.by);
+  }
+}
+
+function sayCallOutcome(channelId, what, by) {
+  const g = dmOf(channelId);
+  const who = (by && nameFor(by)) || (g && !isGroupDM(g) ? g.name : "") || "They";
+  if (what === "declined") flash(`${who} declined the call`, "info");
+  else if (what === "missed") flash(`No answer from ${g?.name || "them"}`, "info");
+  else if (what === "unreachable") flash(`${who} is offline — they'll see a missed call`, "info");
+  else if (what === "ended") flash(`${who} ended the call`, "info");
+}
+
+// The roster of a DM's room changed: tell its call. Called after every
+// presence update and every roster expiry.
+function dmRosterChanged(channelId, v = null) {
+  const g = dmOf(channelId);
+  if (!g) return;
+  const now = Date.now();
+  const others = otherAccounts(channelId);
+  if (S.voice?.channelId === channelId) {
+    if (!v || v.fingerprint === S.identity?.fingerprint) return;
+    if (v.action === "join") callEvent(channelId, { type: "arrive", now });
+    else if (v.action === "leave") {
+      const remaining = others.has(v.fingerprint) ? 1 : 0;
+      // A goodbye from a page that was reloaded or closed says so; a 1:1 holds
+      // the call for that one behind "Reconnecting…" (lib/callflow.js).
+      callEvent(channelId, { type: "depart", goodbye: true, unload: v.reason === "unload", remaining, now });
+    }
+    return;
+  }
+  if (S.joiningVoice === channelId) return;
+  const roster = S.voiceRosters[channelId] || {};
+  if (!Object.keys(roster).length) {
+    callEvent(channelId, { type: "gone", now });
+    return;
+  }
+  // One of OUR devices is in the room: that call is ours already, and the
+  // desktop ringing for the call the phone placed is a ring at yourself.
+  const selfIn = Object.values(roster).some((i) => i.fingerprint === S.identity?.fingerprint);
+  if (selfIn || !others.size) return;
+  const st = S.calls[channelId];
+  if (!st || st.phase === "idle") {
+    // The caller is whoever was in the room first, as far as we heard it.
+    const first = Object.values(roster).sort((a, b) => (a.since || a.ts) - (b.since || b.ts))[0];
+    callEvent(channelId, {
+      type: "ring",
+      now,
+      group: isGroupDM(g),
+      caller: first?.fingerprint || [...others][0],
+      answeredElsewhere: others.size > 1,
+    });
+  } else if (others.size > 1) {
+    callEvent(channelId, { type: "seen-answer" });
+  }
+}
+
+// A callee said no. Only the decline blob's channel is trusted: the libp2p
+// sender is authenticated, but this event names it by peer id alone, and in a
+// 1:1 there is only one person it can be.
+function onDeclineSignal(channelId, raw) {
+  const g = dmOf(channelId);
+  if (!g || S.voice?.channelId !== channelId) return;
+  let by = g.dmPeer || "";
+  if (isGroupDM(g)) {
+    try {
+      by = JSON.parse(raw).by || "";
+    } catch {
+      by = "";
+    }
+  }
+  const st = S.calls[channelId];
+  const declined = new Set([...(st?.declinedBy || []), by]);
+  const everyone = !isGroupDM(g) || declined.size >= (g.dmMembers ?? 2) - 1;
+  callEvent(channelId, { type: "declined", by, everyone, now: Date.now() });
+}
+
+// Ring clocks. One tick a second while any DM call is ringing either way; a
+// caller ringing a 1:1 also re-reads whether the other side is reachable, so
+// "they're offline" turns into "ringing" the moment they come online.
+setInterval(() => {
+  const now = Date.now();
+  for (const [ch, st] of Object.entries(S.calls)) {
+    if (isRinging(st)) {
+      const g = dmOf(ch);
+      // dmPeerOnline is omitted when false (omitempty), so dmPeer is what says
+      // the view knows who the other side is at all.
+      if (g && !isGroupDM(g) && g.dmPeer) {
+        if ((st.phase === "unreachable") !== !g.dmPeerOnline) callEvent(ch, { type: "reach", reachable: !!g.dmPeerOnline });
+      }
+      callEvent(ch, { type: "tick", now });
+    } else if (st.phase === "incoming" || st.phase === "reconnecting") callEvent(ch, { type: "tick", now });
+  }
+}, 1000);
+
+// joinedDMCall: we are now in a DM's room. Either somebody was there (we
+// answered, or rejoined a call in progress) or we are ringing them. Returns
+// the call's phase, or false for a room that is not a DM's.
+export function joinedDMCall(channelId) {
+  const g = dmOf(channelId);
+  if (!g) return false;
+  const now = Date.now();
+  if (otherAccounts(channelId).size) {
+    callEvent(channelId, { type: "join-existing", now, group: isGroupDM(g) });
+  } else {
+    const reachable = isGroupDM(g) || !g.dmPeer ? true : !!g.dmPeerOnline;
+    // A fresh dial: a previous call in this DM that ended is history.
+    callEvent(channelId, { type: "reset" });
+    callEvent(channelId, { type: "dial", now, group: isGroupDM(g), reachable });
+  }
+  return S.calls[channelId]?.phase || "active";
+}
+
+// leavingDMCall: we are hanging up. The machine decides what record that
+// leaves (a missed-call line if it never connected, our own "Call ended").
+export function leavingDMCall(channelId) {
+  if (!dmOf(channelId)) return;
+  callEvent(channelId, { type: "hangup", now: Date.now() });
+}
+
+export function declineCall(channelId) {
+  callEvent(channelId, { type: "decline" });
+}
+export function acceptingCall(channelId) {
+  callEvent(channelId, { type: "accept" });
+}
+
+// The DM call our own side is ringing out on, if any — for the stage's pill.
+export function outgoingRing() {
+  const ch = S.voice?.channelId;
+  const st = ch && S.calls[ch];
+  return isRinging(st) ? { channelId: ch, phase: st.phase } : null;
+}
+
+// incomingCall: the DM call ringing us right now, or null. The card names the
+// person calling, and the conversation separately when it is a group — "Ada,
+// Ben, Dov is calling you…" named two people who were not in the call.
+export function incomingCall() {
+  for (const [ch, st] of Object.entries(S.calls)) {
+    if (st.phase !== "incoming") continue;
+    if (S.voice?.channelId === ch || S.joiningVoice === ch) continue;
+    const g = dmOf(ch);
+    if (!g) continue;
+    return {
+      guildId: g.id,
+      channelId: ch,
+      name: g.name,
+      caller: st.caller ? nameFor(st.caller) : g.name,
+      callerFpr: st.caller || "",
+      group: isGroupDM(g),
+    };
   }
   return null;
 }

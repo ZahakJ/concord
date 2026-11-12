@@ -275,34 +275,63 @@ export function emojiTonable(name) {
   return FULL ? FULL.tonable.has(name) || TONABLE.has(name) : TONABLE.has(name);
 }
 
-// searchEmoji returns up to `limit` [name, emoji] pairs. Shortcode prefix hits
-// rank first, then shortcode substrings, then the CLDR name — which is what
-// makes "saudi" find the flag and "birthday" find the cake without a separate
-// keyword list to keep in sync.
-export function searchEmoji(query, limit = 8) {
+// searchEmoji returns up to `limit` [name, emoji] pairs, best first.
+//
+// Ranked, not just filtered. Once the full Unicode table was in, the curated
+// shortcodes were not searched at all, so ":wave" found 🌊 water_wave and never
+// 👋 (CLDR calls it "waving hand"), ":smile" found a cat, ":+1" found nothing,
+// and ":heart" listed six hearts before the red one. The order is:
+//   0  the exact name (curated first: :wave: is 👋, :heart: is ❤️)
+//   1  the guild's own emoji by prefix — a guild's emoji are why it typed ":lan"
+//   2  a name that starts with the query
+//   3  a word inside a name that starts with it (cat_with_wry_SMILE, water_WAVE)
+//   4  anywhere in a name
+//   5  anywhere in the CLDR description — which is what makes "saudi" find the
+//      flag and "birthday" find the cake without a keyword list to keep in sync
+// One entry per character, at its best rank.
+//
+// `custom` is the guild's {name: image} table. Its entries come back as
+// [name, ":name:", image] so a caller can draw the picture and insert the code.
+export function searchEmoji(query, limit = 8, custom = null) {
   const q = query.toLowerCase();
-  if (!FULL) {
-    if (!q) return NAMES.slice(0, limit).map((n) => [n, EMOJI[n]]);
-    const starts = [];
-    const contains = [];
-    for (const n of NAMES) {
-      if (n.startsWith(q)) starts.push(n);
-      else if (n.includes(q)) contains.push(n);
-      if (starts.length >= limit) break;
+  if (!q) {
+    if (!FULL) return NAMES.slice(0, limit).map((n) => [n, EMOJI[n]]);
+    return FULL.items.slice(0, limit).map((e) => [e.n, e.c]);
+  }
+  const best = new Map(); // key -> { rank, order, item }
+  let order = 0;
+  const offer = (key, rank, item) => {
+    const had = best.get(key);
+    if (!had || rank < had.rank) best.set(key, { rank, order: had ? had.order : order++, item });
+  };
+  const nameRank = (n) => {
+    if (n === q) return 0;
+    if (n.startsWith(q)) return 2;
+    if (n.includes(`_${q}`)) return 3;
+    if (n.includes(q)) return 4;
+    return -1;
+  };
+  if (custom) {
+    for (const [n, img] of Object.entries(custom)) {
+      const r = n === q ? 0 : n.startsWith(q) ? 1 : n.includes(q) ? 4 : -1;
+      if (r >= 0) offer(`:${n}:`, r, [n, `:${n}:`, img]);
     }
-    return [...starts, ...contains].slice(0, limit).map((n) => [n, EMOJI[n]]);
   }
-  if (!q) return FULL.items.slice(0, limit).map((e) => [e.n, e.c]);
-  const starts = [];
-  const contains = [];
-  const labelled = [];
-  for (const e of FULL.items) {
-    if (e.n.startsWith(q)) starts.push(e);
-    else if (e.n.includes(q)) contains.push(e);
-    else if (e.l.includes(q)) labelled.push(e);
-    if (starts.length >= limit) break;
+  for (const n of NAMES) {
+    const r = nameRank(n);
+    if (r >= 0) offer(EMOJI[n], r, [n, EMOJI[n]]);
   }
-  return [...starts, ...contains, ...labelled].slice(0, limit).map((e) => [e.n, e.c]);
+  if (FULL) {
+    for (const e of FULL.items) {
+      let r = nameRank(e.n);
+      if (r < 0 && e.l.includes(q)) r = 5;
+      if (r >= 0) offer(e.c, r, [e.n, e.c]);
+    }
+  }
+  return [...best.values()]
+    .sort((a, b) => a.rank - b.rank || a.order - b.order)
+    .slice(0, limit)
+    .map((x) => x.item);
 }
 
 // replaceShortcodes converts every :name: in the text to its emoji (unknown

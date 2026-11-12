@@ -96,8 +96,6 @@
   }
   .site {
     font-size: var(--fs-small);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
   }
   .title {
     font-weight: 600;

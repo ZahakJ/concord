@@ -13,9 +13,12 @@ import {
   worthRetrying,
   RETRY_COOLDOWN_MS,
   fmtBytes,
+  midTrunc,
+  fileLabel,
   parseAttachTokens,
   parseFileTokens,
   placeholderName,
+  displayFileName,
 } from "./attachments.js";
 
 let failures = 0;
@@ -120,6 +123,22 @@ const file = parseFileTokens(
 eq(file.name, "meeting-notes.md", "a file token yields the file name");
 eq(fmtBytes(file.size), "5 KB", "a file token yields a real size");
 
+
+// A right-to-left override must not let a program wear a picture's extension.
+const spoof = "weird name (1) \u202Egnp.exe";
+const rlo = parseFileTokens(
+  `[file](concord://file/v1/${"b".repeat(64)}/${"A".repeat(75)}/5008/${Buffer.from("application/x-msdownload").toString("base64url")}/${Buffer.from(spoof).toString("base64url")})`,
+)[0];
+eq(rlo.name, "weird name (1) gnp.exe", "bidi overrides are dropped from a file token's name");
+eq(rlo.name.endsWith(".exe"), true, "the shown name ends in the real extension");
+const rloImg = parseAttachTokens(
+  `![image](concord://attach/v2/${"a".repeat(64)}/${"A".repeat(75)}/png/600x400/0/${Buffer.from("x\u2067gpj.exe\u2069").toString("base64url")}/)`,
+)[0];
+eq(rloImg.name, "xgpj.exe", "and from an image's name");
+eq(displayFileName("\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\u200E\u200F\u061Cok.txt"), "ok.txt", "every bidi control");
+eq(displayFileName("مرحبا.pdf"), "مرحبا.pdf", "right-to-left text itself is kept");
+eq(displayFileName("ünïcødé — (1).png"), "ünïcødé — (1).png", "other characters are kept");
+
 // ...but a spoiler must stay a spoiler even when it fails. A placeholder that
 // prints THE-KILLER-IS-THE-BUTLER.png has leaked the thing the sender covered.
 eq(placeholderName({ name: "sunset-cliff.png" }), "sunset-cliff.png", "an ordinary image is named");
@@ -129,6 +148,24 @@ eq(
   "a spoiler that will not load must not print the name that gives it away",
 );
 eq(placeholderName({ name: "" }), "", "a v1 token has no name and gets no line");
+
+// A staged file's name is cut from the middle, so the extension survives and
+// two names that share a long prefix still read differently.
+{
+  const long = "cutting-guide-long-name-for-the-lantern-workshop.txt";
+  const t = midTrunc(long, 32);
+  eq([...t].length, 32, "a long name is cut to the room it has");
+  assert(t.endsWith("workshop.txt"), `the extension and the end of the name survive: ${t}`);
+  assert(t.startsWith("cutting-guide-"), `the start survives: ${t}`);
+  assert(t.includes("…"), "the cut is marked");
+  eq(midTrunc("notes.txt", 32), "notes.txt", "a name that fits is untouched");
+  assert(
+    midTrunc("report-2026-quarterly-final-v2.pdf", 24) !== midTrunc("report-2026-quarterly-final-v3.pdf", 24),
+    "two names with a shared prefix stay distinguishable",
+  );
+  eq(fileLabel("a.txt", 13), "TXT · 13 B", "the card's second line: kind and size");
+  eq(fileLabel("README", 2048), "2 KB", "no extension: the size alone");
+}
 
 if (failures) {
   console.error(`${failures} failure(s)`);

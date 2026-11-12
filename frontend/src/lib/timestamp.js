@@ -96,7 +96,9 @@ export function shortWhen(ms, clock = {}, now = Date.now()) {
   if (!ms) return "";
   try {
     const d = new Date(ms);
-    const t = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...clock });
+    // The feed's own clock (fmtClock): "7:15", not "07:15". A phone's message
+    // sheet titled "Mira · 07:15" over a row that said "7:15" was two clocks.
+    const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", ...clock });
     const days = Math.floor(
       (new Date(now).setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000,
     );

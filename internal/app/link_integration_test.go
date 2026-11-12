@@ -39,7 +39,7 @@ func TestDeviceLinkingEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LinkOffer: %v", err)
 	}
-	res, err := RedeemLink(ctx, joinerDir, code, "test-pass")
+	res, err := RedeemLink(ctx, joinerDir, code, "test-pass", "")
 	if err != nil {
 		t.Fatalf("RedeemLink: %v", err)
 	}

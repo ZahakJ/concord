@@ -1,4 +1,5 @@
 <script>
+  import Caution from "./Caution.svelte";
   // "Can people reach me?" — the diagnosis, not the manual.
   //
   // The three settings that decide reachability live in three different places
@@ -185,13 +186,13 @@
           </p>
         {/if}
         {#if verdict === "relayDown"}
-          <button class="act" disabled={busy} onclick={reconnect}>
+          <button class="primary act" disabled={busy} onclick={reconnect}>
             {busy ? "Trying…" : "Try reconnecting"}
           </button>
         {:else if verdict === "lanOnly" || verdict === "stuck" || ((verdict === "directV6" || verdict === "provenV6") && !r.hasRendezvous)}
-          <button class="act" onclick={openConnection}>Set a rendezvous address</button>
+          <button class="primary act" onclick={openConnection}>Set a rendezvous address</button>
         {:else if portDrifts}
-          <button class="act" onclick={openConnection}>Pin a port</button>
+          <button class="primary act" onclick={openConnection}>Pin a port</button>
         {:else}
           <span class="quiet">Nothing to do.</span>
         {/if}
@@ -199,26 +200,17 @@
     </div>
 
     {#if portDrifts}
-      <p class="lead warn">
-        You are reachable on a port Concord picked at random this launch, and it will pick a
-        different one next time. Every invite code you have already handed out carries the old
-        one, so the direct route in those codes stops working the moment you restart.
-        {#if r.hasRendezvous}
-          Friends fall back to your rendezvous, which still gets them in — just the slower way.
-        {:else}
-          With no rendezvous set there is nothing to fall back to, so those codes stop working
-          entirely.
-        {/if}
-        Pinning a port keeps the codes you give out valid.
-      </p>
+      <Caution
+        text="Your port changes on every restart, so shared invite codes lose their direct route."
+        detail={`${r.hasRendezvous ? "Friends still get in through your rendezvous." : "With no rendezvous set, those codes stop working."} Pinning a port keeps them valid.`}
+      />
     {/if}
 
     {#if r.pinnedPortTaken}
-      <p class="lead warn">
-        You pinned port {r.pinnedPort}, but something else on this computer already had it when
-        Concord started, so the rule you added to your router leads nowhere this session. Pick
-        another port, or close the other program, and restart.
-      </p>
+      <Caution
+        text={`Port ${r.pinnedPort} is taken by another program this session.`}
+        detail="It was already in use when Concord started, so your router rule leads nowhere until then. Pick another port, or close that program, and restart."
+      />
     {/if}
 
     <SettingGroup
@@ -276,39 +268,20 @@
     line-height: 1.55;
     color: var(--text-muted);
   }
-  .lead.warn {
-    color: var(--warn-text);
-  }
-  /* The answer, before any of the options: one tinted card whose colour is the
-     verdict, so the situation lands before a word is read. */
+  /* The answer, before any of the options. Plain text on the pane, with the
+     verdict's colour on its icon only: a green-tinted card with an amber
+     paragraph under it was three colours shouting before a word was read. */
   .verdict {
     display: flex;
-    gap: 11px;
-    padding: 13px 14px;
-    border-radius: var(--radius-md);
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-  }
-  .verdict.ok {
-    background: color-mix(in srgb, var(--ok) 10%, var(--bg-1));
-    border-color: color-mix(in srgb, var(--ok) 38%, transparent);
-  }
-  .verdict.warn {
-    background: color-mix(in srgb, var(--warn) 11%, var(--bg-1));
-    border-color: color-mix(in srgb, var(--warn) 38%, transparent);
-  }
-  .verdict.bad {
-    background: color-mix(in srgb, var(--danger) 10%, var(--bg-1));
-    border-color: color-mix(in srgb, var(--danger) 38%, transparent);
+    gap: var(--sp-3);
+    padding: var(--sp-1) 0 var(--sp-3);
+    border-bottom: 1px solid var(--hairline);
   }
   .mark {
     flex: none;
     display: grid;
     place-items: center;
-    width: 30px;
-    height: 30px;
-    border-radius: var(--radius-md);
-    background: var(--bg-3);
+    height: 20px;
     color: var(--text-muted);
   }
   .verdict.ok .mark {
@@ -339,9 +312,6 @@
   .act {
     align-self: flex-start;
     margin-top: 2px;
-    padding: 7px 16px;
-    font-size: var(--fs-ui);
-    font-weight: 600;
   }
   .act:disabled {
     opacity: 0.6;
@@ -353,7 +323,6 @@
   @media (pointer: coarse), (max-width: 768px) {
     .act {
       align-self: stretch;
-      min-height: var(--tap-min);
     }
   }
 </style>

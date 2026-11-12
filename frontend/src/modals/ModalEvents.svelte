@@ -1,5 +1,6 @@
 <script>
   // The guild calendar: agenda list + month grid (toggle), day drill-down,
+  import Segmented from "../Segmented.svelte";
   // and the create/edit form. The agenda leads on phones — a month grid is a
   // toggle there, never the landing view, because 393px turns grids into
   // squint tests. Desktop lands on the grid. Editorial throughout: typography
@@ -27,6 +28,7 @@
   } from "../lib/events.svelte.js";
   import { REPEATS, expand, repeatSentence } from "../lib/recurrence.js";
   import { encodeEventToken } from "../lib/eventtoken.js";
+  import { reducedMotion } from "../lib/motion.js";
 
   let { onClose, onJoinVoice } = $props();
 
@@ -95,7 +97,7 @@
   let editing = $state(null); // null | draft {id?, title, details, location, start, durMin}
   let showPast = $state(false);
 
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const reduceMotion = reducedMotion();
 
   // Load on open; recheck on every guild-updated — that's the signal the core
   // emits for event upserts/removals/RSVPs (local and gossiped alike).
@@ -333,6 +335,8 @@
     showPicker = false;
     durMore = false;
   }
+  // Opened as "New event" (the palette, Your calendar): straight to the form.
+  if (S.modal?.compose) queueMicrotask(startCreate);
   function startEdit(ev) {
     editing = {
       id: ev.id,
@@ -416,12 +420,6 @@
     if (next < 0) return;
     e.preventDefault();
     editing.locationChannelId = list[next].id;
-    focusChecked(e.currentTarget);
-  }
-  function doorKeys(e) {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
-    e.preventDefault();
-    editing.autoAdmit = !editing.autoAdmit;
     focusChecked(e.currentTarget);
   }
   // Whether the event being edited already has a live guest link — the form
@@ -827,26 +825,15 @@
                     {#if editing.guests}
                       <div class="room-door" transition:slide={{ duration: reduceMotion ? 0 : 150, easing: cubicOut }}>
                         <span class="muted tiny">At the door</span>
-                        <div class="seg" role="radiogroup" aria-label="At the door" onkeydown={doorKeys}>
-                          <button
-                            type="button"
-                            class="seg-btn"
-                            class:on={!editing.autoAdmit}
-                            role="radio"
-                            aria-checked={!editing.autoAdmit}
-                            tabindex={!editing.autoAdmit ? 0 : -1}
-                            onclick={() => (editing.autoAdmit = false)}
-                          >They knock</button>
-                          <button
-                            type="button"
-                            class="seg-btn"
-                            class:on={editing.autoAdmit}
-                            role="radio"
-                            aria-checked={editing.autoAdmit}
-                            tabindex={editing.autoAdmit ? 0 : -1}
-                            onclick={() => (editing.autoAdmit = true)}
-                          >Straight in</button>
-                        </div>
+                        <Segmented
+                          label="At the door"
+                          value={editing.autoAdmit ? "in" : "knock"}
+                          onChange={(v) => (editing.autoAdmit = v === "in")}
+                          options={[
+                            { value: "knock", label: "They knock" },
+                            { value: "in", label: "Straight in" },
+                          ]}
+                        />
                         <span class="room-sub">{editing.autoAdmit ? "Guests walk right into the room." : "Knocking means you admit each guest."}</span>
                       </div>
                     {/if}
@@ -891,14 +878,15 @@
     </div>
   {:else}
     <div class="bar">
-      <div class="seg" role="tablist" aria-label="Calendar view">
-        <button class="seg-btn" class:on={view === "agenda"} role="tab" aria-selected={view === "agenda"} onclick={() => (view = "agenda")}>
-          <Icon name="list" size={13} /> Agenda
-        </button>
-        <button class="seg-btn" class:on={view === "grid"} role="tab" aria-selected={view === "grid"} onclick={() => (view = "grid")}>
-          <Icon name="calendar" size={13} /> Month
-        </button>
-      </div>
+      <Segmented
+        label="Calendar view"
+        value={view}
+        onChange={(v) => (view = v)}
+        options={[
+          { value: "agenda", label: "Agenda" },
+          { value: "grid", label: "Month" },
+        ]}
+      />
       <span class="spring"></span>
       {#if events.length}
         <button class="ghost export" title="Export the whole calendar as .ics" onclick={exportAll}>
@@ -1012,6 +1000,15 @@
 </RailShell>
 
 <style>
+  /* Sentence case, not the shouted kicker: day headings, the legend and the
+     form's echo line read as labels ("Friday 13 November"), in the small
+     size at 600, the way every other group label in the app does. */
+  .kicker {
+    font-size: var(--fs-small);
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: 0;
+  }
   .bar {
     display: flex;
     align-items: center;
@@ -1020,30 +1017,6 @@
   }
   .spring {
     flex: 1;
-  }
-  .seg {
-    display: inline-flex;
-    padding: 3px;
-    gap: 2px;
-    background: var(--bg-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-  }
-  .seg-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 11px;
-    border-radius: calc(var(--radius-md) - 3px);
-    background: transparent;
-    color: var(--text-muted);
-    font-size: var(--fs-compact);
-    font-weight: 600;
-  }
-  .seg-btn.on {
-    background: var(--bg-1);
-    color: var(--text);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
   }
   .primary {
     display: inline-flex;
@@ -1134,10 +1107,8 @@
   }
   .dow {
     text-align: center;
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    font-size: var(--fs-small);
+    font-weight: 600;
     padding: 2px 0 6px;
     color: var(--text-faint);
   }
@@ -1451,7 +1422,6 @@
   }
   .wseg[aria-checked="true"] {
     background: var(--accent);
-    box-shadow: var(--accent-glow);
   }
   .wseg[aria-checked="true"] .wseg-t {
     color: var(--accent-fg);
@@ -1477,10 +1447,8 @@
     overscroll-behavior: contain; /* the dialog must not steal the thumb */
   }
   .chkick {
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-faint);
     padding: var(--sp-2) var(--sp-2) var(--sp-1);
   }
@@ -1651,16 +1619,11 @@
     justify-content: flex-end;
     gap: var(--sp-2);
   }
-  .actions .ghost {
-    padding: 7px 14px;
+  :global(:root[data-motion="reduced"]) .riser {
+    animation: none;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .riser {
-      animation: none;
-    }
-    .wseg {
-      transition: background var(--dur-quick) ease, color var(--dur-quick) ease; /* drop the glow bloom */
-    }
+  :global(:root[data-motion="reduced"]) .wseg {
+    transition: background var(--dur-quick) ease, color var(--dur-quick) ease; /* drop the glow bloom */
   }
   @media (pointer: coarse), (max-width: 768px) {
     .dayhead {
@@ -1669,19 +1632,6 @@
     .slotchip {
       min-height: 44px;
       padding: 6px 15px;
-    }
-    /* One-handed at 393px: every Where control is a real target. The cells,
-       rows and room label already ride --tap-min (44px here); the door
-       segment's buttons are the one pair that needs the floor stated. */
-    .room-door .seg-btn {
-      min-height: var(--tap-min);
-    }
-    .room-door .seg {
-      align-self: stretch;
-    }
-    .room-door .seg-btn {
-      flex: 1;
-      justify-content: center;
     }
     /* The bar wraps on a phone; the create CTA takes its row whole. */
     .primary.new {

@@ -1,12 +1,13 @@
 <script>
   // Define guild roles: name, color, and a set of permissions. Requires the
   // "Manage roles" permission (the backend re-checks and enforces rank rules).
+  import { tick } from "svelte";
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
-  import { S, refreshRightPanel, flash } from "../lib/state.svelte.js";
+  import { S, activeGuild, refreshRightPanel, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
-  import { PERM_LIST, has } from "../lib/perms.js";
+  import { PERM_LIST, PERM_ALL, has } from "../lib/perms.js";
 
   let { onClose } = $props();
 
@@ -33,6 +34,18 @@
   function edit(r) {
     editing = { ...r };
   }
+  // Back swaps the editor for the list, which takes the focused Back button
+  // with it; land on the role you were editing rather than nowhere.
+  async function backToList() {
+    const id = editing?.id;
+    editing = null;
+    await tick();
+    const row = id && document.querySelector(`button.role[data-role-id="${CSS.escape(id)}"]`);
+    (row || document.querySelector("button.role"))?.focus({ preventScroll: true });
+  }
+  // A role can only carry permissions its maker holds (the core refuses the
+  // rest). Ticking one you lack used to look fine and save nothing.
+  const mine = $derived(activeGuild()?.isOwner ? PERM_ALL : activeGuild()?.myPerms || 0);
   function togglePerm(bit) {
     editing.perms = has(editing.perms, bit) ? editing.perms & ~bit : editing.perms | bit;
   }
@@ -104,38 +117,46 @@
         <div class="perms">
           {#each PERM_LIST as p (p.bit)}
             {@const on = has(editing.perms, p.bit)}
+            {@const locked = !on && !has(mine, p.bit)}
             <button
               type="button"
               class="perm"
               class:on
               role="checkbox"
               aria-checked={on}
+              disabled={locked}
               onclick={() => togglePerm(p.bit)}
             >
               <span class="box" aria-hidden="true"><Icon name="check" size={12} /></span>
               <span class="perm-text">
                 <strong>{p.label}</strong>
-                <span class="muted tiny">{p.hint}</span>
+                <span class="muted tiny">{locked ? "You can only grant permissions you have" : p.hint}</span>
               </span>
             </button>
           {/each}
         </div>
       </div>
       <div class="actions">
-        <button class="ghost" onclick={() => (editing = null)}>Back</button>
-        <button onclick={save} disabled={!editing.name.trim() || busy}>Save role</button>
+        <button class="ghost" onclick={backToList}>Back</button>
+        <button class="primary" onclick={save} disabled={!editing.name.trim() || busy}>Save role</button>
       </div>
     </div>
   {:else}
     {#if loading}
       <p class="muted empty">Loading…</p>
     {:else}
+      <!-- The list's own header: how many, and the one way to add another. -->
+      <div class="list-head">
+        <span class="count">{roles.length} {roles.length === 1 ? "role" : "roles"}, highest first</span>
+        <button class="primary new" onclick={newRole}><Icon name="plus" size={13} /> New role</button>
+      </div>
       <div class="list">
         {#each roles as r (r.id)}
           <div class="role-row">
-            <button class="role" onclick={() => edit(r)}>
+            <button class="role" data-role-id={r.id} onclick={() => edit(r)}>
               <span class="swatch" style="background:{r.color || 'var(--text-faint)'}"></span>
-              <span class="role-name" style={r.color ? `color:${r.color}` : ""}>{r.name}</span>
+              <span class="role-name">{r.name}</span>
+              <span class="chev" aria-hidden="true"><Icon name="chevron" size={14} /></span>
             </button>
             <button class="del" title="Delete role" aria-label="Delete role" onclick={() => (confirmDel = r)}>
               <Icon name="trash" size={13} />
@@ -145,7 +166,6 @@
           <p class="muted empty">No roles yet. Create one to grant specific permissions.</p>
         {/each}
       </div>
-      <button class="new" onclick={newRole}><Icon name="plus" size={13} /> New role</button>
     {/if}
   {/if}
 </RailShell>
@@ -181,14 +201,39 @@
       overflow-y: visible;
     }
   }
+  .list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    flex: none;
+  }
+  .count {
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+  }
+  /* List rows split by hairlines; the role's colour is its swatch, the name
+     is in ink like every other name in a list. */
   .role-row {
     display: flex;
     align-items: center;
-    border-radius: var(--radius-sm);
+    min-height: 40px;
   }
-  .role-row:hover,
+  .role-row + .role-row {
+    border-top: 1px solid var(--hairline);
+  }
+  @media (pointer: fine) {
+    .role-row:hover {
+      background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+    }
+  }
   .role-row:active {
     background: var(--bg-3);
+  }
+  .chev {
+    margin-left: auto;
+    display: grid;
+    color: var(--text-faint);
   }
   .role {
     flex: 1;
@@ -208,7 +253,7 @@
   }
   .role-name {
     font-size: var(--fs-ui);
-    font-weight: 600;
+    font-weight: 500;
   }
   .del {
     background: transparent;
@@ -234,12 +279,7 @@
     border-radius: var(--radius-sm);
   }
   .new {
-    margin-top: 10px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--fs-ui);
-    align-self: flex-start;
+    flex: none;
   }
   .editor {
     display: flex;
@@ -281,6 +321,10 @@
     text-align: left;
     padding: 8px 10px;
     border-radius: var(--radius-sm);
+  }
+  .perm:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
   .perm.on {
     border-color: var(--accent);

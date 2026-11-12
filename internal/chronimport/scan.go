@@ -3,6 +3,7 @@ package chronimport
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/bits"
 	"os"
@@ -310,6 +311,9 @@ type EmojiStat struct {
 type FileError struct {
 	File   string `json:"file"`
 	Reason string `json:"reason"`
+	// Partial is a file that broke off partway: what came before the break
+	// was read and counts, so it is not a file that could not be opened.
+	Partial bool `json:"partial,omitempty"`
 }
 
 // TopAuthorsLimit is how many names the report's author table carries. The full
@@ -337,9 +341,13 @@ type Stats struct {
 
 	Messages  int64 `json:"messages"`
 	Malformed int64 `json:"malformed"`
-	Notices   int64 `json:"notices"`
-	Replies   int64 `json:"replies"`
-	Reactions int64 `json:"reactions"`
+	// Duplicates counts messages a second file of the same channel repeats
+	// (two exports whose date ranges overlap). Excluded from Messages, and
+	// never imported twice.
+	Duplicates int64 `json:"duplicates"`
+	Notices    int64 `json:"notices"`
+	Replies    int64 `json:"replies"`
+	Reactions  int64 `json:"reactions"`
 
 	FirstNano    int64 `json:"firstNano"`
 	LastNano     int64 `json:"lastNano"`
@@ -427,12 +435,15 @@ func ScanChatExport(dir string) (*Stats, error) {
 
 	authors := map[string]*AuthorStat{}
 	emoji := map[string]*EmojiStat{}
+	// ids already counted, per channel; see Stats.Duplicates.
+	seenIDs := map[string]map[string]struct{}{}
 
 	for _, path := range files {
 		rel, _ := filepath.Rel(dir, path)
 		var cur *ChannelStats
 		var curMonths map[int64]*MonthStat
 		var curTallies map[int64]map[int64]*AttachTally
+		var curSeen map[string]struct{}
 
 		head := func(h Header) error {
 			if st.Guild == "" {
@@ -461,10 +472,19 @@ func ScanChatExport(dir string) (*Stats, error) {
 			}
 			c.Files = append(c.Files, rel)
 			cur, curMonths, curTallies = c, months[ckey], tallies[ckey]
+			if seenIDs[ckey] == nil {
+				seenIDs[ckey] = map[string]struct{}{}
+			}
+			curSeen = seenIDs[ckey]
 			return nil
 		}
 
 		msg := func(m *Message) error {
+			if _, dup := curSeen[m.ID]; dup {
+				st.Duplicates++
+				return nil
+			}
+			curSeen[m.ID] = struct{}{}
 			nano, _ := m.At() // Walk guarantees this parses
 			if m.Skippable() {
 				cur.Notices++
@@ -566,7 +586,8 @@ func ScanChatExport(dir string) (*Stats, error) {
 			// channel of real history is worth more than a report that pretends
 			// the file was empty, and the reason is named so somebody can go and
 			// look at it.
-			st.FileErrors = append(st.FileErrors, FileError{File: rel, Reason: err.Error()})
+			st.FileErrors = append(st.FileErrors, FileError{File: rel, Reason: err.Error(),
+				Partial: errors.Is(err, ErrTruncated)})
 		}
 	}
 

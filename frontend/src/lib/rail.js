@@ -77,6 +77,20 @@ export function reconcile(items, liveIds) {
   return out;
 }
 
+// seedOrder is the order guilds the layout has never placed are appended in:
+// by name, then id. The guild list arrives from the core in no particular
+// order — it is read off a map, and differs from one call to the next — so
+// on a device with no stored layout yet (a fresh install, a new browser) the
+// first reconcile used to seed the rail, and with it the strip and the
+// switcher, in whatever order that one call happened to return, and save it.
+// One load in several came up with the open guild at the end and kept it.
+// Placed guilds keep their place; this only decides where new ones land.
+export function seedOrder(guilds) {
+  return [...guilds]
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" }) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((g) => g.id);
+}
+
 /** Remove a guild from wherever it sits; returns items without it. */
 function extractGuild(items, id) {
   const out = [];
@@ -213,4 +227,179 @@ export function guildInitials(name) {
   // units, so a plain slice(0, 2) returned the emoji alone and dropped the
   // second word's initial entirely.
   return [...letters.join("")].slice(0, 2).join("").toUpperCase();
+}
+
+// ————————————————— the strip: a shelf of every guild —————————————————
+//
+// The sidebar's strip is a SHELF: Messages fixed at the leading end, Add fixed
+// at the trailing end, and between them every guild, in one row that scrolls
+// sideways. It used to be a fitted shortcut row — as many tiles as the width
+// allowed, picked by a rule, and an overflow tile for the rest — which meant
+// the guild you wanted was often behind a click, and which ones were on the
+// row depended on what had happened lately. All of them, in one order you
+// set, is something a hand can learn. The switcher stays the inventory
+// (search, folders, rearranging).
+
+// sharedOrder is the ONE order every view of the guild inventory uses — the
+// strip, the switcher and the rail: the user's pins first, in the order they
+// pinned them, then everything else in the user's own rail order. Three views
+// of one inventory in three orders meant nobody could learn where anything was.
+export function sharedOrder(ids, pins) {
+  const live = new Set(ids);
+  const p = (pins || []).filter((id) => live.has(id));
+  const ps = new Set(p);
+  return [...p, ...ids.filter((id) => !ps.has(id))];
+}
+
+// shelfView answers which tiles of the shelf you can actually see. The row
+// fades out at an edge where more tiles exist, so a tile under the fade does
+// not count as seen: a tile is in view when its centre is inside the shelf
+// less the faded band, and the band only exists on a side that can still
+// scroll. Geometry is the shelf's own (every tile the same pitch), so this is
+// arithmetic on numbers the caller already has, not a layout read per tile.
+//
+//   n      tiles on the shelf
+//   g      { lead: x of the first tile's left edge, pitch, size, left: scrollLeft,
+//            width: the shelf's clientWidth, max: the furthest scrollLeft, fade }
+//
+// Returns { first, last } — the first and last index in view (last < first
+// when none is).
+export function shelfView(n, g) {
+  const fadeL = g.left > 0.5 ? g.fade : 0;
+  const fadeR = g.left < g.max - 0.5 ? g.fade : 0;
+  const lo = g.left + fadeL;
+  const hi = g.left + g.width - fadeR;
+  const centre = (i) => g.lead + i * g.pitch + g.size / 2;
+  let first = 0;
+  while (first < n && centre(first) < lo) first++;
+  let last = n - 1;
+  while (last >= 0 && centre(last) > hi) last--;
+  return { first, last };
+}
+
+// edgeNews is what the hidden ends of the shelf are holding back, for the
+// small mark at each faded edge: mentions aimed at you as one number, else a
+// dot when anything there is unread. Never how many guilds are off-screen —
+// that is not news. A muted guild's mentions still count (it shows them
+// outlined on its own tile), its plain unread does not.
+//
+//   order   guild ids in shelf order
+//   view    { first, last } from shelfView
+//   marks   id → { count, dot, muted }
+export function edgeNews(order, view, marks) {
+  const side = (ids) => {
+    let count = 0;
+    let dot = false;
+    for (const id of ids) {
+      const m = marks(id);
+      if (!m) continue;
+      count += m.count || 0;
+      dot = dot || (!m.muted && !!m.dot);
+    }
+    return { count, dot: !count && dot };
+  };
+  return { left: side(order.slice(0, view.first)), right: side(order.slice(Math.max(view.first, view.last + 1))) };
+}
+
+// revealLeft is where to scroll so tile i sits in view clear of the fades:
+// unchanged when it already is, otherwise the nearest position that shows it
+// whole with the fade's width of room beside it. g as for shelfView.
+export function revealLeft(i, g) {
+  const x = g.lead + i * g.pitch;
+  const lo = g.left + (g.left > 0.5 ? g.fade : 0);
+  const hi = g.left + g.width - (g.left < g.max - 0.5 ? g.fade : 0);
+  let to = g.left;
+  if (x < lo) to = x - g.fade;
+  else if (x + g.size > hi) to = x + g.size + g.fade - g.width;
+  return Math.max(0, Math.min(g.max, Math.round(to)));
+}
+
+// snapLeft is the resting place for a scroll position: the nearest snap stop
+// (where the shelf's CSS snap would put each tile), clamped to the ends. A
+// vertical wheel is mapped to the row by the strip itself, which turns snap
+// off while it drives the scroll and glides here when the wheel goes quiet.
+// The stops are read from the tiles as drawn, because the browser snaps to
+// the transformed box: a tile eased aside by 2px snaps 2px further along, and
+// a landing computed from the layout alone was corrected by a visible 2px
+// jump the moment snap came back on.
+export function snapLeft(left, stops, max) {
+  if (left >= max - 0.5) return max;
+  let best = 0;
+  let d = Infinity;
+  for (const s of stops) {
+    const c = Math.max(0, Math.min(max, s));
+    if (Math.abs(c - left) < d) {
+      d = Math.abs(c - left);
+      best = c;
+    }
+  }
+  return Math.round(best);
+}
+
+// wheelNotch says whether a wheel event is one click of a mouse wheel rather
+// than a trackpad's stream of pixel deltas. A notch moves the shelf exactly
+// one tile, the way a console's shelf steps one item per press; a trackpad
+// keeps moving it in proportion to the fingers. Line-mode deltas are always
+// a wheel; a pixel delta is a notch when it is large and whole (a wheel
+// reports 100 or 120, or 50-odd at some scales; a trackpad reports small,
+// often fractional, steps).
+export function wheelNotch(deltaY, deltaMode) {
+  if (deltaMode === 1) return true;
+  return Math.abs(deltaY) >= 50 && Number.isInteger(deltaY);
+}
+
+// nextStop is the snap stop one tile on from `left` in the wheel's direction
+// (dir 1 or -1): the first stop more than `min` past `left` (half a tile, so
+// a stop a couple of pixels away — the 2px the open guild's neighbours ease
+// aside — does not count as a tile), clamped to the ends.
+export function nextStop(left, stops, dir, max, min = 1) {
+  const cs = stops.map((s) => Math.max(0, Math.min(max, Math.round(s)))).sort((a, b) => a - b);
+  if (dir > 0) return cs.find((s) => s > left + min) ?? max;
+  return [...cs].reverse().find((s) => s < left - min) ?? 0;
+}
+
+// glideStep is one frame of the shelf's wheel glide: an exponential approach
+// to the target (a quarter of the remaining way per frame, so a run of
+// notches carries its speed instead of restarting from rest), at least a
+// pixel a frame so it always arrives, and exactly on the target at the end.
+export const GLIDE = 0.25;
+export function glideStep(cur, target) {
+  const d = target - cur;
+  if (Math.abs(d) <= 1) return target;
+  const step = d * GLIDE;
+  return cur + (Math.abs(step) < 1 ? Math.sign(d) : step);
+}
+
+// ————————————————— a guild's mark without an icon —————————————————
+//
+// Two-letter initials on a flat colour square are the most generic tile there
+// is, and at thirty guilds they were a wall of look-alikes with two "CA"s. A
+// guild without an icon now shows ONE letter, and when an earlier guild (by
+// id, so the answer never depends on the order on screen) already has that
+// letter, a plain shape instead, chosen from its id.
+// Neutral shapes only (Icon.svelte's sh*): a glyph that already means
+// something in the sidebar (megaphone = announcements) cannot also be a name.
+const MARK_GLYPHS = ["shRing", "shTriangle", "shSquare", "shHex", "shStar", "shPentagon", "shHalf", "shOctagon"];
+const hashId = (id) => {
+  let h = 0;
+  for (const c of String(id)) h = (h * 31 + c.codePointAt(0)) >>> 0;
+  return h;
+};
+export function guildMarks(guilds) {
+  const out = new Map();
+  const byLetter = new Map();
+  for (const g of [...(guilds || [])].filter((x) => x && x.kind !== "dm").sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    const letter = ([...String(g.name || "").trim()][0] || "?").toUpperCase();
+    const taken = byLetter.get(letter);
+    if (!taken) {
+      byLetter.set(letter, new Set());
+      out.set(g.id, { letter, glyph: "" });
+      continue;
+    }
+    let i = hashId(g.id) % MARK_GLYPHS.length;
+    while (taken.has(MARK_GLYPHS[i]) && taken.size < MARK_GLYPHS.length) i = (i + 1) % MARK_GLYPHS.length;
+    taken.add(MARK_GLYPHS[i]);
+    out.set(g.id, { letter, glyph: MARK_GLYPHS[i] });
+  }
+  return out;
 }

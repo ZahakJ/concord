@@ -133,7 +133,7 @@
      typo in, so this toggle carries real weight on the one screen a phone user
      may never get past. It stretches to the field's height already; the width
      was 38px, just under the target. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .peek {
       width: 46px;
     }
@@ -150,30 +150,32 @@
     outline: none;
     color: var(--accent-hover);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .peek {
-      transition: none;
-    }
-    .strength .bar span {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .peek {
+    transition: none;
+  }
+  :global(:root[data-motion="reduced"]) .strength .bar span {
+    transition: none;
   }
   /* ---- strength readout ----
      A bar and a sentence. The sentence is the part that does the work: "Fair"
      on its own is a grade, and a grade invites arguing with it, whereas
      "fine unless someone is really trying" says what it actually means. */
+  /* Bar over sentence, both the field's full width. Side by side, the label
+     took most of a 270px field and wrapped, right-aligned, far from a bar
+     squeezed to a 30px dash. */
   .strength {
     display: flex;
-    align-items: center;
-    gap: var(--sp-2);
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--sp-1);
     margin-top: 6px;
   }
   .bar {
-    flex: 1;
     height: 4px;
-    min-width: 60px;
     border-radius: 999px;
-    background: var(--bg-3);
+    /* A visible track, so the bar reads as "this far out of full". bg-3 was
+       the card's own ground on the login screen: no track at all. */
+    background: color-mix(in srgb, var(--text-muted) 22%, transparent);
     overflow: hidden;
   }
   .bar span {
@@ -188,7 +190,7 @@
   .slabel {
     font-size: var(--fs-tiny);
     color: var(--text-muted);
-    text-align: right;
+    text-align: start;
   }
   /* Tokens, so the six light packs get a readable bar without their own rules;
      --warn is the same amber the mention accent uses, and --ok the same green

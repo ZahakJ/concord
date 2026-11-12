@@ -1,4 +1,5 @@
 <script>
+  import { untrack } from "svelte";
   // Fullscreen story playback. Not a Modal: it's an overlay like the studios,
   // so it registers with the overlay-closer stack (BannerStudio.svelte does
   // the same) and the phone's back button dismisses it before anything else.
@@ -32,8 +33,10 @@
 
   $effect(() => pushLayer("story", () => onClose?.()));
 
-  // Seen is recorded when you move PAST a story (auto-advance or tap-forward)
-  // — rewinding and bailing out mid-story leave it unread, and the call is
+  // Seen is recorded when a story is SHOWN. It used to wait until you moved
+  // past it, so opening a guild's one moment and closing it after reading it
+  // left the "new moments" ring on the guild as if you never had — a mark
+  // that would not clear reads as a broken notification. The call is
   // local-only (no view receipts; see MarkStorySeen in the bridge).
   let changed = false;
   function markSeen(s) {
@@ -73,8 +76,12 @@
     return () => cancelAnimationFrame(raf);
   });
 
+  $effect(() => {
+    const s = story;
+    if (s) untrack(() => markSeen(s));
+  });
+
   function advance() {
-    markSeen(stories[index]);
     if (index >= stories.length - 1) {
       onClose?.();
       return;
@@ -241,6 +248,12 @@
           <span class="name">{story.authorName || story.author.slice(0, 9)}{isSelf ? " (you)" : ""}</span>
           <span class="when">{sealAgo(story.postedAt * 1000)}</span>
         </span>
+        <!-- Sharing your own, from inside someone else's: once a guild had a
+             moment, Moments opened straight into this viewer and there was
+             no way left to add one. -->
+        <button class="share" onclick={() => (S.modal = { kind: "storyCompose", guildId: story.guildId || S.activeGuildId })}>
+          <Icon name="plus" size={14} /> Share a moment
+        </button>
         {#if isSelf}
           <button
             class="x del"
@@ -259,20 +272,18 @@
 
     <div class="caption-wrap">
       <p class="caption">{story.caption}</p>
-      <!-- The author's accent pair as the underline — their colors sign the
-           words the way they ring their tile in the tray. Backend-gated #hex. -->
+      <!-- The author's colour as the underline — it signs the words the way it
+           rings their tile. Solid, not a gradient: decoration stays flat. -->
       <span
         class="accent"
         aria-hidden="true"
-        style="background:linear-gradient(90deg, {story.color1 || 'var(--accent)'}, {story.color2 ||
-          story.color1 ||
-          'var(--accent)'})"
+        style="background:{story.color1 || 'var(--accent)'}"
       ></span>
     </div>
 
     {#if !isSelf}
       <button class="reply" onclick={reply}>
-        <Icon name="spark" size={13} /> Reply
+        <Icon name="reply" size={14} /> Reply
       </button>
     {/if}
   </div>
@@ -355,6 +366,23 @@
     font-size: var(--fs-small);
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   }
+  .share {
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    flex: none;
+    min-height: 34px;
+    padding: 0 var(--sp-3);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.35);
+    color: #fff;
+    font-size: var(--fs-compact);
+    font-weight: 600;
+  }
+  .share:hover {
+    background: rgba(0, 0, 0, 0.55);
+  }
   .x {
     pointer-events: auto;
     background: rgba(0, 0, 0, 0.35);
@@ -378,13 +406,14 @@
     width: auto;
     border-radius: 999px;
     padding: 0 12px;
-    background: rgba(196, 49, 42, 0.9);
+    background: var(--danger);
+    color: var(--danger-fg);
     font-size: var(--fs-small);
     font-weight: 600;
   }
   .del.armed:hover,
   .del.armed:active {
-    background: rgba(219, 55, 47, 0.95);
+    filter: brightness(1.12);
   }
   .caption-wrap {
     position: relative;
@@ -424,7 +453,8 @@
     color: #fff;
     border: 1px solid rgba(255, 255, 255, 0.35);
     border-radius: 999px;
-    padding: 9px 18px;
+    min-height: 40px;
+    padding: 0 18px;
     font-size: var(--fs-ui);
     font-weight: 600;
   }

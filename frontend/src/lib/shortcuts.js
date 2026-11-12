@@ -7,9 +7,11 @@
 // below is what the sheet renders, it lives against the handler it describes,
 // and shortcutlist.test.mjs fails the build when the handler grows a key the
 // list has not heard of.
-import { S, activeGuild, selectChannel, closePost, postParentOf, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash, flashSlot, toggleMicMute, toggleDeafen } from "./state.svelte.js";
-import { popLayer } from "./navstack.svelte.js";
+import { S, activeGuild, selectChannel, closePost, postParentOf, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash, flashSlot, toggleMicMute, toggleDeafen, focusFeed } from "./state.svelte.js";
+import { popLayer, topKind } from "./navstack.svelte.js";
 import { pressesBind, releasesBind, typesCharacter } from "./keybind.js";
+import { appCovered } from "./layers.js";
+import { cycleRegion } from "./regions.js";
 
 // ---- the registry ----
 //
@@ -28,12 +30,22 @@ export const SHORTCUTS = [
   { group: "Navigation", chords: [["Alt", "↑"], ["Alt", "↓"]], label: "Previous / next channel" },
   { group: "Navigation", chords: [["Alt", "Shift", "↑"], ["Alt", "Shift", "↓"]], label: "Unread channel" },
   { group: "Navigation", chords: [["Ctrl", "Alt", "↑"], ["Ctrl", "Alt", "↓"]], label: "Previous / next guild" },
-  { group: "Navigation", chords: [["Ctrl/⌘", "U"]], label: "Member panel" },
+  { group: "Navigation", chords: [["Ctrl/⌘", "U"]], label: "Inspector (members, pins, files)" },
+  { group: "Navigation", chords: [["F6"], ["Shift", "F6"]], label: "Next / previous region" },
+  { group: "Navigation", chords: [["↑"], ["↓"], ["Home"], ["End"]], label: "Move along the channel or member list (or type a name)" },
+  { group: "Navigation", chords: [["Shift", "F10"], ["Menu"]], label: "Options for the focused channel or member" },
   { group: "Navigation", chords: [["Ctrl/⌘", "="], ["Ctrl/⌘", "-"], ["Ctrl/⌘", "0"]], label: "Zoom" },
   { group: "Navigation", chords: [["?"], ["Ctrl/⌘", "/"]], label: "This list" },
 
   { group: "Reading", chords: [["Esc"]], label: "Close, or mark channel read" },
   { group: "Reading", chords: [["Shift", "Esc"]], label: "Mark everything read" },
+  { group: "Reading", chords: [["R"]], label: "Reply (message focused)" },
+  { group: "Reading", chords: [["T"]], label: "Start a thread (message focused)" },
+  { group: "Reading", chords: [["E"]], label: "Edit (your message focused)" },
+  { group: "Reading", chords: [["P"]], label: "Pin (message focused)" },
+  { group: "Reading", chords: [["S"]], label: "Save for later (message focused)" },
+  { group: "Reading", chords: [["Delete"]], label: "Delete (message focused)" },
+  { group: "Reading", chords: [["Shift", "F10"]], label: "All actions (message focused)" },
 
   { group: "Voice", chords: [["Ctrl", "Shift", "M"]], label: "Mute" },
   { group: "Voice", chords: [["Ctrl", "Shift", "D"]], label: "Deafen" },
@@ -138,6 +150,14 @@ function pttBind() {
   return S.prefs.pttBind?.code ? S.prefs.pttBind : null;
 }
 
+// Is this keydown the push-to-talk key, with a call up to talk into? Other
+// key handlers ask before they act on a printable key, so a letter bound as
+// push-to-talk is not ALSO treated as the start of a message.
+export function isPttKey(e) {
+  const bind = pttBind();
+  return !!bind && pressesBind(e, bind);
+}
+
 function release() {
   if (!heldBind) return;
   heldBind = null;
@@ -207,6 +227,9 @@ function globalWhileTyping(e, mod) {
   // not in a browser textarea on any platform Concord ships on — the caret
   // does not move — so the chord is free.
   if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) return true;
+  // F6 / Shift+F6 — the next region. A function key types nothing, and the
+  // composer is where focus rests, so the jump has to start from there.
+  if (e.key === "F6") return true;
   return false;
 }
 
@@ -235,7 +258,11 @@ export function installShortcuts() {
     }
     // Ctrl/Cmd+F — jump into message search (overrides the browser find bar,
     // but only when our search box is actually present, so we don't swallow it).
+    const covered = appCovered(S.modal, topKind());
     if (mod && !e.shiftKey && e.key.toLowerCase() === "f") {
+      // The search panel is itself a layer; Ctrl+F from its results goes back
+      // to its box rather than being refused.
+      if (covered && topKind() !== "panel") return;
       if (focusSearch()) e.preventDefault();
       return;
     }
@@ -277,17 +304,20 @@ export function installShortcuts() {
     }
     // Ctrl/Cmd+U — toggle the member panel.
     if (mod && !e.shiftKey && e.key.toLowerCase() === "u") {
+      if (covered) return;
       e.preventDefault();
       toggleMemberPanel();
       return;
     }
     // Ctrl+Alt+↑/↓ — previous / next guild (distinct from plain Alt = channel).
     if (mod && e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      if (covered) return;
       e.preventDefault();
       stepGuild(e.key === "ArrowDown" ? 1 : -1);
       return;
     }
     if (e.altKey && !mod && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      if (covered) return;
       e.preventDefault();
       const dir = e.key === "ArrowDown" ? 1 : -1;
       if (e.shiftKey) stepUnread(dir);
@@ -310,6 +340,13 @@ export function installShortcuts() {
         // 130%, of which only the last was still true.
         flashSlot("zoom", `Zoom ${Math.round(next * 100)}%`, "info");
       }
+      return;
+    }
+    // F6 / Shift+F6: the next or previous region (lib/regions.js). Not under
+    // a dialog — a dialog is its own region and keeps the keyboard.
+    if (e.key === "F6" && !mod && !e.altKey && !S.isMobile && !appCovered(S.modal, topKind())) {
+      e.preventDefault();
+      cycleRegion(e.shiftKey ? -1 : 1, { focusFeed });
       return;
     }
     // Cheat sheet: ? (Shift+/) or Ctrl+/.
@@ -346,13 +383,27 @@ export function installShortcuts() {
       // the caret out of a half-written paragraph with no undo — would be
       // throwing away something else instead. With a draft this still does
       // nothing, exactly as before; Tab is the way out from there.
+      //
+      // It used to stop there, so the documented "Esc — mark channel read" and
+      // "Shift+Esc — mark everything read" took two presses from the place
+      // focus always is. Leaving the box now falls through to them, and it
+      // leaves to the message feed's own tab stop rather than to <body>, which
+      // put the next Tab back at the top of the document.
+      //
+      // But not on the press that marks the channel read: that one is about
+      // the channel, and moving focus into the feed with it parked a ring and
+      // a second action bar on the last row. With unread messages the first
+      // Escape marks them read and leaves the caret where it was; the next one
+      // (nothing left to mark) steps out.
       const el = document.activeElement;
       if (el?.classList?.contains("draft") && !el.value) {
         e.preventDefault();
-        el.blur();
-        return;
-      }
-      if (inputFocused()) return;
+        if (!e.shiftKey && S.activeChannelId && S.unread[S.activeChannelId]) {
+          markRead(S.activeChannelId);
+          return;
+        }
+        if (!focusFeed()) el.blur();
+      } else if (inputFocused()) return;
       // A forum post is a PLACE, not a layer — navstack is explicit that a
       // conversation or a board is somewhere you are rather than something
       // covering what you were looking at, and registering one would also

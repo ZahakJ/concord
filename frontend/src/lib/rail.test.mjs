@@ -10,6 +10,8 @@ import {
   setFolderColor,
   guildIdsInLayout,
   guildInitials,
+  seedOrder,
+  sharedOrder,
 } from "./rail.js";
 
 let failures = 0;
@@ -148,4 +150,122 @@ console.log("rail.test.mjs: all passed");
     }
   }
   console.log("rail.test.mjs: guildInitials ok");
+}
+
+// ---- the strip: a shelf of every guild ----
+{
+  const { sharedOrder, shelfView, edgeNews, revealLeft, snapLeft } = await import("./rail.js");
+  const fail = (msg) => {
+    console.error("  FAIL", msg);
+    process.exitCode = 1;
+  };
+  const same = (a, b, msg) => JSON.stringify(a) !== JSON.stringify(b) && fail(`${msg}: got ${JSON.stringify(a)}, want ${JSON.stringify(b)}`);
+
+  const ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
+  // One order everywhere: pins first in pin order, then the rail order.
+  same(sharedOrder(ids, ["h", "gone", "b"]), ["h", "b", "a", "c", "d", "e", "f", "g"], "pins, then the rail order");
+
+  // 20 tiles of 28px on a 32px pitch, from x=4, in a 200px shelf with 16px fades.
+  const n = 20;
+  const geo = (left) => ({ lead: 4, pitch: 32, size: 28, left, width: 200, max: 4 + 20 * 32 + 4 - 4 - 200, fade: 16 });
+  // At the start there is no left fade: tiles 0..4 have their centres inside
+  // 0..184 (tile 5's centre is at 178, inside; tile 6's at 210, outside).
+  same(shelfView(n, geo(0)), { first: 0, last: 5 }, "the start of the shelf");
+  // Scrolled: both fades apply.
+  same(shelfView(n, geo(96)), { first: 3, last: 8 }, "the middle, clear of both fades");
+  // At the end there is no right fade.
+  const end = geo(geo(0).max);
+  same(shelfView(n, end).last, n - 1, "the last tile is in view at the end");
+
+  // What the hidden ends hold back: mentions as one number, else a dot.
+  const order = Array.from({ length: n }, (_, i) => `g${i}`);
+  const M = { g1: { count: 2 }, g2: { dot: true }, g12: { dot: true }, g15: { dot: true, muted: true }, g18: { count: 1, muted: true } };
+  const marks = (id) => M[id] || { count: 0, dot: false };
+  same(edgeNews(order, { first: 3, last: 8 }, marks), { left: { count: 2, dot: false }, right: { count: 1, dot: false } }, "mentions win over dots, and a muted guild's mention still counts");
+  same(edgeNews(order, { first: 0, last: 5 }, (id) => (id === "g12" ? { dot: true } : null)), { left: { count: 0, dot: false }, right: { count: 0, dot: true } }, "plain unread past the right edge is a dot");
+  same(edgeNews(order, { first: 0, last: 5 }, (id) => (id === "g15" ? { dot: true, muted: true } : null)).right.dot, false, "a muted guild's plain unread is not news");
+  same(edgeNews(order, { first: 0, last: n - 1 }, marks), { left: { count: 0, dot: false }, right: { count: 0, dot: false } }, "nothing hidden, nothing to say");
+
+  // Revealing a tile: no scroll when it is already clear of the fades, else
+  // the least scroll that shows it whole with a fade's room beside it.
+  same(revealLeft(2, geo(0)), 0, "already in view: no movement");
+  same(revealLeft(10, geo(0)), 4 + 10 * 32 + 28 + 16 - 200, "to the right: just enough to clear the fade");
+  same(revealLeft(1, geo(200)), 4 + 32 - 16, "to the left: just enough to clear the fade");
+  same(revealLeft(19, geo(0)), geo(0).max, "never past the end");
+
+  // Snapping a free scroll position to the nearest stop, clamped to the ends.
+  const stops = [-12, 20, 52, 86, 116];
+  same(snapLeft(0, stops, 100), 0, "a stop before the start is the start");
+  same(snapLeft(40, stops, 100), 52, "the nearest stop");
+  same(snapLeft(35, stops, 100), 20, "just under half way rounds back");
+  same(snapLeft(110, stops, 100), 100, "a stop past the end is the end");
+  same(snapLeft(99.8, stops, 100), 100, "the end stays the end");
+  // A wheel notch is one tile; a trackpad's pixel stream is not a notch.
+  const { wheelNotch, nextStop, glideStep } = await import("./rail.js");
+  same([wheelNotch(100, 0), wheelNotch(120, 0), wheelNotch(53, 0), wheelNotch(3, 1)], [true, true, true, true], "wheel notches");
+  same([wheelNotch(4, 0), wheelNotch(12.5, 0), wheelNotch(60.3, 0)], [false, false, false], "trackpad deltas");
+  same(nextStop(52, stops, 1, 100), 86, "one tile on");
+  same(nextStop(52.4, stops, -1, 100), 20, "one tile back");
+  same(nextStop(100, stops, 1, 100), 100, "nothing past the end");
+  same(nextStop(0, stops, -1, 100), 0, "nothing before the start");
+  same(nextStop(0, [-30, 2, 34, 66], 1, 100, 16), 34, "a stop 2px away is not a tile on");
+  // The glide: the first frame already moves, a quarter of the way.
+  same(glideStep(0, 32), 8, "a quarter of the way in the first frame");
+  same(glideStep(31.5, 32), 32, "arrives exactly");
+  let x = 0, frames = 0;
+  while (x !== 96 && frames < 100) (x = glideStep(x, 96)), frames++;
+  if (frames > 20) fail(`the glide takes ${frames} frames to arrive`);
+  if (!process.exitCode) console.log("rail.test.mjs: shelf ok");
+}
+
+// ---- guild marks ----
+{
+  const { guildMarks } = await import("./rail.js");
+  const fail = (msg) => {
+    console.error("  FAIL", msg);
+    process.exitCode = 1;
+  };
+  const gs = [
+    { id: "b", name: "Choir Altos" },
+    { id: "a", name: "Chess After Dark" },
+    { id: "c", name: "Night Owls" },
+    { id: "d", name: "chess club" },
+    { id: "dm1", name: "Someone", kind: "dm" },
+  ];
+  const m = guildMarks(gs);
+  if (m.get("a").letter !== "C" || m.get("a").glyph) fail("the first C (by id) keeps its letter");
+  if (!m.get("b").glyph || !m.get("d").glyph) fail("later Cs get a glyph");
+  if (m.get("b").glyph === m.get("d").glyph) fail("two glyphs under one letter differ");
+  if (m.get("c").letter !== "N" || m.get("c").glyph) fail("a unique letter is just the letter");
+  if (m.has("dm1")) fail("direct messages have no guild mark");
+  // The same answer whatever order the list is in.
+  const again = guildMarks([...gs].reverse());
+  for (const id of ["a", "b", "c", "d"]) if (JSON.stringify(again.get(id)) !== JSON.stringify(m.get(id))) fail(`stable for ${id}`);
+  if (!process.exitCode) console.log("rail.test.mjs: guild marks ok");
+}
+
+// A device with no stored layout seeds the rail from the guild list, which the
+// core returns in a different order on every call (it is read off a map). The
+// seeded layout — and so the strip and the switcher — must be the same whatever
+// order that list arrived in, including the first load.
+{
+  const fail = (m) => {
+    console.error("FAIL " + m);
+    process.exitCode = 1;
+  };
+  const gs = [
+    { id: "g1", name: "Lantern Makers" },
+    { id: "g2", name: "Riverside Choir" },
+    { id: "g3", name: "Pixel Garden" },
+    { id: "g4", name: "pixel garden" },
+  ];
+  const perms = [[0, 1, 2, 3], [3, 2, 1, 0], [2, 0, 3, 1], [1, 3, 0, 2]];
+  const layouts = perms.map((p) => JSON.stringify(reconcile([], seedOrder(p.map((i) => gs[i])))));
+  if (new Set(layouts).size !== 1) fail("a fresh layout depends on the order the guild list arrived in");
+  const ids = guildIdsInLayout(JSON.parse(layouts[0]));
+  if (JSON.stringify(sharedOrder(ids, [])) !== JSON.stringify(ids)) fail("the strip is laid out in the rail order on first load");
+  // A guild that arrives later is appended; the placed ones do not move.
+  const later = reconcile(JSON.parse(layouts[0]), seedOrder([...gs, { id: "g5", name: "Aardvarks" }]));
+  if (guildIdsInLayout(later).join() !== [...ids, "g5"].join()) fail("a new guild is appended without moving the placed ones");
+  if (!process.exitCode) console.log("rail.test.mjs: first-load order ok");
 }

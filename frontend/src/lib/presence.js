@@ -1,12 +1,15 @@
 // Presence options + custom-status helpers, shared by the self row and the
 // status popover. Dot colors mirror Avatar.svelte's presence shading.
+// `color` is a token, never a literal: the same four marks Avatar.svelte
+// draws, and each is a SHAPE as well as a colour (disc, crescent, barred disc,
+// ring) so the choice reads without colour vision.
 export const PRESENCE_OPTIONS = [
   { id: "online", label: "Online", desc: "Around and up for a chat", color: "var(--ok)" },
-  { id: "idle", label: "Idle", desc: "Away from the keyboard for a bit", color: "#f0b232" },
+  { id: "idle", label: "Idle", desc: "Away from the keyboard for a bit", color: "var(--warn)" },
   // DND is the one presence that changes this client's own behaviour: it
   // silences every ping, mentions included (see lib/notifs.js). Unread badges
   // still light — it's about noise, not about losing your place.
-  { id: "dnd", label: "Do Not Disturb", desc: "Heads-down — nothing pings", color: "#f04747" },
+  { id: "dnd", label: "Do not disturb", desc: "Heads-down — nothing pings", color: "var(--danger)" },
   { id: "invisible", label: "Invisible", desc: "Appear offline to everyone else", color: "var(--text-faint)" },
 ];
 

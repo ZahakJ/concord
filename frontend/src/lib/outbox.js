@@ -57,3 +57,24 @@ export function alreadySaid(messages, me, body) {
   for (const m of messages) if (m.sender === me && !m.deleted && m.content === body) n++;
   return n;
 }
+
+// toFlush: the failed rows to send again by themselves once the core is back.
+// Only rows that failed because the core itself was unreachable (`offline`):
+// the banner promised those would go when it returned, and they never did —
+// the row sat at "Not sent · trying to reconnect" for good. A row the core
+// REFUSED (a slow-mode wait not yet over, a permission, a blocked member)
+// stays the user's to retry, because sending it again unasked would only be
+// refused again, or worse, land somewhere they no longer meant it to.
+export function toFlush(entries, now = Date.now()) {
+  return entries.filter(
+    (e) => e.state === "failed" && e.offline && e.kind === "text" && e.body && !(e.retryAt > now),
+  );
+}
+
+// unheard: did this send fail because no unlocked core was there to hear it?
+// Either nothing answered at all, or a core that had restarted answered while
+// still locked — which is what a core coming back looks like for the moment
+// before the user unlocks it, and exactly when the transport-up flush runs.
+export function unheard(err) {
+  return !!err?.offline || /identity is locked/i.test(String(err?.message ?? err ?? ""));
+}

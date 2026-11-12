@@ -83,6 +83,11 @@ func TestSnippetFlattensTheSameWayTheClientDoes(t *testing.T) {
 		{"a disappearing timer is not the message", "[eph](concord://eph/v1/1234567890) burn after reading", "burn after reading"},
 		{"snake_case survives", "call read_all_rows now", "call read_all_rows now"},
 		{"newlines collapse", "one\n\ntwo\nthree", "one two three"},
+		{
+			"a spoiler stays covered",
+			"a surprise: ||we end at the old boathouse|| see you",
+			"a surprise: [spoiler] see you",
+		},
 	}
 	for _, c := range cases {
 		if got := snippet(c.in); got != c.want {

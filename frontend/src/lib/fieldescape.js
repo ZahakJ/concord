@@ -28,7 +28,11 @@ export function fieldEscape(node) {
     if (!a.matches?.("input, textarea, [contenteditable='true']")) return;
     e.preventDefault();
     e.stopPropagation();
-    a.blur();
+    // Step out to the layer itself, not to <body>: a blur dropped focus
+    // outside the popover, so the second Escape and every Tab after it
+    // acted on the page behind.
+    if (!node.hasAttribute("tabindex")) node.setAttribute("tabindex", "-1");
+    node.focus({ preventScroll: true });
   };
   window.addEventListener("keydown", onKey, true);
   return {

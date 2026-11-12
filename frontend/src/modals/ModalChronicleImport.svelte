@@ -14,12 +14,14 @@
   // backend with an id, and reopening this dialog picks the job back up rather
   // than offering to start a second one.
   import RailShell from "./RailShell.svelte";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
   import EmptyState from "../EmptyState.svelte";
   import InfoDot from "./InfoDot.svelte";
   import { S, activeGuild, flash, refreshGuilds, refreshChronicle } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { plural } from "../lib/plural.js";
+  import { humanError } from "../lib/errors.js";
   import { tooltip } from "../lib/tooltip.js";
   import {
     TIERS,
@@ -36,6 +38,8 @@
     nanoOfDate,
     fmtBytes,
     fmtCount,
+    billNotes,
+    replaceNotice,
     phaseLabel,
     progressPct,
     resultLines,
@@ -62,6 +66,10 @@
   let sortDir = $state(-1);
 
   let starting = $state(false);
+  // Replacing an attached archive is the one irreversible thing this wizard
+  // does, so it is asked as its own question rather than carried by the
+  // label of the button that also starts an ordinary import.
+  let askReplace = $state(false);
 
   // ---- picking a folder ----
 
@@ -120,7 +128,7 @@
     } catch (err) {
       // Inline, beside the field it is about. A toast for this would vanish
       // while the reader was still looking at the path they typed.
-      scanError = String(err?.message || err).replace(/^app:\s*/, "");
+      scanError = humanError(err);
     } finally {
       scanning = false;
     }
@@ -190,7 +198,7 @@
     try {
       S.chronImportDone = null;
       S.chronImport = null;
-      await api.importChatExport(S.activeGuildId, dir.trim(), policyFor($state.snapshot(ui)));
+      await api.importChatExport(S.activeGuildId, dir.trim(), policyFor({ ...$state.snapshot(ui), replace: !!S.chronicle }));
       step = "run";
     } catch (err) {
       flash(err);
@@ -219,7 +227,6 @@
       headline="Only the guild's owner can import an archive"
       sub="The archive is signed by the owner's key — that signature is what lets every other member trust it."
     />
-    <div class="actions"><button class="ghost" onclick={onClose}>Close</button></div>
   {:else if step === "pick"}
     <p class="lead">
       Point this at a folder of exported channel JSON. Concord reads it once, tells you
@@ -233,7 +240,7 @@
       <input
         id="chron-dir"
         type="text"
-        placeholder="/home/you/exports/old-community"
+        placeholder="The folder your export is in"
         bind:value={dir}
         autofocus={!S.isMobile}
         onkeydown={(e) => e.key === "Enter" && scan()}
@@ -266,7 +273,7 @@
 
     <div class="actions">
       <button class="ghost" onclick={onClose}>Cancel</button>
-      <button disabled={!dir.trim() || scanning} onclick={scan}>
+      <button class="primary" disabled={!dir.trim() || scanning} onclick={scan}>
         {#if scanning}<span class="spin"></span> Reading…{:else}Read the folder{/if}
       </button>
     </div>
@@ -312,19 +319,8 @@
         </div>
       </div>
 
-      {#if stats.notices || stats.malformed || stats.fileErrors?.length}
-        <p class="note">
-          {#if stats.notices}{fmtCount(stats.notices)} join/pin notices will be left out.{/if}
-          {#if stats.malformed}
-            {fmtCount(stats.malformed)} entries could not be read.{/if}
-          {#if stats.fileErrors?.length}
-            {plural(stats.fileErrors.length, "file")} could not be opened at all
-            ({stats.fileErrors
-              .slice(0, 3)
-              .map((f) => f.file)
-              .join(", ")}{stats.fileErrors.length > 3 ? "…" : ""}).
-          {/if}
-        </p>
+      {#if billNotes(stats).length}
+        <p class="note">{billNotes(stats).join(" ")}</p>
       {/if}
 
       <div class="sec-head">
@@ -412,7 +408,7 @@
 
       <div class="actions">
         <button class="ghost" onclick={() => (step = "pick")}>Back</button>
-        <button disabled={!includedCount} onclick={() => (step = "policy")}>
+        <button class="primary" disabled={!includedCount} onclick={() => (step = "policy")}>
           Choose what to keep
         </button>
       </div>
@@ -517,10 +513,15 @@
       <span class="est-sub">{behind.text || " "}</span>
     </div>
 
+    {#if S.chronicle}<p class="note" role="note">{replaceNotice(S.chronicle)}</p>{/if}
     <div class="actions">
       <button class="ghost" onclick={() => (step = "bill")}>Back</button>
-      <button disabled={starting || !est?.messages} onclick={start}>
-        {#if starting}<span class="spin"></span> Starting…{:else}Import{/if}
+      <button
+        class="primary"
+        disabled={starting || !est?.messages}
+        onclick={() => (S.chronicle ? (askReplace = true) : start())}
+      >
+        {#if starting}<span class="spin"></span> Starting…{:else}{S.chronicle ? "Replace and import…" : "Import"}{/if}
       </button>
     </div>
   {:else}
@@ -532,8 +533,7 @@
         sub={done?.error || "Nothing was attached to this guild."}
       />
       <div class="actions">
-        <button class="ghost" onclick={() => (step = "pick")}>Try again</button>
-        <button onclick={onClose}>Close</button>
+        <button class="primary" onclick={() => (step = "pick")}>Try again</button>
       </div>
     {:else if prog?.phase === "done" && done?.result}
       <div class="sec-head"><h4>Imported</h4></div>
@@ -548,7 +548,7 @@
         whoever has them, only when somebody reads that far.
       </p>
       <div class="actions">
-        <button onclick={finish}>Done</button>
+        <button class="primary" onclick={finish}>Done</button>
       </div>
     {:else}
       <p class="lead">
@@ -576,12 +576,23 @@
         This runs in the background. You can close this and keep using Concord — you'll be
         told when it lands.
       </p>
-      <div class="actions">
-        <button class="ghost" onclick={onClose}>Close</button>
-      </div>
     {/if}
   {/if}
 </RailShell>
+
+{#if askReplace && S.chronicle}
+  <ConfirmDialog
+    title={`Replace “${S.chronicle.source || "the imported archive"}”?`}
+    body={`${replaceNotice(S.chronicle)} This can't be undone.`}
+    confirmLabel="Replace and import"
+    danger
+    onConfirm={() => {
+      askReplace = false;
+      start();
+    }}
+    onClose={() => (askReplace = false)}
+  />
+{/if}
 
 <style>
   .lead {
@@ -647,9 +658,7 @@
   .sec-head h4 {
     margin: 0;
     font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-weight: 600;
     color: var(--text-faint);
   }
   .small {
@@ -680,10 +689,8 @@
     text-overflow: ellipsis;
   }
   .tl {
-    font-size: var(--fs-tiny);
+    font-size: var(--fs-small);
     color: var(--text-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
   .tbl {
     display: flex;
@@ -722,10 +729,8 @@
     border: none;
     padding: 0;
     color: var(--text-faint);
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     text-align: left;
     cursor: pointer;
   }
@@ -836,7 +841,7 @@
     display: block;
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    background: var(--accent);
     min-width: 2px;
   }
   .hn {
@@ -1005,7 +1010,7 @@
     display: block;
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    background: var(--accent);
     /* Progress, not a state change — see ModalChronicle. */
     transition: width 0.3s ease;
   }
@@ -1023,12 +1028,10 @@
       transform: translateX(300%);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .bar.indeterminate .fill {
-      animation: none;
-      width: 100%;
-      opacity: 0.5;
-    }
+  :global(:root[data-motion="reduced"]) .bar.indeterminate .fill {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
   }
   .counts {
     margin: 0;
@@ -1069,9 +1072,7 @@
       transform: rotate(360deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .spin {
+    animation: none;
   }
 </style>

@@ -77,7 +77,7 @@
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button onclick={publish} disabled={busy || !targets.length}>
+    <button class="primary" onclick={publish} disabled={busy || !targets.length}>
       <Icon name="megaphone" size={14} /> Publish
     </button>
   </div>

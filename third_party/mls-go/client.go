@@ -18,6 +18,7 @@ import (
 	"github.com/thomas-vilte/mls-go/framing"
 	"github.com/thomas-vilte/mls-go/group"
 	"github.com/thomas-vilte/mls-go/keypackages"
+	"github.com/thomas-vilte/mls-go/secrettree"
 	filestore "github.com/thomas-vilte/mls-go/storage/file"
 	memorystore "github.com/thomas-vilte/mls-go/storage/memory"
 	"github.com/thomas-vilte/mls-go/treesync"
@@ -398,6 +399,11 @@ type MemberInfo struct {
 type groupEntry struct {
 	mu    sync.Mutex
 	group *group.Group // non-nil only when cacheStrategy == CacheAlways
+	// past is the out-of-order decryption window carried from one load of
+	// the group to the next when the group is not kept in memory: the stored
+	// state leaves it out, so without this every reload had none. See
+	// secrettree.PastSecrets.
+	past *secrettree.PastSecrets
 }
 
 // Client is a high-level, thread-safe facade over the low-level MLS group API.
@@ -1154,7 +1160,7 @@ func (c *Client) SendMessageWithAAD(ctx context.Context, groupID, plaintext, aut
 }
 
 // ReceiveMessage decrypts an application message for the given group.
-func (c *Client) ReceiveMessage(ctx context.Context, groupID, ciphertextBytes []byte) (*ReceivedMessage, error) {
+func (c *Client) ReceiveMessage(ctx context.Context, groupID, ciphertextBytes []byte) (received *ReceivedMessage, err error) {
 	if len(ciphertextBytes) == 0 {
 		return nil, ErrEmptyCiphertext
 	}
@@ -1178,6 +1184,21 @@ func (c *Client) ReceiveMessage(ctx context.Context, groupID, ciphertextBytes []
 	if err != nil {
 		return nil, err
 	}
+	if c.cacheStrategy != CacheAlways {
+		// Concord: carry the out-of-order window across reloads (see
+		// secrettree.PastSecrets). Handed back however the call ends; a
+		// message that failed part-way does not consume its generation.
+		before := entry.past
+		g.AdoptPastSecrets(before)
+		entry.past = nil
+		defer func() {
+			if received != nil {
+				entry.past = g.TakePastSecrets(true)
+			} else {
+				entry.past = g.TakePastSecrets(false).KeepReplaysOf(before)
+			}
+		}()
+	}
 	msg, err := framing.UnmarshalMLSMessage(ciphertextBytes)
 	if err != nil {
 		return nil, fmt.Errorf("parsing ciphertext: %w", err)
@@ -1197,7 +1218,7 @@ func (c *Client) ReceiveMessage(ctx context.Context, groupID, ciphertextBytes []
 	if err := c.persistGroup(ctx, g, entry); err != nil {
 		return nil, err
 	}
-	received := &ReceivedMessage{
+	received = &ReceivedMessage{
 		Plaintext:         cloneBytes(plaintext),
 		AuthenticatedData: cloneBytes(authenticatedData),
 		SenderIdentity:    credentialIdentityBytes(member.Credential),

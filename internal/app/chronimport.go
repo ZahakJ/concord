@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"mime"
 	"os"
@@ -100,6 +101,9 @@ type ChatImportResult struct {
 	Imported         int64 `json:"imported"`
 	SkippedByPolicy  int64 `json:"skippedByPolicy"`
 	SkippedMalformed int64 `json:"skippedMalformed"`
+	// SkippedDuplicates is messages that two overlapping files of one channel
+	// both held; each is imported once.
+	SkippedDuplicates int64 `json:"skippedDuplicates"`
 	// SkippedNotices is the join/pin/boost chatter, never imported and counted
 	// separately so the arithmetic against the export's own total closes.
 	SkippedNotices int64 `json:"skippedNotices"`
@@ -244,6 +248,10 @@ func (s *Service) EstimateChatImport(dir string, policy chronimport.Policy) (chr
 	return chronimport.EstimateChatImport(st, chronimport.NormalizePolicy(policy)), nil
 }
 
+// ErrArchiveWouldBeReplaced is ImportChatExport refusing to replace the
+// archive a guild already carries without Policy.ReplaceArchive.
+var ErrArchiveWouldBeReplaced = errors.New("this guild already carries an imported archive, and importing replaces it")
+
 // ImportChatExport starts an import and returns its job id.
 //
 // Owner-only, and refused while another import is running. The work happens on
@@ -263,6 +271,9 @@ func (s *Service) ImportChatExport(guildID, dir string, policy chronimport.Polic
 	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return "", fmt.Errorf("app: %s is not a directory this device can read", dir)
+	}
+	if m, _, ok := s.guildChronicle(guildID); ok && !policy.ReplaceArchive {
+		return "", fmt.Errorf("app: %w: %q, %d messages", ErrArchiveWouldBeReplaced, m.Source, m.Messages)
 	}
 
 	policy = chronimport.NormalizePolicy(policy)
@@ -398,6 +409,7 @@ func (s *Service) importChatExport(job *chatImportJob, policy chronimport.Policy
 		plan:     plan,
 		seen:     map[string]int{},
 		imported: map[string]bool{},
+		read:     map[string]bool{},
 		byChannel: make(map[string][]chronicleMessage,
 			len(plan.channels)),
 	}
@@ -446,6 +458,7 @@ func (s *Service) importChatExport(job *chatImportJob, policy chronimport.Policy
 		Imported:              acc.imported64(),
 		SkippedByPolicy:       acc.skippedPolicy,
 		SkippedMalformed:      stats.Malformed,
+		SkippedDuplicates:     stats.Duplicates,
 		SkippedNotices:        stats.Notices,
 		AttachmentsSealed:     acc.sealed64(),
 		AttachmentBytesSealed: acc.sealedBytes,
@@ -725,6 +738,9 @@ type importAccumulator struct {
 	// imported is the set of source message ids that made it in, so a reply
 	// whose target did not can drop its reference rather than dangle.
 	imported map[string]bool
+	// read is every (channel, source id) already taken from a file, so two
+	// files of one channel whose ranges overlap import the overlap once.
+	read map[string]bool
 	// overflow is the index of the shared stand-in author, minted only if the
 	// export has more distinct names than a manifest can carry.
 	overflow int
@@ -830,6 +846,14 @@ func (s *Service) readChatExport(job *chatImportJob, stats *chronimport.Stats,
 // appendImported turns one exported message into an archived one, or counts why
 // it did not.
 func (s *Service) appendImported(acc *importAccumulator, pc *plannedChannel, m *chronimport.Message) {
+	key := pc.source.ID + "\x00" + m.ID
+	if acc.read == nil {
+		acc.read = map[string]bool{}
+	}
+	if acc.read[key] {
+		return // counted by the scan as a duplicate
+	}
+	acc.read[key] = true
 	if m.Skippable() {
 		return // counted by the scan as a notice, never imported
 	}

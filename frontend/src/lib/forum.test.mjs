@@ -275,7 +275,7 @@ t("preview strips markdown to its words", () => {
   assert.equal(postPreview("# Heading then text").text, "Heading then text");
   assert.equal(postPreview("`code()` runs").text, "code() runs");
   assert.equal(postPreview("see [the docs](https://example.com/x) now").text, "see the docs now");
-  assert.equal(postPreview("||secret|| told").text, "secret told");
+  assert.equal(postPreview("||secret|| told").text, "[spoiler] told");
   assert.equal(postPreview("> quoted line").text, "quoted line");
   assert.equal(postPreview("- one - two").text, "one · two");
 });

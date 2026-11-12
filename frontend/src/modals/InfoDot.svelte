@@ -204,9 +204,7 @@
       transform: translateY(-3px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .bubble {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .bubble {
+    animation: none;
   }
 </style>

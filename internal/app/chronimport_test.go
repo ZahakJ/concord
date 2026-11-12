@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -756,5 +757,76 @@ func TestImportedReactionsNameTheEmojiThatExists(t *testing.T) {
 		if strings.HasPrefix(label, ":") && strings.ToLower(label) != label {
 			t.Fatalf("a reaction label kept the export's spelling: %q", label)
 		}
+	}
+}
+
+// Two files of one channel whose date ranges overlap (a period exported twice)
+// used to put the overlap into the archive twice: 400 rows for 300 messages.
+func TestOverlappingExportFilesImportEachMessageOnce(t *testing.T) {
+	s := importTestService(t)
+	dir := t.TempDir()
+	write := func(name string, from, to int) {
+		var b strings.Builder
+		b.WriteString(`{"guild":{"name":"G"},"channel":{"id":"c1","name":"room"},"messages":[`)
+		for i := from; i < to; i++ {
+			if i > from {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, `{"id":"d-%d","type":"Default","timestamp":"2020-01-01T%02d:%02d:00Z","content":"message %d","author":{"id":"a","name":"ada"}}`,
+				i, i/60, i%60, i)
+		}
+		b.WriteString("]}")
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("room-1.json", 0, 200)
+	write("room-2.json", 100, 300)
+	stats, acc := runImportOffline(t, s, dir, chronimport.DefaultPolicy())
+	if stats.Messages != 300 || stats.Duplicates != 100 {
+		t.Fatalf("scan counted %d messages and %d duplicates, want 300 and 100", stats.Messages, stats.Duplicates)
+	}
+	rows := 0
+	for _, msgs := range acc.byChannel {
+		rows += len(msgs)
+	}
+	if rows != 300 || acc.count != 300 {
+		t.Fatalf("archived %d rows (count %d) for 300 distinct messages", rows, acc.count)
+	}
+}
+
+// A guild carries one archive, and a second import replaces it. That used to
+// happen without a word on any step of the wizard; the core now refuses unless
+// the owner said replacing is what they want.
+func TestImportingOverAnArchiveNeedsTheOwnersSayso(t *testing.T) {
+	s := importTestService(t)
+	dir, _ := importFixture(t)
+	_, acc := runImportOffline(t, s, dir, chronimport.DefaultPolicy())
+	raw, _, err := s.buildChronicle("g1", "Test Guild, imported today", "",
+		acc.manifestChannels(), acc.authors, acc.byChannel, acc.sealed, acc.sealedBytes)
+	if err != nil {
+		t.Fatalf("buildChronicle: %v", err)
+	}
+	if _, err := s.store.SaveChronicleManifest(chronicleIDOf(raw), "g1", raw); err != nil {
+		t.Fatalf("SaveChronicleManifest: %v", err)
+	}
+
+	_, err = s.ImportChatExport("g1", dir, chronimport.DefaultPolicy())
+	if !errors.Is(err, ErrArchiveWouldBeReplaced) {
+		t.Fatalf("importing over an archive without saying so: %v, want ErrArchiveWouldBeReplaced", err)
+	}
+	if !strings.Contains(err.Error(), "Test Guild, imported today") {
+		t.Fatalf("the refusal does not name the archive it would replace: %v", err)
+	}
+
+	// Said so: the import starts. Stopped at once by a job standing in the
+	// way, so the test is about the gate and not about running an import.
+	s.importMu.Lock()
+	s.importJob = &chatImportJob{id: "already", guildID: "g1", running: true, started: time.Now()}
+	s.importMu.Unlock()
+	p := chronimport.DefaultPolicy()
+	p.ReplaceArchive = true
+	if _, err := s.ImportChatExport("g1", dir, p); errors.Is(err, ErrArchiveWouldBeReplaced) {
+		t.Fatalf("refused even with the owner's say-so: %v", err)
 	}
 }

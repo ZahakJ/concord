@@ -1,4 +1,5 @@
 <script>
+  import Caution from "./Caution.svelte";
   // The just-created instant meeting. Two ways in:
   //   • the GUEST LINK — they click it and land in a browser meeting window,
   //     no install, no account (the killer demo);
@@ -11,7 +12,10 @@
   import { S, flash } from "../lib/state.svelte.js";
   import { haptic } from "../lib/touch.js";
 
-  let { code, guestLink = "", guildId = "", expires = 0, onClose } = $props();
+  // reopened: brought back from the call's menu after the first dialog was
+  // closed — the same link, not a new one, and no lifetime is pre-chosen
+  // because what is left of it is whatever was picked back then.
+  let { code, guestLink = "", guildId = "", expires = 0, reopened = false, onClose } = $props();
 
   const DOWNLOAD = "https://github.com/ZahakJ/concord/releases/latest";
 
@@ -30,7 +34,7 @@
   let expiresAt = $state(expires);
   // A brand-new meeting is on the 24h default, so that chip starts selected —
   // the control reads as "this is what it is now", not as an unanswered question.
-  let picked = $state(24);
+  let picked = $state(reopened ? 0 : 24);
   let busy = $state(false);
 
   // Absolute date AND the human distance: "until Tue 3 Feb, 14:20" answers the
@@ -122,7 +126,7 @@
   }
 </script>
 
-<Modal title="Your meeting is live" wide {onClose}>
+<Modal title={reopened ? "Meeting details" : "Your meeting is live"} wide {onClose}>
   {#if link}
     <section class="way primary-way">
       <div class="way-head">
@@ -135,7 +139,7 @@
       <div class="link-row">
         <code class="link">{link}</code>
         {#if canShare}
-          <button onclick={() => share(link)}>Share…</button>
+          <button class="primary" onclick={() => share(link)}>Share…</button>
         {/if}
         <button class="ghost" class:done={copied === "link"} onclick={() => copy("link", link)}>
           {copied === "link" ? "Copied ✓" : "Copy link"}
@@ -159,7 +163,7 @@
       {#if expiryText}
         <p class="muted tiny" aria-live="polite">
           Link and meeting expire <strong>{expiryText}</strong>. Anyone with the
-          link can walk in until then — lock the call (🔒) to make them knock
+          link can walk in until then — lock the call to make them knock
           first, which is how you'd run office hours.
         </p>
       {/if}
@@ -179,11 +183,10 @@
         through you, so they aren't end-to-end encrypted like full members.
       </p>
       {#if noRelay}
-        <p class="muted tiny">
-          ⚠️ This meeting has no media relay — whoever opens the link may see
-          your IP address once you're both on the call. A connected rendezvous
-          does not hide that.
-        </p>
+        <Caution
+          text="No media relay: whoever opens the link may see your IP once you're both on the call."
+          detail="A connected rendezvous does not hide that; only a media relay does."
+        />
       {/if}
     </section>
   {/if}
@@ -223,20 +226,16 @@
 </Modal>
 
 <style>
+  /* Each way is a group, told apart by a hairline — not a bordered card
+     with a tinted ground for the recommended one. */
   .way {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: var(--sp-3);
+    padding: var(--sp-3) 0;
     display: flex;
     flex-direction: column;
     gap: 9px;
   }
   .way + .way {
-    margin-top: 10px;
-  }
-  .primary-way {
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    border-top: 1px solid var(--hairline);
   }
   .way-head {
     display: flex;
@@ -246,16 +245,13 @@
   .chip {
     display: grid;
     place-items: center;
-    width: 30px;
-    height: 30px;
+    width: 16px;
+    height: 20px;
     flex: none;
-    border-radius: var(--radius-md);
-    background: var(--bg-3);
     color: var(--text-muted);
   }
   .chip.guest {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+    color: var(--text-muted);
   }
   .way-text {
     display: flex;

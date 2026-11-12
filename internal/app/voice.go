@@ -43,7 +43,16 @@ type voiceAnnounce struct {
 	Target string `json:"target,omitempty"`
 	// "move": the voice channel to send them to.
 	Dest string `json:"dest,omitempty"`
+	// "leave": why, when it was not somebody pressing End call. "unload" is a
+	// page that was reloaded or closed — a 1:1 on the other side holds the call
+	// for a moment so a reload can come straight back. Optional and new: an
+	// older peer ignores it (and so ends the call at once, as it always did),
+	// and an older sender never sets it.
+	Reason string `json:"reason,omitempty"`
 }
+
+// LeaveReasonUnload marks a goodbye sent by a page going away.
+const LeaveReasonUnload = "unload"
 
 // watchVoice passively subscribes to a voice channel's presence topic so this
 // peer learns who is in the call WITHOUT joining it (guild-wide presence, like
@@ -80,7 +89,17 @@ func (s *Service) watchVoice(groupID []byte, channelID string) {
 			if s.IsBlocked(fpr) {
 				return
 			}
-			s.emitVoicePresence(from.String(), fpr, channelID, a.Action, a.Target, a.Dest)
+			// A leave has no destination; its slot carries the leave's reason
+			// to the client instead (bridge.VoicePresence.Reason). Only the one
+			// known value passes, so nothing a peer writes reaches the UI raw.
+			dest := a.Dest
+			if a.Action == "leave" {
+				dest = ""
+				if a.Reason == LeaveReasonUnload {
+					dest = LeaveReasonUnload
+				}
+			}
+			s.emitVoicePresence(from.String(), fpr, channelID, a.Action, a.Target, dest)
 		}
 	})
 }
@@ -147,6 +166,12 @@ func (s *Service) reannounceVoice() {
 
 // LeaveVoice leaves a channel's voice room, announcing departure.
 func (s *Service) LeaveVoice(channelID string) error {
+	return s.LeaveVoiceBecause(channelID, "")
+}
+
+// LeaveVoiceBecause leaves like LeaveVoice and says why on the goodbye:
+// LeaveReasonUnload for a page that went away, "" for an ordinary hang-up.
+func (s *Service) LeaveVoiceBecause(channelID, reason string) error {
 	s.voiceMu.Lock()
 	cancel, in := s.voiceRooms[channelID]
 	if in {
@@ -159,7 +184,8 @@ func (s *Service) LeaveVoice(channelID string) error {
 	cancel()
 
 	if groupID, err := s.groupForChannel(channelID); err == nil {
-		s.announceVoice(domain.VoiceTopicID(groupID, channelID), channelID, "leave")
+		payload, _ := json.Marshal(voiceAnnounce{ChannelID: channelID, Action: "leave", Reason: reason})
+		_ = s.ps.Publish(s.ctx, domain.VoiceTopicID(groupID, channelID), payload)
 	}
 	return nil
 }

@@ -8,6 +8,7 @@
   import { flip } from "svelte/animate";
   import { fade } from "svelte/transition";
   import Modal from "./Modal.svelte";
+  import Segmented from "../Segmented.svelte";
   import Switch from "../Switch.svelte";
   import Icon from "../Icon.svelte";
   import PollView from "../PollView.svelte";
@@ -121,7 +122,7 @@
     <span class="lbl">Options</span>
     {#each opts as o, i (o.id)}
       <div class="opt-row" animate:flip={{ duration: 180 }}>
-        <span class="opt-num">{POLL_EMOJI[i]}</span>
+        <span class="opt-num" aria-hidden="true">{i + 1}</span>
         <input
           bind:this={inputs[o.id]}
           bind:value={o.text}
@@ -154,18 +155,12 @@
     <span class="lbl">Closes</span>
     <!-- Same segmented control as the calendar's — a closing time is a small
          setting, not a form of its own. -->
-    <div class="seg" role="radiogroup" aria-label="Poll closes">
-      {#each CLOSE_OPTS as c (c.secs)}
-        <button
-          type="button"
-          class="seg-btn"
-          class:on={closeIn === c.secs}
-          role="radio"
-          aria-checked={closeIn === c.secs}
-          onclick={() => (closeIn = c.secs)}
-        >{c.label}</button>
-      {/each}
-    </div>
+    <Segmented
+      label="Poll closes"
+      value={closeIn}
+      onChange={(v) => (closeIn = Number(v))}
+      options={CLOSE_OPTS.map((c) => ({ value: c.secs, label: c.label }))}
+    />
   </div>
 
   <button type="button" class="multi" role="switch" aria-checked={quiz} onclick={() => (quiz = !quiz)}>
@@ -187,7 +182,7 @@
               aria-checked={answerId === o.id}
               onclick={() => (answerId = o.id)}
             >
-              <span class="ans-num">{POLL_EMOJI[i]}</span>
+              <span class="ans-num" aria-hidden="true">{i + 1}</span>
               <span class="ans-text">{o.text}</span>
               {#if answerId === o.id}<Icon name="check" size={14} />{/if}
             </button>
@@ -208,7 +203,7 @@
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
-    <button onclick={post} disabled={!canPost}>Post poll</button>
+    <button class="primary" onclick={post} disabled={!canPost}>Post poll</button>
   </div>
 </Modal>
 
@@ -222,9 +217,7 @@
   }
   .lbl {
     font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-weight: 600;
     color: var(--text-muted);
   }
   .opt-row {
@@ -237,16 +230,16 @@
     flex: 1;
     min-width: 0;
   }
+  /* Plain numerals in the faint tier, as the posted poll numbers its
+     options — not keycap emoji on accent discs. */
   .opt-num {
     display: grid;
     place-items: center;
-    font-size: var(--fs-body);
-    width: 30px;
-    height: 30px;
+    width: 20px;
     flex-shrink: 0;
-    border-radius: 50%;
-    background: var(--accent-soft);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+    font-size: var(--fs-compact);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
   }
   .opt-x {
     flex-shrink: 0;
@@ -332,32 +325,6 @@
   .closes {
     margin: 4px 0 0;
   }
-  /* Segmented control, same skin as ModalEvents' .seg — one chosen cell lifted
-     off a sunken track. */
-  .seg {
-    display: inline-flex;
-    align-self: flex-start;
-    padding: 3px;
-    gap: 2px;
-    background: var(--bg-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-  }
-  .seg-btn {
-    display: inline-flex;
-    align-items: center;
-    padding: 5px 11px;
-    border-radius: calc(var(--radius-md) - 3px);
-    background: transparent;
-    color: var(--text-muted);
-    font-size: var(--fs-compact);
-    font-weight: 600;
-  }
-  .seg-btn.on {
-    background: var(--bg-1);
-    color: var(--text);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-  }
   /* The answer key: the same rows you just wrote, re-listed as radios — picking
      the truth should look like pointing at it, not re-typing it. */
   .ans-field {
@@ -399,7 +366,10 @@
   }
   .ans-num {
     flex-shrink: 0;
-    font-size: var(--fs-ui);
+    width: 16px;
+    font-size: var(--fs-compact);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
   }
   .ans-text {
     flex: 1;
@@ -409,7 +379,6 @@
     white-space: nowrap;
   }
   @media (pointer: coarse) {
-    .seg-btn,
     .ans {
       min-height: var(--tap-min);
     }
@@ -434,9 +403,7 @@
     gap: var(--sp-2);
     margin-top: var(--sp-4);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .preview {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .preview {
+    transition: none;
   }
 </style>

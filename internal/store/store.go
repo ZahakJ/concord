@@ -419,6 +419,9 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 	if err := s.migrateSyncMarks(); err != nil {
 		return err
 	}
+	if err := s.migrateExpires(); err != nil {
+		return err
+	}
 	// Index on (channel_id, updated) — added after the column exists. Without it,
 	// MAX(updated) per channel is a full-partition scan; LatestTimestamp runs per
 	// channel on every sync and presence refresh.
@@ -1255,6 +1258,36 @@ func (s *Store) ClearGuildLeft(guildID string) error {
 	return err
 }
 
+// LeftAt reports when this device's user left guildID, in unix seconds, or 0
+// when there is no tombstone.
+func (s *Store) LeftAt(guildID string) int64 {
+	var at int64
+	if err := s.db.QueryRow(`SELECT at FROM left_guilds WHERE guild_id = ?`, guildID).Scan(&at); err != nil {
+		return 0
+	}
+	return at
+}
+
+// LeftGuildsSince lists every tombstoned guild with the time it was left, for
+// the account's other devices (see the hello's Left field).
+func (s *Store) LeftGuildsSince() (map[string]int64, error) {
+	rows, err := s.db.Query(`SELECT guild_id, at FROM left_guilds`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var id string
+		var at int64
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, err
+		}
+		out[id] = at
+	}
+	return out, rows.Err()
+}
+
 // LeftGuilds lists every tombstoned guild ID (debugging/inspection).
 func (s *Store) LeftGuilds() ([]string, error) {
 	rows, err := s.db.Query(`SELECT guild_id FROM left_guilds ORDER BY at`)
@@ -1284,11 +1317,11 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 
 	res, err := s.db.Exec(
-		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent, sig, unverified, quiet)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent, sig, unverified, quiet, expires)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO NOTHING`,
 		m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir), sealed, nonce[:], m.Sent.UnixNano(),
-		nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)),
+		nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)), EphemeralExpiry(m.Content),
 	)
 	if err != nil {
 		return false, fmt.Errorf("store: save message: %w", err)
@@ -1538,9 +1571,9 @@ func (s *Store) NewestMessage(channelID string) (domain.Message, bool, error) {
 	var sent int64
 	var deleted int
 	err := s.db.QueryRow(
-		`SELECT id, channel_id, sender, deleted, content_enc, nonce, sent
+		`SELECT id, channel_id, sender, kind, deleted, content_enc, nonce, sent
 		 FROM messages WHERE channel_id = ? ORDER BY sent DESC LIMIT 1`, channelID).
-		Scan(&m.ID, &m.ChannelID, &m.Sender, &deleted, &enc, &nonceB, &sent)
+		Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Kind, &deleted, &enc, &nonceB, &sent)
 	if err == sql.ErrNoRows {
 		return domain.Message{}, false, nil
 	}
@@ -2270,7 +2303,7 @@ func (s *Store) MessageContent(id string) (string, error) {
 // MarkExpired flags a tombstoned message as having disappeared via a timer
 // (rather than a manual delete), so the UI can label it "disappeared".
 func (s *Store) MarkExpired(id string) error {
-	_, err := s.db.Exec(`UPDATE messages SET expired = 1 WHERE id = ?`, id)
+	_, err := s.db.Exec(`UPDATE messages SET expired = 1, pinned = 0 WHERE id = ?`, id)
 	return err
 }
 
@@ -2560,6 +2593,56 @@ func (s *Store) AdvanceReadState(channelID string, at int64) (bool, error) {
 	return n > 0, nil
 }
 
+// ReadMark returns one channel's read-through time (UnixMilli), 0 for none.
+func (s *Store) ReadMark(channelID string) (int64, error) {
+	var at int64
+	err := s.db.QueryRow(`SELECT at FROM read_state WHERE channel_id = ?`, channelID).Scan(&at)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return at, err
+}
+
+// CapReadState lowers every read cursor above limit to to (both UnixMilli),
+// reporting how many moved. It is the only write that moves a cursor back,
+// and exists to repair cursors stamped from a clock running fast.
+func (s *Store) CapReadState(limit, to int64) (int64, error) {
+	res, err := s.db.Exec(`UPDATE read_state SET at = ? WHERE at > ?`, to, limit)
+	if err != nil {
+		return 0, fmt.Errorf("store: cap read state: %w", err)
+	}
+	return res.RowsAffected()
+}
+
+// NewestSent returns the newest message send time (UnixNano) per channel;
+// channels with no messages map to 0.
+func (s *Store) NewestSent(channelIDs []string) (map[string]int64, error) {
+	out := make(map[string]int64, len(channelIDs))
+	if len(channelIDs) == 0 {
+		return out, nil
+	}
+	ids, err := json.Marshal(channelIDs)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(
+		`SELECT j.value, (SELECT MAX(sent) FROM messages WHERE channel_id = j.value)
+		 FROM json_each(?) j`, string(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var sent sql.NullInt64
+		if err := rows.Scan(&id, &sent); err != nil {
+			return nil, err
+		}
+		out[id] = sent.Int64
+	}
+	return out, rows.Err()
+}
+
 // DeleteReadState drops the read cursors for channels that no longer exist
 // (guild left, channel removed), so the table doesn't accumulate orphans.
 func (s *Store) DeleteReadState(channelIDs []string) error {
@@ -2802,12 +2885,12 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 		}
 		sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 		if _, err := q.Exec(
-			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified, quiet)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified, quiet, expires)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir),
 			boolToInt(m.Deleted), boolToInt(m.Edited), boolToInt(m.Pinned),
 			sealed, nonce[:], m.Sent.UnixNano(), remoteUpdated,
-			nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)),
+			nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)), EphemeralExpiry(m.Content),
 		); err != nil {
 			return false, fmt.Errorf("store: upsert synced message: %w", err)
 		}
@@ -3951,7 +4034,23 @@ func (s *Store) AttachmentTotals() (count int64, bytes int64, err error) {
 }
 
 // Close closes the database.
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	err := s.db.Close()
+	// sql.DB.Close refuses new statements and shuts idle connections, but it
+	// does not wait for one in use: a write already running finished after
+	// Close returned, after the service had closed, racing a process exit or,
+	// in the tests, the removal of the data directory. The connection is shut
+	// as it is given back, so wait for that, bounded by the busy timeout's
+	// order of magnitude so a wedged statement cannot hold shutdown forever.
+	deadline := time.Now().Add(closeDrain)
+	for s.db.Stats().OpenConnections > 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	return err
+}
+
+// closeDrain bounds how long Close waits for a statement in flight.
+const closeDrain = 10 * time.Second
 
 // IsQuiet: a message body that is bookkeeping rather than something a person
 // said. Today that is exactly one thing — a bare game-move token, and nothing

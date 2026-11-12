@@ -79,6 +79,7 @@ const SPELLED = {
   "<": ",", // Ctrl+Shift+, reports "<" on a US layout
   ">": ".", // Ctrl+Shift+. likewise
   tab: null, // list navigation inside a popup, not a global binding
+  contextmenu: "menu", // the menu key, as its keycap reads
   " ": null,
 };
 
@@ -89,6 +90,8 @@ const scope = [
   // composer and the edit box now share. They are still bindings the sheet has
   // to describe, so the reader follows them.
   ["mdformat.js", keysUsedIn("mdformat.js")],
+  // The channel and member lists' own keys (one Tab stop, arrows, the menu key).
+  ["listnav.js", keysUsedIn("listnav.js")],
 ];
 
 for (const [file, keys] of scope) {
@@ -103,7 +106,7 @@ for (const [file, keys] of scope) {
 
 // Sanity: the entries the sheet lost once, by name.
 for (const label of [
-  "Member panel",
+  "Inspector (members, pins, files)",
   "Deafen",
   "This list",
 ]) {

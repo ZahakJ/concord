@@ -199,6 +199,10 @@ const LEAD_LIST = /^(?:[-*+]|\d{1,3}\.)\s+/;
 // line of prose printed somewhere that will not render it, where `**bold**`
 // and `> quoted` are noise standing between the reader and the words they
 // searched for.
+// What a spoiler reads as in a one-line preview. A word rather than a block of
+// shading, because a screen reader reads shading out glyph by glyph.
+export const SPOILER_MASK = "[spoiler]";
+
 export function stripMarkdown(input) {
   let s = input
     .replace(/```+/g, " ")
@@ -212,7 +216,10 @@ export function stripMarkdown(input) {
     .replace(/__(.+?)__/g, "$1")
     .replace(/(^|\W)_(.+?)_(\W|$)/g, "$1$2$3")
     .replace(/~~(.+?)~~/g, "$1")
-    .replace(/\|\|(.+?)\|\|/g, "$1")
+    // A spoiler stays covered in every preview: flattened to its words, it was
+    // printed in clear in the inbox, search results and post cards — the one
+    // place its author had asked it not to be.
+    .replace(/\|\|(.+?)\|\|/g, SPOILER_MASK)
     .replace(/(\*\*|~~|\|\|)/g, "") // unpaired remnants of a truncated excerpt
     .replace(/^#{1,6}\s+/, "")
     .replace(/(^|\s)>\s?/g, "$1")

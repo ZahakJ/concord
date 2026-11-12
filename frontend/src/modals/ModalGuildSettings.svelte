@@ -12,6 +12,7 @@
   import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import Banner from "../Banner.svelte";
+  import { GUILD_NAME_MAX } from "../lib/limits.js";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { PERM, has } from "../lib/perms.js";
@@ -96,7 +97,9 @@
 
 <svelte:window onpaste={onPaste} />
 
-<RailShell title="Guild settings" {onClose} wide>
+<!-- On the rail this is the Overview page, and the rail entry and the page
+     it lands on say the same word. -->
+<RailShell title={S.modal?.hub ? "Overview" : "Guild settings"} {onClose} wide>
   <!-- IDENTITY FIRST. The panel is called "Name, icon, banner & description"
        and used to put them in the reverse of that order: a 24-tile animated
        template gallery ate three hundred pixels and the guild's own NAME
@@ -117,17 +120,33 @@
       {#if icon}<img src={icon} alt="" />{:else}<span>{guildInitials(name) || "?"}</span>{/if}
       {#if canEdit}<span class="cam-badge" aria-hidden="true"><Icon name="camera" size={13} /></span>{/if}
     </button>
-    <label class="field grow">
-      <span class="muted">Guild name</span>
-      <input bind:value={name} maxlength="40" disabled={!canEdit} />
-    </label>
+    {#if canEdit}
+      <label class="field grow">
+        <span class="muted">Guild name</span>
+        <input bind:value={name} maxlength={GUILD_NAME_MAX} />
+      </label>
+    {:else}
+      <!-- Read-only is plain text, not a disabled box that looks editable. -->
+      <div class="field grow">
+        <span class="muted">Guild name</span>
+        <span class="ro">{name}</span>
+      </div>
+    {/if}
   </div>
 
-  <label class="field">
-    <span class="muted">Description</span>
-    <textarea bind:value={description} rows="3" maxlength="1000" disabled={!canEdit}
-      placeholder="What's this guild about?"></textarea>
-  </label>
+  {#if canEdit}
+    <label class="field">
+      <span class="muted">Description</span>
+      <textarea bind:value={description} rows="3" maxlength="1000"
+        placeholder="What's this guild about?"></textarea>
+    </label>
+  {:else}
+    <div class="field">
+      <span class="muted">Description</span>
+      <span class="ro" class:none={!description}>{description || "No description"}</span>
+    </div>
+    <p class="muted tiny">Only members with Manage guild can change these.</p>
+  {/if}
 
   <details class="art-fold" bind:open={picking}>
     <summary>
@@ -198,15 +217,22 @@
   {#if canEdit}
     <div class="actions">
       <button class="ghost" onclick={onClose}>Cancel</button>
-      <button onclick={save} disabled={busy || !name.trim()}>Save</button>
+      <button class="primary" onclick={save} disabled={busy || !name.trim()}>Save</button>
     </div>
-  {:else}
-    <p class="muted tiny">Only members with Manage Guild can edit this.</p>
   {/if}
 
 </RailShell>
 
 <style>
+  .ro {
+    font-size: var(--fs-ui);
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .ro.none {
+    color: var(--text-faint);
+  }
   /* The disclosure that keeps the 24-tile gallery from pushing the guild's own
      NAME below the fold, which is what the panel is for. */
   .art-fold {
@@ -320,10 +346,8 @@
   .tpl-toggle[aria-expanded="true"] :global(svg) {
     transform: rotate(90deg);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .tpl-toggle :global(svg) {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .tpl-toggle :global(svg) {
+    transition: none;
   }
   .shelves {
     /* The fade at the bottom says "keep scrolling". It used to land THROUGH a
@@ -351,9 +375,7 @@
     }
   }
   .gtitle {
-    font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-size: var(--fs-small);
     color: var(--text-faint);
     margin: 9px 0 4px;
   }
@@ -429,10 +451,8 @@
   .banner-box:hover {
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .banner-box {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .banner-box {
+    transition: none;
   }
   /* Pinned to the top corner rather than sharing the bottom row with the name:
      on a 390px sheet the two chips and the name fought for the same line and

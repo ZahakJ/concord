@@ -171,6 +171,9 @@
     }
     openContextMenu(e, items, { title: poll.q });
   }
+  // "Tap" is an instruction a mouse cannot follow, and "click" one a finger
+  // cannot: the footer says the one this device has.
+  const touch = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
 </script>
 
 <div class="poll" class:preview>
@@ -219,7 +222,7 @@
             {:else if r.mine}
               <Icon name="check" size={14} />
             {:else}
-              <span class="mark-emoji">{r.emoji}</span>
+              <span class="mark-n">{r.i + 1}</span>
             {/if}
           </span>
           {#if r.i === winner}<span class="crown" bind:this={crownEl} title="Winner">🏆</span>{/if}
@@ -251,7 +254,7 @@
       <span class="state" class:done={voted} class:right={revealed && voted && mineRight} class:miss={revealed && voted && !mineRight}>
         {#if revealed && voted}{mineRight ? "You got it" : "Not this time"}
         {:else if closed}Poll closed
-        {:else}{voted ? "You voted" : "Tap an option to vote"}{/if}
+        {:else}{voted ? "You voted" : `${touch ? "Tap" : "Click"} an option to vote`}{/if}
       </span>
     {/if}
   </div>
@@ -261,8 +264,8 @@
   .poll {
     margin-top: var(--sp-1);
     max-width: 460px;
-    padding: 14px 15px 11px;
-    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, var(--bg-1)), var(--bg-1));
+    padding: 12px 14px;
+    background: var(--bg-2);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
   }
@@ -273,16 +276,13 @@
     margin-bottom: var(--sp-3);
   }
   .poll-q {
-    font-weight: 700;
-    font-size: var(--fs-body);
+    font-weight: 600;
+    font-size: var(--fs-ui);
     line-height: 1.3;
   }
   /* The rules of the poll, stated once, quietly — not repeated on every row. */
   .poll-kind {
     font-size: var(--fs-small);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
     color: var(--text-muted);
   }
   /* Deadline, stated once and quietly — the countdown is minute-grained so it
@@ -294,8 +294,6 @@
   }
   .poll-close.over {
     font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
     color: var(--text-faint);
   }
   .poll-opts {
@@ -310,7 +308,7 @@
     padding: 0;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    background: var(--bg-2);
+    background: var(--bg-1);
     /* An option is a button with its own surface, so it needs its own ink: the
        global button rule hands out --accent-fg, which is sized for an accent
        FILL and disappears on --bg-2. */
@@ -326,14 +324,14 @@
      control in the app where selection is the actual state being displayed. */
   @media (pointer: fine) {
     .opt:hover:not(:disabled) {
-      border-color: var(--accent);
+      border-color: var(--border-strong);
     }
   }
   .opt:active:not(:disabled) {
     transform: scale(0.995);
   }
   .opt.mine {
-    border-color: var(--accent);
+    border-color: var(--accent-hover);
   }
   /* Trivia reveal: the verdict speaks in a different COLOR channel from the
      accent that means "yours" — --ok for the right row, danger for your miss —
@@ -360,23 +358,18 @@
   .fill {
     position: absolute;
     inset: 0 auto 0 0;
-    background: color-mix(in srgb, var(--accent) 13%, transparent);
+    background: var(--bg-3);
     /* Not a state change: a poll bar GROWING is the result arriving, and a
        half-second is how long that reads as motion rather than a jump. Off the
        token scale on purpose. */
     transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   }
+  /* Your choice is the only row the accent touches, and only as a tint: a
+     full-bleed accent bar on every leading row read as an alert in a warm
+     accent and outshouted the message it sits in. The leader is told by its
+     bolder text and its percentage. */
   .opt.mine .fill {
-    background: color-mix(in srgb, var(--accent) 26%, transparent);
-  }
-  /* The front-runner gets a bright left edge — a rank you can see at a glance
-     without another number to read. */
-  .opt.lead::before {
-    content: "";
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 3px;
-    background: var(--accent);
+    background: var(--accent-soft);
   }
   .opt-body {
     position: relative;
@@ -396,8 +389,7 @@
     transition: background var(--dur-quick) ease;
   }
   .mark.on {
-    background: var(--accent);
-    color: var(--accent-fg);
+    color: var(--accent-hover);
   }
   .mark.ok-on {
     background: var(--ok);
@@ -407,9 +399,13 @@
     background: var(--danger);
     color: var(--danger-fg);
   }
-  .mark-emoji {
-    font-size: var(--fs-body);
-    line-height: 1;
+  /* Plain numerals, not keycap emoji: the option's reaction emoji is how the
+     vote is stored, not something the reader needs to see. */
+  .mark-n {
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
   }
   /* The trophy sits in the row, not on it — a small fact, not a banner. */
   .crown {
@@ -443,10 +439,7 @@
     display: block;
     margin-left: -6px;
     border-radius: 50%;
-    box-shadow: 0 0 0 2px var(--bg-2);
-  }
-  .opt.mine .face {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 26%, var(--bg-2));
+    box-shadow: 0 0 0 2px var(--bg-1);
   }
   .more {
     margin-left: 3px;
@@ -510,7 +503,7 @@
     font-weight: 600;
   }
   /* ---- phone ---- */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* 43px rows 6px apart, on a control where a mis-tap MOVES your vote to the
        neighbouring option with no confirmation and nothing that says it moved. */
     .opt-body {
@@ -529,13 +522,11 @@
       align-items: center;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .fill,
-    .mark {
-      transition: none;
-    }
-    .opt:active:not(:disabled) {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .fill,
+  :global(:root[data-motion="reduced"]) .mark {
+    transition: none;
+  }
+  :global(:root[data-motion="reduced"]) .opt:active:not(:disabled) {
+    transform: none;
   }
 </style>

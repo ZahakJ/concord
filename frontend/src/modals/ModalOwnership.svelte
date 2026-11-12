@@ -78,7 +78,7 @@
             <span class="row-sub">Can take ownership at any time, until the designation is revoked.</span>
           </span>
           {#if g?.isOwner}
-            <button class="ghost small" onclick={() => revokeHeir(heir)}>Revoke</button>
+            <button class="ghost sm small" onclick={() => revokeHeir(heir)}>Revoke</button>
           {/if}
         </div>
       {:else}
@@ -144,8 +144,8 @@
   {/if}
 
   <p class="muted tiny">
-    Both are signed governance records, not MLS changes: nobody joins, leaves or re-keys, so
-    messages and calls carry straight through a handover.
+    Both are signed records in the guild's history. Nobody's encryption changes, so messages and
+    calls carry straight through a handover.
   </p>
 </RailShell>
 
@@ -156,39 +156,42 @@
     gap: 7px;
     text-align: left;
   }
+  /* Settings rows (SettingGroup's look): a sentence-case label, rows split
+     by hairlines, no card around them and no tinted icon tiles. */
   .sec-label {
-    font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    padding: 0 4px;
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    color: var(--text);
   }
   .card {
-    background: var(--bg-0);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    overflow: hidden;
     display: flex;
     flex-direction: column;
   }
   .card > .row + .row {
-    border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+    border-top: 1px solid var(--hairline);
   }
   .row {
+    /* A destructive row is a button.danger, which brings the filled
+       button's weight with it. */
+    font-weight: 400;
     display: flex;
     align-items: center;
     gap: var(--sp-3);
     width: 100%;
     min-height: 52px;
-    padding: 10px 14px;
+    padding: 10px 0;
     background: transparent;
     color: var(--text);
     text-align: left;
     border-radius: 0;
   }
-  button.row:hover:not(:disabled) {
-    background: var(--bg-3);
+  @media (pointer: fine) {
+    button.row:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+      box-shadow:
+        -8px 0 0 color-mix(in srgb, var(--bg-3) 60%, transparent),
+        8px 0 0 color-mix(in srgb, var(--bg-3) 60%, transparent);
+    }
   }
   button.row:disabled {
     opacity: 0.55;
@@ -202,7 +205,7 @@
   }
   .row-title {
     font-size: var(--fs-ui);
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1.3;
   }
   .row-sub {
@@ -213,15 +216,11 @@
   .chip {
     display: grid;
     place-items: center;
-    width: 32px;
-    height: 32px;
+    width: 30px;
     flex-shrink: 0;
-    border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
-    color: var(--accent-hover);
+    color: var(--text-muted);
   }
   .danger-chip {
-    background: color-mix(in srgb, var(--danger) 15%, transparent);
     color: var(--danger-text);
   }
   .row.danger .row-title {
@@ -234,8 +233,6 @@
     color: var(--text-faint);
   }
   .small {
-    padding: 5px 11px;
-    font-size: var(--fs-small);
     flex: none;
   }
   .tiny {

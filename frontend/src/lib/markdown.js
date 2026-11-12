@@ -86,6 +86,29 @@ export function animatedEmojiSrc(seq) {
   return animated.has(code) ? `/anemoji/${code}.webp` : "";
 }
 
+// A web address inside already-escaped text. It ends at whitespace or at an
+// escaped bracket or quote: `<https://x.org>` arrives as `&lt;https://x.org&gt;`
+// and used to link to "https://x.org&gt;", a page that does not exist.
+const URL_TAIL = "(?:(?!&lt;|&gt;|&quot;)[^\\s<\\x00-\\x03])*";
+const URL_SRC = `https?:\\/\\/(?:(?!&lt;|&gt;|&quot;)[^\\s<\\x00-\\x03])+`;
+const URL_RE = new RegExp(URL_SRC, "g");
+
+// The sentence's own punctuation is not part of the address: "see
+// www.example.org." links the site, not "www.example.org.". A closing bracket
+// stays when it closes one the address opened (a wiki-style path) and goes
+// otherwise.
+const count = (s, c) => s.split(c).length - 1;
+function splitTrail(url) {
+  let end = url.length;
+  for (;;) {
+    const c = url[end - 1];
+    if (/[.,;:!?'"]/.test(c)) end--;
+    else if (c === ")" && count(url.slice(0, end), ")") > count(url.slice(0, end), "(")) end--;
+    else break;
+  }
+  return [url.slice(0, end), url.slice(end)];
+}
+
 // Inline rules applied to already-escaped text (code spans are cut out first
 // so *bold* inside backticks stays literal).
 function renderInline(s, mentionNames, customEmoji, refs, opts) {
@@ -94,6 +117,21 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
     codeSpans.push(code);
     return `\x00${codeSpans.length - 1}\x00`;
   });
+
+  // The shrug is the one kaomoji whose arms are markdown: `_(ツ)_` read as
+  // emphasis and ate them, so /shrug posted "¯\(ツ)/¯" on every screen. It is
+  // held whole before any pass can see it.
+  const literals = [];
+  const keep = (text) => {
+    literals.push(text);
+    return `\x03${literals.length - 1}\x03`;
+  };
+  s = s.replace(/¯\\_\(ツ\)_\/¯/g, keep);
+  // Backslash escapes: \*not italic\*, \_\_init\_\_, \# not a header. The
+  // character after the backslash is printed as itself and the backslash is
+  // dropped. The input is already HTML-escaped, so `>` and `<` arrive as
+  // entities and are matched as such.
+  s = s.replace(/\\(&gt;|&lt;|&amp;|[\\`*_~|#+\-.!()[\]{}:@])/g, (_, c) => keep(c));
 
   // Unicode emoji render as bundled Twemoji images — uniform squares on every
   // OS — instead of native font glyphs (whose size and baseline wobble per
@@ -144,7 +182,10 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
   // https://ex.dev/_draft_/notes gets an <em> spliced into the middle of it and
   // the link pass then builds an href around a fragment of a tag.
   const urls = [];
-  s = s.replace(/https?:\/\/[^\s<]+/g, (u) => {
+  // <https://example.org> is the standard way to write a link on its own; the
+  // brackets are punctuation, not part of the address.
+  s = s.replace(new RegExp(`&lt;(${URL_SRC})&gt;`, "g"), "$1");
+  s = s.replace(URL_RE, (u) => {
     urls.push(u);
     return `\x02${urls.length - 1}\x02`;
   });
@@ -152,7 +193,10 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
   // first so it can never be read as two nested italics.
   s = s.replace(/~~(.+?)~~/g, "<s>$1</s>");
   s = s.replace(/__(.+?)__/g, "<u>$1</u>");
-  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/\*\*\*([^*\n]+?)\*\*\*/g, "<strong><em>$1</em></strong>");
+  // Bold may hold an italic inside it (**bold *and italic* bold**); it may not
+  // hold another **, which is what keeps two bold runs on a line apart.
+  s = s.replace(/\*\*((?:[^*\n]|\*(?!\*))+?)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
   // _italic_ as well as *italic*, because both halves of the dialect are in
   // everyone's fingers. Emphasis only counts at a word boundary, which is what
@@ -183,13 +227,32 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
     held.push(html);
     return `\x01${held.length - 1}\x01`;
   };
+  // A message link — what "Copy message link" puts on the clipboard, and what
+  // a thread's opening post carries back to its source. It was plain text that
+  // nothing could follow; it is now a chip the feed turns into a jump. Ids are
+  // a fixed alphabet, so they are safe in an attribute as they stand; the
+  // label names the channel when it is one of this guild's.
+  s = s.replace(/concord:\/\/msg\/([A-Za-z0-9_-]{4,128})\/([A-Za-z0-9_-]{4,128})/g, (_, ch, id) => {
+    const c = (refs?.channels || []).find((x) => x.id === ch);
+    const label = c ? `message in #${escapeHtml(c.name)}` : "linked message";
+    return stash(
+      `<span class="msg-link" role="link" tabindex="0" data-jump-channel="${ch}" data-jump-msg="${id}">↪ ${label}</span>`,
+    );
+  });
   // Masked links first, then bare URLs.
   s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text, url) =>
     stash(`<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`),
   );
-  s = s.replace(/(https?:\/\/[^\s<]+)/g, (url) =>
-    stash(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`),
-  );
+  s = s.replace(URL_RE, (whole) => {
+    const [url, after] = splitTrail(whole);
+    return stash(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`) + after;
+  });
+  // A bare www. address is a link everyone means; it gets the https scheme
+  // rather than a guess at http.
+  s = s.replace(new RegExp(`(^|[\\s(])(www\\.[a-z0-9-]+\\.[a-z]${URL_TAIL})`, "gi"), (_, pre, whole) => {
+    const [url, after] = splitTrail(whole);
+    return pre + stash(`<a href="https://${url}" target="_blank" rel="noopener noreferrer">${url}</a>`) + after;
+  });
 
   // @everyone / @here: the synthetic broadcast mention — no member or role
   // backs it, so it can't come from the tables below. It wears the self style
@@ -239,6 +302,7 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
 
   // Restore the stashed spans (after every pass) and code spans.
   s = s.replace(/\x01(\d+)\x01/g, (_, i) => held[+i]);
+  s = s.replace(/\x03(\d+)\x03/g, (_, i) => literals[+i]);
   return s.replace(/\x00(\d+)\x00/g, (_, i) => `<code>${codeSpans[+i]}</code>`);
 }
 
@@ -287,11 +351,14 @@ export function renderMarkdown(text, mentionNames = [], customEmoji = null, refs
 function renderBlocks(s, mentionNames, customEmoji, refs, opts) {
   const lines = s.split("\n");
   let out = "";
-  let list = null; // "ul" | "ol" | null
-  const closeList = () => {
-    if (list) out += `</${list}>`;
-    list = null;
+  // Open lists, outermost first: { kind: "ul"|"ol", indent }. A list item
+  // indented past its parent's marker opens a list inside that item; every
+  // item used to land at the top level, flattening an outline into a column.
+  const lists = [];
+  const closeTo = (depth) => {
+    while (lists.length > depth) out += `</li></${lists.pop().kind}>`;
   };
+  const closeList = () => closeTo(0);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     // Multi-line blockquote: >>> turns the rest of the message into one quote.
@@ -304,8 +371,8 @@ function renderBlocks(s, mentionNames, customEmoji, refs, opts) {
     }
     // Headers # / ## / ### (mapped to h3–h5 so they stay chat-sized).
     const hdr = /^(#{1,3}) (.+)$/.exec(line);
-    const ul = /^\s*[-*] (.*)$/.exec(line);
-    const ol = /^\s*\d+[.)] (.*)$/.exec(line);
+    const ul = /^(\s*)[-*] (.*)$/.exec(line);
+    const ol = /^(\s*)\d+[.)] (.*)$/.exec(line);
     const quote = /^&gt; ?(.*)$/.exec(line);
     if (hdr) {
       closeList();
@@ -313,12 +380,32 @@ function renderBlocks(s, mentionNames, customEmoji, refs, opts) {
       out += `<${tag} class="md-h">${renderInline(hdr[2], mentionNames, customEmoji, refs, opts)}</${tag}>`;
     } else if (ul || ol) {
       const kind = ul ? "ul" : "ol";
-      if (list !== kind) {
-        closeList();
+      const [, lead, body] = ul || ol;
+      const indent = lead.replace(/\t/g, "  ").length;
+      // Leave the lists this item is outdented past. Indents are loose in
+      // practice (two spaces, three, a tab), so an item belongs to the deepest
+      // open list whose indent it reaches, not only to one it matches exactly.
+      while (
+        lists.length > 1 &&
+        lists[lists.length - 1].indent > indent &&
+        lists[lists.length - 2].indent >= indent
+      )
+        closeTo(lists.length - 1);
+      const top = lists[lists.length - 1];
+      if (top && indent <= top.indent) {
+        if (top.kind === kind) {
+          out += "</li>";
+        } else {
+          // Same level, other kind: a new list beside the old one.
+          closeTo(lists.length - 1);
+          out += `<${kind}>`;
+          lists.push({ kind, indent: top.indent });
+        }
+      } else {
         out += `<${kind}>`;
-        list = kind;
+        lists.push({ kind, indent });
       }
-      out += `<li>${renderInline((ul || ol)[1], mentionNames, customEmoji, refs, opts)}</li>`;
+      out += `<li>${renderInline(body, mentionNames, customEmoji, refs, opts)}`;
     } else if (quote) {
       closeList();
       out += `<blockquote>${renderInline(quote[1], mentionNames, customEmoji, refs, opts)}</blockquote>`;

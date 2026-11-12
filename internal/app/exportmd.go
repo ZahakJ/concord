@@ -60,6 +60,8 @@ func (s *Service) ExportMarkdown(guildID, channelID string) (string, error) {
 		return channels[i].Name < channels[j].Name
 	})
 
+	arch := s.exportArchive(guildID, channelID)
+
 	var b strings.Builder
 	if channelID == "" {
 		fmt.Fprintf(&b, "# %s\n\n", guildName)
@@ -86,9 +88,17 @@ func (s *Service) ExportMarkdown(guildID, channelID string) (string, error) {
 		} else {
 			fmt.Fprintf(&b, "# #%s\n\n", c.Name)
 		}
+		// The imported history that sits above this channel comes first,
+		// because it is older than anything said here.
+		archived := arch.writeMapped(&b, c.ID)
 		if len(msgs) == 0 {
-			b.WriteString("_No messages._\n\n")
+			if !archived {
+				b.WriteString("_No messages._\n\n")
+			}
 			continue
+		}
+		if archived {
+			b.WriteString("### Since then, in this guild\n\n")
 		}
 		for _, m := range msgs {
 			if m.Deleted {
@@ -106,7 +116,124 @@ func (s *Service) ExportMarkdown(guildID, channelID string) (string, error) {
 				who, m.Sent.UTC().Format(time.RFC3339), editedMark(m), m.Content)
 		}
 	}
+	if channelID == "" {
+		arch.writeUnmapped(&b)
+	}
+	arch.writeMissing(&b)
 	return b.String(), nil
+}
+
+// exportedArchive is a guild's imported archive as an export reads it: every
+// page this device holds or can fetch without a metered connection, opened,
+// grouped by the guild channel it was put above.
+//
+// "Export history" used to leave the archive out entirely: a guild carrying
+// forty thousand imported messages exported a page of system lines, and the
+// history people had imported precisely so it would not be lost was the one
+// part missing from the copy they took away.
+type exportedArchive struct {
+	m        chronicleManifest
+	ok       bool
+	byChan   map[string][]chronicleMessage // source channel id -> messages, oldest first
+	missing  int                           // messages in pages that could not be read
+	unmapped []chronicleChannel
+	mapped   map[string][]chronicleChannel // guild channel id -> source channels
+}
+
+// channelID narrows it to the history put above that one channel ("" for all).
+func (s *Service) exportArchive(guildID, channelID string) *exportedArchive {
+	a := &exportedArchive{byChan: map[string][]chronicleMessage{}, mapped: map[string][]chronicleChannel{}}
+	m, _, ok := s.guildChronicle(guildID)
+	if !ok {
+		return a
+	}
+	a.m, a.ok = m, true
+	for _, c := range m.Channels {
+		if c.Mapped == "" {
+			a.unmapped = append(a.unmapped, c)
+		} else {
+			a.mapped[c.Mapped] = append(a.mapped[c.Mapped], c)
+		}
+	}
+	wanted := map[string]bool{}
+	for _, c := range m.Channels {
+		wanted[c.ID] = channelID == "" || c.Mapped == channelID
+	}
+	for _, ref := range m.Chunks {
+		if !wanted[ref.Channel] {
+			continue
+		}
+		ct, err := s.chronicleChunk(guildID, ref.ID, false)
+		if err != nil {
+			a.missing += ref.Count
+			continue
+		}
+		msgs, err := openChronicleChunk(ct, ref.Keys)
+		if err != nil {
+			a.missing += ref.Count
+			continue
+		}
+		a.byChan[ref.Channel] = append(a.byChan[ref.Channel], msgs...)
+	}
+	for id := range a.byChan {
+		msgs := a.byChan[id]
+		sort.SliceStable(msgs, func(i, j int) bool { return msgs[i].Nano < msgs[j].Nano })
+	}
+	return a
+}
+
+// writeMapped writes the archived history put above one guild channel, and
+// reports whether there was any.
+func (a *exportedArchive) writeMapped(b *strings.Builder, channelID string) bool {
+	wrote := false
+	for _, src := range a.mapped[channelID] {
+		msgs := a.byChan[src.ID]
+		if len(msgs) == 0 {
+			continue
+		}
+		fmt.Fprintf(b, "### Imported from %s (#%s)\n\n", a.m.Source, src.Name)
+		a.writeMessages(b, msgs)
+		wrote = true
+	}
+	return wrote
+}
+
+// writeUnmapped writes the archived channels that were put above no channel
+// here, at the end of a whole-guild export.
+func (a *exportedArchive) writeUnmapped(b *strings.Builder) {
+	for _, src := range a.unmapped {
+		msgs := a.byChan[src.ID]
+		if len(msgs) == 0 {
+			continue
+		}
+		fmt.Fprintf(b, "## #%s (imported from %s)\n\n", src.Name, a.m.Source)
+		a.writeMessages(b, msgs)
+	}
+}
+
+// writeMissing says how much of the archive this export could not include,
+// rather than letting a short file pass for a complete one.
+func (a *exportedArchive) writeMissing(b *strings.Builder) {
+	if a.missing > 0 {
+		fmt.Fprintf(b, "_%d imported messages are not in this export: their pages are not on this device and could not be fetched (a metered connection, or nobody online holding them)._\n", a.missing)
+	}
+}
+
+func (a *exportedArchive) writeMessages(b *strings.Builder, msgs []chronicleMessage) {
+	for _, m := range msgs {
+		who := "someone"
+		if m.Author >= 0 && m.Author < len(a.m.Authors) && a.m.Authors[m.Author].Name != "" {
+			who = a.m.Authors[m.Author].Name
+		}
+		body := m.Content
+		if n := len(m.Attach); n > 0 {
+			if body != "" {
+				body += "\n"
+			}
+			body += fmt.Sprintf("_(%d attachment%s)_", n, map[bool]string{true: "", false: "s"}[n == 1])
+		}
+		fmt.Fprintf(b, "**%s** (%s):\n%s\n\n", who, time.Unix(0, m.Nano).UTC().Format(time.RFC3339), body)
+	}
 }
 
 func editedMark(m domain.Message) string {

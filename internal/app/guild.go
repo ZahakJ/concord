@@ -7,8 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -49,6 +52,22 @@ type inviteRequest struct {
 	KeyPackage []byte  `json:"keyPackage"`
 	Credential []byte  `json:"credential"` // joiner's account key, for retry recovery
 	Profile    Profile `json:"profile"`
+	// Heal marks the automatic re-add a stranded member asks for, as opposed to
+	// a join a person started by pasting a code. The sender writes it, so it
+	// buys no authority; what it buys is honesty from honest clients. A
+	// committer may serve a join to anyone holding the code, but it serves a
+	// heal only to someone its own tree already seats: a heal asks to be
+	// RE-added, and an account the guild never added has nothing to be re-added
+	// to. Older committers ignore the field and answer as they always did.
+	Heal bool `json:"heal,omitempty"`
+	// Probe marks a code pasted by a device that believes it is already a
+	// seated member. It is a question ("am I still in?"), not a request to be
+	// added: a committer that finds the sender's leaf live in its tree answers
+	// Member and commits nothing. It must still carry a real KeyPackage, because
+	// an older committer ignores the field and serves the probe as the join it
+	// looks like, removing the live leaf and re-adding it; without a key package
+	// that re-add would fail after the removal and leave the sender out.
+	Probe bool `json:"probe,omitempty"`
 }
 
 // inviteResponse is returned by the owner over the invite stream. Profiles is
@@ -59,6 +78,10 @@ type inviteResponse struct {
 	Guild    domain.Guild       `json:"guild"`
 	Profiles map[string]Profile `json:"profiles,omitempty"`
 	Error    string             `json:"error,omitempty"`
+	// Member answers a Probe whose sender's leaf is live: nothing was
+	// committed and there is no Welcome. Only ever sent in reply to a Probe,
+	// which older joiners never send.
+	Member bool `json:"member,omitempty"`
 }
 
 // The two refusals that mean "you are not a member and asking again will not
@@ -69,6 +92,9 @@ type inviteResponse struct {
 const (
 	bannedRefusal  = "you are banned from this guild"
 	removedRefusal = "you were removed from this guild"
+	// unseatedRefusal answers a heal from an account the committer's tree does
+	// not hold: whoever "admitted" it was not seating it in this guild.
+	unseatedRefusal = "you were never admitted to this guild"
 )
 
 // CreateGuild creates a new guild (a fresh MLS group) owned by this peer,
@@ -526,6 +552,19 @@ func (s *Service) LeaveGuild(guildID string) error {
 		s.hideDM(guildID)
 		return nil
 	}
+	if isDM {
+		// Say so before going: a group DM left in silence kept the leaver on
+		// everyone's list, and kept encrypting to them. Best effort — an older
+		// member ignores the word, and one offline right now does not hear it.
+		s.publishMeta(g.GroupID, guildMeta{Type: "member_left", Fingerprint: s.id.Fingerprint()})
+	}
+	if !isDM && g.Kind == "" && s.EvictedFrom(guildID) == "" {
+		first := ""
+		if len(g.Channels) > 0 {
+			first = g.Channels[0].ID
+		}
+		s.announceLeave(guildID, g.GroupID, first)
+	}
 	return s.deleteGuildLocal(guildID)
 }
 
@@ -740,6 +779,23 @@ func (s *Service) AddMember(guildID, fingerprint string) error {
 			return err
 		}
 	}
+	// A group DM gathers people the way it was created: a DM invite the
+	// invitee's client redeems by itself (handleDMInvite), queued until they
+	// are reachable. The guild invite below is a prompt for joining a guild —
+	// a group DM offered that way never appeared anywhere for the person
+	// added, while this call reported success.
+	s.mu.RLock()
+	g, isGuild := s.guilds[guildID]
+	isDM := isGuild && g.Kind == "dm"
+	s.mu.RUnlock()
+	if isDM {
+		if n, _ := s.MemberCount(guildID); n+len(s.PendingDMInvitees(guildID)) >= groupDMMax+1 {
+			return fmt.Errorf("app: a group DM tops out at %d people", groupDMMax)
+		}
+		s.queueDMInvite(guildID, fingerprint)
+		s.emitGuildUpdate()
+		return nil
+	}
 	// Remember the invite so we can re-push it when they come online. They do
 	// not show in the roster until they accept — membership is the join, not
 	// the offer. The 1:1 with them records the offer as bookkeeping.
@@ -795,6 +851,26 @@ func (s *Service) InviteCode(guildID string) (string, error) {
 	}), nil
 }
 
+// ShareableInviteCode is InviteCode for a code a person will hand to someone
+// else. Notes is one person's scratchpad and a 1:1 is two people's: a code for
+// either let whoever held it join and read what was there, and turned the
+// owner's Notes into a group they no longer had. The core's own uses of
+// InviteCode (a DM inviting its other half, a linked device adopting Notes)
+// stay as they are; people join a DM through AddMember, which makes it a group.
+func (s *Service) ShareableInviteCode(guildID string) (string, error) {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var gc domain.Guild
+	if ok {
+		gc = g.Clone()
+	}
+	s.mu.RUnlock()
+	if ok && gc.Kind == "dm" && (isNotesGuild(gc, s.PublicKey()) || !s.isGroupDM(guildID)) {
+		return "", fmt.Errorf("app: Notes and one-to-one conversations can't be shared with an invite code")
+	}
+	return s.InviteCode(guildID)
+}
+
 // JoinViaInvite redeems an invite code: it contacts the owner, exchanges an MLS
 // KeyPackage for a Welcome, joins the group, and subscribes to guild topics.
 // offerAfter tells this account's other devices about a guild we just gained, so
@@ -829,7 +905,36 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	// declines the redundant case entirely.
 	release := s.claimJoin(ic.GuildID)
 	defer release()
+	// Believing we are a healthy member is not knowing it: a ban or kick lands
+	// on our device only when its commit or op arrives, and a code pasted in
+	// between used to be told "joined" while the guild had already put us out.
+	// So we still ask, but as a probe: a committer that holds our leaf answers
+	// "already a member" without a commit (asking as a plain join removed our
+	// live leaf, re-added it, and posted a second "has joined the guild"), and
+	// one that has us banned or removed says so.
+	if g, ok := s.healthyMembership(ic.GuildID); ok {
+		return s.redeemInvite(ic, &g)
+	}
 	return s.joinViaInviteLocked(ic)
+}
+
+// healthyMembership returns the guild when this device is a seated, readable
+// member of it with nothing for a committer to repair.
+func (s *Service) healthyMembership(guildID string) (domain.Guild, bool) {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var gc domain.Guild
+	if ok {
+		gc = g.Clone()
+	}
+	s.mu.RUnlock()
+	if !ok || s.EvictedFrom(guildID) != "" || s.OutOfSync(guildID) {
+		return domain.Guild{}, false
+	}
+	if !s.guildHasMember(guildID, s.id.Fingerprint()) {
+		return domain.Guild{}, false
+	}
+	return gc, true
 }
 
 // joinOfferedInvite redeems a code offered by one of our own devices, joining
@@ -851,6 +956,7 @@ func (s *Service) joinOfferedInvite(code string) {
 	// not ride back in on it. Only the user's own JoinViaInvite clears the
 	// tombstone.
 	if s.store.GuildIsLeft(ic.GuildID) {
+		s.noteOfferedRetry(ic.GuildID, "")
 		return
 	}
 	release := s.claimJoin(ic.GuildID)
@@ -859,9 +965,72 @@ func (s *Service) joinOfferedInvite(code string) {
 	_, already := s.guilds[ic.GuildID]
 	s.mu.RUnlock()
 	if already && s.guildHasMember(ic.GuildID, s.id.Fingerprint()) {
+		s.noteOfferedRetry(ic.GuildID, "")
 		return
 	}
-	_, _ = s.joinViaInviteLocked(ic)
+	_, err = s.joinViaInviteLocked(ic)
+	// A failure here used to be the end of it. The offer arrives once per
+	// connection to our other device, and that connection usually outlives
+	// the reason the join failed (the owner was offline, or answered "catching
+	// up", or the connection to them dropped mid-request), so a guild joined on
+	// one device stayed missing from the other until one of them restarted.
+	if err != nil && offeredJoinWorthRetrying(err) {
+		s.noteOfferedRetry(ic.GuildID, code)
+	} else {
+		s.noteOfferedRetry(ic.GuildID, "")
+	}
+}
+
+// offeredJoinWorthRetrying separates a join that may well work later from a
+// refusal that will not change by asking again (banned, removed, not allowed).
+// Only one refusal is temporary: an owner catching up on its own group state.
+func offeredJoinWorthRetrying(err error) bool {
+	msg := err.Error()
+	if !strings.Contains(msg, "invite rejected") {
+		return true
+	}
+	return strings.Contains(msg, "catching up")
+}
+
+// noteOfferedRetry records (code != "") or forgets (code == "") the offered
+// code to try again for a guild.
+func (s *Service) noteOfferedRetry(guildID, code string) {
+	s.joiningMu.Lock()
+	defer s.joiningMu.Unlock()
+	if code == "" {
+		delete(s.offeredRetry, guildID)
+		return
+	}
+	if s.offeredRetry == nil {
+		s.offeredRetry = map[string]string{}
+	}
+	s.offeredRetry[guildID] = code
+}
+
+// retryOfferedInvites tries again every offered code that failed for a reason
+// that may since have gone away. Runs on the heal tick, in the background: a
+// join to an owner who is still unreachable can take the full dial timeout,
+// and the heal loop has other work. One pass at a time.
+func (s *Service) retryOfferedInvites() {
+	if !s.offeredRetrying.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer s.offeredRetrying.Store(false)
+		s.retryOfferedInvitesNow()
+	}()
+}
+
+func (s *Service) retryOfferedInvitesNow() {
+	s.joiningMu.Lock()
+	codes := make([]string, 0, len(s.offeredRetry))
+	for _, c := range s.offeredRetry {
+		codes = append(codes, c)
+	}
+	s.joiningMu.Unlock()
+	for _, c := range codes {
+		s.joinOfferedInvite(c)
+	}
 }
 
 // JoinLinkedInvite redeems one of the invite codes a device-link handover
@@ -877,6 +1046,16 @@ func (s *Service) JoinLinkedInvite(code string) {
 // joinViaInviteLocked is the join proper; the caller holds the guild's join
 // lock (claimJoin).
 func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
+	return s.redeemInvite(ic, nil)
+}
+
+// redeemInvite asks the code's inviter to admit us. held is the guild when
+// this device believes it is already a healthy member: the request then goes
+// as a Probe, and every answer that is not a verdict about us (unreachable,
+// "catching up", "not authorized", unknown guild) leaves us holding what we
+// held. Caller holds the guild's join lock.
+func (s *Service) redeemInvite(ic inviteCode, held *domain.Guild) (domain.Guild, error) {
+	probe := held != nil
 	// Adopt any rendezvous nodes carried by the invite: persist them for future
 	// restarts (DHT bootstrap) and connect to them right now so relayed dials
 	// to a NAT'd owner can resolve during this session.
@@ -895,7 +1074,7 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	}
 	reqBytes, _ := json.Marshal(inviteRequest{
 		GuildID: ic.GuildID, KeyPackage: kp, Credential: s.myCredential,
-		Profile: s.selfWireProfile(),
+		Profile: s.selfWireProfile(), Probe: probe,
 	})
 
 	// Generous timeout: a relayed/hole-punched dial to a NAT'd owner can take a
@@ -904,18 +1083,44 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	defer cancel()
 	respBytes, err := s.host.RequestInvite(dialCtx, owner, reqBytes)
 	if err != nil {
+		if probe {
+			return *held, nil
+		}
 		return domain.Guild{}, err
 	}
 	var resp inviteResponse
 	if err := json.Unmarshal(respBytes, &resp); err != nil {
+		if probe {
+			return *held, nil
+		}
 		return domain.Guild{}, fmt.Errorf("app: bad invite response: %w", err)
 	}
+	if probe && resp.Member && resp.Error == "" {
+		return *held, nil
+	}
 	if resp.Error != "" {
+		verdict := isEvictionRefusal(resp.Error)
+		if probe && !verdict {
+			return *held, nil
+		}
 		// A refusal that names moderation is also the guild telling us where we
 		// stand, so record it: pasting the code again is exactly what someone
 		// does when the app has not said why nothing works.
 		s.noteEvictionRefusal(ic.GuildID, resp.Error)
 		return domain.Guild{}, fmt.Errorf("app: invite rejected: %s", resp.Error)
+	}
+	if probe && len(resp.Welcome) == 0 {
+		return *held, nil
+	}
+	if probe {
+		// A Welcome in reply to a probe means the committer re-seated us: an
+		// older build that does not know the probe (it has already removed our
+		// leaf and re-added it, two commits nothing can take back now), or one
+		// whose tree did not hold our leaf. Either way our old leaf may be gone,
+		// so the Welcome must be joined exactly as a join's would be; all that
+		// is spared is the second "has joined the guild", since we were in the
+		// guild as far as we knew a moment ago.
+		log.Printf("concord/app: guild %s: the inviter re-seated us in reply to a membership probe", ic.GuildID)
 	}
 
 	if _, err := s.mls.Join(s.ctx, resp.Welcome); err != nil {
@@ -958,7 +1163,7 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	// When this is an additional DEVICE of an account already in the guild (device
 	// linking), the account has another leaf here already, so stay quiet rather
 	// than posting a bogus "joined the guild" for a member who never left.
-	if len(g.Channels) > 0 && s.accountLeafCount(g.GroupID) <= 1 {
+	if !probe && len(g.Channels) > 0 && s.accountLeafCount(g.GroupID) <= 1 {
 		if line := joinSystemLine(g); line != "" {
 			s.sendSystem(g.Channels[0].ID, line)
 		}
@@ -1016,6 +1221,11 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	if !ok {
 		return json.Marshal(inviteResponse{Error: "unknown guild"})
 	}
+	// Notes admits this account's own devices and nobody else, whatever code
+	// they hold (one minted before ShareableInviteCode refused it, say).
+	if isNotesGuild(*g, s.PublicKey()) && len(req.Credential) > 0 && accountFingerprintOf(req.Credential) != s.id.Fingerprint() {
+		return json.Marshal(inviteResponse{Error: "unknown guild"})
+	}
 	// Serving the join advances the epoch and returns a Welcome. If WE aren't an
 	// authorized committer, honest peers drop our commit and the joiner forks onto
 	// a private epoch chain — silently. Refuse rather than fork.
@@ -1066,6 +1276,25 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	if len(req.Credential) > 0 && s.isRemoved(req.GuildID, accountFingerprintOf(req.Credential)) {
 		return json.Marshal(inviteResponse{Error: removedRefusal})
 	}
+	// A heal from someone our tree has never seated. The way that happens is a
+	// member who had already been thrown out — still holding the old epoch's
+	// keys and a client that let them — welcoming a newcomer onto that dead
+	// epoch: a copy of the guild only the two of them can read. The newcomer's
+	// client then finds the real guild unreadable, takes itself for stranded and
+	// asks a real committer to "re-add" it, and serving that request is what
+	// used to fold the phantom into the guild, newcomer and all, with nobody who
+	// could admit them ever having done so. A real stranded member still holds
+	// a leaf here; a first-time joiner arrives as a join, not a heal.
+	if req.Heal && len(req.Credential) > 0 && !s.guildHasMember(req.GuildID, accountFingerprintOf(req.Credential)) {
+		return json.Marshal(inviteResponse{Error: unseatedRefusal})
+	}
+	// A probe from a device whose leaf our tree still holds, past every refusal
+	// above: it is in, and saying so is the whole answer. Serving it as a join
+	// would find the key package refused (the leaf is already there), remove
+	// the live leaf, re-add it, and have the device announce a second arrival.
+	if req.Probe && !ignoreProbes.Load() && len(req.Credential) > 0 && s.leafIsLive(g.GroupID, req.Credential) {
+		return json.Marshal(inviteResponse{Guild: *g, Member: true})
+	}
 
 	// Queue behind whatever admission is in flight and ride its successor's
 	// commit. One joiner at an idle guild is committed immediately; a wave
@@ -1078,6 +1307,26 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	return json.Marshal(inviteResponse{
 		Welcome: welcome, Guild: *g, Profiles: s.joinRoster(req.GuildID),
 	})
+}
+
+// ignoreProbes makes this build's committers answer a Probe the way builds
+// before it do, as a plain join, so a test can meet an older committer.
+// Nothing in the product ever sets it.
+var ignoreProbes atomic.Bool
+
+// leafIsLive reports whether this exact leaf credential (a device, not just
+// its account) is in the group's current tree.
+func (s *Service) leafIsLive(groupID, cred []byte) bool {
+	creds, err := s.mls.Members(s.ctx, groupID)
+	if err != nil {
+		return false
+	}
+	for _, c := range creds {
+		if bytes.Equal(c, cred) {
+			return true
+		}
+	}
+	return false
 }
 
 // joinRoster is the member roster handed to a brand-new joiner: everyone's
@@ -1246,6 +1495,57 @@ func (s *Service) SendCallNotice(channelID, kind, content string) (domain.Messag
 		return domain.Message{}, fmt.Errorf("app: bad call notice kind %q", kind)
 	}
 	return s.send(channelID, content, kind, "")
+}
+
+// NoteCall writes this side's own record of a DM call — "Call ended · 2m",
+// or a group call it was rung for and never answered — as kind "call". It is
+// stored and shown here and goes nowhere else: no publish, no mailbox, and the
+// sync ingest drops the kind (store.syncedKinds), the way it drops "device".
+//
+// Local because the two sides of one call are two different events. Only one
+// of them answered, or both did a second apart, and a shared line has to pick
+// one wording for both; an older client would also render a new shared kind as
+// an ordinary message from the sender. The shared "call-missed" line remains
+// for the case that has to travel: a ring that nobody answered, which the
+// callee may have been offline for.
+func (s *Service) NoteCall(channelID, content string) (domain.Message, error) {
+	if !validCallNote(content) {
+		return domain.Message{}, fmt.Errorf("app: bad call note %q", content)
+	}
+	s.mu.RLock()
+	_, ok := s.channelToGuild[channelID]
+	s.mu.RUnlock()
+	if !ok {
+		return domain.Message{}, fmt.Errorf("app: unknown channel %s", channelID)
+	}
+	msg, err := domain.NewMessage(channelID, s.PublicKey(), content)
+	if err != nil {
+		return domain.Message{}, err
+	}
+	msg.Kind = "call"
+	if _, err := s.store.SaveMessage(msg); err != nil {
+		return domain.Message{}, err
+	}
+	s.emitMessage(msg)
+	return msg, nil
+}
+
+// validCallNote accepts "ended:<seconds>" and "missed:<fingerprint>" — the two
+// records the frontend's call machine writes (frontend/src/lib/callflow.js).
+// Anything else would be free text sitting in a conversation as if it were a
+// call, so it is refused rather than stored.
+func validCallNote(content string) bool {
+	if len(content) > 200 {
+		return false
+	}
+	if rest, ok := strings.CutPrefix(content, "ended:"); ok {
+		n, err := strconv.Atoi(rest)
+		return err == nil && n >= 0
+	}
+	if rest, ok := strings.CutPrefix(content, "missed:"); ok {
+		return rest != "" && !strings.ContainsAny(rest, " \n")
+	}
+	return false
 }
 
 func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message, error) {
@@ -2469,16 +2769,50 @@ func (s *Service) DeleteCategory(guildID, categoryID string) error {
 }
 
 // applyCategoryRemoved drops a category locally and un-categorizes its channels.
+//
+// Positions are per category, so a channel at the top of a category is at 0,
+// and dropping it into the uncategorized list as it was put it between
+// channels already there ("general, news, general…"). The orphans now follow
+// the existing uncategorized channels, in their old order. Every peer holds the
+// same positions, so every peer that runs this lands on the same order.
 func (s *Service) applyCategoryRemoved(guildID, categoryID string) {
+	type moved struct {
+		id, typ, topic string
+		pos            int
+	}
+	var out []moved
 	s.mu.Lock()
 	if g, ok := s.guilds[guildID]; ok {
+		next := 0
+		var orphans []int
 		for i := range g.Channels {
-			if g.Channels[i].Category == categoryID {
-				g.Channels[i].Category = ""
+			c := g.Channels[i]
+			switch {
+			case c.Category == categoryID:
+				orphans = append(orphans, i)
+			case c.Category == "" && c.Parent == "" && c.Position >= next:
+				next = c.Position + 1
 			}
+		}
+		sort.SliceStable(orphans, func(a, b int) bool {
+			ca, cb := g.Channels[orphans[a]], g.Channels[orphans[b]]
+			if ca.Position != cb.Position {
+				return ca.Position < cb.Position
+			}
+			return ca.ID < cb.ID
+		})
+		for _, i := range orphans {
+			g.Channels[i].Category = ""
+			g.Channels[i].Position = next
+			next++
+			c := g.Channels[i]
+			out = append(out, moved{c.ID, c.Type, c.Topic, c.Position})
 		}
 	}
 	s.mu.Unlock()
+	for _, m := range out {
+		_ = s.store.UpdateChannelMeta(m.id, m.typ, "", m.pos, m.topic)
+	}
 	_ = s.store.DeleteCategory(guildID, categoryID)
 	s.emitGuildUpdate()
 }
@@ -2516,11 +2850,11 @@ func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, pos
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
 	topic = strings.TrimSpace(topic)
-	wasCategory := ""
+	wasCategory, wasTopic := "", ""
 	s.mu.RLock()
 	for _, c := range g.Channels {
 		if c.ID == channelID {
-			wasCategory = c.Category
+			wasCategory, wasTopic = c.Category, c.Topic
 		}
 	}
 	s.mu.RUnlock()
@@ -2545,8 +2879,19 @@ func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, pos
 	// settles positions and how a topic gets edited, and a log that prints a
 	// line every time somebody nudges a channel up two places is a log nobody
 	// reads. The category is what changes who can find the channel.
+	//
+	// The move and the topic are also what a member who was offline catches up
+	// from: the meta frame reaches only who is online, the log reaches everyone
+	// (channelname.go). So the move says where to, in fields older builds
+	// already relay (Add marks it as one that does), and a topic gets an op
+	// of its own; a build that does not know that type lists it as an
+	// operation it does not recognise and relays it untouched.
 	if category != wasCategory {
-		s.logChannelOp(guildID, "channel_move", channelID, s.channelName(guildID, channelID))
+		_ = s.issueGovOp(guildID, govOp{Type: "channel_move", ChannelID: channelID,
+			Name: s.channelName(guildID, channelID), Target: category, Add: true})
+	}
+	if topic != wasTopic {
+		_ = s.issueGovOp(guildID, govOp{Type: "channel_topic", ChannelID: channelID, Name: topic})
 	}
 	return nil
 }
@@ -2605,6 +2950,9 @@ func (s *Service) applyChannelRename(guildID, actor, channelID, name string) {
 		return true
 	})
 	_ = s.store.UpdateChannelName(channelID, name)
+	// A frame that lost a concurrent rename must not get the last word just by
+	// arriving last; the log decides (channelname.go).
+	s.settleChannelLayout(guildID)
 }
 
 // SetChannelLinks records which channels an ANNOUNCEMENT channel publishes to
@@ -2839,33 +3187,58 @@ func (s *Service) emitGuildUpdate() {
 // topic we have just left. gossipsub's flood-publish sends it to every peer
 // subscribed to the topic and opens a fanout set for the next minute, which is
 // the whole saving the leave just bought, spent by a stray keystroke.
+//
+// An invisible user sends nothing: "Bea is typing…" beside a grey dot is the
+// one sentence that says she is not offline.
 func (s *Service) SendTyping(channelID string) error {
-	if !s.TypingEnabled() || s.backgrounded() {
+	return s.sendTypingSignal(channelID, typingStart)
+}
+
+// StopTyping tells the channel the draft was emptied or abandoned, so the
+// line ends now instead of on the receivers' four-second timer.
+//
+// An older peer treats any payload on the topic as "typing", so to it a stop
+// reads as one more keystroke: its line lingers the same four seconds it
+// always did after the last one, no longer.
+func (s *Service) StopTyping(channelID string) error {
+	return s.sendTypingSignal(channelID, typingStop)
+}
+
+// The typing topic's one-byte payloads. Receivers before the stop signal
+// ignore the byte entirely.
+const (
+	typingStop  byte = 0
+	typingStart byte = 1
+)
+
+func (s *Service) sendTypingSignal(channelID string, b byte) error {
+	if !s.TypingEnabled() || s.backgrounded() || s.invisible() {
 		return nil
 	}
 	groupID, err := s.groupForChannel(channelID)
 	if err != nil {
 		return err
 	}
-	return s.ps.Publish(s.ctx, domain.TypingTopicID(groupID, channelID), []byte{1})
+	return s.ps.Publish(s.ctx, domain.TypingTopicID(groupID, channelID), []byte{b})
 }
 
-// OnTyping fires when a peer signals typing in a channel.
-func (s *Service) OnTyping(fn func(from, channelID string)) {
+// OnTyping fires when a peer signals typing in a channel; stop is true for an
+// explicit end of typing.
+func (s *Service) OnTyping(fn func(from, channelID string, stop bool)) {
 	s.mu.Lock()
 	s.onTyping = append(s.onTyping, fn)
 	s.mu.Unlock()
 }
 
-func (s *Service) emitTyping(from, channelID string) {
+func (s *Service) emitTyping(from, channelID string, stop bool) {
 	if !s.TypingEnabled() {
 		return // reciprocal: not sending means not seeing
 	}
 	s.mu.RLock()
-	cbs := append([]func(string, string){}, s.onTyping...)
+	cbs := append([]func(string, string, bool){}, s.onTyping...)
 	s.mu.RUnlock()
 	for _, cb := range cbs {
-		cb(from, channelID)
+		cb(from, channelID, stop)
 	}
 }
 
@@ -2886,6 +3259,48 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	// patched client could rewrite the guild on every honest peer.
 	actor := accountFingerprintOf(msg.SenderID)
 	switch m.Type {
+	case "member_left":
+		// A member left a group DM and said so on the way out. MLS
+		// authenticates the sender, so only the leaver can announce their own
+		// leave. A member who may commit removals takes their leaves out of
+		// the group, so the conversation stops being encrypted to them and
+		// every member's list drops them; anyone else just refreshes. The
+		// remove is MLS-only, with no governance record: leaving is not being
+		// kicked, and AddMember can bring them back.
+		if actor == "" || actor != m.Fingerprint {
+			return
+		}
+		if actor == s.id.Fingerprint() {
+			// Another device of this account left: MLS authenticated the leaf,
+			// and it is not ours. Leaving is the account's decision; see
+			// leave.go.
+			if !bytes.Equal(msg.SenderID, s.myCredential) {
+				go s.leaveWithSibling(guildID)
+			}
+			return
+		}
+		s.mu.RLock()
+		lg, ok := s.guilds[guildID]
+		isDM := ok && lg.Kind == "dm"
+		isGuild := ok && lg.Kind == ""
+		s.mu.RUnlock()
+		if isGuild {
+			// A guild has many committers, and two commits at one epoch fork
+			// it, so exactly one of them takes the leaf out (leave.go).
+			s.handleMemberLeft(guildID, msg.SenderID)
+			return
+		}
+		if !isDM {
+			return
+		}
+		if s.canManageMembers(guildID) && s.guildHasMember(guildID, actor) {
+			go func() {
+				_ = s.removeMemberByFingerprint(guildID, actor)
+				s.emitGuildUpdate()
+			}()
+		}
+		s.emitGuildUpdate()
+		return
 	case "read_marker":
 		// Read markers only ever travel the Notes self-group, and only OUR OWN
 		// account's devices may move our read cursor — a marker authored by
@@ -2964,6 +3379,8 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if m.Channel.Type == "voice" && gc.ID != "" {
 			s.watchVoice(gc.GroupID, m.Channel.ID)
 		}
+		// A frame that lost a concurrent edit must not win by arriving last.
+		s.settleChannelLayout(guildID)
 		s.emitGuildUpdate()
 	case "category_added":
 		if m.Category.ID == "" {

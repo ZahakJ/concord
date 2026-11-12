@@ -54,7 +54,7 @@ func TestSyncCarriesEveryStoredKind(t *testing.T) {
 	channel := g.Channels[0].ID
 
 	at := time.Now().Add(time.Second)
-	want := map[string]bool{"": true, "system": true, "guest": true, "invite": true, "call-missed": true, "app": false}
+	want := map[string]bool{"": true, "system": true, "guest": true, "invite": true, "call-missed": true, "call": false, "app": false}
 	ids := map[string]string{}
 	for kind := range want {
 		ids[kind] = plantRow(t, a, channel, kind, "kind:"+kind, at).ID

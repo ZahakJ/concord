@@ -1,6 +1,7 @@
 <script>
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import Kbd from "../Kbd.svelte";
   import { S } from "../lib/state.svelte.js";
   import { SHORTCUTS, SHORTCUT_GROUPS } from "../lib/shortcuts.js";
   let { onClose } = $props();
@@ -105,11 +106,11 @@
                   <span class="sc-keys">
                     {#if keys.lasts}
                       {#each keys.prefix as k, i (i)}
-                        {#if i > 0}<span class="sc-plus">+</span>{/if}<kbd class:typed={row.typed}>{k}</kbd>
+                        {#if i > 0}<span class="sc-plus">+</span>{/if}<Kbd strong typed={row.typed}>{k}</Kbd>
                       {/each}
                       {#if keys.prefix.length}<span class="sc-plus">+</span>{/if}
                       {#each keys.lasts as last, li (li)}
-                        {#if li > 0}<span class="sc-or">or</span>{/if}<kbd class:typed={row.typed}>{last}</kbd>
+                        {#if li > 0}<span class="sc-or">or</span>{/if}<Kbd strong typed={row.typed}>{last}</Kbd>
                       {/each}
                     {:else}
                       <!-- Alternatives read "or"; the parts of one chord are joined by
@@ -118,7 +119,7 @@
                       {#each keys.chords as chord, ci2 (ci2)}
                         {#if ci2 > 0}<span class="sc-or">or</span>{/if}
                         {#each chord as k, i (i)}
-                          {#if i > 0}<span class="sc-plus">+</span>{/if}<kbd class:typed={row.typed}>{k}</kbd>
+                          {#if i > 0}<span class="sc-plus">+</span>{/if}<Kbd strong typed={row.typed}>{k}</Kbd>
                         {/each}
                       {/each}
                     {/if}
@@ -195,10 +196,8 @@
     align-items: center;
     gap: var(--sp-2);
     margin: 0;
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
   }
   .sc-ic {
@@ -240,29 +239,6 @@
     font-style: italic;
     padding: 0 var(--sp-1);
   }
-  /* Proper keycaps: raised, subtle top-highlight, pressed-looking bottom edge. */
-  kbd {
-    font-family: ui-monospace, monospace;
-    font-size: var(--fs-small);
-    font-weight: 600;
-    min-width: 22px;
-    text-align: center;
-    background: linear-gradient(var(--bg-3), var(--bg-2));
-    border: 1px solid var(--border);
-    border-bottom: 2px solid color-mix(in srgb, var(--border) 70%, black);
-    border-radius: var(--radius-sm);
-    box-shadow:
-      inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent),
-      0 1px 1px rgb(0 0 0 / 0.12);
-    padding: 2px 7px;
-    color: var(--text);
-    white-space: nowrap;
-  }
-  /* Markdown is typed, not pressed: leave the leading and trailing spaces of
-     "> " and "# " visible, or the sheet quietly teaches the wrong thing. */
-  kbd.typed {
-    white-space: pre;
-  }
   .none {
     margin: var(--sp-4) 0 0;
     text-align: center;
@@ -273,7 +249,7 @@
       background: var(--bg-2);
     }
   }
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .sc {
       grid-template-columns: 1fr;
     }

@@ -37,7 +37,7 @@
 
   let body = $state(seedBody);
   let pending = $state([]);
-  let mode = $state("split");
+  let mode = $state("write");
   // Focus mode is the editor's, but this dialog has to answer to it: see the
   // embed panel below.
   let zen = $state(false);
@@ -272,14 +272,12 @@
       minHeight={embedOn && !zen ? 150 : 200}
       attachments={!editId}
       placeholder="Write your message…"
-      hint="Select text and use the toolbar, or type markdown directly: **bold**, *italic*, ||spoiler||, `code`, > quote, - list, ## heading. :shortcodes: and @mentions autocomplete."
-      hintKey="compose-md"
+      hint="Select text to format it, or type markdown: **bold**, *italic*, ||spoiler||, `code`, > quote, - list, ## heading. Every mark is also under Aa; :shortcodes: and @mentions autocomplete."
       previewExtraFilled={!!previewEmbed}
       onSubmit={post}
       onInput={persist}
-      submitHint={editId ? "⌘/Ctrl + ↵ to save" : "⌘/Ctrl + ↵ to send"}>
+      submitHint={S.isMobile ? "" : editId ? "⌘/Ctrl + ↵ to save" : "⌘/Ctrl + ↵ to send"}>
       {#snippet toolbarExtra()}
-        <span class="sep" aria-hidden="true"></span>
         <button
           type="button"
           class="embedbtn"
@@ -414,13 +412,13 @@
           <button type="button" class="danger" onclick={onClose}>Discard changes</button>
         {:else}
           <button type="button" class="ghost danger" onclick={discardAndClose}>Discard</button>
-          <button type="button" onclick={keepAndClose}>Save for later</button>
+          <button class="primary" type="button" onclick={keepAndClose}>Save for later</button>
         {/if}
       </div>
     {:else}
       <div class="actions">
         <button type="button" class="ghost" onclick={requestClose}>Cancel</button>
-        <button type="button" class="send" onclick={post} disabled={!canPost}>
+        <button type="button" class="primary send" onclick={post} disabled={!canPost}>
           {#if busy}
             <span class="spin" aria-hidden="true"></span> {editId ? "Saving…" : "Sending…"}
           {:else}
@@ -515,9 +513,8 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    height: 30px;
-    padding: 0 9px;
-    font-size: 12px;
+    padding: var(--sp-1) var(--sp-2);
+    font-size: var(--fs-small);
     font-weight: 600;
     color: var(--text-muted);
     background: transparent;
@@ -533,12 +530,6 @@
   .embedbtn.on {
     background: var(--accent-soft);
     color: var(--accent-hover);
-  }
-  .sep {
-    width: 1px;
-    align-self: stretch;
-    margin: 2px 4px;
-    background: var(--border);
   }
 
   /* ---- embed builder ---------------------------------------------------- */
@@ -570,7 +561,7 @@
     border-radius: var(--radius-md);
     /* Appears in place; nothing above it moves except downward, which is the
        honest direction for a panel that opened. */
-    animation: eb-in 0.18s var(--ease-out);
+    animation: eb-in var(--dur-move) var(--ease-out);
   }
   .eb > * {
     flex-shrink: 0;
@@ -581,10 +572,8 @@
       transform: translateY(-6px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .eb {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .eb {
+    animation: none;
   }
   .eb header {
     display: flex;
@@ -596,10 +585,8 @@
   }
   .eb h4 {
     margin: 0;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text);
   }
   .ebhint {
@@ -720,7 +707,7 @@
   }
   /* On a phone the four controls plus two inputs cannot share 320px, so the
      row becomes name / value / a control strip beneath them. */
-  @media (pointer: coarse) {
+  @media (max-width: 768px) {
     .frow {
       flex-wrap: wrap;
       row-gap: 6px;
@@ -772,7 +759,7 @@
     align-items: center;
     gap: 6px;
     padding: 5px 10px;
-    font-size: 12px;
+    font-size: var(--fs-small);
     font-weight: 600;
     color: var(--accent-hover);
     background: transparent;
@@ -840,7 +827,7 @@
      under that query, which a component rule cannot outrank — and the button's
      own "Sending…"/"Posting…" label is what carries the meaning anyway. */
 
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .eb {
       max-height: none;
     }

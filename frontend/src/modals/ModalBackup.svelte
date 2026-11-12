@@ -1,4 +1,5 @@
 <script>
+  import Caution from "./Caution.svelte";
   // Backup and restore of the whole account's history.
   //
   // Not the same thing as "Export history" in the channel menu: that writes a
@@ -133,10 +134,19 @@
     <button class="primary" disabled={!canBackUp || busy} onclick={backUp}>
       {busy === "backup" ? "Preparing…" : "Download backup"}
     </button>
-    <p class="warn small">
-      <Icon name="lock" size={12} /> There is no way to recover this file's passphrase. Lose it and
-      the backup is unreadable, by anyone, including you.
-    </p>
+    <!-- Said beside the button that did it, not at the foot of the page. -->
+    {#if result?.kind === "backup"}
+      <p class="result" role="status">
+        Backed up {plural(result.messages, "message")} across {plural(result.guilds, "guild")}{result.attachments
+          ? `, with ${plural(result.attachments, "attachment")}`
+          : ""}.
+      </p>
+    {/if}
+    <Caution
+      icon="lock"
+      text="There is no way to recover this file's passphrase."
+      detail="Lose it and the backup is unreadable, by anyone, including you."
+    />
   </section>
 
   <section>
@@ -157,9 +167,16 @@
       style="display:none"
       onchange={restore}
     />
-    <button disabled={!restorePass || busy} onclick={() => fileInput?.click()}>
+    <button class="quiet" disabled={!restorePass || busy} onclick={() => fileInput?.click()}>
       {busy === "restore" ? "Restoring…" : "Choose a backup file…"}
     </button>
+    {#if result?.kind === "restore"}
+      <p class="result" role="status">
+        Restored {plural(result.messages, "message")}{result.saved
+          ? `, ${plural(result.saved, "bookmark")}`
+          : ""}. {result.skipped} already present or belonging to a guild this device is not in.
+      </p>
+    {/if}
     <p class="muted small">
       History is only restored into guilds this device is still a member of —
       rejoin first, then restore. Your Notes are the exception: there is nobody
@@ -167,19 +184,6 @@
     </p>
   </section>
 
-  {#if result}
-    <div class="result">
-      {#if result.kind === "backup"}
-        Backed up {plural(result.messages, "message")} across {plural(result.guilds, "guild")}{result.attachments
-          ? `, with ${plural(result.attachments, "attachment")}`
-          : ""}.
-      {:else}
-        Restored {plural(result.messages, "message")}{result.saved
-          ? `, ${plural(result.saved, "bookmark")}`
-          : ""}. {result.skipped} already present or belonging to a guild this device is not in.
-      {/if}
-    </div>
-  {/if}
 </RailShell>
 
 <style>
@@ -205,7 +209,7 @@
     color: var(--text-muted);
   }
   .warn {
-    color: var(--warn, var(--danger));
+    color: var(--warn-text);
     margin: 6px 0 0;
   }
   .fld {
@@ -225,12 +229,7 @@
     margin: 12px 0;
     font-size: var(--fs-tiny);
   }
-  /* The base input rule is width:100% with field padding, meant for text
-     boxes; left alone it stretches the tick away from its own label. */
   .check input[type="checkbox"] {
-    width: auto;
-    flex: none;
-    padding: 0;
     margin: 1px 0 0;
   }
   .check .sub {
@@ -239,10 +238,8 @@
     margin-top: 2px;
   }
   .result {
-    margin-top: 14px;
-    padding: 10px 12px;
-    border: 1px solid var(--accent);
-    border-radius: var(--radius-sm);
-    font-size: var(--fs-tiny);
+    margin: 0;
+    font-size: var(--fs-compact);
+    color: var(--ok-text);
   }
 </style>

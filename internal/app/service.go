@@ -157,7 +157,7 @@ type Service struct {
 	onVoicePresence []func(from, fingerprint, channelID, action, target, dest string)
 	onVoiceSignal   []func(from string, data []byte)
 
-	onTyping      []func(from, channelID string)
+	onTyping      []func(from, channelID string, stop bool)
 	onGuildUpdate []func()
 	onGuildInvite []func(GuildInvite)
 	onReadState   []func(channelID string, at int64)
@@ -293,6 +293,17 @@ type Service struct {
 	// claimJoin for why concurrent duplicate joins are actively harmful.
 	joining   map[string]*sync.Mutex
 	joiningMu sync.Mutex
+	// offeredRetry holds, per guild, the code one of our own devices offered
+	// us that we could not redeem yet (owner unreachable, owner catching up).
+	// Retried on the heal tick; see retryOfferedInvites. Guarded by joiningMu;
+	// in-memory, because a restart greets our devices again and they re-offer.
+	offeredRetry    map[string]string
+	offeredRetrying atomic.Bool
+
+	// liveGaps is topic -> the peer that forwarded a message we had to drop,
+	// waiting for the catch-up noteLiveGap schedules. Guarded by liveGapMu.
+	liveGaps  map[string]peer.ID
+	liveGapMu sync.Mutex
 
 	// blocked is the in-memory mirror of the block list (see block.go), guarded
 	// by mu. A blocked account's DM/guild invites are dropped on arrival.
@@ -1020,6 +1031,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("app: open store: %w", err)
 	}
+	capStoredReadMarks(st, time.Now())
 
 	// Bootstrap sources, in precedence order: explicit config (env) first, then
 	// the saved connection settings (set in-app on the login screen).
@@ -1136,6 +1148,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		bootstrap:        bootstrap,
 	}
 	s.mbxPriv, s.mbxPub = deriveMailboxKeys(id)
+	ps.OnOverflow(s.noteLiveGap)
 
 	// Before ANYTHING else reads the account: has this device been unlinked?
 	// A previous session was told and did not finish erasing, or the record
@@ -1240,7 +1253,9 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// one-shot announce at join time can be missed — this makes names converge
 	// reliably (each side re-announces, and learning a new profile triggers a
 	// reply, so both peers end up with each other's names).
-	host.OnPeerConnected(func(p peer.ID) {
+	//
+	// Registered at the end of Start, not here: see the registration below.
+	onConnected := func(p peer.ID) {
 		pp := s.presence(p)
 		// The presence feed, gated on the peer being somebody we have (see
 		// OnPeerConnected). A peer we cannot place yet is silent here and is
@@ -1307,13 +1322,14 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 			// newly-reachable committer is exactly who can re-add us.
 			s.healStrandedGuilds()
 		}()
-	})
+	}
 
 	host.OnPeerDisconnected(func(p peer.ID) {
 		// A fresh connection deserves a fresh introduction, in both directions.
 		s.greeted.release(p)
 		s.answered.release(p)
 		s.solicited.release(p)
+		s.markDeviceLeft(p)
 		s.emitPeerDown(p, s.presence(p))
 	})
 
@@ -1443,6 +1459,13 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// reaching new members instead of quietly stopping (recordsig.go).
 	s.adoptUnsignedPackRecords()
 
+	// Only now hear about connections. The host has been dialling since
+	// cnet.New, and the handler drains the mailbox and syncs history: run
+	// against a half-loaded service it would drain envelopes for guilds not
+	// yet tracked, ack them, and drop them. The host replays every peer that
+	// connected in the meantime, so nothing that landed early goes unannounced.
+	host.OnPeerConnected(onConnected)
+
 	// Background recovery: periodically re-attempt re-add for any stranded guild.
 	go s.runHealLoop()
 
@@ -1464,6 +1487,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// not correctness.
 	go s.runStoryGCLoop()
 	go s.runRetentionLoop()
+	go s.runEphemeralLoop()
 
 	// Resume rich presence if the user had it on.
 	if s.RichPresenceEnabled() {
@@ -1713,15 +1737,20 @@ func (s *Service) emitPeerUp(pp PeerPresence) {
 	}
 }
 
-// emitPeerDown announces a departure, but only for a peer whose arrival we
-// announced — a down with no matching up is a phantom in the UI's feed.
+// emitPeerDown announces a departure for a peer whose arrival we announced,
+// or who is one of ours now. The second half matters: a peer that connected
+// while still a stranger (found through the rendezvous before an invite was
+// redeemed, say) had its arrival swallowed by the gate in onConnected, became
+// a member over that same connection, and then left with nobody told — the
+// interface kept it green until some unrelated refresh happened to re-ask,
+// which could be minutes. A down for a stranger stays silent.
 func (s *Service) emitPeerDown(p peer.ID, pp PeerPresence) {
 	s.mu.Lock()
 	shown := s.presenceShown[p]
 	delete(s.presenceShown, p)
 	cbs := append([]func(PeerPresence){}, s.onPeerDown...)
 	s.mu.Unlock()
-	if !shown {
+	if !shown && !s.knownContact(pp.Fingerprint) {
 		return
 	}
 	for _, cb := range cbs {
@@ -1810,7 +1839,11 @@ func (s *Service) DisplayName() string {
 // SetDisplayName persists a display name (self-asserted; the fingerprint remains
 // the authenticated identity) and re-announces it to every guild.
 func (s *Service) SetDisplayName(name string) error {
-	if err := s.store.SetSetting("display_name", strings.TrimSpace(name)); err != nil {
+	name, err := cleanDisplayName(name)
+	if err != nil {
+		return err
+	}
+	if err := s.store.SetSetting("display_name", name); err != nil {
 		return err
 	}
 	s.bumpProfileStamp()
@@ -1892,12 +1925,24 @@ func (s *Service) selfStoredProfile() Profile {
 // profile to settle it. Now nothing a song touches is hashed at all.
 func (s *Service) selfWireProfile() Profile {
 	p := s.selfStoredProfile()
+	// Invisible means appearing offline, and an offline member is not
+	// listening to anything: what is playing would say otherwise.
+	if p.Presence == "invisible" {
+		return p
+	}
 	s.activityMu.Lock()
 	if s.activity != "" {
 		p.Activity = s.activityInfo
 	}
 	s.activityMu.Unlock()
 	return p
+}
+
+// invisible reports whether the user chose to appear offline. Signals only a
+// present user sends (typing) are withheld while it holds.
+func (s *Service) invisible() bool {
+	v, _ := s.store.GetSetting("presence")
+	return strings.TrimSpace(v) == "invisible"
 }
 
 // profileStamp reads this account's profile edit stamp (UnixMilli, 0 = a
@@ -2022,7 +2067,18 @@ func (s *Service) SetProfile(p Profile) error {
 	if !validBanner(p.Banner) {
 		return fmt.Errorf("app: banner must be an image or a preset")
 	}
-	p.Bio = clampBytes(p.Bio, maxBioBytes)
+	// The bio is refused, not cut, when it is too long: the editor counts the
+	// same bytes this does (frontend lib/profilefields.js), so the only way
+	// here is a caller that skipped it — and a silent cut is the one outcome
+	// nobody can see happen. 600 Arabic characters used to save as 323.
+	if len(strings.TrimSpace(p.Bio)) > maxBioBytes {
+		return fmt.Errorf("app: about me is too long (max %d bytes)", maxBioBytes)
+	}
+	name, err := cleanDisplayName(p.Name)
+	if err != nil {
+		return err
+	}
+	p.Name = name
 	sanitizeProfileExtras(&p)
 	for k, v := range map[string]string{
 		"display_name": strings.TrimSpace(p.Name),

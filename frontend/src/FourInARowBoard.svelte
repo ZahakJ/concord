@@ -103,9 +103,7 @@
     box-shadow: 0 0 0 2px var(--text);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .cell {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .cell {
+    transition: none;
   }
 </style>

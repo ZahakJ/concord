@@ -66,9 +66,24 @@ eq(
   "channel renamed with no former name in the log",
 );
 eq(
+  govSentenceText(e({ type: "channel_rename", channelName: "bob-name", name: "alice-name", prevName: "off-topic" })),
+  "Ada renamed #off-topic to #alice-name",
+  "a rename row names what its own op set, not the channel's current name",
+);
+eq(
   govSentenceText(e({ type: "channel_move", channelName: "rules" })),
   "Ada moved #rules to another category",
   "channel moved",
+);
+eq(
+  govSentenceText(e({ type: "channel_topic", channelName: "rules", name: "Be kind" })),
+  "Ada set the topic of #rules to “Be kind”",
+  "topic set",
+);
+eq(
+  govSentenceText(e({ type: "channel_topic", channelName: "rules" })),
+  "Ada cleared the topic of #rules",
+  "topic cleared",
 );
 eq(
   govSentenceText(e({ type: "guild_rename", name: "Riverside", prevName: "Riverbank" })),
@@ -213,7 +228,7 @@ const KNOWN = [
   "role_upsert", "role_delete", "role_assign", "ban", "unban", "mute", "unmute",
   "remove_member", "readmit",
   "slow_mode", "retention", "transfer_owner", "set_heir", "claim_heir",
-  "channel_create", "channel_rename", "channel_delete", "channel_move",
+  "channel_create", "channel_rename", "channel_delete", "channel_move", "channel_topic",
   "guild_rename", "emoji_add", "emoji_remove",
 ];
 for (const t of KNOWN) {

@@ -113,7 +113,7 @@
     <p class="muted hint">{TYPES.find((t) => t.id === type)?.hint}</p>
     <div class="actions">
       <button type="button" class="ghost" onclick={onClose}>Cancel</button>
-      <button type="submit" disabled={!slugged}>Create</button>
+      <button class="primary" type="submit" disabled={!slugged}>Create channel</button>
     </div>
   </form>
 </Modal>
@@ -169,7 +169,7 @@
     border: 1px solid var(--border);
     color: var(--text-muted);
     border-radius: var(--radius-md);
-    font-size: 12px;
+    font-size: var(--fs-small);
   }
   .type:hover {
     background: var(--bg-2);
@@ -179,20 +179,21 @@
      selection changes the tile's box and nudges the other three sideways, so
      the row twitches every time you change your mind. A shadow is painted
      outside the layout entirely. */
+  /* Selected is a 2px ring in the accent ink; the ground stays the ground
+     (an accent-tinted fill read as a filled button among plain ones). */
   .type.sel {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px var(--accent-soft);
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+    border-color: transparent;
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
+    color: var(--text);
   }
   .hint {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--fs-small);
   }
   .cat-label {
     display: flex;
     flex-direction: column;
     gap: var(--sp-1);
-    font-size: 12px;
+    font-size: var(--fs-small);
   }
 </style>

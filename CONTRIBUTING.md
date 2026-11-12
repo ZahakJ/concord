@@ -82,8 +82,9 @@ cd frontend && npm run build   # must succeed; a broken build is a broken releas
 ```
 
 On every pull request (and every push to `main`), CI runs `go build ./...`,
-`go vet ./...`, `go test -race -short ./...`, the three frontend steps, and a
-check that the documentation site in `docs/manual/` was rebuilt (`make docs`). See
+`go vet ./...`, `go test -race -short ./...`, the three frontend steps, a
+check that the documentation site in `docs/manual/` was rebuilt (`make docs`),
+and a debug build of the Android app. See
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml). It has to be green
 before anything merges. `gofmt` is part of that gate, so run `make fmt` before
 you push rather than discovering it in a red build. `make fmt` covers the root

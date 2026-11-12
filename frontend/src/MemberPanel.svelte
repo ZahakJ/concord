@@ -4,7 +4,8 @@
   // control is its own sibling button (no more button-in-button nesting).
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
-  import StoryTray from "./StoryTray.svelte";
+  import OwnerMark from "./OwnerMark.svelte";
+  import Inspector from "./Inspector.svelte";
   import {
     S,
     activeGuild,
@@ -14,6 +15,8 @@
     openProfilePopover,
     openContextMenu,
     roleColorFor,
+    nameInk,
+    toggleMemberPanel,
     inviteToCall,
     isBlocked,
   } from "./lib/state.svelte.js";
@@ -22,21 +25,40 @@
   import { splitStatus } from "./lib/presence.js";
   import { gameHue } from "./GameShelf.svelte";
   import { moderationItems, confirmKick } from "./lib/moderation.svelte.js";
+  import { listNav } from "./lib/listnav.js";
   import {
     confirmTransferOwnership,
     confirmNameHeir,
     revokeHeir,
-    confirmClaimOwnership,
   } from "./lib/ownership.svelte.js";
 
   // Touch: long-press opens the member menu (iOS never synthesizes contextmenu
   // for plain elements, and Android's synthesized one would double-fire
   // alongside the longpress action).
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+  // Mounted bare by the shell, this is the inspector (whose Members tab mounts
+  // this list again, `embedded`). The shell will host <Inspector> directly; until
+  // then the slot the member list has always had is where the inspector lives.
+  let { embedded = false } = $props();
 
-  let showPeers = $state(false);
 
   const g = $derived(activeGuild());
+
+  // The verified tick pops once, when somebody BECOMES verified while you are
+  // looking — not on every render of the list. Its keyframes used to run each
+  // time the panel re-rendered (opening the palette, a menu, the inspector),
+  // so a list of verified friends twitched for no reason. Ticks present when
+  // the panel first fills are simply there.
+  let verifiedSeen = null;
+  $effect(() => {
+    if (verifiedSeen || !S.members.length) return;
+    verifiedSeen = new Set(S.members.filter((m) => m.verified).map((m) => m.fingerprint));
+  });
+  function freshlyVerified(fpr) {
+    if (!verifiedSeen || verifiedSeen.has(fpr)) return false;
+    verifiedSeen.add(fpr);
+    return true;
+  }
 
   // Someone already in the call we're in doesn't need inviting.
   const inThisCall = (fpr) =>
@@ -50,6 +72,11 @@
   function memberMenu(e, mem) {
     openContextMenu(e, [
       { label: "View profile", icon: "spark", onClick: () => openProfilePopover(mem.fingerprint, e.target) },
+      // The row's own × for a pending invite is out of the Tab order, so the
+      // menu the keyboard reaches has to offer it too.
+      mem.pending &&
+        g?.canManage &&
+        !mem.isSelf && { label: "Cancel invite", icon: "close", danger: true, onClick: () => kick(mem) },
       // Only while you're actually in a call, and only for someone who isn't
       // already in it — otherwise it's an option that can't mean anything.
       !!S.voice &&
@@ -93,48 +120,6 @@
     ]);
   }
 
-  // "Name an heir" from the nudge: reuse the context-menu idiom as a picker —
-  // same surface the member row's own menu uses, anchored at the button.
-  function pickHeir(e) {
-    const eligible = S.members.filter((m) => !m.isSelf && !m.pending);
-    openContextMenu(
-      e,
-      eligible.map((m) => ({
-        label: m.name || m.fingerprint.slice(0, 9),
-        icon: "crown",
-        onClick: () => confirmNameHeir(m),
-      })),
-    );
-  }
-
-  // ---- sole-admin freeze warning ----
-  // The owner is the guild's permission ROOT. If they vanish while nobody
-  // else holds manage-members, no one can ever add or remove a member again —
-  // the guild freezes. Another admin OR a named heir defuses that, so the
-  // nudge only shows while NEITHER exists (and there's actually someone to
-  // promote). Dismissal is per guild and purely local.
-  let heirNudgeDismissed = $state(
-    JSON.parse(localStorage.getItem("heirNudgeDismissed") || "{}"),
-  );
-  function dismissNudge() {
-    heirNudgeDismissed[S.activeGuildId] = true;
-    localStorage.setItem("heirNudgeDismissed", JSON.stringify(heirNudgeDismissed));
-  }
-  const soleAdminRisk = $derived(
-    !!g &&
-      g.kind !== "dm" &&
-      g.isOwner &&
-      !g.heir &&
-      !heirNudgeDismissed[g.id] &&
-      S.members.some((m) => !m.isSelf && !m.pending) &&
-      !S.members.some((m) => !m.isSelf && !m.pending && m.canManage),
-  );
-
-  // The heir's own affordance: visible only to the named heir, who may not
-  // otherwise know (or remember) they hold the break-glass.
-  const iAmHeir = $derived(
-    !!g && g.kind !== "dm" && !g.isOwner && g.heir === S.identity.fingerprint,
-  );
 
   // "🎮 <name>" is the GameShelf's now-playing convention (its Play button
   // writes it as a plain custom status, so old builds render it fine as-is).
@@ -277,7 +262,13 @@
   }
 </script>
 
-<aside class="panel">
+{#if !embedded}
+  <Inspector docked={true} onClose={toggleMemberPanel} />
+{:else}
+<!-- One Tab stop for the roster (lib/listnav.js): arrows and typeahead move
+     between members, and the menu key or Shift+F10 opens a member's menu,
+     which holds everything the row's "More" button does. -->
+<aside class="panel" use:listNav={{ rows: ".member", park: ".kick", name: ".mname" }}>
   {#if activeGuild()?.evicted}
     <!-- The roster a removed device holds is the one it had at the moment it was
          removed, frozen: it cannot apply the commit that took it out, so the list
@@ -289,40 +280,6 @@
       history below is your own copy and stays on this device.
     </p>
   {:else}
-  <!-- Moments tray rides the top of the roster. It hides itself for DMs and
-       owns all its data/refresh logic — this panel just gives it the slot. -->
-  <StoryTray />
-  {#if soleAdminRisk}
-    <div class="notice warn" role="note">
-      <div class="notice-head">
-        <Icon name="crown" size={13} />
-        <strong>You're this guild's only admin</strong>
-        <button class="notice-x" aria-label="Dismiss warning" onclick={dismissNudge}>
-          <Icon name="close" size={11} />
-        </button>
-      </div>
-      <p>
-        If you lose this account, nobody will be able to add or remove members again. Give
-        someone a role with “manage members”, or name an heir who can take over.
-      </p>
-      <div class="notice-actions">
-        <button class="notice-btn" onclick={() => (S.modal = { kind: "roles" })}>Open roles</button>
-        <button class="notice-btn" onclick={pickHeir}>Name an heir…</button>
-      </div>
-    </div>
-  {/if}
-  {#if iAmHeir}
-    <div class="notice accent" role="note">
-      <div class="notice-head">
-        <Icon name="crown" size={13} />
-        <strong>You're the named heir</strong>
-      </div>
-      <p>The owner authorized you to take over this guild — for when they're gone, or ask you to.</p>
-      <div class="notice-actions">
-        <button class="notice-btn" onclick={confirmClaimOwnership}>Take ownership…</button>
-      </div>
-    </div>
-  {/if}
   {#if showFilter}
     <div class="filter-wrap">
       <input
@@ -342,8 +299,7 @@
   {/if}
   {#each filteredGroups as grp (grp.id)}
     <div class="section-head">
-      <span style={grp.color ? `color:${grp.color}` : ""}
-        >{grp.name} — {filtering ? `${grp.members.length} of ${grp.total}` : grp.total}</span>
+      <span>{grp.name} · {filtering ? `${grp.members.length} of ${grp.total}` : grp.total}</span>
     </div>
     {#each grp.members as mem (mem.fingerprint)}
       <div class="member-row" data-menu-row>
@@ -360,7 +316,7 @@
           emoji={mem.emoji}
           color={mem.color}
           image={mem.avatar}
-          size={30}
+          size={28}
           online={mem.online}
           presence={mem.presence}
           frame={mem.frame}
@@ -371,8 +327,11 @@
           <span class="member-name" title={mem.fingerprint}>
             <span
               class="mname"
-              style={roleColorFor(mem.fingerprint) ? `color:${roleColorFor(mem.fingerprint)}` : ""}
+              style={S.prefs.roleNameColors && roleColorFor(mem.fingerprint) ? `color:${nameInk(roleColorFor(mem.fingerprint))}` : ""}
             >{mem.name || mem.fingerprint.slice(0, 9)}</span>{mem.isSelf ? " (you)" : ""}
+            {#if mem.isOwner}
+              <OwnerMark size={11} label={g?.kind === "dm" ? "Started this group" : "Guild owner"} />
+            {/if}
             {#if birthdayToday(mem)}
               <span class="bday" title="Birthday today">🎂</span>
             {/if}
@@ -380,31 +339,20 @@
                  nothing. The panel groups by role — "OWNER — 1", "PRODUCERS —
                  1" — and then put OWNER and PRODUCERS on the rows inside those
                  groups, so with a one-member role (the common case) the word
-                 appeared twice within 40px. It earns its place only when it
-                 says something the header did not: a member's role inside the
-                 owner/heir group, or an "Owner & heir" group where the two rows
-                 differ. -->
+                 appeared twice within 40px. Roles are the sections now, and a
+                 member's roles are on their profile card; only ownership and
+                 heirship, which are not roles, are marked, and only where
+                 the section does not already say so. -->
             {#if mem.isOwner && !restates(grp, "owner")}
-              <span class="role-badge owner" title="Guild owner">owner</span>
+              <span class="role-badge owner" title="Guild owner">Owner</span>
             {:else if mem.isHeir && !restates(grp, "heir")}
-              <span class="role-badge heir" title="Named heir — can take ownership at any time">heir</span>
-            {:else if topRole(mem) && !restates(grp, topRole(mem).name)}
-              {@const r = topRole(mem)}
-              <!-- A role colour is picked to be seen, not to be read: painting
-                   it on a 22% tint of ITSELF leaves a pale role invisible. Same
-                   trick as --danger-text — blend the label toward --text, so
-                   whatever colour the guild chose still resolves as writing. -->
-              {@const rc = r.color || "var(--text-muted)"}
-              <span
-                class="role-badge"
-                style="background:color-mix(in srgb, {rc} 22%, transparent); color:color-mix(in srgb, {rc} 66%, var(--text))"
-                title={r.name}>{r.name}</span>
+              <span class="role-badge heir" title="Named heir — can take ownership at any time">Heir</span>
             {/if}
             {#if mem.verified && !mem.isSelf && !mem.pending}
-              <span class="v-badge" title="Identity verified"><Icon name="check" size={11} /></span>
+              <span class="v-badge" class:pop={freshlyVerified(mem.fingerprint)} title="Identity verified"><Icon name="check" size={11} /></span>
             {/if}
             {#if mem.pending}
-              <span class="pending-badge" title="Added — they'll appear once they accept &amp; sync">pending</span>
+              <span class="pending-badge" title="Added — they'll appear once they accept &amp; sync">Pending</span>
             {/if}
             {#if mem.mutedUntil > Date.now() / 1000}
               <span class="muted-badge" title="Muted"><Icon name="micOff" size={11} /></span>
@@ -439,10 +387,19 @@
           {/if}
         </span>
       </button>
-        {#if g?.canManage && !mem.isSelf && !mem.isOwner}
-          <button class="kick" title={mem.pending ? "Cancel invite" : "Kick from guild"} aria-label="{mem.pending ? 'Cancel invite for' : 'Kick'} {mem.name || 'member'}" onclick={() => kick(mem)}>
-            <Icon name="close" size={12} />
-          </button>
+        <!-- No bare trailing × that kicks: moderation lives in the row's menu
+             (the same one right-click and long-press open). A pending invite
+             keeps its one action, which only withdraws the invite. -->
+        {#if g?.canManage && !mem.isSelf && !mem.isOwner && mem.outranked !== false}
+          {#if mem.pending}
+            <button class="kick" title="Cancel invite" aria-label="Cancel invite for {mem.name || 'member'}" onclick={() => kick(mem)}>
+              <Icon name="close" size={12} />
+            </button>
+          {:else}
+            <button class="kick" title="More" aria-label="More for {mem.name || 'member'}" onclick={(e) => memberMenu(e, mem)}>
+              <Icon name="dots" size={14} />
+            </button>
+          {/if}
         {/if}
       </div>
     {/each}
@@ -452,34 +409,9 @@
     {/if}
   {/each}
 
-  <div class="section-head">
-    <span>Local peers</span>
-    <button class="mini" aria-label={showPeers ? "Collapse" : "Expand"} onclick={() => (showPeers = !showPeers)}>
-      <span class="chev" class:open={showPeers}><Icon name="chevron" size={11} /></span>
-    </button>
-  </div>
-  {#if showPeers}
-    <p class="muted small peers-info">
-      Every Concord node your device has ever connected to — including strangers on the same
-      Wi-Fi discovered automatically. They can't read anything (messages are end-to-end
-      encrypted); this is just a network log. To verify a <em>friend</em>, click them in the
-      Members list above.
-    </p>
-    <!-- Your own devices are not "nodes your device has connected to" in the
-         sense this log means, and they now get a proper section of their own in
-         Stats & diagnostics. Left in, your phone appeared here as your own
-         fingerprint, which reads as a stranger who has somehow got your key. -->
-    {#each S.contacts.filter((c) => c.fingerprint !== S.identity.fingerprint) as c (c.peerId)}
-      <div class="contact">
-        <span class="mono peer-fpr" title={c.peerId}>{c.fingerprint.slice(0, 19)}…</span>
-        {#if c.verified}<span class="badge verified">✓</span>{/if}
-      </div>
-    {:else}
-      <div class="muted small">No peers seen yet.</div>
-    {/each}
-  {/if}
   {/if}
 </aside>
+{/if}
 
 <style>
   .gone-note {
@@ -491,8 +423,7 @@
   }
 
   .panel {
-    background: var(--bg-1);
-    border-left: 1px solid var(--border);
+    background: transparent;
     /* No safe-area inset: the right-hand drawer that hosts this on a phone pads
        its own bottom, so repeating it here reserved the home indicator twice. */
     padding: var(--sp-3) var(--sp-2);
@@ -508,12 +439,10 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    text-transform: uppercase;
-    font-size: var(--fs-tiny);
-    letter-spacing: 0.07em;
-    font-weight: 700;
+    font-size: var(--fs-small);
+    font-weight: 600;
     color: var(--text-muted);
-    margin: var(--sp-3) var(--sp-2) var(--sp-1);
+    margin: var(--sp-4) var(--sp-2) var(--sp-1);
   }
   /* The filter is background chrome like the rest of this panel — a quiet
      recessed well, no accent until the field itself is focused (the global
@@ -588,10 +517,8 @@
   .member-row:active {
     background: var(--bg-3);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .member-row:hover {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .member-row:hover {
+    transform: none;
   }
   .member {
     flex: 1;
@@ -600,13 +527,17 @@
     gap: var(--sp-2);
     background: transparent;
     color: var(--text);
-    text-align: left;
-    padding: 6px 8px;
+    text-align: start;
+    min-height: 44px;
+    padding: var(--sp-1) var(--sp-2);
+    gap: 10px;
     min-width: 0;
+    border-radius: var(--radius-sm);
+    transition: background var(--dur-quick) var(--ease-out);
   }
   .member:hover,
   .member:active {
-    background: transparent;
+    background: color-mix(in srgb, var(--bg-3) 60%, transparent);
   }
   /* ---- the row a menu is about ----
      The menu opens at the cursor and says nothing about which row it belongs
@@ -623,19 +554,19 @@
   }
   /* Offline members recede so the online roster reads first;
      hovering or focusing a row brings the person fully back. */
-  .member.offline {
-    opacity: 0.62;
-    transition: opacity var(--dur-standard) ease;
+  /* Offline: the face recedes and the name drops to the muted tier; the
+     words stay legible (the name is information). */
+  .member.offline :global(.avatar) {
+    opacity: 0.55;
   }
-  .member-row:hover .member.offline,
-  .member.offline:focus-visible {
-    opacity: 1;
+  :global(:root[data-theme="light"]:where(:not([data-theme-pack]), [data-theme-pack="paper"], [data-theme-pack="solarized"], [data-theme-pack="meadow"], [data-theme-pack="porcelain"], [data-theme-pack="daybreak"], [data-theme-pack="atrium"])) .member.offline :global(.avatar) {
+    opacity: 0.65;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .member.offline {
-      transition: none;
-    }
+  .member.offline .mname {
+    color: var(--text-muted);
+    font-weight: 400;
   }
+
   /* Finger-sized rows in the mobile members drawer. */
   @media (pointer: coarse) {
     .member {
@@ -645,9 +576,7 @@
     }
     /* Touch never hovers/focuses, so the recede-then-restore can't kick in —
        keep offline members readable (a gentler dim than the desktop 0.62). */
-    .member.offline {
-      opacity: 0.8;
-    }
+
   }
   .member-text {
     display: flex;
@@ -665,6 +594,7 @@
   /* The name itself ellipsizes (text-overflow doesn't work on the flex parent);
      the role/verified badges keep their size instead of being shoved out. */
   .member-name .mname {
+    font-weight: 500;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -676,10 +606,11 @@
     flex-shrink: 0;
   }
   .member-name .bday {
-    font-size: 12px;
+    font-size: var(--fs-small);
   }
   .member-status {
     font-size: var(--fs-small);
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -729,16 +660,19 @@
       height: 100%;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .eq i {
-      animation: none;
-      height: 60%;
-    }
+  :global(:root[data-motion="reduced"]) .eq i {
+    animation: none;
+    height: 60%;
+  }
+  .member-name :global(.owner-mark) {
+    vertical-align: -1px;
   }
   .v-badge {
     color: var(--ok-text);
     display: inline-grid;
     place-items: center;
+  }
+  .v-badge.pop {
     animation: v-pop 0.3s var(--ease-spring) both;
   }
   @keyframes v-pop {
@@ -747,10 +681,8 @@
       opacity: 0;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .v-badge {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .v-badge {
+    animation: none;
   }
   .muted-badge,
   .blocked-badge {
@@ -764,8 +696,6 @@
      size and grows it on touch; the tracking comes off there entirely. */
   .role-badge {
     font-size: var(--fs-micro);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
     padding: 1px 5px;
     border-radius: var(--radius-sm);
     font-weight: 600;
@@ -778,8 +708,6 @@
   }
   .pending-badge {
     font-size: var(--fs-micro);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
     padding: 1px 5px;
     border-radius: var(--radius-sm);
     font-weight: 600;
@@ -794,92 +722,6 @@
     background: color-mix(in srgb, var(--warn) 20%, transparent);
     color: color-mix(in srgb, var(--warn) 50%, var(--text));
   }
-  /* Inline notices (sole-admin freeze warning, heir's claim card). Calm
-     tinted cards, not toasts: they describe a standing state of the guild.
-     Tokens only, so they hold in dark/light and every pack; full-width and
-     wrap-friendly so they sit fine in the 393px right drawer. */
-  .notice {
-    margin: var(--sp-1) var(--sp-1) var(--sp-2);
-    padding: 10px;
-    border-radius: var(--radius-md);
-    font-size: var(--fs-small);
-    line-height: 1.45;
-  }
-  .notice.warn {
-    background: color-mix(in srgb, var(--warn) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
-    color: var(--text);
-  }
-  .notice.warn .notice-head {
-    color: var(--warn-text);
-  }
-  .notice.accent {
-    background: var(--accent-soft);
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-    color: var(--text);
-  }
-  .notice.accent .notice-head {
-    color: color-mix(in srgb, var(--accent) 50%, var(--text));
-  }
-  .notice-head {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: var(--fs-ui);
-    margin-bottom: var(--sp-1);
-  }
-  .notice-head strong {
-    flex: 1;
-    min-width: 0;
-  }
-  .notice p {
-    margin: 0 0 8px;
-    color: var(--text-muted);
-  }
-  .notice-x {
-    background: transparent;
-    color: inherit;
-    padding: 2px 4px;
-    opacity: 0.7;
-    flex-shrink: 0;
-  }
-  .notice-x:hover {
-    opacity: 1;
-    background: transparent;
-  }
-  /* Touch: pad the dismiss X's tap area out without growing the glyph. */
-  @media (pointer: coarse) {
-    .notice-x {
-      position: relative;
-    }
-    .notice-x::after {
-      content: "";
-      position: absolute;
-      inset: -10px;
-    }
-  }
-  .notice-actions {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-  .notice-btn {
-    padding: 6px 10px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-3);
-    color: var(--text);
-    font-size: var(--fs-ui);
-    font-weight: 600;
-  }
-  .notice-btn:hover,
-  .notice-btn:active {
-    background: var(--bg-4, var(--bg-3));
-  }
-  @media (pointer: coarse) {
-    .notice-btn {
-      min-height: 38px;
-    }
-  }
   .role-badge.owner {
     background: color-mix(in srgb, var(--accent) 22%, transparent);
     /* Not --accent-hover. That is the accent's ink on a PLAIN surface; here the
@@ -892,8 +734,9 @@
   }
   .kick {
     background: transparent;
-    color: var(--danger-text);
+    color: var(--text-muted);
     padding: var(--sp-1) var(--sp-2);
+    border-radius: var(--radius-sm);
     opacity: 0;
   }
   .member-row:hover .kick,
@@ -901,7 +744,8 @@
     opacity: 1;
   }
   .kick:hover {
-    background: var(--danger-soft);
+    background: var(--bg-3);
+    color: var(--text);
   }
   /* Hover doesn't exist on touch — keep the control visible but quiet (same
      treatment as ChannelList's always-visible affordances). */
@@ -925,68 +769,8 @@
       padding: 2px 6px;
     }
   }
-  .peers-info {
-    padding: var(--sp-1) var(--sp-2);
-    line-height: 1.45;
-    margin: 0;
-  }
-  .contact {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--sp-2);
-    padding: 6px 8px;
-    word-break: break-all;
-  }
-  .peer-fpr {
-    font-size: var(--fs-small);
-  }
-  .badge {
-    font-size: var(--fs-small);
-    padding: 2px 8px;
-    border-radius: var(--radius-md);
-  }
-  .badge.verified {
-    background: var(--ok-soft);
-    color: var(--ok-text);
-  }
   .small {
     font-size: var(--fs-compact);
     padding: 6px 8px;
-  }
-  .mini {
-    padding: 2px 6px;
-    background: transparent;
-    color: var(--text-muted);
-  }
-  .mini:hover,
-  .mini:active {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  /* Touch: invisible overlay pads the small expand/collapse toggle's tap area
-     out to the platform floor without growing the glyph. The glyph box is
-     23x18, so a single hardcoded inset can only be right on one axis — it was
-     -13px, which reached 44 across and 44 down by coincidence of those two
-     numbers and went stale the moment --tap-min moved to Android's 48. The
-     calc form measures from the element's own size on each axis, so it is
-     correct for both and stays correct if the glyph changes. */
-  @media (pointer: coarse), (max-width: 768px) {
-    .mini {
-      position: relative;
-    }
-    .mini::after {
-      content: "";
-      position: absolute;
-      inset: calc((var(--tap-min) - 100%) / -2);
-    }
-  }
-  .chev {
-    display: inline-grid;
-    place-items: center;
-    transition: transform var(--dur-standard) ease;
-  }
-  .chev.open {
-    transform: rotate(90deg);
   }
 </style>

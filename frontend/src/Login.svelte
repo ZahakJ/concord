@@ -2,22 +2,37 @@
   import { onMount } from "svelte";
   import { api } from "./lib/api.js";
   import { S, flash, humanError, setPref } from "./lib/state.svelte.js";
+  import { errorField } from "./lib/errors.js";
+  import { samePassphrase } from "./lib/passphrase.js";
+  import { hasVisible } from "./lib/profilefields.js";
   import { linkCodeFrom } from "./lib/deeplink.js";
   import { focusOnMount } from "./lib/focus.js";
   import { confettiBurst } from "./lib/burst.js";
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import { finishUnlock } from "./lib/unlock.js";
+  import { pushLayer } from "./lib/navstack.svelte.js";
   import Icon from "./Icon.svelte";
   import PassphraseField from "./PassphraseField.svelte";
   import QRScanner from "./QRScanner.svelte";
 
-  let { onLogin } = $props();
+  // resumeBackup: the session is open but the account was created in a window
+  // that went away before its recovery phrase was saved (see App.svelte).
+  let { onLogin, resumeBackup = false } = $props();
 
   let passphrase = $state("");
   let confirmPass = $state("");
   let displayName = $state(""); // asked once, when CREATING a fresh account
   let scanned = $state(false); // a link code came from the QR scanner
   let error = $state("");
+  // Which field the error is about ("pass", "confirm", "phrase", "code", or ""
+  // for none). Only that one is painted and announced invalid: every error
+  // used to turn both passphrase boxes red, a bad link code included, which
+  // sent a screen-reader user back to the one field that was fine.
+  let errField = $state("");
+  function fail(err, field) {
+    error = humanError(err);
+    errField = field ?? errorField(err);
+  }
   let busy = $state(false);
   let hasIdentity = $state(true); // assume until checked, then correct
   let checked = $state(false);
@@ -42,7 +57,8 @@
       await finishUnlock(onLogin, humanError);
       return true;
     } catch (err) {
-      error = err.message;
+      error = humanError(err);
+      errField = "";
       return false;
     }
   }
@@ -76,7 +92,7 @@
       await api.login(pass);
       await enter();
     } catch (err) {
-      error = humanError(err);
+      fail(err);
     } finally {
       busy = false;
     }
@@ -108,6 +124,23 @@
   let linking = $state(false); // "link this device to an existing account" flow
   let linkCode = $state("");
   let scanning = $state(false); // in-app QR scanner overlay
+  // Restore, Link and Forgot are screens stepped into from the first one, each
+  // with its own Back link. The phone's back did not know about them: it fell
+  // through to "Press back again to exit", and a second press closed the app
+  // from the middle of onboarding. Each is a layer while it is up, so back does
+  // what the Back link does.
+  $effect(() => {
+    if (!restoring) return;
+    return pushLayer("onboarding", () => ((restoring = false), (error = "")));
+  });
+  $effect(() => {
+    if (!linking) return;
+    return pushLayer("onboarding", () => ((linking = false), (scanned = false), (error = "")));
+  });
+  $effect(() => {
+    if (!forgot) return;
+    return pushLayer("onboarding", () => (forgot = false));
+  });
   // Scan is offered where a camera makes sense: touch devices with getUserMedia.
   const canScan =
     typeof navigator !== "undefined" &&
@@ -120,6 +153,7 @@
   $effect(() => {
     void [passphrase, confirmPass, displayName, linkCode, restorePhrase];
     error = "";
+    errField = "";
   });
 
   // A concord://link deep link (OS camera scanned the QR) drops the code here —
@@ -144,7 +178,8 @@
       // Auto-advance: the code is captured, so send focus to the passphrase.
       requestAnimationFrame(() => document.querySelector('.login input[type="password"], .login input[type="text"]')?.focus());
     } else {
-      error = "That QR code isn't a Concord link code — make sure it's the one under Settings → Link a device.";
+      error = "That QR code isn't a Concord link code — make sure it's the one under Settings → Your devices.";
+      errField = "code";
     }
   }
 
@@ -154,11 +189,18 @@
     // Accept the raw code or the concord://link?c=… URL form (scans/pastes).
     const code = linkCodeFrom(linkCode);
     if (!code) {
-      error = "Paste the code shown on your other device";
+      error = "Paste the code shown on your other device.";
+      errField = "code";
       return;
     }
-    if (!passphrase || passphrase !== confirmPass) {
-      error = "Passphrases don't match";
+    if (!passphrase) {
+      error = "Choose a passphrase for this device.";
+      errField = "pass";
+      return;
+    }
+    if (!samePassphrase(passphrase, confirmPass)) {
+      error = "The passphrases don't match.";
+      errField = "confirm";
       return;
     }
     busy = true;
@@ -170,7 +212,11 @@
       // and logged in either way. The usual case is guilds the other device
       // belongs to but doesn't administer, which it has no authority to hand
       // over — better said out loud than discovered as missing guilds later.
-      const warning = await api.redeemLinkCode(code, passphrase);
+      // confirm: set only once the user has agreed, in the replace step below,
+      // that THIS account may replace the one on the device.
+      const confirm = replaceAsk?.kind === "link" ? replaceAsk.incoming : "";
+      const warning = await api.redeemLinkCode(code, passphrase, confirm);
+      replaceAsk = null;
       if (warning) flash(warning);
       // The link just landed — celebrate HERE, on the transition the user
       // watched happen, not on the mount of whatever screen comes next. The
@@ -179,27 +225,59 @@
       confettiBurst({ seed: "device-link" });
       await enter();
     } catch (err) {
-      error = humanError(err);
+      if (err?.code === "replace-refused") {
+        // Nothing was written. The code it came with is spent (each works
+        // once), so the step asks for a fresh one along with the yes.
+        askReplace("link", err.detail);
+        linkCode = "";
+        scanned = false;
+        return;
+      }
+      fail(err);
     } finally {
       busy = false;
     }
   }
 
   // Why this screen is showing, when the answer is not "you opened the app".
-  // api.js sets the flag and reloads when the node reports the identity is
-  // locked out from under a running window — which in practice means the
-  // account unlinked this device and the node erased itself. Read once and
+  // api.js reloads onto it when the core reports the identity locked under a
+  // running window, and leaves the core's own answer to "why" (SessionState)
+  // here: restarted, signed out elsewhere, wiped, or unlinked. Only the last is
+  // an erase. This used to assume it always was, and told people after a plain
+  // restart that their identity, guilds and messages were gone. Read once and
   // cleared, so a later reload does not re-explain something that has stopped
-  // being true.
-  const endedElsewhere = (() => {
+  // being true. ("1" is what older builds stored, and it meant unlinked.)
+  const endedReason = (() => {
     try {
       const v = sessionStorage.getItem("concord.sessionEnded");
       sessionStorage.removeItem("concord.sessionEnded");
-      return v === "1";
+      return v === "1" ? "unlinked" : v || "";
     } catch {
-      return false;
+      return "";
     }
   })();
+
+  // The account on this device, named without unlocking it (the clear account
+  // key in the keystore, and the stored display name). The flows that replace
+  // the account — recovery phrase, re-link — say whose it is before they ask.
+  let device = $state(null);
+  const deviceName = $derived(device?.name || "the account on this device");
+  const shortFp = (fp) => (fp ? String(fp).split(" ")[0] : "");
+
+  // replaceAsk: the core refused to put an account on this device because it
+  // would erase the one already here (internal/app/replace.go). Holds what it
+  // said — whose account is here, whose would replace it — until the user
+  // agrees for exactly that account or goes back. kind: "restore" | "link".
+  let replaceAsk = $state(null);
+  function askReplace(kind, d) {
+    replaceAsk = { kind, match: d.match, incoming: d.incoming, incomingName: d.incomingName || "" };
+    if (d.device) device = d.device;
+  }
+
+  // naming: a restore left this device's account without a name (a recovery
+  // phrase carries none), so ask for one before going in — otherwise everyone
+  // it talks to sees a four-character fingerprint stub.
+  let naming = $state(false);
 
   // After CREATING a fresh identity we hold the door and make the user save
   // their 24-word recovery phrase — it's the only way back into the account.
@@ -276,6 +354,7 @@
     // Cleared only on a real answer. Skipping leaves it set, which is what
     // keeps the banner coming back until the words exist somewhere.
     setPref("backupPending", !verified);
+    setPref("backupGate", false);
     backupPhrase = "";
     verifying = false;
     await enter();
@@ -285,25 +364,104 @@
     e?.preventDefault();
     if (busy) return;
     if (!restorePhrase.trim()) {
-      error = "Enter your recovery phrase";
+      error = "Enter your recovery phrase.";
+      errField = "phrase";
       return;
     }
-    if (passphrase !== confirmPass) {
-      error = "Passphrases don't match";
+    if (!passphrase) {
+      error = "Choose a new passphrase for this device.";
+      errField = "pass";
+      return;
+    }
+    if (!samePassphrase(passphrase, confirmPass)) {
+      error = "The passphrases don't match.";
+      errField = "confirm";
       return;
     }
     busy = true;
     error = "";
     try {
-      // If a (locked) identity is still on this device, this is the
-      // forgot-passphrase recovery — validate the phrase, then replace it under
-      // the new passphrase. Otherwise it's a fresh-device restore.
-      if (hasIdentity) await api.restoreOverExisting(restorePhrase.trim(), passphrase);
-      else await api.restoreFromMnemonic(restorePhrase.trim(), passphrase);
+      const phrase = restorePhrase.trim();
+      if (hasIdentity) {
+        // The forgot-passphrase recovery, over an account that is still here.
+        // Ask the core what this phrase would do BEFORE doing it: the same
+        // account on this device keeps everything; anything else would erase
+        // what is here, and that needs a yes for exactly this phrase's account.
+        let confirm = "";
+        if (replaceAsk?.kind === "restore") {
+          confirm = replaceAsk.incoming;
+        } else {
+          const chk = await api.checkRecoveryPhrase(phrase);
+          if (!chk.keepsData) {
+            askReplace("restore", chk);
+            return;
+          }
+        }
+        try {
+          await api.restoreOverExisting(phrase, passphrase, confirm);
+        } catch (err) {
+          if (err?.code === "replace-refused") {
+            askReplace("restore", err.detail);
+            return;
+          }
+          throw err;
+        }
+        replaceAsk = null;
+      } else {
+        await api.restoreFromMnemonic(phrase, passphrase);
+      }
       await api.login(passphrase);
+      if (await isNameless()) {
+        naming = true;
+        restoring = false;
+        return;
+      }
       await enter();
     } catch (err) {
-      error = humanError(err);
+      fail(err);
+    } finally {
+      busy = false;
+    }
+  }
+
+  // isNameless: the unlocked account has no stored name — the core then
+  // reports the first block of its fingerprint as the display name.
+  async function isNameless() {
+    try {
+      const me = await api.identity();
+      return !me?.displayName || me.displayName === shortFp(me.fingerprint);
+    } catch {
+      return false;
+    }
+  }
+
+  async function saveName(e) {
+    e?.preventDefault();
+    const nm = displayName.trim();
+    if (!hasVisible(nm) || busy) return;
+    busy = true;
+    try {
+      await api.setProfile(nm, "", "", "", "");
+      naming = false;
+      await enter();
+    } catch (err) {
+      fail(err, "");
+    } finally {
+      busy = false;
+    }
+  }
+
+  // The resumed recovery-phrase step: the passphrase again, then the words.
+  // The phrase is never shown on an open session alone (see RevealMnemonic).
+  async function resumeShow(e) {
+    e?.preventDefault();
+    if (!passphrase || busy) return;
+    busy = true;
+    try {
+      backupPhrase = (await api.revealMnemonic(passphrase)) || "";
+      if (!backupPhrase) await finishBackup(false);
+    } catch (err) {
+      fail(err);
     } finally {
       busy = false;
     }
@@ -315,7 +473,15 @@
     } catch {
       hasIdentity = false;
     }
+    if (hasIdentity) {
+      try {
+        device = await api.lockedAccount();
+      } catch {
+        device = null;
+      }
+    }
     checked = true;
+    if (resumeBackup) return;
     bioCanEnroll = await bioAvailable();
     bioOn = bioCanEnroll && bioEnrolled();
     // If biometric unlock is set up, offer it straight away on the lock screen.
@@ -324,9 +490,12 @@
 
   async function submit(e) {
     e?.preventDefault();
+    if (resumeBackup && !backupPhrase) return resumeShow(e);
+    if (naming) return saveName(e);
     if (!passphrase || busy || backupPhrase) return;
-    if (!hasIdentity && passphrase !== confirmPass) {
-      error = "Passphrases don't match";
+    if (!hasIdentity && !samePassphrase(passphrase, confirmPass)) {
+      error = "The passphrases don't match.";
+      errField = "confirm";
       return;
     }
     busy = true;
@@ -346,13 +515,17 @@
         // Brand-new account: show the recovery phrase as an explicit save
         // step. If reveal fails for any reason, don't trap them at the door.
         try {
-          backupPhrase = (await api.revealMnemonic()) || "";
+          backupPhrase = (await api.revealMnemonic(passphrase)) || "";
         } catch {
           backupPhrase = "";
         }
         // From here the phrase exists on exactly one device and nowhere else.
         // The flag stays set until it has been verified or looked at again.
         setPref("backupPending", true);
+        // backupGate holds the door across a reload: the core is already
+        // unlocked, so without it a reload walked straight past this step into
+        // the app, for good. App.svelte brings it back until it is finished.
+        if (backupPhrase) setPref("backupGate", true);
         if (backupPhrase) return;
       }
       // Offer biometric unlock after a successful password unlock on a device
@@ -364,7 +537,7 @@
       }
       await enter();
     } catch (err) {
-      error = humanError(err);
+      fail(err);
     } finally {
       busy = false;
     }
@@ -380,7 +553,7 @@
       passphrase = "";
       confirmPass = "";
     } catch (err) {
-      error = humanError(err);
+      fail(err, "");
     } finally {
       busy = false;
     }
@@ -397,31 +570,195 @@
       if (document.activeElement === el) el.scrollIntoView({ block: "center", behavior: "smooth" });
     }, 350);
   }
+
+  // One decision per screen, each named by its heading; the three steps of a
+  // new account say where you are in them.
+  const heading = $derived(
+    backupPhrase && verifying
+      ? "Check your recovery phrase"
+      : backupPhrase || resumeBackup
+        ? "Save your recovery phrase"
+        : !checked
+          ? "Concord"
+          : naming
+            ? "What should people call you?"
+            : replaceAsk
+              ? "Before anything is erased"
+              : offerBio
+                ? "Unlock faster next time"
+                : confirmingReset
+                  ? "Start over on this device?"
+                  : linking
+                    ? "Link this device"
+                    : restoring
+                      ? "Restore your account"
+                      : forgot
+                        ? "Forgot your passphrase?"
+                        : hasIdentity
+                          ? "Unlock Concord"
+                          : "Create your account",
+  );
+  const step = $derived(
+    !checked || resumeBackup
+      ? ""
+      : backupPhrase && verifying
+        ? "3 of 3"
+        : backupPhrase
+          ? "2 of 3"
+          : !hasIdentity && !linking && !restoring && !forgot && !confirmingReset && !replaceAsk && !naming && !offerBio
+            ? "1 of 3"
+            : "",
+  );
 </script>
 
 <div class="login" onfocusin={keepFieldInView}>
-  <form class="card" class:wide={!!backupPhrase} onsubmit={submit}>
-    <div class="logo"><Icon name="concorde" size={44} /></div>
-    <h1>{backupPhrase ? "Save your recovery phrase" : "Concord"}</h1>
+  <form class="card" onsubmit={submit}>
+    <!-- The app's own mark on a tile of its own, so it reads on the dark
+         ground as well as on paper. -->
+    <div class="logo"><Icon name="concorde" size={28} /></div>
+    {#if step}<p class="step">{step}</p>{/if}
+    <h1>{heading}</h1>
 
-    {#if endedElsewhere && !backupPhrase}
+    {#if endedReason && !backupPhrase && !resumeBackup}
       <p class="notice" role="status">
-        This device was unlinked from its account. Its copy of your identity,
-        your guilds and your messages has been erased here — nothing was deleted
-        from anyone else. Link it again from one of your other devices to get
-        them back.
+        {#if endedReason === "unlinked"}
+          This device was unlinked from its account. Its copy of your identity,
+          your guilds and your messages has been erased here — nothing was deleted
+          from anyone else. Link it again from one of your other devices to get
+          them back.
+        {:else if endedReason === "wiped"}
+          Everything on this device was deleted from another Concord window.
+        {:else if endedReason === "signed-out"}
+          You signed out in another Concord window. Unlock to carry on — you'll
+          land where you were.
+        {:else}
+          Concord restarted. Nothing was lost — unlock to carry on where you were.
+        {/if}
       </p>
     {/if}
 
     {#if !checked}
       <p class="muted">Loading…</p>
+    {:else if resumeBackup && !backupPhrase}
+      <p class="muted">
+        This account was created here, but its recovery phrase was never saved —
+        and it is the only way back in if this device is lost. Enter your
+        passphrase to see the 24 words.
+      </p>
+      <PassphraseField placeholder="Passphrase" bind:value={passphrase} invalid={errField === "pass"} autofocus={!S.isMobile} />
+      <div class="error slot" role="alert">{error}</div>
+      <button class="primary" type="submit" disabled={!passphrase || busy}>Show my recovery phrase</button>
+    {:else if naming}
+      <p class="muted">
+        Your account is back. What should people call you? A recovery phrase
+        carries no name, so this device doesn't have one yet.
+      </p>
+      <input
+        type="text"
+        placeholder="Your name (what people see)"
+        aria-label="Your name"
+        maxlength="32"
+        autocomplete="off"
+        bind:value={displayName}
+        use:focusOnMount={{ skip: S.isMobile }}
+      />
+      <div class="error slot" role="alert">{error}</div>
+      <button class="primary" type="submit" disabled={!hasVisible(displayName) || busy}>Continue</button>
+    {:else if replaceAsk}
+      <!-- The core refused to put an account on this device because it would
+           erase the one here. This is the only place that can say yes, and it
+           says yes for ONE account: the fingerprint it sends back is the
+           incoming one, so an edited phrase or a code for yet another account
+           is asked about again. -->
+      <div class="replace" role="alertdialog" aria-labelledby="replace-h" aria-describedby="replace-p">
+        <h2 id="replace-h">
+          {#if replaceAsk.match === "same"}
+            Restoring would erase this device's copy
+          {:else if replaceAsk.match === "unknown"}
+            This would erase what's on this device
+          {:else if replaceAsk.kind === "link"}
+            That code is for a different account
+          {:else}
+            That phrase is for a different account
+          {/if}
+        </h2>
+        <p id="replace-p">
+          {#if replaceAsk.match === "same"}
+            The phrase is for <strong>{deviceName}</strong>, the account on this device —
+            but this device was linked to it from another device, and that link can't be
+            recovered without the passphrase. Restoring erases this device's guilds,
+            messages and notes. If your other device still has the account, re-linking
+            from it brings everything back instead.
+          {:else if replaceAsk.match === "unknown"}
+            Concord can't tell which account is on this device without its passphrase.
+            Going ahead erases <strong>everything on this device</strong> — the account
+            here, its guilds, messages and notes — and replaces it with the account
+            {replaceAsk.kind === "link" ? "the code is for" : "the phrase is for"}
+            ({shortFp(replaceAsk.incoming)}).
+          {:else}
+            This device holds <strong>{deviceName}</strong>{#if device?.fingerprint}&nbsp;({shortFp(
+                device.fingerprint,
+              )}){/if}. The {replaceAsk.kind === "link" ? "code" : "phrase"} belongs to
+            <strong>{replaceAsk.incomingName || "another account"}</strong> ({shortFp(replaceAsk.incoming)}).
+            Going ahead <strong>erases {deviceName} from this device</strong> — its guilds,
+            messages, notes and settings. Nothing can bring this device's copy back unless
+            {deviceName} is also on another of your devices.
+          {/if}
+        </p>
+        <p class="muted small nothing-yet">Nothing has been changed yet.</p>
+      </div>
+      {#if replaceAsk.kind === "link"}
+        <p class="muted small">
+          Each link code works once. To go ahead, make a new code on the other device
+          and paste it here.
+        </p>
+        <textarea
+          class="phrase-in"
+          rows="3"
+          placeholder="Paste the new link code…"
+          aria-label="New link code"
+          aria-invalid={errField === "code" ? "true" : undefined}
+          autocapitalize="none"
+          autocorrect="off"
+          autocomplete="off"
+          spellcheck="false"
+          bind:value={linkCode}
+        ></textarea>
+      {/if}
+      <div class="error slot" role="alert">{error}</div>
+      <button
+        type="button"
+        class="danger"
+        disabled={busy || (replaceAsk.kind === "link" && !linkCode.trim())}
+        onclick={replaceAsk.kind === "link" ? doLink : doRestore}
+      >
+        {#if busy}
+          Erasing…
+        {:else if replaceAsk.match === "same"}
+          Erase this device's copy and restore
+        {:else}
+          Erase {device?.name || "this device's account"} and {replaceAsk.kind === "link" ? "link" : "restore"}
+        {/if}
+      </button>
+      {#if replaceAsk.match === "same"}
+        <button
+          type="button"
+          class="ghost"
+          onclick={() => ((replaceAsk = null), (restoring = false), (linking = true), (error = ""))}
+        >
+          Re-link from my other device instead
+        </button>
+      {/if}
+      <button type="button" class="link" onclick={() => ((replaceAsk = null), (error = ""))}>
+        Go back
+      </button>
     {:else if offerBio}
       <p class="muted">
         Unlock Concord with your fingerprint or face next time, instead of typing
         your passphrase. It's stored in this device's secure hardware — your
         passphrase never leaves the device.
       </p>
-      <button type="button" onclick={confirmEnableBio}>Enable biometric unlock</button>
+      <button class="primary" type="button" onclick={confirmEnableBio}>Enable biometric unlock</button>
       <button type="button" class="link" onclick={skipEnableBio}>Not now</button>
     {:else if backupPhrase && verifying}
       <p class="muted">
@@ -459,13 +796,13 @@
         </label>
       </div>
       <div class="error slot" role="alert">{verifyErr}</div>
-      <button type="button" disabled={!answerA.trim() || !answerB.trim()} onclick={submitVerify}>
+      <button class="primary" type="button" disabled={!answerA.trim() || !answerB.trim()} onclick={submitVerify}>
         Confirm
       </button>
       <!-- Never a lock-out: someone who cannot answer needs the words MORE, not
            less, and refusing to let them into an account they just made would
            be the app breaking its own promise about who holds the keys. -->
-      <button type="button" class="ghost-sm" onclick={askAgain}>Show me the words again</button>
+      <button type="button" class="ghost" onclick={askAgain}>Show me the words again</button>
     {:else if backupPhrase}
       <p class="muted">
         These 24 words are the <strong>only</strong> way to get your account back if you lose this
@@ -477,21 +814,31 @@
           <span class="word"><span class="wn">{i + 1}</span>{w}</span>
         {/each}
       </div>
-      <div class="phrase-actions">
-        <button type="button" class="ghost-sm" onclick={toggleReveal}>
-          {showPhrase ? "Hide" : "Show phrase"}
-        </button>
-        <button type="button" class="ghost-sm" disabled={!showPhrase} onclick={copyPhrase}>
-          {copiedPhrase ? "Copied ✓" : "Copy"}
-        </button>
-      </div>
-      <p class="muted tiny warn">
-        Anyone with these words can become you — never share them. You can view them again later in
-        Settings.
+      <!-- One control to show them: the primary. Once they have been seen,
+           Hide and Copy appear beside the grid and the primary moves on to the
+           next step. (There were two "show" controls, a chip and the button.) -->
+      {#if revealedOnce}
+        <div class="phrase-actions">
+          <button type="button" class="quiet sm" onclick={toggleReveal}>
+            {showPhrase ? "Hide" : "Show"}
+          </button>
+          <button type="button" class="quiet sm" disabled={!showPhrase} onclick={copyPhrase}>
+            {copiedPhrase ? "Copied" : "Copy"}
+          </button>
+        </div>
+      {/if}
+      <p class="muted tiny note-line">
+        <Icon name="alert" size={13} />
+        <span>
+          Anyone with these words can become you — never share them. You can see them again later in
+          Settings.
+        </span>
       </p>
-      <button type="button" disabled={!revealedOnce} onclick={startVerify}>
-        I've saved my recovery phrase
-      </button>
+      {#if revealedOnce}
+        <button class="primary" type="button" onclick={startVerify}>I've written it down</button>
+      {:else}
+        <button class="primary" type="button" onclick={toggleReveal}>Show the phrase</button>
+      {/if}
     {:else if confirmingReset}
       <p class="muted">
         This permanently deletes your identity and all data on <strong>this device</strong>
@@ -499,13 +846,13 @@
         cannot be undone.
       </p>
       <div class="error slot" role="alert">{error}</div>
-      <button type="button" class="danger-btn" disabled={busy} onclick={doReset}>
+      <button type="button" class="danger" disabled={busy} onclick={doReset}>
         {busy ? "Resetting…" : "Yes, delete and start over"}
       </button>
       <button type="button" class="link" onclick={() => (confirmingReset = false)}>Cancel</button>
     {:else if linking}
       <p class="muted">
-        On your other device, open <strong>Settings → Link a device</strong>.
+        On your other device, open <strong>Settings → Your devices</strong>.
         {#if canScan}Scan the QR code, or paste the code{:else}Copy the code and paste it here{/if}
         with a passphrase for this device (it becomes this device's passphrase,
         replacing any old one). Both devices need to be online.
@@ -522,7 +869,7 @@
         </div>
       {:else}
         {#if canScan}
-          <button type="button" class="scan-btn" onclick={() => (scanning = true)}>
+          <button type="button" class="primary scan-btn" onclick={() => (scanning = true)}>
             <Icon name="camera" size={17} /> Scan QR code
           </button>
           <div class="or"><span>or paste it</span></div>
@@ -531,10 +878,13 @@
              autocorrect and predictive text on, which mangles a code the
              backend then rejects with an opaque error — on the one screen
              where the user has no other way in. -->
+        <span class="field-lbl" aria-hidden="true">Link code</span>
         <textarea
           class="phrase-in"
           rows="3"
           placeholder="Paste the link code…"
+          aria-label="Link code"
+          aria-invalid={errField === "code" ? "true" : undefined}
           autocapitalize="none"
           autocorrect="off"
           autocomplete="off"
@@ -542,8 +892,19 @@
           bind:value={linkCode}
         ></textarea>
       {/if}
-      <PassphraseField placeholder="Passphrase for this device" autocomplete="new-password" meter bind:value={passphrase} invalid={!!error} />
-      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={!!error} />
+      {#if hasIdentity}
+        <p class="muted small">
+          This device holds <strong>{deviceName}</strong>{#if device?.fingerprint}&nbsp;({shortFp(
+              device.fingerprint,
+            )}){/if}. A code from the same account keeps
+          everything here; if it's from a different account you'll be asked before
+          anything is erased.
+        </p>
+      {/if}
+      <span class="field-lbl" aria-hidden="true">Passphrase for this device</span>
+      <PassphraseField placeholder="Passphrase for this device" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
+      <span class="field-lbl" aria-hidden="true">Confirm passphrase</span>
+      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
       {#if busy}
         <div class="linking-status">
@@ -551,7 +912,7 @@
           <span>Connecting to your other device… this can take up to a minute over the internet — keep both devices on the link screen.</span>
         </div>
       {/if}
-      <button type="button" disabled={busy} onclick={doLink}>
+      <button class="primary" type="button" disabled={busy} onclick={doLink}>
         {busy ? "Linking…" : "Link this device"}
       </button>
       <button type="button" class="link" onclick={() => ((linking = false), (scanned = false), (error = ""))}>
@@ -564,19 +925,25 @@
            the app already told this truth (the forgot menu above, the wipe
            dialog, Privacy, Backup) — this one used to promise "nothing is lost",
            and it is the only one anybody reads while deciding. -->
-      <p class="muted">
-        Enter your 24-word recovery phrase and a new passphrase for this device.
-        The phrase restores your account key — you come back as the same person,
-        to anyone who has verified you. It is <strong>not</strong> a backup of
-        your data: this device starts with no name, no guilds and no history. If
-        another of your devices is still linked, go back and link to that one
-        instead and everything comes with it; otherwise ask someone in each guild
-        for a fresh invite.
-      </p>
+      {#if hasIdentity}
+        <p class="muted">
+          Enter your 24-word recovery phrase and a new passphrase. If the phrase is
+          for <strong>{deviceName}</strong>, the account on this device, everything
+          here stays — only the passphrase changes. If it's for a different account,
+          you'll be told before anything is erased.
+        </p>
+      {:else}
+        <p class="muted">
+          Your 24 words bring back who you are, not your history: this device starts with no
+          guilds and no messages. If another of your devices still has the account, link to it
+          instead and everything comes with it.
+        </p>
+      {/if}
       <!-- Same reason as the link code, and worse here: the IME will happily
            "correct" uncommon BIP-39 words (gauge, nuclear, kernel) to
            dictionary neighbours as you type, and the phrase is the only way
            back into the account. -->
+      <span class="field-lbl" aria-hidden="true">Recovery phrase</span>
       <textarea
         class="phrase-in"
         rows="3"
@@ -585,12 +952,16 @@
         autocorrect="off"
         autocomplete="off"
         spellcheck="false"
+        aria-label="Recovery phrase"
+        aria-invalid={errField === "phrase" ? "true" : undefined}
         bind:value={restorePhrase}
       ></textarea>
-      <PassphraseField placeholder="New passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={!!error} />
-      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={!!error} />
+      <span class="field-lbl" aria-hidden="true">New passphrase</span>
+      <PassphraseField placeholder="New passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
+      <span class="field-lbl" aria-hidden="true">Confirm passphrase</span>
+      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
-      <button type="button" disabled={busy} onclick={doRestore}>
+      <button class="primary" type="button" disabled={busy} onclick={doRestore}>
         {busy ? "Restoring…" : "Restore account"}
       </button>
       <button type="button" class="link" onclick={() => ((restoring = false), (error = ""))}>
@@ -605,7 +976,7 @@
         guilds and history only return by re-linking or re-invites.
       </p>
       <div class="error slot" role="alert">{error}</div>
-      <button type="button" onclick={() => ((linking = true), (forgot = false), (error = ""))}>
+      <button class="primary" type="button" onclick={() => ((linking = true), (forgot = false), (error = ""))}>
         Re-link from my other device
       </button>
       <button type="button" class="ghost" onclick={() => ((restoring = true), (forgot = false), (error = ""))}>
@@ -616,32 +987,40 @@
       </button>
       <button type="button" class="link" onclick={() => (forgot = false)}>Back</button>
     {:else if hasIdentity}
-      <p class="muted">Welcome back — enter your passphrase to unlock.</p>
+      <p class="muted">Enter the passphrase you chose for this device.</p>
+      <span class="field-lbl" aria-hidden="true">Passphrase</span>
       <!-- No autofocus on a phone. onMount raises the OS biometric sheet on the
            same frame; autofocus slid the software keyboard up underneath it,
            and dismissing the biometric prompt left the keyboard covering a card
            the app can't scroll out from under it. Let the biometric prompt own
            the first interaction; a tap on the field summons the keyboard when
            it's actually wanted. -->
-      <PassphraseField placeholder="Passphrase" bind:value={passphrase} invalid={!!error} autofocus={!S.isMobile} />
+      <PassphraseField placeholder="Passphrase" bind:value={passphrase} invalid={errField === "pass"} autofocus={!S.isMobile} />
       <div class="error slot" role="alert">{error}</div>
-      <button type="submit" disabled={!passphrase || busy}>
+      <button
+        class="primary"
+        type="submit"
+        disabled={!passphrase || busy}
+        title={!passphrase && !busy ? "Enter your passphrase first" : undefined}
+      >
         {busy ? "Unlocking…" : "Unlock"}
       </button>
       {#if bioOn}
-        <button type="button" class="ghost-sm" disabled={busy} onclick={tryBiometricUnlock}>
+        <button type="button" class="ghost" disabled={busy} onclick={tryBiometricUnlock}>
           Unlock with biometrics
         </button>
       {/if}
-      <button type="button" class="link" onclick={() => ((forgot = true), (error = ""))}>
-        Forgot passphrase?
-      </button>
-      <!-- Re-link works over an existing keystore too (the device key is kept,
-           only the account material is re-adopted) — handy for refreshing a
-           device from the desktop without digging through recovery flows. -->
-      <button type="button" class="link" onclick={() => ((linking = true), (error = ""))}>
-        Re-link from another device
-      </button>
+      <div class="links">
+        <button type="button" class="link" onclick={() => ((forgot = true), (error = ""))}>
+          Forgot passphrase?
+        </button>
+        <!-- Re-link works over an existing keystore too (the device key is kept,
+             only the account material is re-adopted) — handy for refreshing a
+             device from the desktop without digging through recovery flows. -->
+        <button type="button" class="link" onclick={() => ((linking = true), (error = ""))}>
+          Re-link from another device
+        </button>
+      </div>
     {:else}
       <p class="muted">
         Pick a name and a passphrase to protect your identity on this device.
@@ -650,18 +1029,26 @@
       </p>
       <!-- Likewise: a brand-new user's very first frame should be the copy
            explaining what they're about to do, not a keyboard covering it. -->
+      <span class="field-lbl" aria-hidden="true">Your name</span>
       <input
         type="text"
-        placeholder="Your name (what people see)"
+        placeholder="What people see"
+        aria-label="Your name"
         maxlength="32"
         autocomplete="off"
         bind:value={displayName}
         use:focusOnMount={{ skip: S.isMobile }}
       />
-      <PassphraseField placeholder="Choose a passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={!!error} />
-      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={!!error} />
+      <!-- The field stops at 32; say so before it starts dropping letters. -->
+      {#if [...displayName].length >= 24}
+        <span class="count">{[...displayName].length}/32</span>
+      {/if}
+      <span class="field-lbl" aria-hidden="true">Passphrase</span>
+      <PassphraseField placeholder="Choose a passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
+      <span class="field-lbl" aria-hidden="true">Confirm passphrase</span>
+      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
-      <button type="submit" disabled={!displayName.trim() || !passphrase || !confirmPass || busy}>
+      <button class="primary" type="submit" disabled={!hasVisible(displayName) || !passphrase || !confirmPass || busy}>
         {busy ? "Creating…" : "Create identity"}
       </button>
       <button type="button" class="link" onclick={() => ((restoring = true), (error = ""))}>
@@ -672,11 +1059,8 @@
       </button>
     {/if}
 
-    {#if !backupPhrase}
-      <p class="muted tiny">
-        To join a friend, just unlock then paste their invite code — it sets up
-        everything for you.
-      </p>
+    {#if !backupPhrase && !resumeBackup && !naming && !replaceAsk}
+      <p class="foot"><Icon name="lock" size={14} /> Your keys never leave this device.</p>
     {/if}
   </form>
 </div>
@@ -713,140 +1097,130 @@
       transform: rotate(360deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .ls-spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .ls-spin {
+    animation: none;
   }
+  /* The lock and onboarding screens: no card, a 340px column on the canvas,
+     everything left-aligned to it — the mark, the heading in the display
+     face, one sentence, the field, the full-width primary, the links. */
   .login {
-    /* The door is deliberately UNBRANDED: a neutral silver stands in for the
-       accent here, because whatever color the user later picks (profile or
-       preset) shouldn't be presumed — or clashed with — before they're even
-       in. The derived accent vars are re-declared since :root computed them
-       from ITS --accent; a scoped override alone wouldn't reach them. */
-    --accent: #97a1b2;
-    --accent-hover: #b9c1cd;
-    --accent-fg: #141419;
-    --accent-soft: rgba(151, 161, 178, 0.16);
-    --accent-glow: 0 0 24px rgba(151, 161, 178, 0.3);
     height: 100%;
     display: grid;
     place-items: center;
-    /* Subtle vignette, same silver whisper. */
-    background:
-      radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 55%),
-      radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--bg-3) 70%, var(--bg)), var(--bg));
+    background: var(--bg-2);
+    overflow-y: auto;
   }
-  /* The error keeps its line whether or not there is an error. It used to
-     appear between the fields and the button, which moved the button a
-     half-second after a failed attempt — right under a finger already on its
-     way to click it again. */
   .error.slot {
     min-height: 1.3em;
     margin: -4px 0;
-    text-align: left;
+    text-align: start;
+    font-size: var(--fs-small);
+    color: var(--danger-text);
+  }
+  .error.slot:empty {
+    min-height: 0;
+    margin: -6px 0 0;
   }
   .card {
     width: 340px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: var(--sp-6);
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    text-align: center;
-    box-shadow: var(--shadow-pop);
+    gap: var(--sp-3);
+    padding: var(--sp-6) 0;
+    text-align: start;
   }
+  /* The existing mark, on a raised tile with a hairline so it holds on the
+     graphite canvas as well as on paper. */
   .logo {
-    /* Hero badge: a soft conic accent ring around the jet, breathing a slow
-       ambient glow (the app's one continuously-running animation). */
-    position: relative;
-    /* text-align:center on the card centres the copy but not a fixed-size flex
-       item — the badge was sitting flush against the card's left edge. */
-    align-self: center;
-    color: var(--text);
     display: grid;
     place-items: center;
-    width: 72px;
-    height: 72px;
-    border-radius: 50%;
-    border: 2px solid transparent;
-    background:
-      linear-gradient(var(--bg-3), var(--bg-3)) padding-box,
-      conic-gradient(
-          from 210deg,
-          var(--accent),
-          color-mix(in srgb, var(--accent) 25%, transparent) 40%,
-          color-mix(in srgb, var(--accent) 55%, transparent) 75%,
-          var(--accent)
-        )
-        border-box;
-    animation:
-      takeoff 0.6s ease both,
-      logo-breathe 4.5s ease-in-out 0.6s infinite;
+    width: 48px;
+    height: 48px;
+    margin-bottom: var(--sp-3);
+    border-radius: var(--radius-lg);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text);
   }
-  @keyframes takeoff {
-    from {
-      transform: translateY(6px) rotate(-8deg);
-      opacity: 0;
-    }
-    to {
-      transform: none;
-      opacity: 1;
-    }
-  }
-  @keyframes logo-breathe {
-    0%,
-    100% {
-      box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 16%, transparent);
-    }
-    50% {
-      box-shadow: 0 0 34px color-mix(in srgb, var(--accent) 36%, transparent);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .logo {
-      animation: none;
-    }
-  }
-  /* Primary CTAs: gradient fill + a soft lift on hover. (Quiet buttons — the
-     .link/.ghost-sm/.danger-btn variants — keep their own styling.) */
-  .card button:not(.link):not(.ghost-sm):not(.danger-btn):not(.rescan) {
-    background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 72%, var(--accent-hover)));
-    font-weight: 600;
-    box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 28%, transparent);
-    transition:
-      transform var(--dur-standard) ease,
-      box-shadow var(--dur-standard) ease,
-      filter var(--dur-standard) ease;
-  }
-  .card button:not(.link):not(.ghost-sm):not(.danger-btn):not(.rescan):hover:not(:disabled) {
-    transform: translateY(-1px);
-    filter: brightness(1.07);
-    box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 38%, transparent);
-  }
-  .card button:not(.link):not(.ghost-sm):not(.danger-btn):not(.rescan):active:not(:disabled) {
-    transform: none;
-    filter: brightness(0.97);
+  .step {
+    margin: 0 0 -6px;
+    font-size: var(--fs-small);
+    color: var(--text-faint);
   }
   h1 {
     margin: 0;
+    font-family: var(--display-font);
     font-size: var(--fs-display);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
   }
   p {
     margin: 0;
-    /* 13px on a desktop card, 14px held at arm's length — the token carries
-       both, so the phone block no longer has to restate it. */
     font-size: var(--fs-ui);
     line-height: 1.5;
   }
+  .muted {
+    color: var(--text-muted);
+  }
+  .field-lbl {
+    margin: var(--sp-2) 0 -6px;
+    font-size: var(--fs-compact);
+    font-weight: 500;
+  }
+  .card input,
+  .card textarea {
+    min-height: 40px;
+  }
+  /* The one primary: 40px, full width, the accent. Disabled is the shared
+     45% so an enabled Unlock never looks like a disabled one. */
+  .card button.primary,
+  .card button.danger {
+    min-height: 40px;
+    width: 100%;
+    font-size: var(--fs-ui);
+  }
+  /* The secondary is the same lg control as the primary: 40px, --fs-ui,
+     600. It was 36px at the inherited 16px beside a 40px primary at 13px,
+     so the less important button read as the bigger one. */
+  .card button.primary,
+  .card button.danger,
+  .card button.ghost {
+    font-weight: 600;
+  }
+  .card button.ghost {
+    min-height: 40px;
+    width: 100%;
+    font-size: var(--fs-ui);
+  }
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1) var(--sp-5);
+    margin-top: var(--sp-1);
+  }
+  .link {
+    font-size: var(--fs-compact);
+    align-self: flex-start;
+    text-align: start;
+  }
+  .warn-link {
+    color: var(--danger-text);
+  }
+  .foot {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-top: 40px;
+    font-size: var(--fs-small);
+    color: var(--text-faint);
+  }
   .card.wide {
-    width: 430px;
-    max-width: calc(100 * var(--vw) - 32px);
+    width: 440px;
+    max-width: calc(100 * var(--vw) - 28px);
   }
   .phrase-in {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono-font);
     font-size: var(--fs-ui);
     resize: vertical;
   }
@@ -856,40 +1230,35 @@
     justify-content: center;
     gap: var(--sp-2);
   }
-  /* "or paste it" divider between the scan CTA and the manual box. */
   .or {
     display: flex;
     align-items: center;
     gap: 10px;
     color: var(--text-muted);
     font-size: var(--fs-small);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
   }
   .or::before,
   .or::after {
     content: "";
     flex: 1;
     height: 1px;
-    background: var(--border);
+    background: var(--hairline);
   }
-  /* Post-scan confirmation — the scan clearly "took". */
   .scanned-ok {
     display: flex;
     align-items: center;
     gap: 9px;
-    padding: 11px 13px;
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--ok) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent);
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: var(--bg-1);
+    border: 1px solid var(--border);
     font-size: var(--fs-ui);
-    text-align: left;
   }
   .scanned-ok .tick {
     display: grid;
     place-items: center;
-    width: 26px;
-    height: 26px;
+    width: 24px;
+    height: 24px;
     flex: none;
     border-radius: 50%;
     background: var(--ok);
@@ -897,61 +1266,77 @@
   }
   .scanned-ok .rescan {
     margin-left: auto;
-    padding: 4px 10px;
+    padding: 0 10px;
+    min-height: 28px;
     font-size: var(--fs-compact);
-    background: transparent;
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     color: var(--text-muted);
-    cursor: pointer;
   }
-  /* Why you are looking at a login screen you did not ask for. Warm rather than
-     alarming: nothing has gone wrong, this device was told to let go. */
   .notice {
-    margin: 0 0 4px;
     padding: 10px 12px;
-    border-radius: var(--r-md, 10px);
-    background: var(--bg-2);
-    border: 1px solid var(--line);
-    color: var(--text-2);
-    font-size: var(--fs-sm, 13px);
+    border-radius: var(--radius-md);
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: var(--fs-compact);
     line-height: 1.5;
-    text-align: left;
   }
-
-  /* The 24-word grid: numbered, monospace, blurred until revealed so nobody
-     shoulder-surfs it before the user is ready. */
+  /* The erase question keeps its weight: a danger-tinted panel, and the
+     verb on a danger button under it. */
+  .replace {
+    padding: var(--sp-3);
+    border-radius: var(--radius-md);
+    border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);
+    background: var(--danger-soft);
+  }
+  .replace h2 {
+    margin: 0 0 var(--sp-2);
+    font-size: var(--fs-ui);
+    font-weight: 600;
+  }
+  .small {
+    font-size: var(--fs-compact);
+  }
+  .count {
+    margin: -8px 0 0;
+    font-size: var(--fs-small);
+    color: var(--text-faint);
+    text-align: end;
+  }
+  .nothing-yet {
+    margin-top: var(--sp-2);
+  }
+  .phrase-in[aria-invalid="true"] {
+    border-color: var(--danger);
+  }
+  /* The 24 words: numbered cells in a 3×8 grid on --bg-1 with hairlines. */
   .words {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 5px 10px;
-    padding: var(--sp-3);
-    background: var(--bg-input, var(--bg-3));
+    gap: 1px;
+    background: var(--hairline);
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    font-family: ui-monospace, monospace;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    font-family: var(--mono-font);
     font-size: var(--fs-compact);
-    text-align: left;
   }
-  /* This grid is the ONLY copy of the user's account key, and it used to
-     ellipsize: a long BIP-39 word in a narrow column was silently cut and
-     replaced with "…", with the blur on top hiding that it had happened. The
-     user transcribes a truncated word onto paper and finds out months later.
-     A phrase grid is not allowed to lie — it wraps or it grows, never clips. */
   .word {
     display: flex;
     gap: 6px;
     align-items: baseline;
+    padding: 6px var(--sp-2);
+    background: var(--bg-1);
     overflow-wrap: anywhere;
     transition: filter var(--dur-standard) ease;
   }
-  /* Which word this is, not decoration — you read it to check word 17. */
   .wn {
-    color: var(--text-muted);
+    color: var(--text-faint);
     font-size: var(--fs-tiny);
     min-width: 16px;
     flex: none;
-    text-align: right;
+    text-align: end;
   }
   .words.veiled .word {
     filter: blur(6px);
@@ -960,7 +1345,19 @@
   .phrase-actions {
     display: flex;
     gap: var(--sp-2);
-    justify-content: center;
+  }
+  /* A caution, not an error: muted, with the alert glyph carrying it. */
+  .note-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .note-line :global(svg) {
+    flex: none;
+    margin-top: 2px;
+  }
+  .tiny {
+    font-size: var(--fs-small);
   }
   .verify {
     display: flex;
@@ -974,110 +1371,40 @@
     text-align: left;
   }
   .vnum {
-    font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-size: var(--fs-small);
     color: var(--text-faint);
   }
-  .ghost-sm {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-    font-size: var(--fs-compact);
-    padding: 5px 12px;
-  }
-  .ghost-sm:hover:not(:disabled) {
-    color: var(--text);
-    border-color: var(--text-muted);
-  }
-  .ghost-sm:disabled {
-    opacity: 0.45;
-  }
-  .warn {
-    color: var(--danger-text);
-  }
-  .link {
-    background: transparent;
-    color: var(--text-muted);
-    font-size: var(--fs-compact);
-    padding: 2px;
-  }
-  .link:hover {
-    color: var(--text);
-    text-decoration: underline;
-  }
-  .warn-link:hover {
-    color: var(--danger-text);
-  }
-  .danger-btn {
-    background: var(--danger);
-    color: var(--danger-fg);
-  }
-  .tiny {
-    font-size: var(--fs-small);
-    margin-top: var(--sp-1);
-  }
-
-  /* ---- touch adjustments ---- */
-  @media (pointer: coarse), (max-width: 768px) {
-    /* flex + margin:auto centers like place-items but still scrolls when the
-       card outgrows the screen (recovery-phrase step with the keyboard up). */
+  @media (max-width: 768px) {
+    /* The same column, 14px from the edges, its top a fifth of the way down
+       below the safe area. It scrolls when a step and the keyboard need it. */
     .login {
       display: flex;
-      overflow-y: auto;
       overscroll-behavior: contain;
-      /* The top inset is a BORDER, not padding: a scroller clips its content
-         at the padding edge, so content scrolled up stops below the status
-         bar instead of passing under the clock, while the border still shows
-         this page's own background behind the bar. --kb: an edge-to-edge
-         WebView does not shrink for the keyboard, so without it the confirm
-         field and the verify words sit under the IME with nowhere to go. */
       border-top: var(--safe-top) solid transparent;
-      padding: 12px var(--sp-edge) calc(12px + var(--safe-bottom) + var(--kb, 0px));
+      padding: 0 14px calc(12px + var(--safe-bottom) + var(--kb, 0px));
     }
-    /* Full-bleed onboarding on a phone — no floating "card in a box". It blends
-       into the screen like every other native sheet, top-aligned with room to
-       breathe, and still scrolls if the recovery-phrase step + keyboard need it. */
-    .card {
-      margin: calc(6 * var(--vh)) auto auto;
+    .card,
+    .card.wide {
+      margin: calc(14 * var(--vh)) auto auto;
       width: 100%;
       max-width: 460px;
-      padding: 8px 20px 20px;
-      gap: var(--sp-4);
-      background: transparent;
-      border: none;
-      box-shadow: none;
     }
-    .card.wide {
-      max-width: 460px;
-    }
-    /* 16px inputs: readable at arm's length, and iOS won't auto-zoom. */
     input,
     .phrase-in {
       font-size: 16px;
-      padding: var(--sp-3);
     }
-    button {
+    .card button.primary,
+    .card button.danger,
+    .card button.ghost {
       min-height: 48px;
-    }
-    .phrase-actions .ghost-sm {
-      min-height: 44px;
     }
     .link {
       min-height: var(--tap-min);
     }
-    /* Two columns, not three. At 360px a three-up grid leaves ~72px for the
-       word itself — right at the edge for the longest BIP-39 entries, and over
-       it on a 320px device. Two columns give every word room at a size you can
-       transcribe from without leaning in. */
     .words {
       grid-template-columns: repeat(2, 1fr);
       font-size: var(--fs-ui);
-      gap: var(--sp-2) var(--sp-3);
-      padding: 14px 12px;
     }
-    /* The "Rescan" chip is inline with a line of copy, so it can't grow without
-       shoving the confirmation around — pad the hit box instead. */
     .scanned-ok .rescan {
       position: relative;
     }
@@ -1085,11 +1412,6 @@
       content: "";
       position: absolute;
       inset: -10px -6px;
-    }
-    /* Tracked-out micro-caps are the least legible thing on the screen, and
-       this one is only a divider label. */
-    .or {
-      letter-spacing: 0.04em;
     }
   }
 </style>

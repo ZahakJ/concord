@@ -77,6 +77,43 @@ function reportTransport(up) {
   for (const cb of [...healthWatchers]) cb(up);
 }
 
+// probeCore asks the core a trivial question with a deadline, and reports a
+// core that does not answer as down.
+//
+// A core that has crashed is noticed by itself: the socket refuses, fetch
+// rejects, the event stream errors. A core that has HUNG is not. Its sockets
+// stay open, the event stream simply goes quiet, and nothing ever fails — so
+// in a call the mesh to everybody else dropped within seconds while the stage
+// said "Voice connected" and "Waiting for others to join…" with the clock
+// running: it told the user the others had left, when the one who had dropped
+// out of the room was them. Two misses in a row, so one slow answer on a busy
+// machine is not an outage. Wails calls have no network under them and are
+// not probed.
+let probeMisses = 0;
+export async function probeCore(timeoutMs = 6000) {
+  if (wailsBindings() || typeof fetch !== "function") return true;
+  const headers = { "Content-Type": "application/json" };
+  if (apiToken) headers["Authorization"] = `Bearer ${apiToken}`;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  try {
+    await fetch(`${apiBase}/rpc`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ method: "Session", args: [] }),
+      signal: ac.signal,
+    });
+    probeMisses = 0;
+    reportTransport(true);
+    return true;
+  } catch {
+    if (++probeMisses >= 2) reportTransport(false);
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // The one error the UI should never print verbatim.
 export function offlineError() {
   const err = new Error("Concord isn't responding — trying to reconnect");
@@ -110,8 +147,19 @@ async function call(name, ...args) {
   if (!res.ok) throw new Error(`rpc ${name}: HTTP ${res.status}`);
   const body = await res.json();
   if (body.error) {
-    if (LOCKED.test(body.error)) sessionEnded();
-    throw new Error(body.error);
+    const err = new Error(body.error);
+    // The core's machine-readable outcome (internal/bridge CodedError). The
+    // UI branches on this, never on the wording of the sentence.
+    if (body.code) err.code = body.code;
+    if (body.detail !== undefined) err.detail = body.detail;
+    if (body.code === "locked") {
+      // The page is about to reload onto the lock screen. Settling this call
+      // would only put a red toast or an unhandled rejection on a screen that
+      // is going away; leaving it pending lets the reload take it.
+      sessionEnded();
+      return new Promise(() => {});
+    }
+    throw err;
   }
   return body.result;
 }
@@ -127,17 +175,35 @@ async function call(name, ...args) {
 // composer, with nothing on screen and two "identity is locked" lines in a
 // console nobody has open.
 //
-// Every call goes through here, so this is the one place that can notice. The
-// reload lands on Login, where hasIdentity is now false and the screen is the
-// first-run one — which is the truth about this device. The flag survives the
-// reload just long enough for Login to say why it happened.
-const LOCKED = /identity is locked/i;
+// Every call goes through here, so this is the one place that can notice. But
+// "locked" is not "unlinked": a core that crashed, updated itself or was
+// restarted by the OS comes back locked too, with every byte intact. This used
+// to treat any locked reply as the unlink and told people their identity,
+// guilds and messages had been erased — after a plain restart — steering them
+// toward the re-link and start-over flows that really would destroy data. So
+// the core is asked why (SessionState), and Login says THAT. The reason
+// survives the reload in sessionStorage just long enough to be shown; where you
+// were survives in lastPlace (lib/state.svelte.js), so unlocking puts you back.
 let bouncing = false;
-function sessionEnded() {
+async function sessionEnded() {
   if (bouncing) return;
   bouncing = true;
+  let reason = "restarted";
   try {
-    sessionStorage.setItem("concord.sessionEnded", "1");
+    const headers = { "Content-Type": "application/json" };
+    if (apiToken) headers["Authorization"] = `Bearer ${apiToken}`;
+    const res = await fetch(`${apiBase}/rpc`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ method: "SessionState", args: [] }),
+    });
+    const body = await res.json();
+    if (body.result?.reason) reason = body.result.reason;
+  } catch {
+    /* can't ask: "restarted" is the claim that destroys nothing if wrong */
+  }
+  try {
+    sessionStorage.setItem("concord.sessionEnded", reason);
   } catch {
     /* private mode: the reload is still right, it just arrives unexplained */
   }
@@ -177,7 +243,9 @@ export function leaveVoiceOnUnload(channelID) {
     fetch(`${apiBase}/rpc`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ method: "LeaveVoice", args: [channelID] }),
+      // "unload": this goodbye is a page going away, not End call. A 1:1 on
+      // the other side holds the call briefly for a reload to rejoin.
+      body: JSON.stringify({ method: "LeaveVoice", args: [channelID, "unload"] }),
       keepalive: true,
     }).catch(() => {});
     return true;
@@ -204,13 +272,21 @@ export const api = {
   registerPush: (platform, token) => call("RegisterPush", platform, token),
   linkOffer: () => call("LinkOffer"),
   cancelLinkOffer: () => call("CancelLinkOffer"),
-  redeemLinkCode: (code, passphrase) => call("RedeemLinkCode", code, passphrase),
+  // confirm: the fingerprint of the account the user agreed may replace the
+  // one on this device (see Login's replace step); "" for none.
+  redeemLinkCode: (code, passphrase, confirm = "") => call("RedeemLinkCode", code, passphrase, confirm),
   logout: () => call("Logout"),
   hasIdentity: () => call("HasIdentity"),
   resetIdentity: () => call("ResetIdentity"),
-  revealMnemonic: () => call("RevealMnemonic"),
+  // The phrase is the account; the core wants the passphrase again first.
+  revealMnemonic: (passphrase) => call("RevealMnemonic", passphrase),
+  changePassphrase: (current, next) => call("ChangePassphrase", current, next),
+  sessionState: () => call("SessionState"),
+  lockedAccount: () => call("LockedAccount"),
+  checkRecoveryPhrase: (phrase) => call("CheckRecoveryPhrase", phrase),
   restoreFromMnemonic: (phrase, passphrase) => call("RestoreFromMnemonic", phrase, passphrase),
-  restoreOverExisting: (phrase, passphrase) => call("RestoreOverExisting", phrase, passphrase),
+  restoreOverExisting: (phrase, passphrase, confirm = "") =>
+    call("RestoreOverExisting", phrase, passphrase, confirm),
   login: (passphrase) => call("Login", passphrase),
   identity: () => call("Identity"),
   guilds: () => call("Guilds"),
@@ -333,6 +409,7 @@ export const api = {
   renameGuild: (guildID, name) => call("RenameGuild", guildID, name),
   leaveGuild: (guildID) => call("LeaveGuild", guildID),
   markRead: (channelID, atMs) => call("MarkRead", channelID, atMs),
+  markReadLatest: (channelIDs) => call("MarkReadLatest", channelIDs),
   readState: () => call("ReadState"),
   appVersion: () => call("AppVersion"),
   // Saved messages (bookmarks) — device-local, never on any wire.
@@ -400,6 +477,8 @@ export const api = {
     call("SendMessage", channelID, content, replyTo, dir),
   sendCallNotice: (channelID, kind, content) =>
     call("SendCallNotice", channelID, kind, content),
+  // A call record for this device only — "ended:<secs>" or "missed:<fpr>".
+  noteCall: (channelID, content) => call("NoteCall", channelID, content),
   // Send-later queue, held by the Go service so it fires without this window.
   // fireAtUnix is unix SECONDS (the JS side otherwise speaks epoch ms).
   scheduleSend: (channelID, content, replyTo, fireAtUnix) =>
@@ -522,10 +601,13 @@ export const api = {
   // ending means the screen went off, not that anybody hung up.
   joinVoice: (channelID) => call("JoinVoice", channelID, isNativeShell() ? "" : clientID),
   leaveVoice: (channelID) => call("LeaveVoice", channelID),
+  // The call this node holds for another open window, or "" (voicelife.go).
+  voiceHeldElsewhere: () => call("VoiceHeldElsewhere", isNativeShell() ? "" : clientID),
   relaySignal: (toPeerID, data) => call("RelaySignal", toPeerID, data),
   callIceServers: () => call("CallIceServers"),
   revealDeleted: (channelID, messageID) => call("RevealDeleted", channelID, messageID),
   sendTyping: (channelID) => call("SendTyping", channelID),
+  stopTyping: (channelID) => call("StopTyping", channelID),
   // birthday ("MM-DD" — never a year) rides at the END of the positional list.
   // Leave it undefined to keep the stored value: the bridge reads the short
   // arity as "don't touch", so callers patching other fields can't silently

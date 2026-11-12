@@ -123,6 +123,12 @@ func (b *Bridge) AttachClient(clientID string) {
 	if _, known := b.clientVisible[clientID]; !known && b.roomInVoteLocked() {
 		b.clientVisible[clientID] = true
 	}
+	if b.clientStreams == nil {
+		b.clientStreams = map[string]int{}
+	}
+	if len(b.clientStreams) < maxVisibilityClients || b.clientStreams[clientID] > 0 {
+		b.clientStreams[clientID]++
+	}
 	b.heardClient = true
 	b.mu.Unlock()
 	// The same stream that decides the vote decides how long a call this client
@@ -136,11 +142,28 @@ func (b *Bridge) AttachClient(clientID string) {
 // ends — the tab was closed, the browser quit, the laptop lid came down, the
 // process was killed. The distinction this draws is the whole point: a hidden
 // client votes, a gone one does not.
+//
+// Only the last stream for an id counts. The frontend redials with the same
+// id, and nothing orders the old request's teardown before the new one's
+// attach: over a slow mobile WebView the server can notice the old stream's
+// context ending after the replacement is already attached. Dropping on that
+// late teardown took a client that was still on screen out of the vote, and
+// armed the hang-up timer on its call, so the call ended ten seconds later
+// under somebody still in it.
+//
+// A drop for an id that was never counted — the stream table was full when it
+// attached, or a caller that never attached at all — is taken at its word.
 func (b *Bridge) DropClient(clientID string) {
 	if clientID == "" {
 		return
 	}
 	b.mu.Lock()
+	if n := b.clientStreams[clientID]; n > 1 {
+		b.clientStreams[clientID] = n - 1
+		b.mu.Unlock()
+		return
+	}
+	delete(b.clientStreams, clientID)
 	_, known := b.clientVisible[clientID]
 	delete(b.clientVisible, clientID)
 	b.mu.Unlock()

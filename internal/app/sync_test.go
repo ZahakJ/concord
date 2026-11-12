@@ -297,3 +297,56 @@ func TestOfflineCatchUp(t *testing.T) {
 	c2.OnMessage(rc2.add)
 	sendUntilReceived(t, a, channel, "live-after-return", rc2)
 }
+
+// A member the rename has not reached yet must not undo it by answering a
+// catch-up. The snapshot's name used to be adopted as served, so an owner who
+// renamed the guild and then synced from a lagging member got the old name
+// back — which is how TestOfflineCatchUp's owner sometimes ended the test
+// still called "g". The signed guild_rename in the log is what decides.
+func TestStaleSyncDoesNotRevertARename(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping networked integration test in -short mode")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	a := startService(t, ctx)
+	b := startService(t, ctx)
+	g, err := a.CreateGuild("g")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	code, _ := a.InviteCode(g.ID)
+	if _, err := b.JoinViaInvite(code); err != nil {
+		t.Fatalf("B JoinViaInvite: %v", err)
+	}
+	waitMembers(t, 20*time.Second, 2, a, b)
+
+	if err := a.RenameGuild(g.ID, "renamed"); err != nil {
+		t.Fatalf("RenameGuild: %v", err)
+	}
+	// B has not heard: whatever the gossip did, B's copy says "g".
+	b.mu.Lock()
+	b.guilds[g.ID].Name = "g"
+	b.mu.Unlock()
+
+	if err := a.syncGuildFromPeer(g.ID, b.host.PeerID()); err != nil {
+		t.Fatalf("A sync from B: %v", err)
+	}
+	for _, gg := range a.Guilds() {
+		if gg.ID == g.ID && gg.Name != "renamed" {
+			t.Fatalf("a catch-up from a lagging member renamed the guild back to %q", gg.Name)
+		}
+	}
+
+	// And the lagging member is put right by the same rule, from the log A
+	// serves, not from A's say-so.
+	if err := b.syncGuildFromPeer(g.ID, a.host.PeerID()); err != nil {
+		t.Fatalf("B sync from A: %v", err)
+	}
+	for _, gg := range b.Guilds() {
+		if gg.ID == g.ID && gg.Name != "renamed" {
+			t.Fatalf("B is still called %q after catching up with the owner", gg.Name)
+		}
+	}
+}

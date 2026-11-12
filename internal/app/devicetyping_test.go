@@ -36,7 +36,7 @@ func typingCapture(svc *Service, channelID string) (last func() (string, bool), 
 	var mu sync.Mutex
 	var got string
 	n := 0
-	svc.OnTyping(func(from, ch string) {
+	svc.OnTyping(func(from, ch string, _ bool) {
 		if ch != channelID {
 			return
 		}
@@ -198,7 +198,7 @@ func TestTypingFromFriendsPhoneNamesTheFriend(t *testing.T) {
 	me.deviceAccounts = map[string]string{}
 	me.deviceMu.Unlock()
 	last2, _ := typingCapture(me, textCh)
-	me.receiveTyping(g.ID, g.GroupID, textCh, fPhone.host.AddrInfo().ID)
+	me.receiveTyping(g.ID, g.GroupID, textCh, fPhone.host.AddrInfo().ID, []byte{1})
 	got2, ok2 := last2()
 	if !ok2 {
 		t.Fatal("typing from a member device was dropped even though its cert is in the roster")
@@ -222,7 +222,7 @@ func TestTypingFromFriendsPhoneNamesTheFriend(t *testing.T) {
 	}
 	var strangerMu sync.Mutex
 	strangerSeen := ""
-	me.OnTyping(func(from, ch string) {
+	me.OnTyping(func(from, ch string, _ bool) {
 		if ch != textCh || from == fDesk.Fingerprint() {
 			return
 		}
@@ -230,7 +230,7 @@ func TestTypingFromFriendsPhoneNamesTheFriend(t *testing.T) {
 		strangerSeen = from
 		strangerMu.Unlock()
 	})
-	me.receiveTyping(g.ID, g.GroupID, textCh, strangerID) // synchronous: emits during the call or not at all
+	me.receiveTyping(g.ID, g.GroupID, textCh, strangerID, []byte{1}) // synchronous: emits during the call or not at all
 	strangerMu.Lock()
 	seen := strangerSeen
 	strangerMu.Unlock()
@@ -258,7 +258,7 @@ func TestTypingFromFriendsPhoneNamesTheFriend(t *testing.T) {
 	me.solicited.release(fPhone.host.AddrInfo().ID)
 
 	_, count4 := typingCapture(me, g2.Channels[0].ID)
-	me.receiveTyping(g2.ID, g2.GroupID, g2.Channels[0].ID, fPhone.host.AddrInfo().ID)
+	me.receiveTyping(g2.ID, g2.GroupID, g2.Channels[0].ID, fPhone.host.AddrInfo().ID, []byte{1})
 	if n := count4(); n != 0 {
 		t.Fatalf("typing surfaced %d time(s) in a guild the sender is no member of", n)
 	}

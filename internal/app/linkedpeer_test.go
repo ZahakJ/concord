@@ -104,7 +104,7 @@ func TestOwnLinkedDeviceNamedInPeerList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LinkOffer: %v", err)
 	}
-	res, err := RedeemLink(ctx, joinerDir, code, "test-pass")
+	res, err := RedeemLink(ctx, joinerDir, code, "test-pass", "")
 	if err != nil {
 		t.Fatalf("RedeemLink: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestOwnLinkedDeviceResolvesWithoutSharedGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LinkOffer: %v", err)
 	}
-	if _, err := RedeemLink(ctx, joinerDir, code, "test-pass"); err != nil {
+	if _, err := RedeemLink(ctx, joinerDir, code, "test-pass", ""); err != nil {
 		t.Fatalf("RedeemLink: %v", err)
 	}
 	joiner := startServiceInDir(t, ctx, joinerDir)
@@ -216,7 +216,7 @@ func TestLinkedDeviceMidSessionResolvesToAccount(t *testing.T) {
 		t.Fatalf("LinkOffer: %v", err)
 	}
 	phoneDir := t.TempDir()
-	res, err := RedeemLink(ctx, phoneDir, linkCode, "test-pass")
+	res, err := RedeemLink(ctx, phoneDir, linkCode, "test-pass", "")
 	if err != nil {
 		t.Fatalf("RedeemLink: %v", err)
 	}

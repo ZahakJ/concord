@@ -23,35 +23,38 @@
 </span>
 
 <style>
+  /* 36×20 with a 16px knob. Off is a recessed track with a control-strength
+     edge (--border-strong, 3:1 — the edge is the only thing that says this is
+     a switch) and a muted knob; on is the accent with a white knob. No glow:
+     the fill is the state. */
   .switch {
     position: relative;
     flex: none;
-    width: 40px;
-    height: 24px;
-    border-radius: 12px;
+    width: 36px;
+    height: 20px;
+    border-radius: 999px;
     background: var(--bg-3);
-    border: 1px solid var(--border);
-    transition:
-      background var(--dur-standard) ease,
-      border-color var(--dur-standard) ease;
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+    transition: background var(--dur-quick) var(--ease-out);
   }
   .switch.on {
     background: var(--accent);
-    border-color: var(--accent);
-    box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 35%, transparent);
+    box-shadow: none;
   }
   .knob {
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
-    transition: transform var(--dur-standard) var(--ease-out);
+    background: var(--text-muted);
+    transition:
+      transform var(--dur-move) var(--ease-out),
+      background var(--dur-quick) ease;
   }
   .switch.on .knob {
+    background: #fff;
     transform: translateX(16px);
   }
   /* A checkbox the caller put inside the track: it stays the real control for
@@ -66,10 +69,8 @@
     opacity: 0;
     z-index: 1;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .switch,
-    .knob {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .switch,
+  :global(:root[data-motion="reduced"]) .knob {
+    transition: none;
   }
 </style>

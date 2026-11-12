@@ -2,9 +2,10 @@
   // MobileShell is the phone layout: a navigation STACK instead of the desktop
   // 4-column grid. Two places, one on top of the other:
   //
-  //   HOME  — the guild rail beside the active guild's channel list (or the DM
-  //           list), full width, with a tab bar along the bottom edge under the
-  //           thumb: Home / Messages / Inbox / You.
+  //   HOME  — the sidebar at full width: the place header, the shortcut
+  //           strip, the jump field and the place's list (channels, or your
+  //           conversations), with a tab bar along the bottom edge under the
+  //           thumb: Guilds / Messages / Inbox / You.
   //   PAGE  — the conversation, pushed in over Home from the right edge.
   //
   // Back (the chevron, the hardware gesture, or a rightward swipe that drags
@@ -40,33 +41,39 @@
     openCallStage,
     toggleCallStageChat,
     channelShort,
-    accentForeground,
     confirmLeaveGuild,
     leaveGuildLabel,
     openGuildHub,
     openInbox,
     guildUnread,
     dmList,
+    syncReading,
+    isMuted,
+    toggleMute,
+    notifLevel,
+    setChannelNotifs,
+    markRead,
   } from "./lib/state.svelte.js";
+  import { LEVELS } from "./lib/notifs.js";
   import { untrack } from "svelte";
   import { pushLayer, syncLayer } from "./lib/navstack.svelte.js";
-  import { guildAccent } from "./lib/guildaccent.js";
+  import { openGuildSwitcher } from "./lib/guildswitch.svelte.js";
   import { api } from "./lib/api.js";
-  import { haptic } from "./lib/touch.js";
+  import { haptic, longpress } from "./lib/touch.js";
   import { focusOnMount } from "./lib/focus.js";
   import { runSearch, closeSearch, queueSearch, registerSearchInput } from "./lib/search.js";
-  import GuildRail from "./GuildRail.svelte";
   import ChannelList from "./ChannelList.svelte";
   import MessageList from "./MessageList.svelte";
-  import SetupCard from "./SetupCard.svelte";
   import PostHeader from "./PostHeader.svelte";
   import Composer from "./Composer.svelte";
-  import MemberPanel from "./MemberPanel.svelte";
+  import Inspector from "./Inspector.svelte";
   import Welcome from "./Welcome.svelte";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
+  import Badge from "./Badge.svelte";
   import { pointOf, viewport } from "./lib/place.js";
   import { voiceStage, forumBoard, searchTakeover, islandFailed } from "./lib/islands.svelte.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   let {
     composer = $bindable(null),
@@ -78,15 +85,6 @@
     onToggleCamera,
   } = $props();
 
-  // Per-guild accent, same stamp and precedence as the desktop grid in
-  // App.svelte: explicit user preset > guild banner hue > pack/profile.
-  const guildAccentVars = $derived.by(() => {
-    if (S.prefs.accent || S.prefs.guildAccents === false) return "";
-    const g = activeGuild();
-    if (!g || g.kind === "dm") return "";
-    const c = guildAccent(g.banner);
-    return c ? `--accent:${c};--accent-fg:${accentForeground(c)};` : "";
-  });
 
   const isDM = $derived(activeGuild()?.kind === "dm");
   const hasChannel = $derived(!!S.activeChannelId && !!activeGuild());
@@ -108,6 +106,9 @@
   // The panel presentation, mirroring App.svelte: a post slides in over the
   // board, which stays mounted behind it.
   const postObj = $derived(activeChannelObj?.parent ? activeChannelObj : null);
+  // The search results are covering the conversation column (SearchPanel draws
+  // whenever any of these is set).
+  const searchCovers = $derived(!!searchTakeover.C && (S.searchResults !== null || S.searchLoading || !!S.searchHint));
   const boardObj = $derived(
     activeChannelObj?.type === "forum"
       ? activeChannelObj
@@ -128,6 +129,16 @@
     const ch = g.channels?.find((c) => c.id === S.activeChannelId);
     if (S.callStage) return channelShort(S.voice?.channelId || S.joiningVoice) || ch?.name || "Call";
     return ch ? ch.name : g.name;
+  });
+  // "Lantern Makers · 4 reachable": where this conversation lives, and how
+  // many of its people this device can reach right now (§2.10).
+  const subtitle = $derived.by(() => {
+    const g = activeGuild();
+    if (!g || g.kind === "dm" || !hasChannel || S.callStage) return "";
+    const others = S.members.filter((m) => !m.isSelf);
+    if (!others.length) return g.name;
+    const n = others.filter((m) => m.online).length;
+    return `${g.name} · ${n ? `${n} reachable` : "nobody reachable"}`;
   });
   const titleIcon = $derived.by(() => {
     const g = activeGuild();
@@ -164,7 +175,36 @@
     moveTimer = setTimeout(() => (moving = false), ms);
   }
 
-  const rightW = $derived(Math.min(vw * 0.82, 300));
+  // The inspector is a pushed page of its own on a phone (§2.6), the full
+  // width, with the same swipe-back as the conversation.
+  const rightW = $derived(vw);
+
+  // Landscape with the keyboard up. A phone on its side is about 390 CSS px
+  // tall, and a tall IME (a half-open foldable reaches 336px) leaves the page
+  // less than its own chrome: the top bar alone took most of what was left,
+  // and the composer — the thing being typed into — was barely on screen.
+  // While the keyboard is up and the page has less room than the bar, one
+  // message and the composer need, the bar folds away to its status-bar inset,
+  // the way the bar of a phone messenger scrolls off while you type. It comes
+  // back the moment the keyboard goes. Gated on the keyboard because without
+  // one a short page is a split screen, where the bar's back button is the
+  // only way out.
+  // Measured on the page, not computed from the viewport: the page's box is
+  // what the shell's --kb padding actually left, whatever the zoom. The page
+  // is inset into the stack, so folding its own bar never changes its height
+  // and cannot feed back into the observer.
+  const CRAMPED_BELOW = 160;
+  let pageEl = $state();
+  let cramped = $state(false);
+  $effect(() => {
+    if (!pageEl || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => {
+      const kb = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb")) || 0;
+      cramped = kb > 0 && entry.contentRect.height < CRAMPED_BELOW;
+    });
+    ro.observe(pageEl);
+    return () => ro.disconnect();
+  });
 
   // External opens/closes (the chevron, the back gesture, a row picked) sync
   // the fractions — but never mid-drag, where the finger owns them.
@@ -181,6 +221,13 @@
       rightFrac = open ? 1 : 0;
       untrack(holdLayer);
     }
+  });
+
+  // The conversation page settling over Home is the moment its channel starts
+  // being read (lib/readstate.js): while Home covers it, messages that land in
+  // the open channel stay unread — that is the phone's landing state.
+  $effect(() => {
+    if (!S.drawerOpen) untrack(syncReading);
   });
 
   // Pushing the page is selectChannel's job (state.svelte.js): every
@@ -237,9 +284,43 @@
 
   // ---- the tab bar ----
   // Which tab is lit is a fact about where you are, not a second piece of
-  // state to keep in step: the DM area is the Messages tab, anything else is
-  // Home. Inbox and You open sheets and light nothing.
-  const tab = $derived(isDM ? "messages" : "home");
+  // state to keep in step: an open Inbox or You page is that tab, the DM area
+  // is the Messages tab, anything else is Home. Inbox and You used to open a
+  // sheet and a dialog OVER the tab bar, lighting nothing, with a × where the
+  // tab should have been — four tabs, two navigation models. They are pages
+  // now: the dialog is stamped `tab`, Modal draws it as a page that stops at
+  // the tab bar, and the bar stays visible and says where you are.
+  const tab = $derived(S.modal?.tab || (isDM ? "messages" : "home"));
+  function openTab(which) {
+    // The tab you are on: back to its own first page from wherever you
+    // drilled to inside it, the way Guilds scrolls its list back to the top.
+    if (S.modal?.tab === which) {
+      const root = S.modalStack.find((m) => m.tab === which);
+      if (root && S.modal !== root) {
+        S.modal = root;
+        S.modalStack = [];
+      }
+      return;
+    }
+    if (which === "inbox") openInbox({ tab: true });
+    else {
+      S.modalStack = [];
+      S.modal = { kind: "settings", tab: "you" };
+    }
+  }
+  // Leaving a tab page for Guilds or Messages closes it; it is not a layer
+  // the next tab should be opened on top of.
+  function leaveTabPage() {
+    if (!S.modal?.tab) return false;
+    S.modal = null;
+    S.modalStack = [];
+    return true;
+  }
+  // The tab bar's measured height, for Modal's tab pages to stop above.
+  let tabbarH = $state(0);
+  $effect(() => {
+    document.documentElement.style.setProperty("--tabbar-h", `${tabbarH}px`);
+  });
   // The guild to go back to from Messages: the last non-DM one you stood in,
   // else the first in the rail. Remembered here, not persisted — the app's
   // own last-place memory already decides where a launch lands.
@@ -249,11 +330,21 @@
     if (g && g.kind !== "dm") lastGuildId = g.id;
   });
   function goHome() {
-    if (tab === "home") return;
+    if (leaveTabPage() && !isDM) return;
+    // Tapping the tab you are on takes its list back to the top, as tab bars
+    // do; the switcher is the long-press.
+    if (tab === "home") {
+      document.querySelector(".home-list .scroll")?.scrollTo({ top: 0, behavior: reducedMotion() ? "auto" : "smooth" });
+      return;
+    }
     const g = S.guilds.find((x) => x.id === lastGuildId) || S.guilds.find((x) => x.kind !== "dm");
     if (g) selectGuild(g.id, { browse: true });
+    // No guild to go to yet: the tab is where you would make or join one, and
+    // a tap that did nothing at all was the first thing a new account met.
+    else openGuildSwitcher(null);
   }
   function goMessages() {
+    if (leaveTabPage() && isDM) return;
     if (tab === "messages") return;
     openDMs({ browse: true });
   }
@@ -279,7 +370,6 @@
     }
     return count;
   });
-  const badgeText = (n) => (n > 99 ? "99+" : String(n));
 
   // ---- "⋯" top-bar menu ----
   // Everything ChatHeader offers on desktop (search, pins, call, invite, guild
@@ -306,27 +396,37 @@
     if (!g) return;
     const dm = g.kind === "dm";
     const inCall = S.voice && S.voice.channelId === S.activeChannelId;
+    const chan = g.channels?.find((c) => c.id === S.activeChannelId);
+    const muted = isMuted(S.activeChannelId, g.id);
     haptic("light"); // the sheet slides up from the far end of the screen; say it opened
     openContextMenu(
       e,
       [
-        // The fuzzy palette (every channel, DM and global action) was reachable
-        // only by Ctrl+K, i.e. never on a phone. It is the fastest way to move
-        // around once there are more than a handful of conversations.
-        { label: "Jump to…", icon: "search", onClick: () => (S.quickSwitcher = true) },
-        { label: "Your calendar", icon: "calendar", onClick: () => (S.modal = { kind: "myCalendar" }) },
+        // The channel sheet (§2.6): the quick row above is what it is opened
+        // for; this is the long tail. Jump to… is the field on the Guilds page.
+        { label: "Notifications", header: true },
+        ...LEVELS.map((l) => ({
+          label: l.label,
+          icon: l.id === "none" ? "bellOff" : "bell",
+          active: notifLevel(S.activeChannelId, g.id) === l.id,
+          onClick: () => setChannelNotifs(S.activeChannelId, l.id),
+        })),
+        { sep: true },
+        { label: "Scheduled messages", icon: "clock", onClick: () => (S.modal = { kind: "scheduled" }) },
+        { label: "Events", icon: "calendar", onClick: () => (S.modal = { kind: "events" }) },
         { label: "Disappearing messages", icon: "clock", onClick: () => (S.modal = { kind: "disappear", channelId: S.activeChannelId }) },
-        S.voice &&
-          !S.callStage && {
-            label: "Open the call",
-            icon: "screen",
-            onClick: () => openCallStage(),
-          },
+        !dm && g.canManage && chan && chan.type !== "voice" && {
+          label: "Channel settings",
+          icon: "gear",
+          onClick: () => (S.modal = { kind: "channelTopic", channel: chan }),
+        },
+        { label: "Mark as read", icon: "check", onClick: () => markRead(S.activeChannelId) },
+        S.voice && !S.callStage && { label: "Open the call", icon: "screen", onClick: () => openCallStage() },
+        !g.dmNotes &&
+          (inCall
+            ? { label: dm ? "End call" : "Leave the call", icon: "door", onClick: () => onLeaveVoice() }
+            : { label: dm ? "Start a call" : "Join voice", icon: "speaker", onClick: () => onJoinVoice() }),
         !dm && { sep: true },
-        // One door to the guild. Emoji, roles and bans used to be three more
-        // rows here, and every one of them is a page inside the hub this row
-        // opens (lib/guildnav.js) — the sheet was listing a menu's contents
-        // beside the menu, and scrolling for it.
         !dm && { label: "Guild settings", icon: "gear", onClick: openGuildHub },
         !g.dmNotes && { sep: true },
         !g.dmNotes && {
@@ -338,21 +438,17 @@
       ],
       {
         title,
-        // The tile row: the four or five things this sheet is opened FOR. The
-        // list underneath is the long tail.
         actions: [
           { label: "Search", icon: "search", onClick: () => (searchOpen = true) },
           { label: "Pins", icon: "pin", onClick: () => (S.showPins = !S.showPins) },
-          // Every room has a calendar now: guilds share theirs, a DM's belongs
-          // to its people, Notes' is private (a group of one).
-          { label: "Events", icon: "calendar", onClick: () => (S.modal = { kind: "events" }) },
-          !g.dmNotes &&
-            (inCall
-              ? { label: dm ? "End call" : "Leave", icon: "door", danger: true, onClick: () => onLeaveVoice() }
-              : { label: dm ? "Call" : "Voice", icon: "speaker", onClick: () => onJoinVoice() }),
+          {
+            label: muted ? "Unmute" : "Mute",
+            icon: muted ? "bell" : "bellOff",
+            onClick: () => toggleMute(S.activeChannelId),
+          },
           !dm && g.canManage && {
             label: "Invite",
-            icon: "members",
+            icon: "personPlus",
             onClick: async () => (S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) }),
           },
         ],
@@ -561,7 +657,6 @@
 <div
   class="mshell"
   class:offline-shift={S.offline}
-  style={guildAccentVars}
   ontouchstart={onTouchStart}
   ontouchmove={onTouchMove}
   ontouchend={onTouchEnd}
@@ -582,10 +677,9 @@
       class:covered={homeCovered}
       style:transform={home === 1 && !dragging ? "none" : `translateX(${-(1 - home) * 22}%)`}
       inert={homeCovered}
-      aria-label="Home"
+      aria-label="Guilds"
     >
       <div class="home-body">
-        <div class="home-rail"><GuildRail /></div>
         {#if activeGuild()}
           <div class="home-list">
             <ChannelList
@@ -602,34 +696,50 @@
           <div class="home-list"><Welcome /></div>
         {/if}
       </div>
-      <nav class="tabbar" aria-label="Sections">
-        <button class="tab" class:on={tab === "home"} aria-current={tab === "home" ? "page" : undefined} onclick={goHome}>
+      <nav class="tabbar" aria-label="Sections" bind:offsetHeight={tabbarH}>
+        <!-- A long-press on Guilds opens the switcher sheet, within thumb
+             reach (§2.6). -->
+        <button
+          class="tab"
+          class:on={tab === "home"}
+          aria-current={tab === "home" ? "page" : undefined}
+          onclick={goHome}
+          use:longpress={{ handler: () => openGuildSwitcher(null) }}
+        >
           <span class="tab-ic">
             <Icon name="hash" size={22} />
-            {#if homeUnread.mentions > 0}<span class="tab-badge">{badgeText(homeUnread.mentions)}</span>
-            {:else if homeUnread.count > 0}<span class="tab-dot"></span>{/if}
+            {#if homeUnread.mentions > 0}<span class="tab-badge"><Badge count={homeUnread.mentions} ring="var(--bg-1)" /></span>
+            {:else if homeUnread.count > 0}<span class="tab-dot"><Badge dot ring="var(--bg-1)" /></span>{/if}
           </span>
-          <span class="tab-lbl">Home</span>
+          <span class="tab-lbl">Guilds</span>
         </button>
         <button class="tab" class:on={tab === "messages"} aria-current={tab === "messages" ? "page" : undefined} onclick={goMessages}>
           <span class="tab-ic">
             <Icon name="bubble" size={22} />
-            {#if dmUnread > 0}<span class="tab-badge">{badgeText(dmUnread)}</span>{/if}
+            {#if dmUnread > 0}<span class="tab-badge"><Badge count={dmUnread} ring="var(--bg-1)" /></span>{/if}
           </span>
           <span class="tab-lbl">Messages</span>
         </button>
         <button
           class="tab"
+          class:on={tab === "inbox"}
+          aria-current={tab === "inbox" ? "page" : undefined}
           aria-label={S.inbox.unread > 0 ? `Inbox — ${S.inbox.unread} unread` : "Inbox"}
-          onclick={() => openInbox()}
+          onclick={() => openTab("inbox")}
         >
           <span class="tab-ic">
             <Icon name="bell" size={22} />
-            {#if S.inbox.unread > 0}<span class="tab-badge">{badgeText(S.inbox.unread)}</span>{/if}
+            {#if S.inbox.unread > 0}<span class="tab-badge"><Badge count={S.inbox.unread} ring="var(--bg-1)" /></span>{/if}
           </span>
           <span class="tab-lbl" aria-hidden="true">Inbox</span>
         </button>
-        <button class="tab" aria-label="You — profile and settings" onclick={() => (S.modal = { kind: "settings" })}>
+        <button
+          class="tab"
+          class:on={tab === "you"}
+          aria-current={tab === "you" ? "page" : undefined}
+          aria-label="You — profile and settings"
+          onclick={() => openTab("you")}
+        >
           <span class="tab-ic tab-me">
             <Avatar
               name={S.displayName}
@@ -652,6 +762,8 @@
       class:moving
       class:drag={dragging}
       class:parked={pageParked}
+      class:cramped
+      bind:this={pageEl}
       style:transform={home === 0 && !dragging ? "none" : `translateX(${home * 100}%)`}
       inert={pageParked}
     >
@@ -676,8 +788,13 @@
              The chevron is the only thing that says so before you tap it. -->
         <button class="mtitle" onclick={hasChannel ? moreMenu : undefined} disabled={!hasChannel}>
           {#if titleIcon}<span class="mtitle-ic"><Icon name={titleIcon} size={13} /></span>{/if}
-          <span class="mtitle-text">{title}</span>
-          {#if hasChannel}<span class="chev-down"><Icon name="chevron" size={12} /></span>{/if}
+          <span class="mtitle-block">
+            <span class="mtitle-line">
+              <span class="mtitle-text">{title}</span>
+              {#if hasChannel}<span class="chev-down"><Icon name="chevron" size={12} /></span>{/if}
+            </span>
+            {#if subtitle}<span class="mtitle-sub">{subtitle}</span>{/if}
+          </span>
         </button>
         {#if canRight}
           <button class="icon-btn" aria-label="Members" onclick={() => (S.membersOpen = true)}>
@@ -768,6 +885,9 @@
             </div>
           {/if}
           <div class="pane-body">
+            <!-- The covered view in its own stacking context, under the search
+                 results: see the desktop shell. -->
+            <div class="pane-view" inert={searchCovers}>
             {#if boardObj && forumBoard.C}
               {@const ForumView = forumBoard.C}
               <ForumView forum={boardObj} />
@@ -782,13 +902,12 @@
               >
                 {#if postObj}
                   <PostHeader channel={postObj} />
-                {:else}
-                  <SetupCard />
                 {/if}
                 <MessageList {onJoinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
                 <Composer bind:this={composer} />
               </div>
             {/if}
+            </div>
             {#if searchTakeover.C}
               {@const SearchPanel = searchTakeover.C}
               <SearchPanel />
@@ -837,7 +956,13 @@
       aria-label="Members"
       aria-hidden={rightFrac === 0}
     >
-      <MemberPanel />
+      <header class="mtopbar insp-bar">
+        <button class="icon-btn" aria-label="Back to the conversation" onclick={() => (S.membersOpen = false)}>
+          <Icon name="back" size={20} />
+        </button>
+        <span class="mtitle static"><span class="mtitle-text">{title}</span></span>
+      </header>
+      <Inspector docked={true} onClose={() => (S.membersOpen = false)} />
     </aside>
   {/if}
 </div>
@@ -905,10 +1030,8 @@
     transform: scale(0.985);
     filter: brightness(1.18);
   }
-  @media (prefers-reduced-motion: reduce) {
-    :global(.lp-press) {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) :global(.lp-press) {
+    transform: none;
   }
   /* Under an animated pack, let the backdrop show through: the outer shell goes
      transparent so only the inner panels (translucent bg-*) tint it — no
@@ -982,13 +1105,11 @@
     pointer-events: none;
     z-index: 3;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .home,
-    .page,
-    .page.parked,
-    .home.covered {
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .home,
+  :global(:root[data-motion="reduced"]) .page,
+  :global(:root[data-motion="reduced"]) .page.parked,
+  :global(:root[data-motion="reduced"]) .home.covered {
+    transition: none;
   }
 
   /* ---- Home ------------------------------------------------------------ */
@@ -1063,8 +1184,8 @@
     border-radius: var(--radius-md);
     background: transparent;
     color: var(--text-muted);
-    font-size: var(--fs-tiny);
-    font-weight: 600;
+    font-size: var(--fs-micro);
+    font-weight: 500;
     -webkit-user-select: none;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
@@ -1074,7 +1195,8 @@
     color: var(--text);
   }
   .tab.on {
-    color: var(--accent-hover);
+    color: var(--text);
+    font-weight: 600;
   }
   .tab-ic {
     position: relative;
@@ -1090,35 +1212,20 @@
     white-space: nowrap;
     line-height: 1;
   }
-  /* Same red, same shape as the rail's mention badge, ringed with the bar's
-     own ground so it reads as a sticker on the icon rather than a shape in
-     the layout. */
+  /* Where the unread mark sits on a tab's icon; the mark itself is <Badge>,
+     an accent count (never red) or the quiet dot, cut out of the bar's own
+     ground so it reads as a sticker on the icon. */
   .tab-badge {
     position: absolute;
     top: -4px;
     left: 16px;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 999px;
-    background: var(--danger);
-    color: #fff;
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    line-height: 18px;
-    text-align: center;
-    border: 2px solid var(--bg-1);
-    box-sizing: content-box;
+    display: flex;
   }
   .tab-dot {
     position: absolute;
     top: 0;
     right: 0;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--text);
-    border: 2px solid var(--bg-1);
+    display: flex;
   }
 
   /* ---- the page's chrome ---------------------------------------------- */
@@ -1132,9 +1239,7 @@
     padding-top: max(var(--safe-top), var(--sa-top, 0px));
     box-sizing: content-box;
     background: var(--bg-1);
-    border-bottom: 1px solid var(--border);
-    /* Faint drop under the bar: reads as elevation over the feed. */
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+    border-bottom: 1px solid var(--hairline);
     position: relative;
     z-index: 5;
   }
@@ -1159,7 +1264,31 @@
     flex-shrink: 0;
     color: var(--text-faint);
   }
+  .mtitle-block {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+  .mtitle-line {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+  .mtitle-sub {
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+    font-weight: 400;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mtitle.static {
+    pointer-events: none;
+  }
   .mtitle-text {
+    font-family: var(--display-font);
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1201,6 +1330,14 @@
     flex: 1;
     min-height: 0;
   }
+  .pane-view {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
   .feedwrap {
     display: flex;
     flex-direction: column;
@@ -1214,8 +1351,8 @@
     inset: 0;
     /* Above everything the board paints, including its own sticky toolbar and
        floating controls — a panel that a search field shows through is not a
-       panel. The pane isolates so this number stays local. */
-    z-index: 60;
+       panel. .pane-view isolates so this stays local. */
+    z-index: var(--z-raised);
     background: var(--bg-1);
     animation: post-in 0.32s var(--ease-spring) both;
   }
@@ -1237,11 +1374,9 @@
       transform: translateX(22px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .feedwrap.aspanel,
-    .feedwrap.aspanel.folding {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .feedwrap.aspanel,
+  :global(:root[data-motion="reduced"]) .feedwrap.aspanel.folding {
+    animation: none;
   }
   /* Mobile search row (under the top bar): feeds the shared search pipeline;
      results render in the SearchPanel inside the feed. */
@@ -1275,6 +1410,14 @@
   .msearch input:focus {
     outline: none;
     box-shadow: none;
+  }
+  /* type="search" draws the engine's own clear glyph — a blue × beside the
+     row's ×, two crosses with two meanings in one field. The row's × closes
+     the search and clears it with it, so it is the only one. */
+  .msearch input::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+    display: none;
   }
   .mchat {
     flex: 1;
@@ -1474,6 +1617,15 @@
     padding-right: max(var(--safe-right), var(--sa-right, 0px));
     border-left: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   }
+  .drawer.right {
+    flex-direction: column;
+    border-left: none;
+  }
+  /* The drawer pads the status bar itself (above); its bar must not again. */
+  .drawer .insp-bar {
+    padding-top: 0;
+  }
+  .drawer.right > :global(.insp),
   .drawer.right > :global(.panel) {
     flex: 1;
     min-width: 0;
@@ -1483,7 +1635,7 @@
      composer's two-row tray already claim half. Trim the chrome rather than
      leave two messages visible. (The app doesn't lock orientation — people
      rotate to read a wide code block or watch a shared screen.) */
-  @media (pointer: coarse) and (max-height: 500px) {
+  @media (max-width: 768px) and (max-height: 500px) {
     .mtopbar {
       height: 44px;
     }
@@ -1502,6 +1654,35 @@
       flex-direction: row;
       gap: 6px;
     }
+  }
+  /* See `cramped`. Folded to the status-bar inset, not removed: in landscape
+     the status bar is usually still drawn, and the page has no inset of its
+     own above the feed. */
+  .page.cramped .mtopbar {
+    height: 0;
+    border-bottom-width: 0;
+    box-shadow: none;
+  }
+  .page.cramped .mtopbar > * {
+    display: none;
+  }
+  /* The rest of what stands between the feed and the composer goes with it:
+     the connection bar is still one tap away once the keyboard is down, and the
+     typing line reserves its height even when nobody is typing. */
+  .page.cramped .conn,
+  .page.cramped :global(.typing-line) {
+    display: none;
+  }
+  /* What is left can still be shorter than the composer itself. Overflow then
+     spills off the top — the history — instead of off the bottom, where the
+     text being typed is. */
+  .page.cramped .feedwrap {
+    justify-content: flex-end;
+  }
+  /* And the composer's own bottom gutter, which sits on the keyboard here:
+     those 8px are what the input box was missing to fit a 336px keyboard. */
+  .page.cramped :global(.composer.mobile) {
+    padding-bottom: 0;
   }
   /* The narrow floor: at 360px a guild channel shows back/title/members/⋯, and
      at an 8px gap the title ellipsises to about two words.

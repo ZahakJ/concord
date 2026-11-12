@@ -5,7 +5,7 @@
   import { saveBlob } from "./lib/savefile.js";
   import { api } from "./lib/api.js";
   import { flash, S, memberByFpr, nameFor } from "./lib/state.svelte.js";
-  import { fmtBytes, unavailableNote, worthRetrying } from "./lib/attachments.js";
+  import { fmtBytes, fileLabel, midTrunc, unavailableNote, worthRetrying } from "./lib/attachments.js";
 
   // `sender` is the fingerprint of whoever posted the file — see
   // Attachment.svelte for why a failed fetch has to be able to name them.
@@ -15,7 +15,7 @@
   // Set when a download failed for want of a source. Unlike a picture this is
   // not fetched until asked for, so the card can't know in advance — but once
   // the answer is "nobody has it", saying so on the card beats a toast that
-  // disappears in five seconds and leaves "click to download" standing there
+  // disappears in five seconds and leaves the plain meta line standing there
   // as if nothing happened.
   let errMsg = $state("");
 
@@ -42,11 +42,6 @@
   });
 
   const sizeLabel = $derived(fmtBytes(tok.size));
-  // Only show an extension badge when the name actually has one (so "README"
-  // doesn't render a bogus "READM" badge).
-  const ext = $derived(
-    tok.name.includes(".") ? tok.name.split(".").pop().slice(0, 5).toUpperCase() : "",
-  );
 
   async function download() {
     if (busy) return;
@@ -78,11 +73,13 @@
     {:else}
       <Icon name="attach" size={18} />
     {/if}
-    {#if ext && !busy}<span class="ext">{ext}</span>{/if}
   </span>
   <span class="meta">
-    <span class="name">{tok.name}</span>
-    <span class="muted sub">{sizeLabel} · {errMsg ? note : "click to download"}</span>
+    <!-- Cut from the middle, so the extension survives (lib/attachments.js);
+         the full name is the card's title. The type leads the meta line when
+         the name has one ("TXT · 120 B"), else the size alone. -->
+    <span class="name"><bdi>{midTrunc(tok.name, 36)}</bdi></span>
+    <span class="muted sub">{errMsg ? `${sizeLabel} · ${note}` : fileLabel(tok.name, tok.size)}</span>
   </span>
   <span class="dl"><Icon name="download" size={16} /></span>
 </button>
@@ -95,7 +92,7 @@
     margin-top: var(--sp-1);
     max-width: 340px;
     padding: 10px 12px;
-    background: var(--bg-1);
+    background: var(--bg-2);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     text-align: left;
@@ -107,36 +104,22 @@
   }
   @media (pointer: fine) {
     .file-card:hover {
-      background: var(--bg-3);
-      border-color: var(--accent);
-      box-shadow: 0 2px 8px rgb(0 0 0 / 0.14);
+      border-color: var(--border-strong);
     }
   }
   .file-card:active {
-    background: var(--bg-2);
+    background: var(--bg-3);
   }
   .thumb {
     position: relative;
-    width: 38px;
-    height: 38px;
+    width: 36px;
+    height: 36px;
     flex-shrink: 0;
     display: grid;
     place-items: center;
     border-radius: var(--radius-sm);
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-  }
-  .ext {
-    position: absolute;
-    bottom: -3px;
-    right: -3px;
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    background: var(--accent);
-    color: var(--accent-fg);
-    padding: 1px 3px;
-    border-radius: 3px;
-    letter-spacing: 0.02em;
+    background: var(--bg-3);
+    color: var(--text-muted);
   }
   .meta {
     display: flex;
@@ -147,7 +130,7 @@
   }
   .name {
     font-size: var(--fs-ui);
-    font-weight: 600;
+    font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -170,19 +153,11 @@
     color: var(--text-muted);
     flex-shrink: 0;
     transition:
-      color var(--dur-quick) ease,
-      transform var(--dur-quick) ease;
+      color var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .file-card:hover .dl {
-      color: var(--accent-hover);
-      /* the arrow dips toward the "download" — a small directional cue */
-      transform: translateY(2px);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .file-card:hover .dl {
-      transform: none;
+      color: var(--text);
     }
   }
   .spin {

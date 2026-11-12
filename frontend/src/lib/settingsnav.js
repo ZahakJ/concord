@@ -88,9 +88,9 @@ export const SETTINGS_GROUPS = [
       },
       {
         kind: "linkDevice",
-        title: "Link a device",
+        title: "Your devices",
         icon: "devices",
-        sub: "Add your phone or another computer",
+        sub: "Every device on this account, unlinking, and adding a new one",
       },
     ],
   },

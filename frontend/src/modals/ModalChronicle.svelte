@@ -83,12 +83,11 @@
       />
     </div>
     {#if g?.isOwner}
+      <!-- No Close: the frame's × is the close, and a second one competed
+           with it in every railed pane that had one. -->
       <div class="actions">
-        <button class="ghost" onclick={onClose}>Close</button>
-        <button onclick={() => openPanel("chronicleImport", "chronicle")}>Import a chat archive</button>
+        <button class="primary" onclick={() => openPanel("chronicleImport", "chronicle")}>Import a chat archive</button>
       </div>
-    {:else}
-      <div class="actions"><button class="ghost" onclick={onClose}>Close</button></div>
     {/if}
   {:else}
     <div class="src">
@@ -178,9 +177,6 @@
       </p>
     {/if}
 
-    <div class="actions">
-      <button class="ghost" onclick={onClose}>Close</button>
-    </div>
   {/if}
 </RailShell>
 
@@ -235,9 +231,7 @@
   .sec-head h4 {
     margin: var(--sp-2) 0 0;
     font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-weight: 600;
     color: var(--text-faint);
   }
   .totals {
@@ -263,10 +257,8 @@
     text-overflow: ellipsis;
   }
   .tl {
-    font-size: var(--fs-tiny);
+    font-size: var(--fs-small);
     color: var(--text-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
   .tbl {
     display: flex;
@@ -343,7 +335,7 @@
     display: block;
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    background: var(--accent);
     transform-origin: left center;
     animation: bar-across 0.55s var(--ease-spring) both;
   }
@@ -355,10 +347,8 @@
       transform: scaleX(1);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .cfill {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .cfill {
+    animation: none;
   }
   .clabel {
     font-size: var(--fs-small);

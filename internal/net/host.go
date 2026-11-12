@@ -12,6 +12,7 @@ package net
 import (
 	"context"
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"log"
 	stdnet "net"
@@ -311,6 +312,9 @@ type Host struct {
 	// see", which holds the discovery backoff at discoverWanted rather than
 	// letting it run out to discoverMax. See SetPeerDemand.
 	peerDemand func() bool
+	// openStream stands in for h.NewStream in tests that need a stream open to
+	// lose its connection at a chosen moment. nil in the product.
+	openStream func(context.Context, peer.ID, ...protocol.ID) (network.Stream, error)
 }
 
 // New brings up a libp2p host bound to cfg.Identity. The caller owns shutdown
@@ -443,7 +447,17 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		}
 	}
 
-	h, err := libp2p.New(append(opts, libp2p.ListenAddrStrings(listen...))...)
+	// The resource manager is built per attempt: the host closes it on the way
+	// out, so the fallback below cannot reuse the first attempt's.
+	newHost := func(listen []string) (host.Host, error) {
+		rm, err := newResourceManager()
+		if err != nil {
+			return nil, fmt.Errorf("resource manager: %w", err)
+		}
+		// See peerConnCap.
+		return libp2p.New(append(opts, libp2p.ResourceManager(rm), libp2p.ListenAddrStrings(listen...))...)
+	}
+	h, err := newHost(listen)
 	if fixedPort > 0 {
 		if err == nil && !listeningOn(h, fixedPort) {
 			err = fmt.Errorf("only part of port %d came up: %v", fixedPort, h.Network().ListenAddresses())
@@ -457,7 +471,7 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 			// instead; the user loses direct reachability, not their client.
 			log.Printf("concord/net: could not listen on port %d (%v), retrying with an ephemeral port", fixedPort, err)
 			portTaken, fixedPort = true, 0
-			h, err = libp2p.New(append(opts, libp2p.ListenAddrStrings(listenAddrs(0)...))...)
+			h, err = newHost(listenAddrs(0))
 		}
 	}
 	if err != nil {
@@ -548,45 +562,70 @@ func (n *Host) registerConnEvents() {
 			// connects with nobody upstream ever hearing about it — the app
 			// layer records its contact here, so that peer becomes invisible.
 			// Our own seen-set has no such window.
-			first := n.markConnected(p)
+			first, cbs := n.markConnectedFor(p)
 			// The same answer does double duty as the hole-punch exclusion for
 			// reachability evidence: a punched connection is by construction
 			// never the first one to its peer, because DCUtR runs over a relayed
 			// connection we already hold. See countsAsInbound.
 			n.noteInbound(c.Stat().Direction, c.LocalMultiaddr(), c.RemoteMultiaddr(), first)
 			if first {
-				n.fire(n.connectedCallbacks(), p)
+				n.fire(cbs, p)
 			}
 		},
 		DisconnectedF: func(net network.Network, c network.Conn) {
 			p := c.RemotePeer()
-			if len(net.ConnsToPeer(p)) == 0 && n.markDisconnected(p) {
+			if n.connClosed(p, func() int { return len(net.ConnsToPeer(p)) }) {
 				n.fire(n.disconnectedCallbacks(), p)
 			}
 		},
 	})
 }
 
-// markConnected records p as connected, reporting whether this is the first
-// notification for it — i.e. whether upper layers should be told.
-func (n *Host) markConnected(p peer.ID) bool {
+// connClosed handles one connection to p going away, reporting whether it was
+// the last one and the peer had been announced — i.e. whether upper layers
+// should hear that p disconnected.
+//
+// The count of remaining connections is read under the same lock that
+// markConnectedFor takes. It used to be read before taking it, which left a
+// window: a new connection could land between the count ("none left") and the
+// forget, find the peer still marked, and go unannounced, and the forget then
+// erased the mark while that connection was up. Upper layers were told the
+// peer had gone while it was connected, and when that connection did close
+// they were told nothing, because the peer was no longer marked. Whatever they
+// keep per connection (the hello claims, presence) stayed stuck until some
+// later connection came and went: an unlinked phone that redialled at once was
+// never told it had been unlinked.
+func (n *Host) connClosed(p peer.ID, conns func() int) bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if n.connected[p] {
+	if conns() > 0 {
 		return false
 	}
-	n.connected[p] = true
-	return true
-}
-
-// markDisconnected forgets p, reporting whether it had been announced — a
-// disconnect for a peer nobody heard connect must stay silent.
-func (n *Host) markDisconnected(p peer.ID) bool {
-	n.mu.Lock()
-	defer n.mu.Unlock()
 	was := n.connected[p]
 	delete(n.connected, p)
 	return was
+}
+
+// markConnected records p as connected, reporting whether this is the first
+// notification for it — i.e. whether upper layers should be told.
+func (n *Host) markConnected(p peer.ID) bool {
+	first, _ := n.markConnectedFor(p)
+	return first
+}
+
+// markConnectedFor is markConnected that also hands back the connect callbacks
+// registered at that same instant, read under the same lock. OnPeerConnected
+// takes that lock too, so every callback hears about every peer exactly once:
+// either the peer was marked first and the callback's registration replays it,
+// or the callback was registered first and is in this list.
+func (n *Host) markConnectedFor(p peer.ID) (bool, []func(peer.ID)) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.connected[p] {
+		return false, nil
+	}
+	n.connected[p] = true
+	return true, append([]func(peer.ID){}, n.onConnected...)
 }
 
 // Connect dials a peer by its address info. Used by discovery and by
@@ -608,8 +647,56 @@ func (n *Host) Connect(ctx context.Context, pi peer.AddrInfo) error {
 // call signalling — died that way while the connection between them sat there
 // carrying presence heartbeats. Concord's streams are small request/response
 // exchanges, exactly what a limited circuit is for, so accept it.
+//
+// It also survives the connection it picked dying under it, which is not rare.
+// Two devices that start dialling each other at once (a phone just linked, its
+// desktop reaching for its own devices, hole punching on a relayed connection)
+// race a connection per address and transport from both ends, and a resource
+// manager that admits only eight per peer (go-libp2p's default, and so every
+// older build's; see peerConnCap for ours) has its listener refuse the rest
+// AFTER the dialer's handshake has finished, so Connect reports success on a
+// connection the other side is already closing (application error 0x1001).
+// Opening the stream then fails with "connection failed" or that close code.
+// Under load this took down a large share of the joins of a freshly linked
+// device, which then never joined at all. Nothing has been sent at that
+// point, so opening again on whichever connection survived is always safe.
 func (n *Host) newStream(ctx context.Context, p peer.ID, proto protocol.ID) (network.Stream, error) {
-	return n.h.NewStream(network.WithAllowLimitedConn(ctx, "concord"), p, proto)
+	ctx = network.WithAllowLimitedConn(ctx, "concord")
+	open := n.openStream
+	if open == nil {
+		open = n.h.NewStream
+	}
+	for attempt := 1; ; attempt++ {
+		s, err := open(ctx, p, proto)
+		if err == nil || attempt >= streamOpenAttempts || !connWentAway(err) {
+			return s, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(time.Duration(attempt) * streamOpenPause):
+		}
+	}
+}
+
+// streamOpenAttempts and streamOpenPause bound newStream's retry: a few tries
+// a fraction of a second apart, enough for a duplicate-dial storm to settle
+// and short enough that a peer that really is gone fails as fast as before.
+const (
+	streamOpenAttempts = 5
+	streamOpenPause    = 200 * time.Millisecond
+)
+
+// connWentAway reports a stream open that failed because the connection was
+// closed under it, as opposed to the peer being unreachable or not speaking the
+// protocol. The host turns the swarm's ErrNoConn into a bare "connection
+// failed" (basic_host.go), so the text is the only handle on that case.
+func connWentAway(err error) bool {
+	var ce *network.ConnError
+	if errors.As(err, &ce) || errors.Is(err, network.ErrNoConn) {
+		return true
+	}
+	return err.Error() == "connection failed"
 }
 
 // Protect marks a peer connection as important so the connection manager won't
@@ -696,6 +783,11 @@ func (n *Host) LimitedOnly(p peer.ID) bool {
 	return true
 }
 
+// HasConnection reports whether any connection to p is open right now.
+func (n *Host) HasConnection(p peer.ID) bool {
+	return len(n.h.Network().ConnsToPeer(p)) > 0
+}
+
 // Host exposes the underlying libp2p host for sibling layers (pubsub, media
 // signaling) within package net. Kept unexported-in-spirit by returning the
 // interface; callers outside net should use the higher-level methods.
@@ -723,11 +815,27 @@ func (n *Host) PingRTT(ctx context.Context, p peer.ID) (time.Duration, error) {
 	}
 }
 
-// OnPeerConnected registers a callback fired when a peer first connects.
+// OnPeerConnected registers a callback fired when a peer first connects, and
+// fires it at once for every peer that is already connected.
+//
+// The host starts dialling the rendezvous and remembered peers inside New, and
+// the app registers its callbacks only after opening its store and its groups.
+// A connection that landed in between was announced to nobody: on a slow
+// start the rendezvous got there first, so the device never registered its
+// mailbox (deposits for it were refused all session) and never drained what
+// was waiting, and a friend reached that early was never greeted. Replaying
+// the connected set closes that window instead of hoping startup is quick.
 func (n *Host) OnPeerConnected(fn func(peer.ID)) {
 	n.mu.Lock()
 	n.onConnected = append(n.onConnected, fn)
+	already := make([]peer.ID, 0, len(n.connected))
+	for p := range n.connected {
+		already = append(already, p)
+	}
 	n.mu.Unlock()
+	for _, p := range already {
+		go fn(p)
+	}
 }
 
 // OnPeerDisconnected registers a callback fired when a peer fully disconnects.

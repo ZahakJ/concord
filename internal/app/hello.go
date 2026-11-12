@@ -84,6 +84,24 @@ type helloFrame struct {
 	// it only from a proven own device, and only when strictly newer than what
 	// it has (see adoptOfferedProfile), so replays and stale copies are inert.
 	Profile *Profile `json:"profile,omitempty"`
+	// Left names the guilds this device's user left, with when (unix seconds),
+	// and Arrived the guilds it offers in GuildInvites with when each arrived
+	// here (unix nanoseconds). Both ONLY to a proven device of our own account.
+	// Leaving is the account's decision, not one device's: a device that still
+	// holds a guild the user left elsewhere, from before that leave, leaves it
+	// too; and a device that left a guild the user has since joined again
+	// elsewhere takes the offer instead of vetoing it. Older builds send and
+	// read neither, and behave as before: leaving stays per device.
+	Left    map[string]int64 `json:"left,omitempty"`
+	Arrived map[string]int64 `json:"arrived,omitempty"`
+	// ReadMarks is the account's read state (channel → read through,
+	// UnixMilli), ONLY to and from a proven device of our own account; read
+	// receipts never leave the account. Markers otherwise travel only as a live
+	// publish on the Notes meta topic, which has no catch-up, so a mark set
+	// before a device was linked, or before it was listening there, never
+	// reached it. Merged like any remote marker (max, capped by readSkew).
+	// Older builds neither send nor read it.
+	ReadMarks map[string]int64 `json:"readMarks,omitempty"`
 }
 
 // helloTimeout bounds one exchange. A hello is an optimization, not a step in
@@ -148,12 +166,15 @@ func (s *Service) greet(p peer.ID) {
 		s.greeted.release(p)
 		return
 	}
-	req, err := json.Marshal(helloFrame{
+	req, err := marshalHello(helloFrame{
 		Credential:   s.myCredential,
 		Name:         s.deviceLabel(),
 		AppVersion:   version.Version,
 		GuildInvites: s.guildInvitesFor(p),
 		Profile:      s.profileForDevice(p),
+		Left:         s.leftGuildsFor(p),
+		Arrived:      s.arrivalsFor(p),
+		ReadMarks:    s.readMarksFor(p),
 	})
 	if err != nil {
 		return
@@ -213,7 +234,21 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	// harden.
 	s.ingestHello(from, req)
 	if !s.answered.claim(from) {
-		return json.Marshal(helloFrame{})
+		// Except the revocation, which costs nothing to look up and must not
+		// wait on the claim. A device that restarts and redials faster than we
+		// notice its old connection die finds the claim still held from that
+		// connection; answering it with nothing left an unlinked device running
+		// with the account's keys until it happened to reconnect again.
+		return json.Marshal(helloFrame{Revoked: s.revocationFor(from)})
+	}
+	// The claim is per connection, and the connection's end is what releases
+	// it. A hello read just before its connection dropped is still being
+	// handled when that release runs, and its claim then outlived the
+	// connection it belonged to, for good: every later connection from that
+	// peer got the short answer. Checked after claiming, so a drop either came
+	// first and is seen here, or comes later and releases the claim itself.
+	if !s.host.HasConnection(from) {
+		s.answered.release(from)
 	}
 
 	// Answer only someone we can place — which, thanks to the request we just
@@ -230,11 +265,14 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	// have been empty; this is what makes the sync symmetric.
 	out.GuildInvites = s.guildInvitesFor(from)
 	out.Profile = s.profileForDevice(from)
+	out.Left = s.leftGuildsFor(from)
+	out.Arrived = s.arrivalsFor(from)
+	out.ReadMarks = s.readMarksFor(from)
 	if out.Revoked == nil && s.canPlace(from) {
 		out.Credential, out.Name = s.myCredential, s.deviceLabel()
 		out.AppVersion = version.Version
 	}
-	return json.Marshal(out)
+	return marshalHello(out)
 }
 
 // ingestHello verifies and applies one side of the exchange.
@@ -290,7 +328,7 @@ func (s *Service) adoptOfferedProfile(from peer.ID, p *Profile) {
 // redeemOfferedInvites joins guilds this device is not in yet. Codes are only
 // acted on when they came from a device of our own account; anything else is
 // ignored outright rather than merely deprioritised.
-func (s *Service) redeemOfferedInvites(from peer.ID, codes []string) {
+func (s *Service) redeemOfferedInvites(from peer.ID, codes []string, arrived map[string]int64) {
 	if len(codes) == 0 || !s.ownDevice(from) {
 		return
 	}
@@ -316,6 +354,12 @@ func (s *Service) redeemOfferedInvites(from peer.ID, codes []string) {
 		ic, err := decodeInviteCode(strings.TrimSpace(code))
 		if err != nil || have[ic.GuildID] {
 			continue
+		}
+		// We left this guild, but the device offering it arrived in it after
+		// that: the user came back to it there, on purpose (no automatic path
+		// adopts a guild over a leave). The leave is superseded, here too.
+		if at := s.store.LeftAt(ic.GuildID); at > 0 && arrived[ic.GuildID] > leftEnd(at) {
+			_ = s.store.ClearGuildLeft(ic.GuildID)
 		}
 		have[ic.GuildID] = true
 		// joinOfferedInvite re-checks "already a member" under the per-guild
@@ -351,8 +395,14 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 	// device we already know is exactly that. ownDevice is what gates both the
 	// invites and the profile.
 	defer func() {
-		go s.redeemOfferedInvites(from, f.GuildInvites)
+		go func() {
+			// Leaves first: an offer for a guild the user has left elsewhere
+			// must not race the leave that should take it away.
+			s.followSiblingLeaves(from, f.Left)
+			s.redeemOfferedInvites(from, f.GuildInvites, f.Arrived)
+		}()
 		go s.adoptOfferedProfile(from, f.Profile)
+		go s.adoptOfferedReadMarks(from, f.ReadMarks)
 	}()
 	// A revocation naming THIS device is the one thing we act on before anything
 	// else, since acting on it means we stop existing.

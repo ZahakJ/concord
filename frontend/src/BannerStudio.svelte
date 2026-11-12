@@ -276,11 +276,9 @@
       transform: translateY(10px) scale(0.97);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .bs-scrim,
-    .bs {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .bs-scrim,
+  :global(:root[data-motion="reduced"]) .bs {
+    animation: none;
   }
   .bs-head {
     display: flex;
@@ -432,11 +430,11 @@
     color: var(--text);
   }
   .small {
-    font-size: 12px;
+    font-size: var(--fs-small);
     padding: 5px 12px;
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-micro);
     margin: 0;
   }
   .bs-foot {

@@ -9,10 +9,11 @@
   import {
     S,
     jumpToChannel,
-    scrollToMessage,
+    jumpToMessage,
     memberByFpr,
     flash,
     clockOpts,
+    setPref,
   } from "./lib/state.svelte.js";
   import { removeChip, closeSearch, insertFilter, FILTERS } from "./lib/search.js";
   import { plainSnippet } from "./lib/snippet.js";
@@ -22,6 +23,31 @@
   // Results cover the whole feed; back closes them rather than the app.
   syncLayer("panel", () => open, closeSearch);
   const results = $derived(S.searchResults ?? []);
+  // Results grouped by the conversation they are in, in the order each
+  // conversation first appears: a flat list made the reader re-read the
+  // "#channel · guild" tag on every row to see where they were.
+  const groups = $derived.by(() => {
+    const by = new Map();
+    for (const m of results) {
+      if (!by.has(m.channelId)) by.set(m.channelId, []);
+      by.get(m.channelId).push(m);
+    }
+    return [...by.entries()].map(([channelId, hits]) => ({ channelId, where: whereFor(channelId), hits }));
+  });
+
+  // While results own the column, a docked inspector beside them is a third
+  // column about a conversation nobody is looking at: it steps aside and comes
+  // back when search closes.
+  let hidInspector = false;
+  $effect(() => {
+    if (open && !hidInspector && S.prefs.memberPanel && !S.isMobile) {
+      hidInspector = true;
+      setPref("memberPanel", false);
+    } else if (!open && hidInspector) {
+      hidInspector = false;
+      setPref("memberPanel", true);
+    }
+  });
   // The archive pass. It is a separate store with separate coverage, so it gets
   // its own section and its own sentence about what it actually looked at —
   // see SearchChronicle. Absent when the guild has no archive at all.
@@ -98,13 +124,7 @@
     const { id, channelId } = m;
     // No focus homing: the jump lands on the row and owns focus from there.
     closeSearch({ home: false });
-    await jumpToChannel(channelId);
-    await tick();
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        if (!scrollToMessage(id)) flash("That message isn't loaded yet");
-      }),
-    );
+    await jumpToMessage(channelId, id);
   }
 
   // An archived hit lands in the live channel the archive sits above, at the
@@ -139,12 +159,33 @@
       return "";
     }
   }
+
+  // The results are a list you walk with the arrows, entered from the search
+  // box with ↓ (ChatHeader) and left back to it with ↑ from the first hit.
+  // Before this, ↓ did nothing in the box and Tab walked the header and then
+  // the feed hidden UNDER this panel; no result was reachable at all.
+  function onListKey(e) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    const hits = [...e.currentTarget.querySelectorAll(".sp-hit")];
+    const i = hits.indexOf(document.activeElement);
+    if (i < 0) return;
+    let next = null;
+    if (e.key === "ArrowDown") next = hits[Math.min(hits.length - 1, i + 1)];
+    else if (e.key === "ArrowUp") next = i === 0 ? document.querySelector(".search-box") : hits[i - 1];
+    else if (e.key === "Home") next = hits[0];
+    else if (e.key === "End") next = hits[hits.length - 1];
+    if (!next) return;
+    e.preventDefault();
+    next.focus();
+  }
 </script>
 
 {#if open}
   <div class="search-panel" role="region" aria-label="Search results">
     <div class="sp-head">
-      <span class="sp-title">
+      <!-- A status: "11 results" is the answer to what was just typed, and
+           without a live region nothing said it out loud. -->
+      <span class="sp-title" role="status">
         <Icon name="search" size={13} />
         {#if S.searchLoading}
           Searching…
@@ -166,9 +207,6 @@
       >
         {arc ? "conversations + archive" : "all conversations"}
       </span>
-      <button class="sp-close" aria-label="Close search" title="Close search" onclick={() => closeSearch()}>
-        <Icon name="close" size={11} />
-      </button>
     </div>
 
     <!-- The operator vocabulary, clickable. It used to live in a native title=
@@ -178,9 +216,7 @@
     <div class="sp-syntax">
       <span class="sp-syntax-lead">Narrow it</span>
       {#each FILTERS as f (f.prefix)}
-        <button class="sp-add" onclick={() => insertFilter(f.prefix)}>
-          <code>{f.prefix}</code><span class="sp-add-hint">{f.hint}</span>
-        </button>
+        <button class="sp-add" title="Types {f.prefix}" onclick={() => insertFilter(f.prefix)}>{f.label}</button>
       {/each}
     </div>
 
@@ -202,7 +238,8 @@
       </div>
     {/if}
 
-    <div class="sp-list" class:dim={S.searchLoading}>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="sp-list" class:dim={S.searchLoading} onkeydown={onListKey}>
       {#if S.searchLoading && !results.length}
         {#each [0, 1, 2] as i (i)}
           <div class="sp-skel" aria-hidden="true">
@@ -211,9 +248,10 @@
           </div>
         {/each}
       {:else}
-        {#each results as m (m.id)}
+        {#each groups as grp (grp.channelId)}
+          <div class="sp-group"><Icon name={grp.where.icon} size={13} /><span>{grp.where.label}</span></div>
+          {#each grp.hits as m (m.id)}
           {@const mem = memberByFpr(m.sender)}
-          {@const where = whereFor(m.channelId)}
           <button class="sp-hit" onclick={() => openResult(m)} title="Jump to message">
             <Avatar
               name={m.senderName || m.sender.slice(0, 2)}
@@ -225,7 +263,6 @@
             <span class="sp-body">
               <span class="sp-meta">
                 <strong>{m.senderName || m.sender.slice(0, 9)}</strong>
-                <span class="sp-where"><Icon name={where.icon} size={10} />{where.label}</span>
                 <span class="sp-time">{fmtTime(m.sent)}</span>
               </span>
               <span class="sp-text">
@@ -233,6 +270,7 @@
               </span>
             </span>
           </button>
+          {/each}
         {:else}
           {#if !arcHits.length}
             <div class="sp-empty">
@@ -310,7 +348,9 @@
   .search-panel {
     position: absolute;
     inset: 0;
-    z-index: 4;
+    /* Over the covered view, which the shells isolate into one stacking
+       context (.pane-view) so nothing inside it can outbid this. */
+    z-index: var(--z-raised);
     border-bottom: 1px solid var(--border);
     /* Opaque, which is the whole point of the paragraph above — and --bg-1 is
        not, on the packs that let a live backdrop through. */
@@ -342,21 +382,10 @@
     color: var(--text-muted);
     font-size: var(--fs-tiny);
     letter-spacing: 0.03em;
-    text-transform: uppercase;
     white-space: nowrap;
   }
-  .sp-close {
-    padding: 3px 6px;
-    background: transparent;
-    color: var(--text-muted);
-    display: grid;
-    place-items: center;
-    border-radius: var(--radius-sm);
-  }
-  .sp-close:hover {
-    background: var(--bg-3);
-    color: var(--text);
-  }
+
+
   .sp-chips {
     display: flex;
     flex-wrap: wrap;
@@ -374,8 +403,6 @@
   }
   .sp-syntax-lead {
     font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
     color: var(--text-faint);
     margin-right: 2px;
   }
@@ -394,23 +421,28 @@
       border-color var(--dur-quick) ease,
       color var(--dur-quick) ease;
   }
-  .sp-add code {
-    font-family: ui-monospace, monospace;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .sp-add-hint {
-    font-size: var(--fs-tiny);
-    color: var(--text-faint);
-  }
   .sp-add:hover,
   .sp-add:focus-visible {
-    border-color: var(--accent);
+    border-color: var(--text-faint);
     color: var(--text);
   }
-  .sp-add:hover code,
-  .sp-add:focus-visible code {
-    color: var(--accent-hover);
+  /* A conversation's results sit under one header, 32px, like the inbox. */
+  .sp-group {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    height: 32px;
+    padding: 0 var(--sp-3);
+    margin-top: var(--sp-2);
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .sp-group span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .sp-chip {
     display: inline-flex;
@@ -418,9 +450,9 @@
     gap: var(--sp-1);
     padding: 2px 4px 2px 9px;
     border-radius: 999px;
-    background: var(--accent-soft);
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-    color: var(--accent-hover);
+    background: var(--bg-3);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
     font-size: var(--fs-small);
     font-weight: 600;
     line-height: 1.5;
@@ -444,7 +476,7 @@
     inset: -9px -3px;
   }
   .sp-chip-x:hover {
-    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    background: var(--border);
   }
   .sp-list {
     overflow-y: auto;
@@ -503,6 +535,10 @@
   }
   .sp-hit {
     display: flex;
+    /* A row of a scrolling flex column shrinks to share the height unless told
+       not to: on a phone every hit was squeezed to 48px while its two-line
+       snippet needed 70, and the second line was drawn over the next result. */
+    flex-shrink: 0;
     align-items: flex-start;
     gap: 9px;
     padding: 7px 8px;
@@ -587,7 +623,7 @@
   }
   .sp-text mark {
     background: var(--accent-soft);
-    color: var(--accent-hover);
+    color: var(--text);
     font-weight: 600;
     border-radius: 3px;
     padding: 0 1px;
@@ -631,27 +667,20 @@
   .sk-dot,
   .sk-a,
   .sk-b {
-    background: linear-gradient(100deg, var(--bg-2) 35%, var(--bg-3) 50%, var(--bg-2) 65%);
-    background-size: 240% 100%;
-    animation: sp-shimmer 1.1s linear infinite;
+    /* Skeletons pulse, they do not shimmer (no gradient sweep). */
+    background: var(--bg-3);
+    animation: sp-pulse 1.2s ease-in-out infinite alternate;
   }
-  @keyframes sp-shimmer {
+  @keyframes sp-pulse {
     from {
-      background-position: 120% 0;
-    }
-    to {
-      background-position: -120% 0;
+      opacity: 0.6;
     }
   }
   /* Touch: roomier hit rows and more of the (full-screen) column for results;
      drop the scope pill to keep the top bar to one clean line. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     .sp-hit {
       padding: 10px 8px;
-      min-height: var(--tap-min);
-    }
-    .sp-close {
-      min-width: var(--tap-min);
       min-height: var(--tap-min);
     }
     .sp-scope {
@@ -663,10 +692,24 @@
     .sp-chips {
       gap: var(--sp-2);
     }
+    /* One row that scrolls sideways: five thumb-height pills wrapped onto two
+       rows took a fifth of the screen before the first result. */
+    .sp-syntax {
+      flex: none;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .sp-syntax-lead {
+      flex: none;
+    }
     .sp-add {
+      flex: none;
+      align-items: center;
       min-height: var(--tap-min);
       padding: 0 12px;
       font-size: var(--fs-ui);
+      white-space: nowrap;
     }
     .sp-chip {
       min-height: 40px;

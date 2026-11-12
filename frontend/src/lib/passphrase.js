@@ -51,7 +51,46 @@ export function bitsOf(input) {
   const distinct = new Set(s).size;
   // Ranges from 0.45 (one character repeated) to 1 (every character different).
   const variety = 0.45 + 0.55 * Math.min(1, distinct / Math.max(8, s.length / 2));
-  return s.length * Math.log2(alphabetSize(s)) * variety;
+  return effectiveLength(s, distinct) * Math.log2(alphabetSize(s)) * variety;
+}
+
+// effectiveLength: how many characters of this string a guesser actually has
+// to find. The variety discount alone multiplied the raw length, so length
+// always won: 600 × "x" scored Excellent. Repetition is the guesser's first
+// try, not extra work, so a string that is one short unit over and over counts
+// as that unit plus a little for the count, and no string counts as more than
+// three characters per distinct character in it.
+export function effectiveLength(s, distinct = new Set(s).size) {
+  const chars = [...s];
+  const n = chars.length;
+  let len = n;
+  for (let p = 1; p <= n / 2; p++) {
+    let periodic = true;
+    for (let i = p; i < n; i++) {
+      if (chars[i] !== chars[i - p]) {
+        periodic = false;
+        break;
+      }
+    }
+    if (periodic) {
+      len = p + Math.log2(n / p);
+      break;
+    }
+  }
+  return Math.min(len, distinct * 3);
+}
+
+// normalizePassphrase: the form the core seals a passphrase under (NFKC, see
+// internal/identity NormalizePassphrase). Two fields showing the same text can
+// hold different code points — a composed "é" in one, "e" plus an accent in
+// the other — and comparing the raw strings told people their matching
+// passphrases did not match.
+export function normalizePassphrase(p) {
+  return String(p ?? "").normalize("NFKC");
+}
+
+export function samePassphrase(a, b) {
+  return normalizePassphrase(a) === normalizePassphrase(b);
 }
 
 // The bands. Named for what they mean to the person reading them, and pitched

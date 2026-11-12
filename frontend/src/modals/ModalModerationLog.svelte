@@ -1,5 +1,6 @@
 <script>
   // The guild's governance log, rendered as history.
+  import Segmented from "../Segmented.svelte";
   //
   // Nothing on this screen is fetched, computed by anyone else, or taken on
   // trust. Every row is one Ed25519-signed operation that already sits on this
@@ -15,7 +16,7 @@
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import EmptyState from "../EmptyState.svelte";
-  import { S, flash, activeGuild } from "../lib/state.svelte.js";
+  import { S, flash, activeGuild, nameInk, faceFor } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { tooltip } from "../lib/tooltip.js";
   import { plural } from "../lib/plural.js";
@@ -107,17 +108,13 @@
     device, which is why every member can read it.
   </p>
 
-  <div class="filters" role="group" aria-label="Filter the log">
-    {#each GOV_FILTERS as f (f.id)}
-      <button
-        class="quiet chip"
-        class:on={filter === f.id}
-        aria-pressed={filter === f.id}
-        onclick={() => (filter = f.id)}
-      >
-        {f.label}
-      </button>
-    {/each}
+  <div class="filters">
+    <Segmented
+      label="Filter the log"
+      value={filter}
+      onChange={(v) => (filter = v)}
+      options={GOV_FILTERS.map((f) => ({ value: f.id, label: f.label }))}
+    />
   </div>
 
   {#if loading}
@@ -129,20 +126,23 @@
       sub="No roles, removals, bans, mutes or channel changes have happened in this guild. When one does, it will be signed and it will show up here."
     />
   {:else if shown.length === 0}
-    <p class="note">Nothing in this part of the log yet. Try another filter.</p>
+    <EmptyState compact icon="list" headline="Nothing here yet" sub="Nothing in this part of the log so far. Try another filter." />
   {:else}
     <ul class="log">
       {#each shown as e (e.hash)}
         {@const v = verdictLabel(e)}
+        {@const f = faceFor(e.signer, e.signerName)}
         <li class="row" class:doubt={v.id !== "ok"}>
-          <Avatar name={e.signerName || e.signer} size={28} />
+          <!-- The signer's real face, as every other list draws a person: the
+               log used to show initials on a grey disc for everyone. -->
+          <Avatar name={f.name} image={f.image} emoji={f.emoji} color={f.color} size={28} />
           <div class="body">
             <p class="say">
               {#each govSentence(e) as part, i (i)}
                 {#if part.k === "person"}<span class="who">{part.v}</span
                   >{:else if part.k === "role"}<span
                     class="role"
-                    style={part.color ? `color:${part.color}` : null}>{part.v}</span
+                    style={part.color ? `color:${nameInk(part.color)}` : null}>{part.v}</span
                   >{:else if part.k === "channel"}<span class="chan">{part.v}</span
                   >{:else if part.k === "time"}<span class="chan">{stamp(part.v)}</span
                   >{:else}{part.v}{/if}
@@ -207,35 +207,14 @@
     font-size: var(--fs-ui);
     color: var(--text-muted);
   }
+  /* flex: none — the pane is a flex column, and a child with overflow-x set
+     has a zero minimum height, so a long log squeezed the filter row to a
+     3px sliver under the description. */
   .filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--sp-1);
+    flex: none;
     margin-bottom: var(--sp-3);
-  }
-  /* `quiet` (app.css) carries both the fill and the ink — see the note there:
-     the global button rule's --accent-fg is near-black, so a chip that repainted
-     only its background wrote black on charcoal. */
-  .chip {
-    padding: 5px 11px;
-    min-width: 0;
-    font-size: var(--fs-compact);
-    color: var(--text-muted);
-    border-radius: 999px;
-  }
-  .chip.on {
-    background: var(--accent);
-    color: var(--accent-fg);
-  }
-  @media (pointer: fine) {
-    .chip:not(.on):hover {
-      background: var(--border);
-      color: var(--text);
-    }
-    .chip.on:hover {
-      background: var(--accent-hover);
-      color: var(--accent-fg);
-    }
+    overflow-x: auto;
+    scrollbar-width: none;
   }
   .log {
     list-style: none;

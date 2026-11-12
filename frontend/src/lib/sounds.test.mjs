@@ -317,6 +317,18 @@ check("…and plays again once the window has passed", playRecipe(STARTER_SHELF[
   check("…and it says so", /Web Audio/.test(m.audioTrouble() || ""), true);
 }
 
+// A fresh install has no stored volume, and that must read as full, not as 0.
+// Number(null) is 0, so every new install used to start silent.
+{
+  const m = await import("./sounds.js?volume");
+  check("nothing stored is full volume", m.parseVolume(null), 1);
+  check("an empty value is full volume", m.parseVolume(""), 1);
+  check("a stored half stays half", m.parseVolume("0.5"), 0.5);
+  check("a stored zero stays zero", m.parseVolume("0"), 0);
+  check("garbage is full volume", m.parseVolume("loud"), 1);
+  check("out of range is full volume", m.parseVolume("7"), 1);
+}
+
 if (failures) {
   console.error(`\n${failures} sounds test(s) failed`);
   process.exit(1);

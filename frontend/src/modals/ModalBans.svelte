@@ -1,6 +1,8 @@
 <script>
   // Lists a guild's banned members and lets a moderator lift a ban.
+  import EmptyState from "../EmptyState.svelte";
   import RailShell from "./RailShell.svelte";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import { S, refreshRightPanel, flash } from "../lib/state.svelte.js";
@@ -47,19 +49,12 @@
   // Lifting a ban lets someone back into a room they were thrown out of, and
   // the Unban button used to be a single unguarded click beside a row whose
   // only identifier was a display name.
+  // The question is raised over this page, not instead of it: swapping
+  // S.modal for the confirm took the whole Guild settings window with it, so
+  // lifting a ban dropped you back in the channel.
+  let asking = $state(null);
   function confirmUnban(b) {
-    const name = b.name || shortFpr(b.fingerprint);
-    S.modal = {
-      kind: "confirm",
-      title: `Lift the ban on ${name}?`,
-      body: "They'll be able to join again with an invite. Their old messages are unaffected either way.",
-      confirmLabel: "Unban",
-      danger: false,
-      onConfirm: () => {
-        S.modal = null;
-        unban(b.fingerprint);
-      },
-    };
+    asking = b;
   }
 
   async function unban(fpr) {
@@ -83,7 +78,12 @@
   {#if loading}
     <p class="muted empty">Loading…</p>
   {:else if bans.length === 0}
-    <p class="muted empty">No one is banned from this guild.</p>
+    <EmptyState
+      compact
+      icon="door"
+      headline="Nobody banned"
+      sub="A member banned from the member list or their profile shows up here, with the reason, and can be let back in."
+    />
   {:else}
     {#if bans.length > 4}
       <label class="search">
@@ -118,7 +118,7 @@
               <span class="reason">&ldquo;{b.reason}&rdquo;</span>
             {/if}
           </span>
-          <button class="unban" disabled={busy === b.fingerprint} onclick={() => confirmUnban(b)}>
+          <button class="quiet sm unban" disabled={busy === b.fingerprint} onclick={() => confirmUnban(b)}>
             Unban
           </button>
         </div>
@@ -126,6 +126,21 @@
     </div>
   {/if}
 </RailShell>
+
+{#if asking}
+  <ConfirmDialog
+    title={`Lift the ban on ${asking.name || shortFpr(asking.fingerprint)}?`}
+    body="They'll be able to join again with an invite. Their old messages are unaffected either way."
+    confirmLabel="Unban"
+    danger={false}
+    onConfirm={() => {
+      const fpr = asking.fingerprint;
+      asking = null;
+      unban(fpr);
+    }}
+    onClose={() => (asking = null)}
+  />
+{/if}
 
 <style>
   .empty {

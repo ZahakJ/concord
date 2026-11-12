@@ -32,17 +32,9 @@
 
 {#if S.joinVeil}
   <div class="veil" class:leaving={S.joinVeil.leaving} role="status" aria-live="polite">
-    <!-- A hint of the destination behind the copy. The veil only knows the
-         event's TITLE — the room's guild id (and thus its banner preset)
-         doesn't exist client-side until the join resolves, and matching
-         S.guilds by name would happily paint some other "Weekly sync"'s
-         banner. So the identity here is the accent: a soft radial wash, dim
-         enough to stay under the text. -->
-    <div class="wash" aria-hidden="true"></div>
     <div class="inner">
-      <div class="kicker evk">{S.joinVeil.title}</div>
       <Avatar name={me.name} emoji={me.emoji} color={me.color} image={me.avatar} size={64} />
-      <div class="line">Joining “{S.joinVeil.title}”…</div>
+      <div class="line">{S.joinVeil.title ? `Joining “${S.joinVeil.title}”…` : "Joining…"}</div>
       <div class="foot">
         {#if slow}Still knocking — someone inside has to let you in…{:else}as {me.name || "you"}
           · end-to-end encrypted{/if}
@@ -55,12 +47,12 @@
   .veil {
     position: fixed;
     inset: 0;
-    z-index: 210; /* above modals (100) and the context menu — the door closes over everything */
+    z-index: var(--z-veil); /* above modals (100) and the context menu — the door closes over everything */
     display: grid;
     place-items: center;
     /* Translucent over --bg-0: the room renders BEHIND the veil, so the exit
        fade is a reveal, not a scene cut. No backdrop-filter — phones. */
-    background: color-mix(in srgb, var(--bg-0) 82%, transparent);
+    background: color-mix(in srgb, var(--bg-2) 94%, transparent);
     animation: veil-in 140ms var(--ease-calm);
     /* Full-cover circle at rest so .leaving has a start value to iris from.
        % is against the box diagonal — 140% clears the corners with room. */
@@ -75,20 +67,8 @@
     clip-path: circle(0% at 50% 50%);
     transition: clip-path var(--dur-calm) var(--ease-calm);
   }
-  .wash {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    /* Two off-center accent pools, dimmed hard. No filter blur — radial
-       gradients are already soft, and the "no backdrop-filter — phones" rule
-       above extends to any per-frame filter work on a full-screen layer. */
-    background:
-      radial-gradient(55% 70% at 50% 26%, color-mix(in srgb, var(--accent) 32%, transparent), transparent 70%),
-      radial-gradient(60% 75% at 78% 88%, color-mix(in srgb, var(--accent-hover) 22%, transparent), transparent 72%);
-    opacity: 0.45;
-  }
   .inner {
-    position: relative; /* above the wash */
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -97,16 +77,11 @@
     padding: var(--sp-5);
     max-width: min(420px, 90 * var(--vw));
   }
-  .evk {
-    color: var(--text-faint);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 100%;
-  }
   .line {
-    font-size: var(--fs-title);
-    font-weight: 650;
+    font-family: var(--display-font);
+    font-size: var(--fs-display);
+    font-weight: 600;
+    letter-spacing: -0.02em;
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
@@ -114,7 +89,7 @@
     -webkit-box-orient: vertical;
   }
   .foot {
-    font-size: var(--fs-tiny);
+    font-size: var(--fs-small);
     color: var(--text-faint);
   }
   @keyframes veil-in {
@@ -122,17 +97,15 @@
       opacity: 0;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .veil {
-      animation: none;
-      clip-path: none;
-    }
-    /* Reduced motion keeps the pre-iris exit: no clip animation, the veil
+  :global(:root[data-motion="reduced"]) .veil {
+    animation: none;
+    clip-path: none;
+  }
+  /* Reduced motion keeps the pre-iris exit: no clip animation, the veil
        just stops being there (the old instant opacity drop). */
-    .veil.leaving {
-      clip-path: none;
-      opacity: 0;
-      transition: none;
-    }
+  :global(:root[data-motion="reduced"]) .veil.leaving {
+    clip-path: none;
+    opacity: 0;
+    transition: none;
   }
 </style>

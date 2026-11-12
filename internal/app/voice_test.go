@@ -37,12 +37,16 @@ func TestVoiceSignalingBackbone(t *testing.T) {
 	var mu sync.Mutex
 	aSawB := false
 	var bGotSignal []byte
+	var bLeaves []string // the reason each of B's goodbyes carried
 
 	bPeerID := b.PeerID()
 	a.OnVoicePresence(func(from, fingerprint, ch, action, target, dest string) {
 		mu.Lock()
 		if from == bPeerID && ch == channel && action == "join" {
 			aSawB = true
+		}
+		if from == bPeerID && ch == channel && action == "leave" {
+			bLeaves = append(bLeaves, dest)
 		}
 		mu.Unlock()
 	})
@@ -77,6 +81,34 @@ func TestVoiceSignalingBackbone(t *testing.T) {
 		defer mu.Unlock()
 		return string(bGotSignal) == string(want)
 	}, "B did not receive A's relayed signal")
+
+	// A goodbye from a page going away says so; an ordinary one says nothing.
+	// The other side of a 1:1 holds the call for the first and ends it on the
+	// second (frontend lib/callflow.js).
+	if err := b.LeaveVoiceBecause(channel, LeaveReasonUnload); err != nil {
+		t.Fatalf("B LeaveVoiceBecause: %v", err)
+	}
+	waitUntil(t, 10*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(bLeaves) == 1
+	}, "A did not hear B's unload goodbye")
+	if err := b.JoinVoice(channel); err != nil {
+		t.Fatalf("B rejoin: %v", err)
+	}
+	if err := b.LeaveVoice(channel); err != nil {
+		t.Fatalf("B LeaveVoice: %v", err)
+	}
+	waitUntil(t, 10*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(bLeaves) == 2
+	}, "A did not hear B's plain goodbye")
+	mu.Lock()
+	if bLeaves[0] != LeaveReasonUnload || bLeaves[1] != "" {
+		t.Errorf("goodbye reasons = %q, want [unload, \"\"]", bLeaves)
+	}
+	mu.Unlock()
 
 	// Leaving is clean (no panic, idempotent).
 	if err := a.LeaveVoice(channel); err != nil {

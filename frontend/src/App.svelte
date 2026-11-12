@@ -1,12 +1,16 @@
 <script>
+  import { cycleRegion } from "./lib/regions.js";
   // App.svelte is the shell: login gate, the four-column layout, voice
   // lifecycle, global shortcuts, and modal routing. All shared state and the
   // backend event wiring live in lib/state.svelte.js.
   import { onMount, untrack } from "svelte";
+  import { watchMoments, refreshMoments } from "./lib/momentsunseen.svelte.js";
   import { precacheCosmetics } from "./lib/cosmetics.svelte.js";
   import { precacheEmoji } from "./lib/emojifull.svelte.js";
   import { api, leaveVoiceOnUnload } from "./lib/api.js";
   import { createVisibilityReporter } from "./lib/visibility.js";
+  import { windowTitle } from "./lib/readstate.js";
+  import { flushOutbox } from "./lib/outbox.svelte.js";
   import { VoiceMesh } from "./lib/voice.js";
   import { requestPermission, asksLazily } from "./lib/notify.js";
   import { installShortcuts } from "./lib/shortcuts.js";
@@ -17,7 +21,6 @@
     activeGuild,
     activeChannel,
     guildUnread,
-    accentForeground,
     onLogin,
     refreshGuilds,
     refreshRightPanel,
@@ -28,6 +31,10 @@
     setVideoStream,
     clearVideoStreams,
     incomingCall,
+    declineCall,
+    acceptingCall,
+    joinedDMCall,
+    leavingDMCall,
     isDMChannel,
     jumpToChannel,
     openCallStage,
@@ -35,7 +42,6 @@
     toggleCallStageChat,
     channelShort,
     checkForUpdate,
-    dismissUpdate,
     setChannelTopic,
     nudge,
     selectChannel,
@@ -53,7 +59,6 @@
     toggleMicMute,
     toggleDeafen,
     setPref,
-    dismissNotifyAsk,
   } from "./lib/state.svelte.js";
 
   import { guildAccent } from "./lib/guildaccent.js";
@@ -65,6 +70,9 @@
   import { popLayer, navDepth, syncLayer } from "./lib/navstack.svelte.js";
   import { haptic, hapticNotify } from "./lib/touch.js";
   import Icon from "./Icon.svelte";
+  import GuildSwitcher from "./GuildSwitcher.svelte";
+  import { GSW } from "./lib/guildswitch.svelte.js";
+  import { tooltip } from "./lib/tooltip.js";
   import Login from "./Login.svelte";
   import MobileShell from "./MobileShell.svelte";
   import GuildRail from "./GuildRail.svelte";
@@ -72,8 +80,10 @@
   import ChatHeader from "./ChatHeader.svelte";
   import MessageList from "./MessageList.svelte";
   import Composer from "./Composer.svelte";
-  import MemberPanel from "./MemberPanel.svelte";
+  import Inspector from "./Inspector.svelte";
   import Welcome from "./Welcome.svelte";
+  import EmptyState from "./EmptyState.svelte";
+  import { PERM, has } from "./lib/perms.js";
   import ProfilePopover from "./ProfilePopover.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import Toasts from "./Toasts.svelte";
@@ -81,7 +91,6 @@
   import FxOverlay from "./FxOverlay.svelte";
   import { validFx } from "./lib/themefx.js";
   import JoinVeil from "./JoinVeil.svelte";
-  import SetupCard from "./SetupCard.svelte";
   import PostHeader from "./PostHeader.svelte";
   import EventNudges from "./EventNudges.svelte";
   import { pointOf, rectOf } from "./lib/place.js";
@@ -149,6 +158,7 @@
     storyViewer: () => import("./StoryViewer.svelte"),
     newDM: () => import("./modals/ModalNewDM.svelte"),
     renameGroup: () => import("./modals/ModalRenameGroup.svelte"),
+    groupMembers: () => import("./modals/ModalGroupMembers.svelte"),
     renameChannel: () => import("./modals/ModalRenameChannel.svelte"),
     channelTopic: () => import("./modals/ModalChannelTopic.svelte"),
     channelLinks: () => import("./modals/ModalChannelLinks.svelte"),
@@ -268,6 +278,8 @@
   import { startEventRadar, markCalendarSeen, markAllCalendarsSeen } from "./lib/radar.svelte.js";
   import { startEphemeralSweep } from "./lib/ephemeral.svelte.js";
   import { parseShare, fileSrc, skippedNote } from "./lib/sharein.js";
+  import { backStep, makeTrail, installWebBack } from "./lib/webback.js";
+  import { reducedMotion } from "./lib/motion.js";
 
   let composer = $state(null);
 
@@ -286,6 +298,9 @@
   // slides in over the board, which stays mounted behind it as the thing the
   // channel actually is.
   const postObj = $derived(activeChannelObj?.parent ? activeChannelObj : null);
+  // The search results are covering the conversation column (SearchPanel draws
+  // whenever any of these is set).
+  const searchCovers = $derived(!!searchTakeover.C && (S.searchResults !== null || S.searchLoading || !!S.searchHint));
   // The face to leave behind the panel. Only a FORUM has one: a thread started
   // from a message in a text channel has a parent that is itself a feed, and
   // there is exactly one MessageList — so that case gets the panel's chrome
@@ -298,80 +313,135 @@
     return p?.type === "forum" ? p : null;
   });
 
-  // Resizable side columns. The persisted pref only overrides the stylesheet
-  // when it differs from the wide-desktop default: an untouched pref leaves the
-  // CSS var unset, so the sub-900px media query can still pick its narrower
-  // base widths. Once you drag, your width wins at every desktop size (clamped).
-  const COL_MIN = 160;
-  const COL_MAX = 360;
-  const COL_DEFAULTS = { colChannels: 220, colMembers: 260 };
-  // Live width during a drag, px (0 = not dragging). Persisting happens once,
-  // on pointerup, so a drag doesn't hammer localStorage on every pointermove.
-  let liveCols = $state({ colChannels: 0, colMembers: 0 });
+  // ---- the shell's grid (§2.1–2.2) ----
+  //
+  // Two arrangements of the same navigation, chosen by one device-local pref:
+  // `navModel` "sidebar" (the default — one sidebar with a shortcut strip under
+  // the place header) or "rail" (the classic slim guild rail beside the list).
+  // Nothing outside the shell's own files knows which is on screen.
+  const railModel = $derived(S.prefs.navModel === "rail");
+  const sidebarHidden = $derived(S.prefs.sidebarHidden === true);
 
-  function clampCol(w) {
-    return Math.min(COL_MAX, Math.max(COL_MIN, Math.round(w)));
-  }
-  function colVar(key) {
-    if (liveCols[key]) return liveCols[key];
-    const v = Number(S.prefs[key]);
-    // Untouched (or garbage) pref → no override; stylesheet defaults decide.
-    if (!v || v === COL_DEFAULTS[key]) return 0;
-    return clampCol(v);
-  }
-  // Per-guild accent: the active guild's banner hue becomes --accent for the
-  // whole view, and every derived token (hover/soft/glow are color-mix'd from
-  // it) follows — each guild reads as a PLACE. Precedence: a user's explicit
-  // accent preset always wins, then the guild, then pack/profile (the root
-  // values this stamp overrides). "Use guild colors" in Appearance opts out.
-  const guildAccentVars = $derived.by(() => {
-    if (S.prefs.accent || S.prefs.guildAccents === false) return "";
-    const g = activeGuild();
-    if (!g || g.kind === "dm") return "";
-    const c = guildAccent(g.banner);
-    return c ? `--accent:${c};--accent-fg:${accentForeground(c)}` : "";
+  // Widths. The sidebar is 280 by default (264 in the 769–1150 band, where the
+  // conversation must keep ≥ 556 at 820), dragged within 240–360 (240–320 in
+  // the band); the classic arrangement's list is narrower, the rail beside it
+  // taking 64. The inspector is 320, dragged within 280–420. A drag persists
+  // once, on release (colChannels / colMembers).
+  const RAIL_W = 64;
+  const HIDDEN_W = 44;
+  const sbMin = 240;
+  const sbMax = $derived(S.narrow ? 320 : 360);
+  const sbDefault = $derived(railModel ? (S.narrow ? 240 : 264) : S.narrow ? 264 : 280);
+  const INSP_MIN = 280;
+  const INSP_MAX = 420;
+  const INSP_DEFAULT = 320;
+  let liveCols = $state({ colChannels: 0, colMembers: 0 });
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(v)));
+  // A width you dragged on a wide window is kept, clamped to what the band
+  // allows; an untouched one follows the band's default.
+  const sidebarW = $derived(
+    liveCols.colChannels || (Number(S.prefs.sidebarW) ? clamp(S.prefs.sidebarW, sbMin, sbMax) : sbDefault),
+  );
+  const inspectorW = $derived(
+    liveCols.colMembers || (Number(S.prefs.inspectorW) ? clamp(S.prefs.inspectorW, INSP_MIN, INSP_MAX) : INSP_DEFAULT),
+  );
+  const leftW = $derived((railModel ? RAIL_W : 0) + (sidebarHidden ? HIDDEN_W : sidebarW));
+
+  // Docking (§2.2): the inspector sits beside the conversation only when the
+  // conversation keeps 640px with it there. Measured on the app's own box, so
+  // the app's zoom and a dragged sidebar both count — a media query sees
+  // neither. The answer is the shell's contract with the inspector:
+  // data-inspector="docked" | "overlay" on .app.
+  let appW = $state(0);
+  let appEl = $state(null);
+  $effect(() => {
+    if (!appEl || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => (appW = e.contentRect.width));
+    ro.observe(appEl);
+    return () => ro.disconnect();
   });
+  const docked = $derived(appW > 0 && appW - leftW - inspectorW >= 640);
+
+  // Open or closed is remembered per device AND per context: closing the
+  // overlay on a laptop must not hide the docked panel on the desk monitor.
+  // `memberPanel` (what Ctrl+U and the header toggle flip) is the live value;
+  // crossing between docked and overlay files it under the context being left
+  // and takes up the one being entered. The overlay starts closed.
+  let lastDocked = null;
+  $effect(() => {
+    if (!appW) return;
+    const d = docked;
+    const open = !!S.prefs.memberPanel;
+    untrack(() => {
+      const key = d ? "inspectorDockedOpen" : "inspectorOverlayOpen";
+      if (d !== lastDocked) {
+        lastDocked = d;
+        // A docked panel follows what the toggle last said (the pref predates
+        // contexts); an overlay you never opened stays shut.
+        const want = d ? (S.prefs[key] ?? open) !== false : S.prefs[key] === true;
+        if (want !== open) setPref("memberPanel", want);
+        return;
+      }
+      if (S.prefs[key] !== open) setPref(key, open);
+    });
+  });
+  const inspectorShown = $derived(!isDM && hasChannel && !S.callStage && !!S.prefs.memberPanel);
+  // The overlay is a layer: Escape and Back close it, like any other.
+  syncLayer("panel", () => inspectorShown && !docked, () => setPref("memberPanel", false));
+  // …and so does a press on the empty feed (never a link, a reaction, a picture
+  // or the composer: those are things you meant to press).
+  function overlayOutside(e) {
+    if (docked || !inspectorShown) return;
+    const t = e.target;
+    // Empty background only: the feed's own box or its spacers, never a row.
+    if (t?.classList?.contains("feed") || t?.classList?.contains("vs") || t?.classList?.contains("feedwrap"))
+      setPref("memberPanel", false);
+  }
 
   const gridStyle = $derived(
     [
-      colVar("colChannels") ? `--col-channels:${colVar("colChannels")}px` : "",
-      colVar("colMembers") ? `--col-members:${colVar("colMembers")}px` : "",
-      guildAccentVars,
-    ]
-      .filter(Boolean)
-      .join(";"),
+      `--rail-w:${railModel ? RAIL_W : 0}px`,
+      `--sb-w:${sidebarHidden ? HIDDEN_W : sidebarW}px`,
+      `--insp-w:${inspectorW}px`,
+      `grid-template-columns:${[
+        railModel ? "var(--rail-w)" : "",
+        "var(--sb-w)",
+        "minmax(0, 1fr)",
+        inspectorShown && docked ? "var(--insp-w)" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}`,
+    ].join(";"),
   );
 
-  // dir: +1 when dragging right widens the column (channel list, handle on its
-  // right edge), -1 when dragging left widens it (member panel, handle on its
-  // left edge). Start width is measured from the rendered column — the handle's
-  // previous sibling in the grid — so the clamp applies on top of whichever
-  // base (220/260, or 190/200 under 900px) is currently in effect.
+  // dir: +1 when dragging right widens the column (the sidebar, handle on its
+  // right edge), -1 when dragging left widens it (the inspector). Layout
+  // pixels throughout (lib/place.js): at 125% the column used to grow 1.25px
+  // per pixel of travel.
   function startColDrag(e, key, dir) {
     if (e.button !== 0) return;
-    e.preventDefault(); // don't start a text selection under the drag
+    e.preventDefault();
     const handle = e.currentTarget;
-    // Layout pixels: the width this writes is a CSS length, and a rect and a
-    // pointer are both visual — at 125% the column grew 1.25px per pixel of
-    // travel and started from a width a quarter too wide. See lib/place.js.
-    const startW = handle.previousElementSibling
-      ? rectOf(handle.previousElementSibling).w
-      : COL_DEFAULTS[key];
+    const startW = key === "colChannels" ? sidebarW : inspectorW;
+    const [lo, hi] = key === "colChannels" ? [sbMin, sbMax] : [INSP_MIN, INSP_MAX];
     const startX = pointOf(e).x;
     handle.setPointerCapture(e.pointerId);
     const move = (ev) => {
-      liveCols[key] = clampCol(startW + dir * (pointOf(ev).x - startX));
+      liveCols[key] = clamp(startW + dir * (pointOf(ev).x - startX), lo, hi);
     };
     const up = () => {
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", up);
       handle.removeEventListener("pointercancel", up);
-      if (liveCols[key]) setPref(key, liveCols[key]);
-      liveCols[key] = 0; // pref carries the width from here on
+      if (liveCols[key]) setPref(key === "colChannels" ? "sidebarW" : "inspectorW", liveCols[key]);
+      liveCols[key] = 0;
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up);
     handle.addEventListener("pointercancel", up);
+  }
+  function resetCol(key) {
+    setPref(key === "colChannels" ? "sidebarW" : "inspectorW", 0);
   }
 
   // Voice: joining does not open the tiles. The full call is a layer you open
@@ -390,14 +460,38 @@
   // The dock is the call when the stage is not: you joined, you are still
   // reading #general, and the picture lives in a window you can put back.
   const callElsewhere = $derived(!!S.voice && !S.callStage && S.voice.channelId !== S.activeChannelId);
+  // When the floating call window is up. Away from the call's own room it
+  // always is — another channel, guild, DM or Settings, sidebar shown or not —
+  // because that is where the call stops being visible: the sidebar bar alone
+  // could not show a peer's shared screen, and the people who asked for the
+  // window back were looking for exactly that. With the sidebar hidden it also
+  // covers the call's own conversation, where nothing else carries the call.
+  // The sidebar bar folds to one line while this is up (one call surface).
+  const callFloats = $derived(
+    !!S.voice && !S.callStage && (S.isMobile ? callElsewhere : callElsewhere || sidebarHidden),
+  );
   const call = $derived(incomingCall());
+
+  // Which guilds hold moments you have not watched (lib/momentsunseen): read
+  // once the core is unlocked, then kept current from its "story" events.
+  $effect(() => {
+    if (!S.ready) return;
+    return untrack(() => watchMoments(() => S.guilds.filter((g) => g.kind !== "dm").map((g) => g.id)));
+  });
+  // A guild joined since, or one whose event was missed, is caught on opening.
+  $effect(() => {
+    const id = S.activeGuildId;
+    if (S.ready && id) untrack(() => refreshMoments(id));
+  });
   const ringingChannel = $derived(call?.channelId || "");
   // Friendly label for the floating call window: DM name, or "Guild · #ch".
   const callLabel = $derived.by(() => {
     if (!S.voice) return "";
     for (const gg of S.guilds) {
       const c = gg.channels.find((x) => x.id === S.voice.channelId);
-      if (c) return gg.kind === "dm" ? gg.name : `${gg.name} · ${c.name}`;
+      // The room first: where space runs out it is the guild's name that
+      // truncates, not the room you are in ("Lantern Makers · Quiet cor…").
+      if (c) return gg.kind === "dm" ? gg.name : `${c.name} · ${gg.name}`;
     }
     return "";
   });
@@ -468,15 +562,21 @@
     };
   });
 
+  // A session that just unlocked sends what was written while the core was
+  // gone ("Messages will send when you're back" — lib/outbox.svelte.js).
+  $effect(() => {
+    if (S.ready) untrack(flushOutbox);
+  });
+
   // Window title carries the unread signal to the taskbar/dock: "(3) #general
-  // — Concord" while minimized or behind another window. Mentions only — raw
-  // unread counts would make the title flicker on every chatty channel.
+  // — Concord" while minimized or behind another window. Things aimed at you
+  // only (mentions, and every DM message) — raw unread counts would make the
+  // title flicker on every chatty channel. See lib/readstate.js.
   $effect(() => {
     const ch = activeChannel();
-    let mentions = 0;
-    for (const g of S.guilds) mentions += guildUnread(g).mentions;
-    const where = ch?.name ? `${isDMChannel(ch.id) ? "" : "#"}${ch.name} — ` : "";
-    document.title = `${mentions ? `(${mentions}) ` : ""}${where}Concord`;
+    let n = 0;
+    for (const g of S.guilds) n += guildUnread(g).attention;
+    document.title = windowTitle({ attention: n, channelName: ch?.name || "", guild: ch ? activeGuild() : null });
   });
 
   // Ring while a DM call is incoming; stops when accepted, declined, or ended.
@@ -553,13 +653,47 @@
     openCal = cur;
   });
 
+  // After a reload mid-call: the call we were in, offered back once.
+  let rejoin = $state("");
+  let rejoinChecked = false;
+  $effect(() => {
+    if (!S.ready || rejoinChecked) return;
+    rejoinChecked = true;
+    let left = null;
+    try {
+      left = JSON.parse(sessionStorage.getItem("concord.leftCall") || "null");
+      sessionStorage.removeItem("concord.leftCall");
+    } catch {
+      left = null;
+    }
+    // Two minutes: past that it is not "a second ago", and the call has moved on.
+    if (left?.channelId && Date.now() - left.at < 120000) rejoin = left.channelId;
+  });
+  const rejoinWhere = $derived.by(() => {
+    for (const gg of S.guilds) {
+      const c = gg.channels?.find((x) => x.id === rejoin);
+      // The room first: where space runs out it is the guild's name that
+      // truncates, not the room you are in ("Lantern Makers · Quiet cor…").
+      if (c) return gg.kind === "dm" ? gg.name : `${c.name} · ${gg.name}`;
+    }
+    return "";
+  });
+
   async function acceptCall(channelId) {
+    acceptingCall(channelId);
     await jumpToChannel(channelId); // open the DM so the call box is in view
     await joinVoice(channelId);
   }
-  function declineCall(channelId) {
-    S.dismissedCalls = [...S.dismissedCalls, channelId];
-  }
+
+  // A DM call ended by itself — declined, rang out, or the other side hung
+  // up. The machine (lib/callflow.js) decided; leaving is App's to do because
+  // App owns the mesh.
+  $effect(() => {
+    const ch = S.callEnd;
+    if (!ch) return;
+    S.callEnd = "";
+    if (S.voice?.channelId === ch) leaveVoice();
+  });
 
   // Skip the login screen if the backend is already unlocked (e.g. after a
   // browser refresh — the Go process stays running and holds the session).
@@ -621,7 +755,20 @@
     // Closing or reloading the tab while in a call: tell the node to leave, so
     // it stops announcing us to a room we're no longer in. "pagehide" is the
     // one that also fires when a mobile browser backgrounds the page.
-    addEventListener("pagehide", () => leaveVoiceOnUnload(S.voice?.channelId || ""));
+    //
+    // A reload is a leave too, and it used to be a silent one: the page came
+    // back on #general with nothing to say you were in a call a second ago.
+    // sessionStorage survives a reload and dies with the tab, which is exactly
+    // the line between "offer to put you back" and "you closed it".
+    addEventListener("pagehide", () => {
+      const ch = S.voice?.channelId || "";
+      if (!leaveVoiceOnUnload(ch)) return;
+      try {
+        sessionStorage.setItem("concord.leftCall", JSON.stringify({ channelId: ch, at: Date.now() }));
+      } catch {
+        /* private mode: the leave still happened, it just goes unannounced */
+      }
+    });
     // Settle exactly once, whatever happens: session restored, no session, or
     // a core that never answers. The deadline is the safety net — a wedged
     // probe must not trap someone behind a splash forever, and the login
@@ -643,6 +790,14 @@
       // straight lie about what went wrong. Say it instead, in the one place a
       // failure this early can be said.
       if (await api.session()) {
+        // An account created in a window that went away before its recovery
+        // phrase was saved: the core is unlocked, so this used to walk straight
+        // into the app and the step was skipped for good. Login holds the door
+        // again until the words are saved.
+        if (S.prefs.backupGate) {
+          resumeBackup = true;
+          return;
+        }
         try {
           await start();
         } catch (err) {
@@ -662,9 +817,10 @@
   // prefers-reduced-motion.
   // True until the session probe answers — see clearBootMark below.
   let booting = $state(true);
+  let resumeBackup = $state(false);
   let flyIn = $state(false);
   function playFlyIn() {
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (reducedMotion()) return;
     flyIn = true;
     setTimeout(() => (flyIn = false), 1500);
   }
@@ -956,6 +1112,38 @@
     confirmExit(App);
   }
 
+  // The web build's Back button walks the same steps (lib/webback.js), and on
+  // a desktop-sized window one more: back to the conversation you came from.
+  const trail = makeTrail();
+  let walkingBack = false;
+  $effect(() => {
+    const id = S.activeChannelId;
+    if (walkingBack) {
+      walkingBack = false;
+      return;
+    }
+    trail.visit(id);
+  });
+  function webBackStep() {
+    if (popLayer()) return true;
+    const step = backStep({
+      inPost: !!activeChannelObj?.parent,
+      phoneChat: S.isMobile && !!S.activeChannelId && !S.drawerOpen,
+      prevChannel: !S.isMobile && trail.previous(),
+    });
+    if (step === "closePost") closePost();
+    else if (step === "toList") S.drawerOpen = true;
+    else if (step === "prevChannel") {
+      walkingBack = true;
+      jumpToChannel(trail.pop()).catch(() => (walkingBack = false));
+    }
+    return !!step;
+  }
+  $effect(() => {
+    if (!S.ready || typeof window === "undefined" || window.Capacitor || window.go) return;
+    return installWebBack(webBackStep);
+  });
+
   // On Capacitor, hook the OS: hardware back walks the stack above, and resuming
   // from the background triggers a fast reconnect + resync (the libp2p sockets
   // die while suspended). No-op on web/desktop.
@@ -1165,11 +1353,6 @@
   // ---- voice lifecycle (owns the mesh; state lives in S) ----
 
   let joining = false;
-  // Missed-call detection: did anyone else ever show up during this call, and
-  // did we enter it by accepting someone's ring (vs. initiating)? The caller's
-  // client is the source of truth for the "Missed call" line.
-  let voiceHadPeer = false;
-  let voiceWasAccept = false;
   // "Hide my IP" is a promise we can only keep when the rendezvous is running
   // TURN. Say so once per session if they asked for it and we cannot — not on
   // every join, and never as if the mesh itself were down.
@@ -1182,6 +1365,20 @@
       // Re-clicking the room you're already in toggles you out (no need to hunt
       // for the disconnect button). Clicking a different one switches rooms.
       if (inThisRoom) return;
+    }
+    // Another window of this same node is already in a call. Joining from here
+    // too made the two windows take the node's one connection from each other
+    // every few seconds, and closing either pulled the node out under the
+    // other. One window holds the call; this one says where it is.
+    const heldElsewhere = await api.voiceHeldElsewhere().catch(() => "");
+    if (heldElsewhere) {
+      flash(
+        heldElsewhere === channelId
+          ? "You're already in this call in another window"
+          : "You're in a call in another window — leave it there first",
+        "info",
+      );
+      return;
     }
     // A lock on an EMPTY call can only be stale — the one person who could
     // admit us would have to be inside. Rather than knock at a door with nobody
@@ -1206,13 +1403,10 @@
       return;
     }
     joining = true;
-    voiceHadPeer = false;
-    voiceWasAccept = incomingCall()?.channelId === channelId;
     // Kill the incoming-call ring the instant we commit to joining — otherwise
     // it keeps brringing through the mic prompt + mesh setup (seconds) until
     // S.voice is finally set, which is the "we're both on the call but it's
-    // still ringing" cringe. incomingCall() skips S.joiningVoice. (Set AFTER
-    // voiceWasAccept, which itself calls incomingCall.)
+    // still ringing" cringe. incomingCall() skips S.joiningVoice.
     S.joiningVoice = channelId;
 
     // IP privacy. Fetch ICE config (STUN + optional TURN) up front. We
@@ -1279,10 +1473,7 @@
         autoGain: S.prefs.autoGain,
       },
       relay: api.relaySignal,
-      onRoster: (ids) => {
-        S.voiceParticipants = ids;
-        if (ids.length > 0) voiceHadPeer = true;
-      },
+      onRoster: (ids) => (S.voiceParticipants = ids),
       onSpeaking: (keys) => (S.voiceSpeaking = keys),
       // How each connection is really doing, per peer. The stage renders it;
       // without it a deadlocked call and a working one look identical.
@@ -1358,18 +1549,21 @@
     // We are inside. Everyone already in the room goes on the admitted set, and
     // the door is not ours to hold for a few seconds yet — see noteCallJoined.
     noteCallJoined(channelId);
-    startCallClock();
+    // A DM call's clock starts when somebody answers, not when we start
+    // ringing them — the machine starts it. Everything else is answered by
+    // walking in.
+    const dmPhase = joinedDMCall(channelId);
+    if (!dmPhase) startCallClock();
     // Android: a microphone-type foreground service for the call's duration —
     // without it, Android 14+ cuts the mic the moment the app leaves the
     // screen, and the room hears you silently drop.
     window.Capacitor?.Plugins?.ConcordCore?.startCallService?.().catch(() => {});
-    // Rejoining a call clears any prior "declined" suppression for this channel.
-    if (S.dismissedCalls.includes(channelId))
-      S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);
     playVoiceJoin();
     publishVoiceState();
     haptic("medium"); // the phone is usually at the ear by now — say it connected
-    flash("Joined voice", "success");
+    // No toast. The call dock (the call strip on a phone) appears in the same
+    // frame saying "Calling…" or "Voice connected", and a toast beside it was
+    // the same news twice. Failures still toast, above.
     joining = false;
   }
 
@@ -1377,6 +1571,9 @@
     if (!S.voice) return;
     closeCallStage();
     const ch = S.voice.channelId;
+    // Before anything is torn down: what this hang-up means for a DM call
+    // (a missed-call line if it never connected, our "Call ended" record).
+    leavingDMCall(ch);
     // The call is over — release the microphone foreground service first so
     // the ongoing-call notification never outlives the call it announces.
     window.Capacitor?.Plugins?.ConcordCore?.stopCallService?.().catch(() => {});
@@ -1393,10 +1590,6 @@
     S.voice.mesh.stop();
     S.voice = null;
     stopCallClock();
-    // Suppress the incoming-call ring for this channel: the others may still be
-    // in the room, and without this you'd immediately re-ring yourself for the
-    // call you just left. (Auto-cleared when the room's roster empties.)
-    if (ch && !S.dismissedCalls.includes(ch)) S.dismissedCalls = [...S.dismissedCalls, ch];
     S.voiceParticipants = [];
     S.voiceStates = {};
     S.voiceSpeaking = [];
@@ -1414,12 +1607,6 @@
     playVoiceLeave();
     haptic("medium");
     await api.leaveVoice(ch);
-    // A DM ring we initiated where the other side never showed → leave a quiet
-    // "Missed call" line in the conversation (both sides render it; it never
-    // pings or counts as unread — any non-"" kind is exempt).
-    if (!voiceHadPeer && !voiceWasAccept && isDMChannel(ch)) {
-      api.sendCallNotice(ch, "call-missed", "Missed call").catch(() => {});
-    }
   }
 
   async function toggleScreenShare() {
@@ -1560,17 +1747,17 @@
   // door JoinVeil already draws for an event join: it names the destination
   // for the beat the channel takes to open, so the first frame of a guild you
   // have never seen is not indistinguishable from a failed join.
-  async function joinGuild(code) {
+  async function joinGuild(code, name = "") {
     if (!code?.trim()) return;
-    // The veil goes up BEFORE the request, not after: it exists to cover the
-    // wait, and a veil raised once the join has already landed covers nothing.
-    // The dialog stays mounted underneath so a refusal still has somewhere to
-    // print itself.
-    S.joinVeil = { title: "" };
+    // The wait itself belongs to the Join dialog, which knocks and says whose
+    // door it is. A veil raised before the request drew "Joining “”…" over
+    // the dialog, translucent, for as long as the inviter took to answer —
+    // and on a refusal it had to be torn down again before the dialog could
+    // say why. The veil covers only the hop into the guild once it is ours.
     const dwell = new Promise((r) => setTimeout(r, 400));
     try {
       const [g] = await Promise.all([api.joinViaInvite(code.trim()), dwell]);
-      S.joinVeil = { title: g?.name || "your new guild" };
+      S.joinVeil = { title: g?.name || name || "your new guild" };
       S.modal = null;
       await refreshGuilds();
       if (g?.id && S.guilds.some((x) => x.id === g.id)) await selectGuild(g.id);
@@ -1580,11 +1767,10 @@
       }, 260);
       flash(`You're in ${g?.name || "the guild"}`, "success");
     } catch (err) {
-      S.joinVeil = null; // drop the veil before the dialog says why
-      // humanError, not the raw string: a refusal here is usually the transport
-      // failing to reach the owner, and that arrives as six hundred characters
-      // of multiaddrs under "That code didn't open the door" — on the screen a
-      // brand-new user meets first.
+      S.joinVeil = null;
+      // humanError first (it folds a transport failure's six hundred characters
+      // of multiaddrs into one line); the dialog then turns that into a cause
+      // and a next step (lib/joinerror.js), never the raw string.
       S.modal = { ...S.modal, error: humanError(err) };
     }
   }
@@ -1597,9 +1783,11 @@
     );
     S.identity = await api.identity();
     S.displayName = S.identity.displayName || "";
-    applyAppearance(); // new profile color, unless an accent preset overrides it
+    applyAppearance(); // the accent may be set to follow the profile colour
     await refreshRightPanel();
-    S.modal = null;
+    // Stays on the pane: Settings is a rail, and closing the whole dialog on
+    // Save sent someone who meant to go on to Appearance back to the app, and
+    // reopened them on Account.
     flash("Profile updated", "success");
   }
 
@@ -1612,7 +1800,6 @@
   // sticky "don't ask again" that the notification bar gets would be the wrong
   // shape here, because the thing being asked for has not been done and the
   // consequence of never doing it is losing the account.
-  let backupNudgeHidden = $state(false);
 
   // Every fenced code block the markdown renderer emits carries a Copy button.
   // The blocks arrive as {@html}, in the feed, the archive, forum posts and the
@@ -1657,67 +1844,9 @@
   </div>
 {/if}
 
-<!-- Notification rationale. Raised by offerNotifications() the first time a
-     message arrives that the OS grant would have surfaced, so the sentence can
-     point at something that just happened rather than at a hypothetical. The
-     Enable button is what opens the system dialog — on Android there are only
-     ever two of those, and this is how one gets spent on somebody who wants it. -->
-<!-- …and not while a dialog is open. These pills are fixed at z-index 205 and
-     the modal overlay is 100, so on a phone — where a dialog presents as a
-     bottom sheet that can reach the top of the screen — the pill landed on the
-     sheet's drag handle, its back arrow and its ✕, and its own Enable button
-     took the taps aimed at them. An offer that can wait is not worth a dialog
-     you cannot close. The condition is reactive: it comes back on its own the
-     moment the sheet does. -->
-{#if S.notifyAsk && !S.update && !ringingChannel && !S.offline && !S.modal}
-  <div class="update-banner notif-ask">
-    <span class="ub-text">
-      <strong>You just missed a message.</strong> Turn on notifications and Concord can tell you next time.
-    </span>
-    <button
-      class="ub-dl"
-      onclick={() => {
-        requestPermission();
-        dismissNotifyAsk(true);
-      }}
-    >
-      Enable
-    </button>
-    <button class="ub-close" onclick={() => dismissNotifyAsk(true)} aria-label="Not now">×</button>
-  </div>
-{/if}
-
-<!-- The signup screen holds the door and asks for the recovery phrase back, but
-     a page reload walks straight past it — and an account created on one device
-     with its phrase written down nowhere is one dead disk away from being gone
-     for good. There is no server holding a copy and no reset link, so nobody
-     else can put this right later. It keeps coming back until the words have
-     been verified, or simply looked at again in Settings; "Later" quiets it for
-     this session only, which is the whole point of it. -->
-{#if S.ready && S.prefs.backupPending && !backupNudgeHidden && !S.update && !S.notifyAsk && !ringingChannel && !S.offline && !S.modal}
-  <div class="update-banner backup-nudge">
-    <span class="ub-text">
-      <strong>Write down your recovery phrase.</strong> It is the only way back into this account, and
-      right now it exists on this device and nowhere else.
-    </span>
-    <button class="ub-dl" onclick={() => (S.modal = { kind: "settings" })}>Show me</button>
-    <button class="ub-close" onclick={() => (backupNudgeHidden = true)} aria-label="Later">×</button>
-  </div>
-{/if}
-
-{#if S.update && !ringingChannel && !S.offline && !S.modal}
-  <div class="update-banner">
-    <span class="ub-text">
-      <strong>Update available</strong> — Concord {S.update.latest} is out (you have {S.update.current}).
-    </span>
-    <!-- Fully in-app: opens Settings → Software update AND kicks the install
-         off immediately. No external links — the app updates itself. -->
-    <button class="ub-dl" onclick={() => (S.modal = { kind: "settings", startUpdate: true })}>
-      Update now
-    </button>
-    <button class="ub-close" onclick={dismissUpdate} aria-label="Dismiss">×</button>
-  </div>
-{/if}
+<!-- The notification offer, the update offer and the recovery-phrase reminder
+     are nudges now: one at a time, in the sidebar's nudge row (ChannelList),
+     never floating over the conversation or a dialog. -->
 
 {#if S.ready}
   <!-- Live backdrop for animated theme packs; inert/hidden otherwise (CSS gates
@@ -1738,7 +1867,7 @@
   <!-- Nothing: index.html's boot splash still owns the screen until the
        session probe says whether this is a login or a restored session. -->
 {:else if !S.ready}
-  <Login onLogin={() => start(true)} />
+  <Login onLogin={() => start(true)} {resumeBackup} />
 {:else if S.isMobile}
   <MobileShell
     bind:composer
@@ -1750,32 +1879,53 @@
     onToggleCamera={toggleCamera}
   />
 {:else}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="app"
-    class:no-panel={isDM || !hasChannel || S.callStage}
+    class:rail-model={railModel}
+    class:sb-hidden={sidebarHidden}
     class:offline-shift={S.offline}
+    data-inspector={docked ? "docked" : "overlay"}
+    data-nav-model={railModel ? "rail" : "sidebar"}
     style={gridStyle}
+    bind:this={appEl}
+    onpointerdown={overlayOutside}
   >
-    <GuildRail />
-    <ChannelList
-      onJoinVoice={joinVoice}
-      onLeaveVoice={leaveVoice}
-      onToggleMute={toggleMicMute}
-      onToggleDeafen={toggleDeafen}
-      onToggleShare={toggleScreenShare}
-      onToggleCamera={toggleCamera}
-    />
-    <!-- Overlaps the channel list's right edge (explicit grid placement, so it
-         takes no track of its own). Must come right after ChannelList: the drag
-         measures its previous sibling. Double-click resets to the default. -->
-    <div
-      class="col-rz rz-channels"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize channel list"
-      onpointerdown={(e) => startColDrag(e, "colChannels", 1)}
-      ondblclick={() => setPref("colChannels", COL_DEFAULTS.colChannels)}
-    ></div>
+    {#if railModel}<GuildRail layout="rail" />{/if}
+    {#if sidebarHidden}
+      <!-- The sidebar put away: a slim gutter holding the way back. -->
+      <div class="sb-gutter">
+        <button
+          class="iconbtn"
+          aria-label="Show sidebar"
+          use:tooltip={{ text: "Show sidebar", side: "right" }}
+          onclick={() => setPref("sidebarHidden", false)}
+        >
+          <Icon name="menu" size={16} />
+        </button>
+      </div>
+    {:else}
+      <ChannelList
+        strip={!railModel}
+        callFloating={callFloats && !S.isMobile}
+        onJoinVoice={joinVoice}
+        onLeaveVoice={leaveVoice}
+        onToggleMute={toggleMicMute}
+        onToggleDeafen={toggleDeafen}
+        onToggleShare={toggleScreenShare}
+        onToggleCamera={toggleCamera}
+      />
+      <!-- The sidebar's resize handle: out of the grid flow (absolute), so it
+           never takes a track. Double-click resets to the default. -->
+      <div
+        class="col-rz rz-channels"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        onpointerdown={(e) => startColDrag(e, "colChannels", 1)}
+        ondblclick={() => resetCol("colChannels")}
+      ></div>
+    {/if}
 
     <main class="chat" class:staging={S.callStage} class:with-chat={S.callStage && S.callStageChat}>
       {#if S.callStage && voiceStage.C}
@@ -1803,14 +1953,7 @@
             </button>
           </div>
         {:else if !S.callStage}
-          <ChatHeader
-            onJoinVoice={joinVoice}
-            onLeaveVoice={leaveVoice}
-            onToggleMute={toggleMicMute}
-            onToggleDeafen={toggleDeafen}
-            onToggleShare={toggleScreenShare}
-            onToggleCamera={toggleCamera}
-          />
+          <ChatHeader onJoinVoice={joinVoice} onLeaveVoice={leaveVoice} />
         {/if}
         <!-- Search results TAKE the pane, for every channel type. They used to
              be mounted inside MessageList, which a forum channel never renders —
@@ -1824,6 +1967,15 @@
              the feed keeps its scroll position because it is still mounted and
              still laid out — merely behind. -->
         <div class="pane-body">
+          <!-- The covered view is a stacking context of its own, under the
+               results. Without it every layer the view draws for itself — a
+               forum board's sticky toolbar, a post's panel over its board —
+               competed with the results panel number for number, and the
+               toolbar won: the filters and the first results were painted
+               underneath it, visible and out of reach. Inert for the same
+               reason as the feed below it used to be: Tab must not walk into
+               a page nobody can see. -->
+          <div class="pane-view" inert={searchCovers}>
           {#if boardObj && forumBoard.C}
             {@const ForumView = forumBoard.C}
             <ForumView forum={boardObj} />
@@ -1834,6 +1986,10 @@
                  its scroll position and its state because it is still mounted,
                  which is the whole reason the post is a layer over it rather
                  than a navigation away from it. -->
+            <!-- Inert while the search results cover it (on .pane-view): still
+                 mounted (see above), but Tab used to walk from the search box
+                 into the hidden feed, popping a message toolbar over the
+                 results and putting Enter on a message nobody could see. -->
             <div
               class="feedwrap"
               class:aspanel={!!postObj}
@@ -1843,38 +1999,62 @@
             >
               {#if postObj}
                 <PostHeader channel={postObj} />
-              {:else}
-                <!-- Above the feed, not inside it: the checklist has to survive
-                     the first message being sent, and anything mounted inside
-                     MessageList lives or dies with the empty state. -->
-                <SetupCard />
               {/if}
               <MessageList onJoinVoice={joinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
               <Composer bind:this={composer} />
             </div>
           {/if}
+          </div>
           {#if searchTakeover.C}
             {@const SearchPanel = searchTakeover.C}
             <SearchPanel />
           {/if}
         </div>
         </div>
+      {:else if !S.callStage && activeGuild() && activeGuild().kind !== "dm" && !(activeGuild().channels || []).length}
+        <!-- A guild with nothing in it yet (or whose channels were all deleted).
+             The first-run welcome — "Create a guild", "Join…" — is the wrong
+             page for someone standing inside one. -->
+        {@const cg = activeGuild()}
+        <div class="no-channels">
+          <EmptyState
+            icon="hash"
+            headline="No channels yet"
+            sub={cg.isOwner || has(cg.myPerms || 0, PERM.MANAGE_CHANNELS)
+              ? "Make the first one and people have somewhere to talk."
+              : "Nothing to read here yet — someone with Manage channels can add one."}
+          >
+            {#snippet actions()}
+              {#if !cg.evicted && (cg.isOwner || has(cg.myPerms || 0, PERM.MANAGE_CHANNELS))}
+                <button class="primary" onclick={() => (S.modal = { kind: "channel" })}>Create a channel</button>
+              {/if}
+            {/snippet}
+          </EmptyState>
+        </div>
       {:else if !S.callStage}
         <Welcome />
       {/if}
     </main>
 
-    {#if !isDM && hasChannel && S.prefs.memberPanel && !S.callStage}
-      <MemberPanel />
-      <!-- Inner (left) edge of the member panel; dragging left widens it. -->
-      <div
-        class="col-rz rz-members"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize member panel"
-        onpointerdown={(e) => startColDrag(e, "colMembers", -1)}
-        ondblclick={() => setPref("colMembers", COL_DEFAULTS.colMembers)}
-      ></div>
+    <!-- The inspector's slot (§2.2). Docked: a grid column beside the
+         conversation, with its resize handle. Overlay: over the right of the
+         conversation, starting BELOW the header so the header and its toggle
+         stay usable. Whether it docks is decided here, by width; the panel
+         only reads data-inspector on .app. -->
+    {#if inspectorShown}
+      <div class="insp-slot" class:overlay={!docked}>
+        <Inspector {docked} onClose={() => setPref("memberPanel", false)} />
+      </div>
+      {#if docked}
+        <div
+          class="col-rz rz-members"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize inspector"
+          onpointerdown={(e) => startColDrag(e, "colMembers", -1)}
+          ondblclick={() => resetCol("colMembers")}
+        ></div>
+      {/if}
     {/if}
   </div>{/if}
 {#if S.ready}
@@ -1884,6 +2064,15 @@
     <QuickSwitcher />
   {/if}
 
+  <!-- The end of the tab order. Past the inspector's last control Tab used to
+       run off the document and leave focus on <body>, where the next key did
+       nothing visible; it now wraps to the sidebar's current row, the same
+       landing as F6 (lib/regions.js). A real control, so the hop is named. -->
+  {#if !S.isMobile && !S.modal}
+    <button type="button" class="sr-only" onfocus={() => cycleRegion(1)}>Back to the sidebar</button>
+  {/if}
+
+  {#if GSW.open}<GuildSwitcher />{/if}
   <ProfilePopover />
   <ContextMenu />
 
@@ -1899,7 +2088,7 @@
   <!-- …and mute, wherever a dialog has covered every other way to reach it. -->
   {#if S.voice && S.modal && callMiniControls.C}
     {@const CallMiniControls = callMiniControls.C}
-    <CallMiniControls onToggleMute={toggleMicMute} onLeave={leaveVoice} />
+    <CallMiniControls label={callLabel} onToggleMute={toggleMicMute} onLeave={leaveVoice} />
   {/if}
 
   {#if S.knocking}
@@ -1919,8 +2108,9 @@
     </div>
   {/if}
 
-  <!-- Ongoing call while the stage is put away: a draggable pinned window.
-       Mounted for the whole call and merely hidden while the tiles are up —
+  <!-- Ongoing call while the stage is put away: a draggable pinned window,
+       shown whenever the call's room is not on screen (callFloats). Mounted
+       for the whole call and merely hidden while the tiles are up —
        remounting it threw away wherever it had been parked, which is the same
        reason the component already hides rather than unmounts behind the phone
        drawers. -->
@@ -1928,7 +2118,7 @@
     {@const FloatingCall = parkedCall.C}
     <FloatingCall
       label={callLabel}
-      away={!!callElsewhere}
+      away={callFloats}
       onLeave={leaveVoice}
       onToggleMute={toggleMicMute}
       onToggleDeafen={toggleDeafen}
@@ -1943,12 +2133,42 @@
     <div class="ring-card">
       <span class="ring-pulse"></span>
       <div class="ring-info">
-        <strong>{call.name}</strong>
-        <span class="muted">is calling you…</span>
+        <strong>{call.caller}</strong>
+        <span class="muted">is calling you{call.group ? ` · ${call.name}` : ""}…</span>
+        {#if S.voice && S.voice.channelId !== call.channelId}
+          <!-- Answering moves you: say so before the click, not after it. -->
+          <span class="ring-note">Answering leaves {callLabel || "your current call"}</span>
+        {/if}
       </div>
       <div class="ring-actions">
         <button class="ring-btn decline" onclick={() => declineCall(call.channelId)}>Decline</button>
-        <button class="ring-btn accept" onclick={() => acceptCall(call.channelId)}>Join</button>
+        <!-- "Answer", the word for picking up a ring; "Join" is what you do to
+             a channel. In the accent, the one primary colour, not a green. -->
+        <button class="ring-btn accept" onclick={() => acceptCall(call.channelId)}>Answer</button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- We reloaded out of a call: say so, once, and offer the way back. -->
+  {#if rejoin && rejoinWhere && !S.voice && !call && !S.callInvite}
+    <div class="ring-card invite" role="status">
+      <span class="ring-pulse"></span>
+      <div class="ring-info">
+        <strong>You left {rejoinWhere}</strong>
+        <span class="muted">when the page reloaded</span>
+      </div>
+      <div class="ring-actions">
+        <button class="ring-btn decline" onclick={() => (rejoin = "")}>Dismiss</button>
+        <button
+          class="ring-btn accept"
+          onclick={() => {
+            const ch = rejoin;
+            rejoin = "";
+            acceptCall(ch);
+          }}
+        >
+          {isDMChannel(rejoin) ? "Call again" : "Rejoin"}
+        </button>
       </div>
     </div>
   {/if}
@@ -2026,7 +2246,7 @@
         <span class="lock-badge"><Icon name="lock" size={26} /></span>
         <h2>Concord is locked</h2>
         <p class="muted">Unlock with your fingerprint or face.</p>
-        <button class="lock-btn" onclick={tryBioGate}>Unlock</button>
+        <button class="primary lock-btn" onclick={tryBioGate}>Unlock</button>
         <!-- Honest label: this path signs the device out and reloads. It used to
              read "Use passphrase instead", which sounds like a second door into
              the same room. -->
@@ -2174,6 +2394,8 @@
       />
     {:else if modalLoadedKind === "newDM"}
       <ModalView onClose={() => (S.modal = null)} />
+    {:else if modalLoadedKind === "groupMembers"}
+      <ModalView guildId={S.modal.guildId} onClose={() => (S.modal = null)} />
     {:else if modalLoadedKind === "renameGroup"}
       <ModalView
         guildId={S.modal.guildId}
@@ -2206,6 +2428,7 @@
         guestLink={S.modal.guestLink || ""}
         guildId={S.modal.guildId || ""}
         expires={S.modal.expires || 0}
+        reopened={!!S.modal.reopened}
         onClose={() => (S.modal = null)}
       />
     {:else if modalLoadedKind === "meetingReady"}
@@ -2221,7 +2444,9 @@
         onClose={() => (S.modal = null)}
         title="Rename guild"
         hint="Renames the guild for everyone."
-        placeholder={activeGuild()?.name || "New name"}
+        placeholder="Guild name"
+        initial={activeGuild()?.name || ""}
+        confirmLabel="Rename"
       />
     {:else if modalLoadedKind === "profile"}
       <ModalView identity={S.identity} onSubmit={saveProfile} onClose={() => (S.modal = null)} />
@@ -2277,6 +2502,14 @@
 {/if}
 
 <style>
+  /* An empty state in a feed is bottom-anchored and left-aligned (§5.15). */
+  .no-channels {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: var(--sp-6) var(--sp-edge);
+  }
   /* Shown only when a dialog's code takes longer than a frame or two to arrive
      — a cold first open, or a slow disk. Deliberately not a full backdrop: the
      dialog is about to draw its own, and two of them fading over each other
@@ -2302,10 +2535,8 @@
       transform: rotate(360deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .mw-spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .mw-spin {
+    animation: none;
   }
 
   /* Concorde fly-in: overlay fades from the login backdrop to nothing while
@@ -2538,11 +2769,9 @@
       transform: translateY(-4px) rotate(3deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .restart-curtain,
-    .rc-jet {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .restart-curtain,
+  :global(:root[data-motion="reduced"]) .rc-jet {
+    animation: none;
   }
 
   .lock-gate {
@@ -2632,16 +2861,11 @@
     background: var(--danger);
     color: var(--danger-fg);
   }
+  /* The shell (§2.1). The columns are written by the script (gridStyle): the
+     classic rail if chosen, the sidebar, the conversation, and the inspector
+     only when it docks. */
   .app {
     display: grid;
-    /* Side-column widths come from the vars only once the user has dragged a
-       resize handle (script sets them from S.prefs); the --cw/--mw fallbacks
-       here are the untouched defaults, and the 900px tier below narrows them.
-       The intermediate vars exist so the resize HANDLES (absolute, below) can
-       track the same widths without repeating the fallback logic. */
-    --cw: var(--col-channels, 220px);
-    --mw: var(--col-members, 260px);
-    grid-template-columns: 64px var(--cw) 1fr var(--mw);
     height: 100%;
     /* Sit above the animated theme backdrop (.theme-bg, z-index 0). */
     position: relative;
@@ -2651,9 +2875,6 @@
     grid-template-rows: 100%;
     overflow: hidden;
   }
-  .app.no-panel {
-    grid-template-columns: 64px var(--cw) 1fr;
-  }
   /* Room for the offline bar. Shifting the whole shell rather than overlaying
      it is the entire point: the header underneath stays usable. */
   .app.offline-shift {
@@ -2661,12 +2882,40 @@
     margin-top: var(--ob-total);
     height: calc(100% - var(--ob-total));
   }
-  /* Column resize handles: thin strips overlapping each side column's inner
-     edge. Absolutely positioned OUT of the grid flow on purpose — as grid
-     children they perturbed auto-placement and rehomed every later sibling
-     (the chat column collapsed into a 32px strip; caught by the live smoke
-     test). Desktop-only — coarse pointers can't hit a 5px strip, and phones
-     get MobileShell anyway. */
+  .sb-gutter {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 10px;
+    background: var(--bg-1);
+    border-right: 1px solid var(--hairline);
+  }
+  /* The inspector's slot. Docked it is a grid column; as an overlay it sits
+     over the conversation's right edge, below the header, on the lifted
+     surface — it is floating, so it is the one that casts the shadow. */
+  .insp-slot {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .insp-slot > :global(*) {
+    flex: 1;
+    min-height: 0;
+  }
+  /* The overlay's place: over the conversation's right edge, below the header
+     (the panel paints its own lifted surface). */
+  .insp-slot.overlay {
+    position: absolute;
+    top: var(--header-h);
+    right: 0;
+    bottom: 0;
+    width: min(var(--insp-w), calc(100% - var(--rail-w) - var(--sb-w)));
+    z-index: var(--z-raised);
+  }
+  /* Column resize handles: thin strips over each side column's inner edge.
+     Absolute, OUT of the grid flow: as grid children they rehomed every later
+     sibling. Pointer-only — a finger cannot hit a 5px strip. */
   .col-rz {
     display: none;
     position: absolute;
@@ -2676,42 +2925,26 @@
     z-index: 5;
     cursor: col-resize;
     touch-action: none; /* a drag resizes; it must never scroll */
-    background: var(--accent);
+    background: var(--border-strong);
     opacity: 0; /* invisible until hovered; the cursor is the affordance */
     transition: opacity var(--dur-quick) ease;
   }
   .rz-channels {
-    left: calc(64px + var(--cw) - 5px);
+    left: calc(var(--rail-w) + var(--sb-w) - 3px);
   }
   .rz-members {
-    right: var(--mw);
+    right: calc(var(--insp-w) - 3px);
   }
   @media (pointer: fine) {
     .col-rz {
       display: block;
     }
     .col-rz:hover {
-      opacity: 0.5;
+      opacity: 0.6;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .col-rz {
-      transition: none;
-    }
-  }
-  /* Narrow desktop (a window parked beside something else). Not a phone tier —
-     below 768px S.isMobile is true and MobileShell renders instead of .app —
-     just a density step for the columns.
-     The member panel used to be display:none'd here while ChatHeader still
-     offered its toggle, so the control silently did nothing for a whole band of
-     window widths. It keeps its column, narrower; the toggle decides. */
-  @media (max-width: 900px) {
-    .app {
-      /* Only the fallbacks narrow — a user-dragged width still wins, and the
-         handles keep tracking via the same intermediate vars. */
-      --cw: var(--col-channels, 190px);
-      --mw: var(--col-members, 200px);
-    }
+  :global(:root[data-motion="reduced"]) .col-rz {
+    transition: none;
   }
   .chat {
     display: flex;
@@ -2809,6 +3042,17 @@
     min-width: 0;
     overflow-y: auto;
   }
+  /* Everything the search results cover, in one stacking context below them
+     (see the markup). Positioned, so a post's panel still covers exactly this
+     box. */
+  .pane-view {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
   /* The feed's own column. In the ordinary case it is simply the pane. */
   .feedwrap {
     display: flex;
@@ -2824,8 +3068,8 @@
     inset: 0;
     /* Above everything the board paints, including its own sticky toolbar and
        floating controls — a panel that a search field shows through is not a
-       panel. The pane isolates so this number stays local. */
-    z-index: 60;
+       panel. .pane-view isolates so this stays local. */
+    z-index: var(--z-raised);
     background: var(--bg-1);
     animation: post-in 0.34s var(--ease-spring) both;
   }
@@ -2867,11 +3111,9 @@
       transform: translateX(26px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .feedwrap.aspanel,
-    .feedwrap.aspanel.folding {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .feedwrap.aspanel,
+  :global(:root[data-motion="reduced"]) .feedwrap.aspanel.folding {
+    animation: none;
   }
   /* Update-available banner: a floating top-center pill (doesn't cover the rail). */
   .update-banner {
@@ -2891,11 +3133,17 @@
     z-index: 205;
     font-size: var(--fs-ui);
   }
-  /* Amber rather than accent: this is the one banner that is a warning about
-     something the reader has to go and do, not an offer. Same colour the feed
-     uses for a mention, for the same reason — attention without alarm. */
+  /* The recovery-phrase nudge floats where the update pill does until the
+     sidebar has a nudge row to hold it. Its look is Nudge's own; the warn
+     tone tints the icon, because the consequence of ignoring this one is
+     losing the account. */
   .backup-nudge {
-    border-color: var(--warn);
+    position: fixed;
+    top: calc(12px + max(var(--safe-top), var(--sa-top, 0px)));
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(640px, calc(100 * var(--vw) - 24px));
+    z-index: 205;
   }
   .ub-text {
     overflow: hidden;
@@ -2947,10 +3195,8 @@
       transform: rotate(360deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .ob-spin {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .ob-spin {
+    animation: none;
   }
   .ub-dl {
     flex-shrink: 0;
@@ -2968,7 +3214,7 @@
     flex-shrink: 0;
     color: var(--text-muted);
     text-decoration: none;
-    font-size: 12px;
+    font-size: var(--fs-small);
   }
   .ub-alt:hover {
     color: var(--text);
@@ -3081,20 +3327,19 @@
   .kw-cancel:hover {
     background: var(--bg-input);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .knock-wait {
-      animation: none;
-    }
-    .kw-ring {
-      /* Still-waiting must read without motion: one static soft halo. */
-      animation: none;
-      opacity: 0.3;
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .knock-wait {
+    animation: none;
   }
+  :global(:root[data-motion="reduced"]) .kw-ring {
+    /* Still-waiting must read without motion: one static soft halo. */
+    animation: none;
+    opacity: 0.3;
+    transform: none;
+  }
+  /* Below the header, so it never sits on the header's own controls. */
   .ring-card {
     position: fixed;
-    top: 20px;
+    top: calc(var(--header-h) + var(--sp-3));
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -3124,10 +3369,8 @@
       box-shadow: 0 0 0 12px transparent;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .ring-pulse {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .ring-pulse {
+    animation: none;
   }
   .ring-info {
     display: flex;
@@ -3137,6 +3380,10 @@
        min-content — one word per line. */
     flex: 1;
     min-width: 0;
+  }
+  .ring-note {
+    font-size: var(--fs-small);
+    color: var(--warn-text);
   }
   .ring-actions {
     display: flex;
@@ -3157,11 +3404,11 @@
     transform: scale(0.96);
   }
   .ring-btn.accept {
-    background: var(--ok);
-    color: var(--ok-fg);
+    background: var(--accent);
+    color: var(--accent-fg);
   }
   .ring-btn.accept:hover {
-    background: color-mix(in srgb, var(--ok) 86%, #fff);
+    background: var(--accent-hover);
   }
   .ring-btn.decline {
     background: transparent;
@@ -3173,14 +3420,12 @@
     border-color: var(--danger);
     color: var(--danger-text);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .ring-btn:active {
-      transform: none;
-    }
+  :global(:root[data-motion="reduced"]) .ring-btn:active {
+    transform: none;
   }
   /* Touch: a full-width banner rather than a centred card that has to squeeze
      name, status line and both buttons into whatever the text doesn't claim. */
-  @media (pointer: coarse), (max-width: 768px) {
+  @media (max-width: 768px) {
     /* The update banner's × sat ~6px from "Update now", both about 22px tall —
        so dismissing it regularly started a 200MB download instead. Give them
        real targets and put a gap between them, and let the sentence wrap rather

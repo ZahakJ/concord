@@ -69,11 +69,14 @@ package chronimport
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -197,6 +200,66 @@ type Message struct {
 	Reference       *Reference   `json:"reference"`
 }
 
+// UnmarshalJSON reads a message the way the package doc promises: tolerantly.
+// An id or a timestamp written as a JSON number (an epoch, a snowflake) is
+// taken as one; anything else of the wrong type is an error for THIS message
+// only, which walkMessages counts and steps over.
+func (m *Message) UnmarshalJSON(b []byte) error {
+	type plain Message
+	var aux struct {
+		plain
+		ID        json.RawMessage `json:"id"`
+		Timestamp json.RawMessage `json:"timestamp"`
+	}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	*m = Message(aux.plain)
+	m.ID = scalarText(aux.ID)
+	m.Timestamp = scalarText(aux.Timestamp)
+	if n, err := strconv.ParseFloat(m.Timestamp, 64); err == nil && len(aux.Timestamp) > 0 && aux.Timestamp[0] != '"' {
+		m.Timestamp = epochStamp(n)
+	}
+	return nil
+}
+
+// scalarText is a JSON string's text, or a number's digits as written; "" for
+// anything else (null, an object, an array).
+func scalarText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	if raw[0] == '"' {
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			return s
+		}
+		return ""
+	}
+	var n json.Number
+	if json.Unmarshal(raw, &n) == nil {
+		return n.String()
+	}
+	return ""
+}
+
+// epochStamp turns a numeric timestamp into the RFC 3339 form the rest of the
+// package reads. Seconds, milliseconds and microseconds are told apart by
+// size: no conversation happened before 2001 in milliseconds-as-seconds.
+func epochStamp(n float64) string {
+	var t time.Time
+	switch {
+	case n >= 1e15:
+		t = time.UnixMicro(int64(n))
+	case n >= 1e12:
+		t = time.UnixMilli(int64(n))
+	default:
+		sec := math.Floor(n)
+		t = time.Unix(int64(sec), int64((n-sec)*1e9))
+	}
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
 // timeLayouts are the stamp forms seen in the wild, tried in order. RFC3339 and
 // its nanosecond form cover current tools; the two space-separated forms cover
 // older ones and hand-edited files; the date-only form covers a stripped export.
@@ -267,6 +330,12 @@ type Header struct {
 // one as fatal, because one bad file in a directory of four hundred must not
 // cost the other three hundred and ninety-nine.
 var ErrNotAnExport = fmt.Errorf("chronimport: not a channel export file")
+
+// ErrTruncated marks a file that stopped being JSON partway through its
+// messages: cut short by a download, a full disk, a crash of the exporting
+// tool. Everything before the break was handed to the caller and counts; the
+// file is not one that "could not be opened".
+var ErrTruncated = fmt.Errorf("chronimport: the file ends partway through its messages")
 
 // Walk streams one export file: head once, then msg for every message in it, in
 // file order.
@@ -378,10 +447,19 @@ func walkMessages(dec *json.Decoder, msg func(*Message) error) (malformed int64,
 	for dec.More() {
 		m = Message{}
 		if err := dec.Decode(&m); err != nil {
-			// A single unreadable element is not a broken file — but the decoder
-			// cannot resynchronise past it, so the rest of the array is lost and
-			// the file is reported as truncated rather than silently short.
-			return malformed, ErrNotAnExport
+			// A value of the wrong type (content as a number, an object where a
+			// string goes) is one bad message: the decoder has read the whole
+			// element before judging it, so it is positioned at the next one.
+			// This used to end the walk, and the other messages of the file
+			// vanished while the scan said none were malformed.
+			var te *json.UnmarshalTypeError
+			if errors.As(err, &te) {
+				malformed++
+				continue
+			}
+			// Anything else is the JSON itself breaking off, and the decoder
+			// cannot find its feet again after that.
+			return malformed, ErrTruncated
 		}
 		if m.ID == "" {
 			malformed++
@@ -398,7 +476,7 @@ func walkMessages(dec *json.Decoder, msg func(*Message) error) (malformed int64,
 		}
 	}
 	if _, err := dec.Token(); err != nil { // the closing ]
-		return malformed, ErrNotAnExport
+		return malformed, ErrTruncated
 	}
 	return malformed, nil
 }

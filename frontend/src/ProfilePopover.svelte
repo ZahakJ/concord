@@ -10,6 +10,7 @@
   // Floating profile card. Reads S.profilePopover ({fingerprint,
   // rect}); positions itself above the anchor (or below when there's no room),
   // clamped to the viewport. Rendered once at the app root so nothing clips it.
+  import { popoverFocus } from "./lib/popoverfocus.js";
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import GameShelf, { coverStyle, gameHue } from "./GameShelf.svelte";
@@ -28,16 +29,17 @@
     startDM,
     flash,
     roleColorFor,
+    nameInk,
     isBlocked,
     blockUser,
     unblockUser,
     openContextMenu,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
-  import { PERM, PERM_ALL, has } from "./lib/perms.js";
+  import { PERM, PERM_ALL, has, adminRoleOf } from "./lib/perms.js";
   import { splitStatus } from "./lib/presence.js";
   import Banner from "./Banner.svelte";
-  import { moderationItems, closeCard } from "./lib/moderation.svelte.js";
+  import { moderationItems, closeCard, toggleAdmin as toggleAdminFor } from "./lib/moderation.svelte.js";
   // Escape with the caret in the nickname or the quick-DM box steps out of the
   // field; only the press after that closes the card. See lib/fieldescape.js.
   import { fieldEscape } from "./lib/fieldescape.js";
@@ -196,7 +198,7 @@
   // One-click admin. Making somebody an admin normally means hand-building a
   // role first; here, "Make admin" finds (or creates) an Admin role with every
   // permission and assigns it. Owner or Manage Roles only.
-  const adminRole = $derived(S.roles.find((r) => r.perms === PERM_ALL));
+  const adminRole = $derived(adminRoleOf(S.roles));
   const isAdmin = $derived(!!adminRole && !!mem?.roleIds?.includes(adminRole.id));
 
   const blocked = $derived(isBlocked(mem?.fingerprint));
@@ -216,35 +218,37 @@
       (!!activeGuild()?.isOwner || has(activeGuild()?.myPerms || 0, PERM_ALL)),
   );
 
-  async function toggleAdmin() {
-    // Capture the intent BEFORE refreshRightPanel() — that refresh updates
-    // mem.roleIds, which recomputes the isAdmin $derived to the NEW state, so
-    // reading isAdmin afterwards inverted the toast ("Admin removed" on grant).
-    const grant = !isAdmin;
+  function toggleAdmin() {
+    closeProfilePopover();
+    toggleAdminFor(mem);
+  }
+
+  // Taking a role away is one press of its ×, so it says what it did and
+  // offers it back: a slip of the keyboard or the thumb should cost an Undo,
+  // not a trip to the guild's settings to find out what was lost. The undo
+  // carries its own guild, person and role — the card may be closed or showing
+  // someone else by the time it is pressed.
+  async function assign(gid, fpr, role, on) {
     try {
-      let role = adminRole;
-      if (!role) {
-        await api.upsertRole(S.activeGuildId, "", "Admin", "#e0a63c", PERM_ALL, 100);
-        S.roles = (await api.roles(S.activeGuildId)) || [];
-        role = S.roles.find((r) => r.perms === PERM_ALL);
-      }
-      if (!role) throw new Error("couldn't create the Admin role");
-      await api.assignRole(S.activeGuildId, mem.fingerprint, role.id, grant);
-      await refreshRightPanel();
-      flash(grant ? `${mem.name || "Member"} is now an admin 👑` : "Admin removed", "success");
+      await api.assignRole(gid, fpr, role.id, on);
+      if (gid === S.activeGuildId) await refreshRightPanel();
+      return true;
     } catch (err) {
       flash(err);
+      return false;
     }
   }
 
   async function toggleRole(role) {
+    const gid = S.activeGuildId;
+    const fpr = mem.fingerprint;
+    const name = mem.name || "this member";
     const hasRole = mem.roleIds?.includes(role.id);
-    try {
-      await api.assignRole(S.activeGuildId, mem.fingerprint, role.id, !hasRole);
-      await refreshRightPanel();
-    } catch (err) {
-      flash(err);
-    }
+    if (!(await assign(gid, fpr, role, !hasRole)) || !hasRole) return;
+    flash(`Removed ${role.name} from ${name}`, "info", {
+      label: "Undo",
+      run: () => assign(gid, fpr, role, true),
+    });
   }
 
   const canMute = $derived(canModerate && has(activeGuild()?.myPerms || 0, PERM.MUTE_MEMBERS));
@@ -503,14 +507,17 @@
      "clicked outside the card" — the menu's actions read the card's member.
      Escape is not handled here at all any more: the card is a layer like any
      other, and whichever of it and the menu was opened last is the one back
-     takes away. -->
+     takes away. A toast is not outside either: "Removed Mentor from Juno ·
+     Undo" is raised by this card, and pressing Undo used to put the role back
+     and shut the card it was being put back on. (So did the mouseleave a
+     touch screen emulates on the way to it: the sheet is not a hover card.) -->
 <svelte:window
   onscroll={closeProfilePopover}
   onresize={closeProfilePopover}
 
   onpointerdown={(e) => {
     if (!S.profilePopover || popoverJustOpened()) return;
-    if (e.target.closest(".pop-wrap, .cm, .cm-backdrop, .bs-sheet, .bs-scrim")) return;
+    if (e.target.closest(".pop-wrap, .cm, .cm-backdrop, .bs-sheet, .bs-scrim, .toasts")) return;
     closeProfilePopover();
   }}
 />
@@ -529,8 +536,9 @@
     role="dialog"
     aria-label="{mem.name || 'Member'} profile"
     use:fieldEscape
+    use:popoverFocus={!S.profilePopover.hover}
     onmouseenter={holdProfilePopover}
-    onmouseleave={() => !S.contextMenu && scheduleCloseProfilePopover()}
+    onmouseleave={() => !S.isMobile && !S.contextMenu && scheduleCloseProfilePopover()}
   >
   <div
     class="pop"
@@ -580,14 +588,15 @@
 
     <div class="body">
       <div class="name-row">
-        <strong style={roleColorFor(mem.fingerprint) ? `color:${roleColorFor(mem.fingerprint)}` : ""}
+        <strong style={S.prefs.roleNameColors && roleColorFor(mem.fingerprint) ? `color:${nameInk(roleColorFor(mem.fingerprint))}` : ""}
           >{mem.name || mem.fingerprint.slice(0, 9)}</strong
         >
         {#if mem.isSelf}<span class="tag">you</span>{/if}
+        <!-- Roles are named once, in the Roles row below; a "mod" tag here
+             was a third word for authority beside the role and the member
+             list's section. Ownership is not a role, so it stays. -->
         {#if mem.isOwner}
-          <span class="role-badge owner" title="Guild owner">owner</span>
-        {:else if mem.canManage}
-          <span class="role-badge mod" title="Can manage members">mod</span>
+          <span class="role-badge owner" title="Guild owner">Owner</span>
         {/if}
         {#if isBirthday}
           <span class="bday-chip" title="It's their birthday today">🎂</span>
@@ -687,7 +696,7 @@
             maxlength="64"
             disabled={nickBusy}
           />
-          <button type="submit" class="nick-save" disabled={nickBusy}>Save</button>
+          <button type="submit" class="primary nick-save" disabled={nickBusy}>Save</button>
         </form>
       {/if}
 
@@ -701,7 +710,7 @@
               {role.name}
               {#if canAssignRoles}
                 <button
-                  class="role-x"
+                  class="role-x tap-hit"
                   aria-label="Remove the {role.name} role"
                   onclick={() => toggleRole(role)}>×</button
                 >
@@ -757,7 +766,7 @@
           <p class="hint muted">Compare this with them over a call; if it matches, verify.</p>
           <!-- Verify lives behind the reveal on purpose: you cannot honestly
                confirm a number you haven't looked at. -->
-          <button class="verify-btn" onclick={verify}>Verify identity</button>
+          <button class="primary verify-btn" onclick={verify}>Verify identity</button>
         {/if}
       {/if}
 
@@ -765,7 +774,7 @@
         <!-- Your own card is now what the footer opens, so the way to change
              what's on it has to live here. -->
         <button
-          class="verify-btn"
+          class="primary verify-btn"
           onclick={() => {
             closeProfilePopover();
             S.modal = { kind: "profile" };
@@ -781,8 +790,8 @@
             aria-label="Message {mem.name || 'them'}"
             disabled={dmBusy}
           />
-          <button type="submit" class="dm-send" disabled={dmBusy} aria-label="Send message">
-            <Icon name={dmBusy ? "spark" : "reply"} size={15} />
+          <button type="submit" class="primary dm-send" disabled={dmBusy} aria-label="Send message">
+            <Icon name={dmBusy ? "spark" : "send"} size={15} />
           </button>
         </form>
       {/if}
@@ -859,10 +868,8 @@
       transform: translateY(4px) scale(0.98);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .pop-wrap {
-      animation: none;
-    }
+  :global(:root[data-motion="reduced"]) .pop-wrap {
+    animation: none;
   }
   /* ---- mobile: the same card as a bottom sheet ---- */
   .pp-scrim {
@@ -938,6 +945,12 @@
   .pop.sheet .name-row strong {
     font-size: var(--fs-title);
   }
+  /* A role's × carries a 44px hit box (.tap-hit) around its 16px glyph; the
+     chips stand far enough apart that the box never lands on "+ Add" or on
+     the next chip's own ×. */
+  .pop.sheet .role-pills {
+    gap: var(--sp-3) var(--sp-4);
+  }
   .pop.sheet .bio,
   .pop.sheet .status-text {
     font-size: var(--fs-ui);
@@ -967,7 +980,8 @@
     inset: -13px -4px;
   }
   .pop.sheet .dm-send {
-    min-width: 48px;
+    width: 40px;
+    height: 40px;
   }
   .pop :global(.banner) {
     height: 112px;
@@ -1041,11 +1055,9 @@
       transform: scale(1.05);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .av-glow {
-      animation: none;
-      opacity: 0.25;
-    }
+  :global(:root[data-motion="reduced"]) .av-glow {
+    animation: none;
+    opacity: 0.25;
   }
   .verified {
     display: inline-flex;
@@ -1079,8 +1091,6 @@
   }
   .tag {
     font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
     background: var(--bg-3);
     color: var(--text-muted);
     padding: 1px 6px;
@@ -1109,29 +1119,29 @@
     font-size: var(--fs-small);
     margin-top: 2px;
   }
+  /* Their status is something they said, shown as text: on a dark well it
+     looked like a field you could type into. */
   .status-box {
     display: flex;
     align-items: flex-start;
     gap: var(--sp-2);
     margin-top: var(--sp-1);
-    padding: 7px 10px;
-    background: var(--bg-0);
-    border-radius: var(--radius-sm);
+    color: var(--text-muted);
   }
   /* Now-playing card: art + track + a live progress bar. */
   .activity {
     margin-top: var(--sp-1);
     padding: 9px 10px 8px;
-    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--bg-0)), var(--bg-0) 70%);
-    border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    background: var(--bg-2);
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
   }
   /* PLAYING variant: same card, tinted to the game's generated-cover hue
      (GameShelf's title hash) instead of the accent. Eyebrow text blends
      toward --text so any hue stays readable on its own tint. */
   .activity.playing {
-    background: linear-gradient(135deg, color-mix(in srgb, var(--game-tint) 15%, var(--bg-0)), var(--bg-0) 70%);
-    border-color: color-mix(in srgb, var(--game-tint) 26%, transparent);
+    background: var(--bg-2);
+    border-color: var(--border);
   }
   .activity.playing .act-label {
     color: color-mix(in srgb, var(--game-tint) 55%, var(--text));
@@ -1153,8 +1163,6 @@
     gap: 5px;
     font-size: var(--fs-tiny);
     font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
     color: var(--accent-hover);
     margin-bottom: 7px;
   }
@@ -1231,8 +1239,6 @@
   }
   .sec-label {
     font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
   .sec-head {
     display: flex;
@@ -1250,8 +1256,6 @@
   }
   .role-badge {
     font-size: var(--fs-tiny);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
     padding: 1px 6px;
     border-radius: var(--radius-md);
     font-weight: 600;
@@ -1259,10 +1263,6 @@
   .role-badge.owner {
     background: color-mix(in srgb, var(--accent) 22%, transparent);
     color: var(--accent-hover);
-  }
-  .role-badge.mod {
-    background: color-mix(in srgb, var(--ok) 20%, transparent);
-    color: var(--ok-text);
   }
   .role-pills {
     display: flex;
@@ -1412,7 +1412,11 @@
     border-radius: var(--radius-sm);
   }
   .dm-send {
-    padding: 0 12px;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 50%;
     display: grid;
     place-items: center;
   }
