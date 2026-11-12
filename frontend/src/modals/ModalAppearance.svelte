@@ -622,8 +622,19 @@
     border: 1px solid var(--border);
     overflow: hidden;
     background: var(--bg-2);
+    position: relative;
   }
-  .theme-card.sel .lv {
+  /* The selected ring is drawn OVER the drawing, on the card's own edge: as an
+     inset shadow on .lv it painted under the sidebar and inspector panes, so
+     only the middle pane's top and bottom showed it. */
+  .lv::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .theme-card.sel .lv::after {
     box-shadow: inset 0 0 0 2px var(--accent-hover);
   }
   .theme-card:focus-visible .lv {
