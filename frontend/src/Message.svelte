@@ -17,6 +17,7 @@
   // avatar/header, hover timestamp). The action bar is keyboard-reachable
   // (focus-within) with labelled icon buttons.
   import Icon from "./Icon.svelte";
+  import { showUnsignedMark, UNSIGNED_TIP, UNSIGNED_LABEL } from "./lib/unsigned.js";
   import { applyFormat as formatField, chordFor } from "./lib/mdformat.js";
   import { uneditableReason } from "./lib/tokenbody.js";
   import EmojiPicker from "./EmojiPicker.svelte";
@@ -851,6 +852,7 @@
   }
 
   const isOwn = $derived(m.sender === S.identity.fingerprint && m.kind !== "guest");
+  const unsignedMark = $derived(showUnsignedMark(m, S.identity.fingerprint));
 
   // Moderator reveal of a deleted GUILD message. The content only exists to
   // reveal in guilds — DM deletes erase it — so this is guild-only and gated on
@@ -1344,12 +1346,12 @@
              before signatures existed, or a peer running an older one. Said
              quietly, beside the timestamp, because it is a caveat on the byline
              rather than an accusation about the words. -->
-        {#if m.unverified}
+        {#if unsignedMark}
           <span
             class="unsigned-mark"
             role="img"
-            use:tooltip={"Relayed by another member and unsigned — nobody proved who wrote this"}
-            aria-label="Author unverified"><Icon name="alert" size={11} /></span
+            use:tooltip={UNSIGNED_TIP}
+            aria-label={UNSIGNED_LABEL}><Icon name="info" size={11} /></span
           >
         {/if}
       </div>
@@ -1542,11 +1544,11 @@
             </button>
           {/if}{@html bodyHtml}{#if m.edited}<span
               class="edited-tag">(edited)</span
-            >{/if}{#if m.unverified && (compact || gameAside)}<span
+            >{/if}{#if unsignedMark && (compact || gameAside)}<span
               class="unsigned-mark trailing"
               role="img"
-              use:tooltip={"Relayed by another member and unsigned — nobody proved who wrote this"}
-              aria-label="Author unverified"><Icon name="alert" size={11} /></span
+              use:tooltip={UNSIGNED_TIP}
+              aria-label={UNSIGNED_LABEL}><Icon name="info" size={11} /></span
             >{/if}
         </div>
         {#if longBody}
@@ -2103,7 +2105,7 @@
   .unsigned-mark {
     display: inline-flex;
     align-items: center;
-    color: var(--warn-text);
+    color: var(--text-faint);
   }
   .time {
     font-size: var(--fs-tiny);
