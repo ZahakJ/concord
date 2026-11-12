@@ -55,15 +55,18 @@ export const SHORTCUTS = [
   { group: "Composer", chords: [["Shift", "Enter"]], label: "New line" },
   { group: "Composer", chords: [["↑"]], label: "Edit last message" },
   { group: "Composer", chords: [["Ctrl/⌘", "Shift", "L"]], label: "Text direction" },
+  { group: "Composer", chords: [["Ctrl/⌘", "Shift", "F"]], label: "Show or hide the formatting bar" },
 
   { group: "Format", chords: [["Ctrl/⌘", "B"]], label: "Bold" },
   { group: "Format", chords: [["Ctrl/⌘", "I"]], label: "Italic" },
   { group: "Format", chords: [["Ctrl/⌘", "E"]], label: "Inline code" },
+  { group: "Format", chords: [["Ctrl/⌘", "Shift", "E"]], label: "Code block" },
   { group: "Format", chords: [["Ctrl/⌘", "Shift", "U"]], label: "Underline" },
   { group: "Format", chords: [["Ctrl/⌘", "Shift", "S"]], label: "Strikethrough" },
   { group: "Format", chords: [["Ctrl/⌘", "Shift", "K"]], label: "Link" },
   { group: "Format", chords: [["Ctrl/⌘", "Shift", "X"]], label: "Spoiler" },
   { group: "Format", chords: [["Ctrl/⌘", "Shift", "."]], label: "Quote" },
+  { group: "Format", chords: [["Ctrl/⌘", "Shift", "8"]], label: "Bulleted list" },
 
   { group: "Slash commands", typed: true, chords: [["/shrug"], ["/me"], ["/spoiler"], ["…"]], label: "Commands" },
 
@@ -75,6 +78,7 @@ export const SHORTCUTS = [
   { group: "Markdown", typed: true, chords: [["`code`"], ["```block```"]], label: "Code" },
   { group: "Markdown", typed: true, chords: [["> "], [">>> "]], label: "Quote (line / rest)" },
   { group: "Markdown", typed: true, chords: [["# "], ["## "], ["### "]], label: "Headers" },
+  { group: "Markdown", typed: true, chords: [["- "], ["1. "]], label: "List (bulleted / numbered)" },
   { group: "Markdown", typed: true, chords: [["[text](url)"]], label: "Masked link" },
 ];
 

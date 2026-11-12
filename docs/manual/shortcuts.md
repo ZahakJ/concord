@@ -56,21 +56,24 @@ Mute and deafen only do something while you are in a call.
 | `Shift+Enter` | New line |
 | `↑` | Edit your last message |
 | `Ctrl+Shift+L` | Switch text direction |
+| `Ctrl+Shift+F` | Show or hide the formatting bar |
 
 ## Formatting
 
-These wrap the selected text in the matching Markdown. With nothing selected, they insert the markers at the cursor. The same formats are on the composer's formatting toolbar.
+These wrap the selected text in the matching Markdown. With nothing selected, they insert the markers at the cursor. They work whether or not the formatting bar is shown, and the same formats are on the bar (**Aa** in the composer).
 
 | Keys | Format |
 |---|---|
 | `Ctrl+B` | Bold |
 | `Ctrl+I` | Italic |
 | `Ctrl+E` | Inline code |
+| `Ctrl+Shift+E` | Code block |
 | `Ctrl+Shift+U` | Underline |
 | `Ctrl+Shift+S` | Strikethrough |
 | `Ctrl+Shift+K` | Link |
 | `Ctrl+Shift+X` | Spoiler |
 | `Ctrl+Shift+.` | Quote |
+| `Ctrl+Shift+8` | Bulleted list |
 
 ## Markdown
 
@@ -86,6 +89,7 @@ These wrap the selected text in the matching Markdown. With nothing selected, th
 | `> ` | Quote this line |
 | `>>> ` | Quote the rest of the message |
 | `# `, `## `, `### ` | Headers |
+| `- `, `1. ` | Bulleted / numbered list |
 | `[text](url)` | Masked link |
 
 ## Slash commands

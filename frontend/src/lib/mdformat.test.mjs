@@ -4,7 +4,7 @@
 // in the browser instead (the batch drove it: type, bold, Ctrl+Z twice). What
 // is testable here is the PLAN — which span is replaced, with what, and where
 // the selection lands — and that is where every one of these bugs lived.
-import { planFormat, chordFor, WRAPS, FMT_GROUPS } from "./mdformat.js";
+import { planFormat, chordFor, isFormatBarChord, WRAPS, FMT_GROUPS } from "./mdformat.js";
 
 let failures = 0;
 const fail = (msg) => {
@@ -78,6 +78,16 @@ eq(apply("", 0, 0, "link").selected, "text", "…and selects the label");
 eq(apply("a\nb", 0, 3, "quote").text, "> a\n> b", "quote every line the selection touches");
 eq(apply("> a\n> b", 0, 7, "quote").text, "a\nb", "quote again unquotes");
 
+// ---- bulleted list ----
+eq(apply("a\nb", 0, 3, "list").text, "- a\n- b", "list marks every line the selection touches");
+eq(apply("- a\n- b", 0, 7, "list").text, "a\nb", "list again unmarks");
+{
+  const r = apply("", 0, 0, "list");
+  eq(r.text, "- ", "list on an empty draft starts an item");
+  eq(r.sel[0], 2, "…with the caret after the marker");
+}
+eq(apply("> a", 0, 3, "list").text, "- > a", "list and quote are separate prefixes");
+
 // ---- code block ----
 eq(apply("x", 0, 1, "codeblock").text, "```\nx\n```", "code block fences a selection, adding only the missing newlines");
 eq(apply("a x", 2, 3, "codeblock").text, "a \n```\nx\n```", "…and adds a leading newline when mid-line");
@@ -94,6 +104,9 @@ eq(chordFor(key(".", { shiftKey: true })), "quote", "Ctrl+Shift+.");
 // everywhere, so the link moved one key over.
 eq(chordFor(key("k")), null, "Ctrl+K is NOT a formatting chord any more");
 eq(chordFor(key("k", { shiftKey: true })), "link", "Ctrl+Shift+K is the link");
+eq(chordFor(key("e", { shiftKey: true })), "codeblock", "Ctrl+Shift+E is the code block");
+eq(chordFor(key("*", { shiftKey: true, code: "Digit8" })), "list", "Ctrl+Shift+8 on a US layout reports *");
+eq(chordFor(key("(", { shiftKey: true, code: "Digit8" })), "list", "…and on another layout, the physical key decides");
 eq(chordFor({ key: "b", ctrlKey: false, metaKey: false, altKey: false, shiftKey: false }), null, "bare b is a character");
 eq(chordFor(key("b", { altKey: true })), null, "Ctrl+Alt+B is not ours");
 
@@ -103,13 +116,27 @@ for (const k of Object.keys(WRAPS)) if (!kinds.has(k)) fail(`WRAPS has "${k}" an
 for (const b of FMT_GROUPS.flat()) if (!planFormat("x", 0, 1, b.kind)) fail(`toolbar has "${b.kind}" and planFormat does not`);
 // The tooltip hint and the chord must not drift apart — the link's said "K"
 // while the handler answered Shift+K for exactly as long as nobody checked.
-const HINTED = { bold: "b", italic: "i", underline: "u", strike: "s", code: "e", spoiler: "x", quote: ".", link: "k" };
+const HINTED = { bold: "b", italic: "i", underline: "u", strike: "s", code: "e", codeblock: "e", spoiler: "x", quote: ".", list: "8", link: "k" };
 for (const b of FMT_GROUPS.flat()) {
   if (!b.keys) continue;
   const shift = b.keys.startsWith("Shift+");
   const k = b.keys.replace("Shift+", "").toLowerCase();
   eq(k, HINTED[b.kind], `tooltip for ${b.kind} names its key`);
   eq(chordFor(key(k, { shiftKey: shift })), b.kind, `the chord the tooltip advertises for ${b.kind}`);
+}
+
+// Every button on the bar shows a chord, so every one of them has one.
+for (const b of FMT_GROUPS.flat()) if (!b.keys) fail(`toolbar button ${b.kind} has no chord to show in its tooltip`);
+
+// ---- the bar's own toggle ----
+eq(isFormatBarChord(key("F", { shiftKey: true })), true, "Ctrl+Shift+F toggles the bar");
+eq(isFormatBarChord(key("а", { shiftKey: true, code: "KeyF" })), true, "…on a non-Latin layout too");
+eq(isFormatBarChord(key("f", { shiftKey: true, ctrlKey: false, metaKey: true })), true, "…and as Cmd+Shift+F");
+eq(isFormatBarChord(key("f")), false, "Ctrl+F stays message search");
+eq(isFormatBarChord(key("f", { shiftKey: true, altKey: true })), false, "Ctrl+Alt+Shift+F is not ours");
+for (const b of FMT_GROUPS.flat()) {
+  const k = b.keys.replace("Shift+", "").toLowerCase();
+  if (isFormatBarChord(key(k, { shiftKey: b.keys.startsWith("Shift+") }))) fail(`the bar toggle collides with ${b.kind}`);
 }
 
 if (failures) {

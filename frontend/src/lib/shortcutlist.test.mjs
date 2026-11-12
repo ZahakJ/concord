@@ -14,6 +14,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { FMT_GROUPS } from "./mdformat.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (p) => readFileSync(join(here, p), "utf8");
@@ -78,6 +79,7 @@ const SPELLED = {
   "+": "=", // the same physical key; the sheet shows the unshifted legend
   "<": ",", // Ctrl+Shift+, reports "<" on a US layout
   ">": ".", // Ctrl+Shift+. likewise
+  "*": "8", // Ctrl+Shift+8 reports "*" on a US layout
   tab: null, // list navigation inside a popup, not a global binding
   contextmenu: "menu", // the menu key, as its keycap reads
   " ": null,
@@ -112,6 +114,18 @@ for (const label of [
 ]) {
   if (!SHORTCUTS.some((s) => s.label === label)) fail(`SHORTCUTS is missing "${label}"`);
 }
+// Every button on the formatting bar advertises a chord in its tooltip; the
+// sheet must list that same chord under the same name, or the tooltip teaches
+// a key the sheet does not know about.
+for (const b of FMT_GROUPS.flat()) {
+  if (!b.keys) continue;
+  const want = ["Ctrl/⌘", ...b.keys.split("+").map((p) => (p.length === 1 ? p.toUpperCase() : p))].join(" ");
+  const row = SHORTCUTS.find((s) => s.group === "Format" && s.label === b.label);
+  if (!row) fail(`the formatting bar's "${b.label}" has no row under Format`);
+  else if (!row.chords.some((c) => c.join(" ") === want)) fail(`Format › ${b.label} does not list ${want}`);
+}
+if (!SHORTCUTS.some((s) => s.label === "Show or hide the formatting bar")) fail("SHORTCUTS is missing the formatting bar's toggle");
+
 // `?` reopens the sheet — the entry whose absence was the joke.
 if (!known.has("?")) fail("SHORTCUTS never mentions `?`, which is how this sheet is opened");
 

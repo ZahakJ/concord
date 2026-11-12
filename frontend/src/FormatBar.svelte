@@ -31,6 +31,10 @@
     // text you selected. Underline, code block, quote and direction stay on
     // their chords and in the + menu's Formatting bar.
     selection = false,
+    // Composer-only: the last button opens the advanced composer with the
+    // draft, the way the bar's row of marks used to lead there before it
+    // moved into +. Left undefined the bar ends at the marks.
+    onAdvanced = undefined,
   } = $props();
 
   const SEL_KINDS = [["bold", "italic", "strike"], ["code", "spoiler", "link"]];
@@ -98,6 +102,20 @@
       onclick={onCycleDir}
     >
       {dirLabel}
+    </button>
+  {/if}
+  {#if onAdvanced}
+    <span class="fmt-sep" aria-hidden="true"></span>
+    <button
+      type="button"
+      class="fmtbtn"
+      use:tooltip={{ text: "Advanced composer — headings, colour, embeds, preview" }}
+      aria-label="Advanced composer"
+      {disabled}
+      onmousedown={(e) => e.preventDefault()}
+      onclick={onAdvanced}
+    >
+      <Icon name="docpen" size={15} />
     </button>
   {/if}
 </div>

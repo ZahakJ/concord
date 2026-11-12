@@ -101,15 +101,14 @@ Channel names are up to 40 characters. **Channel settings…** holds the channel
 
 ### Sending
 
-Type in the composer and press `Enter`; `Shift+Enter` adds a new line. Next to the text box:
+Type in the composer and press `Enter`; `Shift+Enter` adds a new line. The composer is one box:
 
-- **Attach a file** (or paste or drop a file); see [Sharing files and media](files-and-media.md).
-- **Record a voice message**, shown when the box is empty.
-- **GIF**, the guild's GIF pack and a search.
-- **+** (**Add to your message**): **Poll**, **Doodle**, **Sound**, **Game**, **Start a thread**, **Advanced composer**, **Seal the send time**, and **Schedule this message** (or **Scheduled messages** when the box is empty).
+- **+** (**Add to your message**) at its start: **Photo or file** (you can also paste or drop a file; see [Sharing files and media](files-and-media.md)), **GIF**, **Voice message**, **Poll**, **Thread**, **Doodle**, **Sound**, **Game**, **Send later** (or **Scheduled** when the box is empty), **Seal time**, **Formatting** and **Advanced**.
+- **Aa**, which shows or hides the formatting bar (see below).
 - The emoji picker.
+- **Send**, once there is something to send.
 
-On a phone these are in the **Add to your message** sheet.
+On a phone the box holds **+**, the text, emoji, and the microphone, which becomes **Send** once you type; everything else is in the **Add to your message** sheet.
 
 ### Formatting
 
@@ -130,7 +129,11 @@ Messages use Markdown.
 | `[text](https://…)` | link with custom text; bare URLs link too |
 | `{red\|text}` or `{#ff8800\|text}` | colored text; named colors are red, orange, yellow, green, teal, blue, purple, pink, gray |
 
-Formatting shortcuts such as `Ctrl+B` (`Cmd+B` on macOS) are listed in [Keyboard shortcuts](shortcuts.md).
+You do not have to type the markers yourself:
+
+- **Select text** and a small toolbar appears above the box with bold, italic, strikethrough, inline code, spoiler and link.
+- **Aa** (or **+** › **Formatting**, or `Ctrl+Shift+F`) shows the formatting bar, one row along the top of the box: bold, italic, underline, strikethrough, spoiler, inline code, code block, quote, bulleted list, link, text direction, and **Advanced composer**, which opens the larger editor with headings, colours and a preview. Each button applies to the selected text, or inserts the markers at the cursor. The bar stays shown or hidden on that device until you change it again. On a phone it is a single row you scroll sideways.
+- **Keyboard shortcuts** such as `Ctrl+B` (`Cmd+B` on macOS) work whether or not the bar is shown. Each button's tooltip names its shortcut, and all of them are listed in [Keyboard shortcuts](shortcuts.md).
 
 ### Mentions
 

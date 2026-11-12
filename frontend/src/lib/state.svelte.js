@@ -349,6 +349,10 @@ export const S = $state({
     // responsive defaults (narrower under 900px) keep deciding.
     colChannels: 220,
     colMembers: 260,
+    // The composer's formatting bar (Aa, + › Formatting, Ctrl+Shift+F). Off:
+    // the box stays one quiet line until someone asks for every mark in view,
+    // and then it stays that way on this device.
+    formatBar: false,
     ...loadJSON("concord.prefs", {}),
   },
 

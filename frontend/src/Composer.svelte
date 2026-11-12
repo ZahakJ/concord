@@ -6,7 +6,7 @@
   // last message.
   import Icon from "./Icon.svelte";
   import FormatBar from "./FormatBar.svelte";
-  import { applyFormat as formatField, chordFor, replaceRange } from "./lib/mdformat.js";
+  import { applyFormat as formatField, chordFor, isFormatBarChord, replaceRange } from "./lib/mdformat.js";
   import { uneditableReason } from "./lib/tokenbody.js";
   import { setPostLocked } from "./lib/postactions.svelte.js";
   import { sendText as outSendText, sendAttachment as outSendAttachment } from "./lib/outbox.svelte.js";
@@ -20,7 +20,7 @@
   import { haptic } from "./lib/touch.js";
   import { emoteText } from "./lib/emote.js";
   import { plainSnippet } from "./lib/snippet.js";
-  import { S, activeChannel, activeGuild, react, flash, flashSlot, nameColorFor, mentionRefs, customEmojiMap } from "./lib/state.svelte.js";
+  import { S, activeChannel, activeGuild, react, flash, flashSlot, nameColorFor, mentionRefs, customEmojiMap, setPref } from "./lib/state.svelte.js";
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
@@ -247,11 +247,19 @@
   // Disappearing-messages timer for this channel (0 = off). channelTTL reads the
   // reactive per-channel store, so this updates the moment you change it.
   const ephTTL = $derived(ch ? channelTTL(S.activeChannelId) : 0);
-  // Mobile markdown lives behind a toggle rather than an always-on toolbar row.
-  let showFmt = $state(false);
-  // The permanent bar is gone: selecting text raises the selection toolbar,
-  // the chords work everywhere, and the full bar is one + › Formatting away.
-  const showFmtBar = $derived(showFmt);
+  // The formatting bar is off by default and remembered per device. Selecting
+  // text raises the selection toolbar and the chords work either way; the bar
+  // is for whoever wants every mark in view, and once they turn it on it
+  // stays on. It used to be session state behind + › Formatting alone, so it
+  // was two clicks away, forgotten on every reload, and nothing in the box
+  // said it existed. The Aa beside emoji, + › Formatting and Ctrl+Shift+F
+  // all flip this one pref, so they can never disagree about whether it is on.
+  const showFmtBar = $derived(!!S.prefs.formatBar);
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+  function toggleFmtBar() {
+    setPref("formatBar", !S.prefs.formatBar);
+    composerEl?.focus();
+  }
   // Whether the draft has a non-empty selection — what raises the selection
   // toolbar. Read off the textarea on the events that can change it.
   let hasSel = $state(false);
@@ -779,6 +787,11 @@
       if (kind) {
         e.preventDefault();
         applyFormat(kind);
+        return;
+      }
+      if (isFormatBarChord(e)) {
+        e.preventDefault();
+        toggleFmtBar();
         return;
       }
       // Ctrl/Cmd+Shift+L cycles the draft's base direction. It was Ctrl+Shift+D
@@ -1591,7 +1604,7 @@
       { id: "game", label: "Game", icon: "die", title: "Play in the channel — the board is folded from the messages", disabled: !ch, run: () => (S.modal = { kind: "game" }) },
       { id: "later", label: draft.trim() ? "Send later" : "Scheduled", icon: "clock", title: draft.trim() ? "Pick a time for this message" : "See what's queued", disabled: !ch, run: scheduleSend },
       { id: "seal", label: "Seal time", icon: "stamp", title: "Prove when it was sent: seal the send time onto the next message", pressed: sealNext, disabled: !ch, run: toggleSeal },
-      { id: "fmt", label: "Formatting", icon: "bold", glyph: "Aa", title: "Bold, italics, code, quotes, links", pressed: showFmt, disabled: !ch, run: () => { showFmt = !showFmt; composerEl?.focus(); } },
+      { id: "fmt", label: "Formatting", icon: "bold", glyph: "Aa", title: "Bold, italics, code, quotes, links", pressed: showFmtBar, disabled: !ch, run: toggleFmtBar },
       { id: "advanced", label: "Advanced", icon: "docpen", title: "Colours, rich embeds, preview", disabled: !ch, run: openAdvanced },
     ].filter(Boolean),
   );
@@ -1989,7 +2002,7 @@
       {/if}
     {/if}
     {#if showFmtBar}
-      <FormatBar onFormat={applyFormat} disabled={!ch} {dirMode} onCycleDir={cycleDir} />
+      <FormatBar onFormat={applyFormat} disabled={!ch} {dirMode} onCycleDir={cycleDir} onAdvanced={openAdvanced} />
     {:else if hasSel && !mobile}
       <!-- Over the composer's top edge, never over the feed's last line: it
            floats into the reserved typing strip above the surface. -->
@@ -2193,6 +2206,21 @@
               <Icon name="stamp" size={18} />
             </button>
           {/if}
+        <!-- The way to the formatting bar, in the box itself: two quiet
+             letters, the same "Aa" the New post dialog trails in its field.
+             Without it the bar existed only as one row of a menu, and the
+             box gave nobody a reason to look there. -->
+        <button
+          type="button"
+          class="iconbtn aabtn"
+          class:on={showFmtBar}
+          use:tooltip={{ text: `${showFmtBar ? "Hide" : "Show"} the formatting bar (${isMac ? "⌘" : "Ctrl+"}Shift+F)` }}
+          aria-label="Formatting bar"
+          aria-pressed={showFmtBar}
+          disabled={!ch}
+          onmousedown={(e) => e.preventDefault()}
+          onclick={toggleFmtBar}
+        >Aa</button>
         <button
           type="button"
           class="iconbtn"
@@ -3052,6 +3080,29 @@
     border: none;
     border-radius: 0;
     padding: 6px 6px 6px 6px;
+  }
+  /* Aa, the formatting bar's switch: two letters at the icons' optical
+     weight, lit in the accent's ink while the bar is showing. */
+  .aabtn {
+    width: auto;
+    min-width: 34px;
+    padding: 0 var(--sp-1);
+    font-size: var(--fs-ui);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+  }
+  .aabtn.on {
+    color: var(--accent-hover);
+  }
+  /* The bar arrives as a row of the same surface, fading in where it stands:
+     the box grows by the row's height once, and nothing slides. */
+  .input-shell > :global(.fmt-bar) {
+    animation: fmt-row-in var(--dur-move) var(--ease-out);
+  }
+  @keyframes fmt-row-in {
+    from {
+      opacity: 0;
+    }
   }
   .sel-pop {
     position: absolute;

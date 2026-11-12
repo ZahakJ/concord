@@ -45,13 +45,19 @@ export const FMT_GROUPS = [
   ],
   [
     { kind: "code", label: "Inline code", keys: "E" },
-    { kind: "codeblock", label: "Code block" },
+    { kind: "codeblock", label: "Code block", keys: "Shift+E" },
   ],
   [
     { kind: "quote", label: "Quote", keys: "Shift+." },
+    { kind: "list", label: "Bulleted list", keys: "Shift+8" },
     { kind: "link", label: "Link", keys: "Shift+K" },
   ],
 ];
+
+// LINE_PREFIX: the kinds that mark whole lines rather than wrap a span. The
+// list is the advanced composer's "- " with the same chord it answers there,
+// so the two editors do not teach two different keys for one mark.
+const LINE_PREFIX = { quote: "> ", list: "- " };
 
 // A caret sitting against a word wants markers it can type between; a caret in
 // whitespace wants the placeholder word, because there is nothing there to
@@ -69,16 +75,18 @@ function touchesWord(value, at) {
 export function planFormat(value, start, end, kind) {
   const sel = value.slice(start, end);
 
-  if (kind === "quote") {
-    // Toggle "> " on every line the selection touches.
+  const prefix = LINE_PREFIX[kind];
+  if (prefix) {
+    // Toggle the prefix on every line the selection touches.
+    const n = prefix.length;
     const lineStart = value.lastIndexOf("\n", start - 1) + 1;
     let lineEnd = value.indexOf("\n", end);
     if (lineEnd < 0) lineEnd = value.length;
     const lines = value.slice(lineStart, lineEnd).split("\n");
-    const quoted = lines.every((l) => l.startsWith("> "));
-    const block = lines.map((l) => (quoted ? l.slice(2) : "> " + l)).join("\n");
+    const marked = lines.every((l) => l.startsWith(prefix));
+    const block = lines.map((l) => (marked ? l.slice(n) : prefix + l)).join("\n");
     if (start === end) {
-      const p = Math.max(lineStart, start + (quoted ? -2 : 2));
+      const p = Math.max(lineStart, start + (marked ? -n : n));
       const caret = Math.min(p, lineStart + block.length);
       return { from: lineStart, to: lineEnd, insert: block, selStart: caret, selEnd: caret };
     }
@@ -216,5 +224,21 @@ export function chordFor(e) {
   if (k === "s") return "strike";
   if (k === "u") return "underline";
   if (e.code === "Period" || k === "." || k === ">") return "quote";
+  // Shift+E is the fenced block beside Ctrl+E's inline code. Shift+8 is the
+  // bulleted list: a shifted digit arrives as whatever that layout prints on
+  // it ("*" on a US board), so the physical key decides and e.key is the
+  // fallback.
+  if (k === "e" || e.code === "KeyE") return "codeblock";
+  if (e.code === "Digit8" || k === "8" || k === "*") return "list";
   return null;
+}
+
+// isFormatBarChord: Ctrl/Cmd+Shift+F, the composer's "show or hide the
+// formatting bar". F is free in the keymap with Shift held (Ctrl+F alone is
+// message search), and the composer answers it only while it has the caret,
+// so it cannot reach anything else. e.code keeps it working on a non-Latin
+// layout, where e.key is a letter of that script.
+export function isFormatBarChord(e) {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || !e.shiftKey) return false;
+  return e.key.toLowerCase() === "f" || e.code === "KeyF";
 }
