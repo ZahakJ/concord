@@ -507,14 +507,17 @@
      "clicked outside the card" — the menu's actions read the card's member.
      Escape is not handled here at all any more: the card is a layer like any
      other, and whichever of it and the menu was opened last is the one back
-     takes away. -->
+     takes away. A toast is not outside either: "Removed Mentor from Juno ·
+     Undo" is raised by this card, and pressing Undo used to put the role back
+     and shut the card it was being put back on. (So did the mouseleave a
+     touch screen emulates on the way to it: the sheet is not a hover card.) -->
 <svelte:window
   onscroll={closeProfilePopover}
   onresize={closeProfilePopover}
 
   onpointerdown={(e) => {
     if (!S.profilePopover || popoverJustOpened()) return;
-    if (e.target.closest(".pop-wrap, .cm, .cm-backdrop, .bs-sheet, .bs-scrim")) return;
+    if (e.target.closest(".pop-wrap, .cm, .cm-backdrop, .bs-sheet, .bs-scrim, .toasts")) return;
     closeProfilePopover();
   }}
 />
@@ -535,7 +538,7 @@
     use:fieldEscape
     use:popoverFocus={!S.profilePopover.hover}
     onmouseenter={holdProfilePopover}
-    onmouseleave={() => !S.contextMenu && scheduleCloseProfilePopover()}
+    onmouseleave={() => !S.isMobile && !S.contextMenu && scheduleCloseProfilePopover()}
   >
   <div
     class="pop"
@@ -707,7 +710,7 @@
               {role.name}
               {#if canAssignRoles}
                 <button
-                  class="role-x"
+                  class="role-x tap-hit"
                   aria-label="Remove the {role.name} role"
                   onclick={() => toggleRole(role)}>×</button
                 >
@@ -943,6 +946,12 @@
   }
   .pop.sheet .name-row strong {
     font-size: var(--fs-title);
+  }
+  /* A role's × carries a 44px hit box (.tap-hit) around its 16px glyph; the
+     chips stand far enough apart that the box never lands on "+ Add" or on
+     the next chip's own ×. */
+  .pop.sheet .role-pills {
+    gap: var(--sp-3) var(--sp-4);
   }
   .pop.sheet .bio,
   .pop.sheet .status-text {
