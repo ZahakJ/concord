@@ -45,7 +45,8 @@ import { plainSnippet } from "./snippet.js";
 import { typistsAfter } from "./typing.js";
 import { landsOnWelcome } from "./firstrun.js";
 import { momentsPlaylist } from "./moments.js";
-import { insertBySent } from "./feedorder.js";
+import { insertBySent, compareSent } from "./feedorder.js";
+import { createFeedCache, reconcileFeed } from "./feedcache.js";
 import { isBlankText } from "./compose.js";
 import { isReading, readThrough, attention, addressedToYou } from "./readstate.js";
 import {
@@ -1646,6 +1647,10 @@ let feedOldest = "";
 // flight, and the old answer matches the id again and lands on the new feed,
 // with the cursor and the landing of a visit that is already over.
 let feedSeq = 0;
+// The rows of the last channels you were in, so going back to one paints in
+// the same frame as the click (lib/feedcache.js). Memory only: a reload, a
+// lock or a logout starts from the store again.
+const feedCache = createFeedCache({ max: 12, rows: 200 });
 
 // clearFeed empties everything scoped to "the channel currently on screen".
 export function clearFeed() {
@@ -2868,6 +2873,8 @@ export function isBlocked(fingerprint) {
 // know which sender each row belongs to once it is a view, and re-asking is one
 // call against local SQLite.
 async function repaintAfterBlockChange() {
+  // The kept channels were filtered under the old list too.
+  feedCache.clear();
   const ch = S.activeChannelId;
   const seq = feedSeq;
   if (ch) {
@@ -3350,6 +3357,9 @@ export async function selectChannel(id) {
   if (prev && prev !== id) {
     if (!feedNearBottom()) scrollStash[prev] = firstVisibleMsgId();
     else delete scrollStash[prev];
+    // Only a feed that finished loading is worth keeping: a half-loaded or
+    // failed one is not what that channel looks like.
+    if (!S.feedLoading && !S.historyError) feedCache.put(prev, S.messages);
   }
   S.activeChannelId = id;
   // Selecting a channel means "take me there". On a phone that is the page
@@ -3375,28 +3385,59 @@ export async function selectChannel(id) {
   clearFeed();
   const seq = feedSeq;
   const current = () => seq === feedSeq && S.activeChannelId === id;
-  S.feedLoading = true;
   S.loadingOlder = false;
-  S.feedReachedStart = false;
   S.historyError = null;
+  // A channel you were just in paints from memory in this same frame; the
+  // fetch below still runs and reconciles it with the store.
+  const cached = feedCache.get(id);
+  if (cached) {
+    S.messages = cached;
+    feedOldest = cached[0].sent;
+    S.feedLoading = false;
+    S.feedReachedStart = cached.length < 200;
+    // After the flush, not now: the feed resets its window when the channel
+    // changes, and that reset (in the same flush) would wipe a reveal placed
+    // before it — a channel landing on its NEW divider came up blank.
+    tick().then(() => current() && landFeed(id));
+  } else {
+    S.feedLoading = true;
+    S.feedReachedStart = false;
+  }
   let msgs;
   try {
     msgs = (await api.messages(id)) || [];
   } catch (err) {
     if (current()) {
       S.feedLoading = false;
-      S.historyError = { msg: humanError(err), older: false };
+      // Rows already on screen from memory stay readable; the error is only
+      // the feed's to show when there is nothing else to show.
+      if (!cached) S.historyError = { msg: humanError(err), older: false };
     }
     return;
   }
   // Guard against a stale fetch: if the user switched channels while this was in
   // flight, don't overwrite the now-active channel's messages/read-cursor.
   if (!current()) return;
+  if (cached) {
+    const merged = reconcileFeed(S.messages, msgs, compareSent, new Set(cached.map((m) => m.id)));
+    if (merged !== S.messages) S.messages = merged;
+    // The cursor is the oldest row actually held, whichever side it came from;
+    // history paged in meanwhile keeps its own answer about the start.
+    const paged = S.messages.length && msgs.length && compareSent(S.messages[0], msgs[0]) < 0;
+    feedOldest = S.messages.length ? S.messages[0].sent : "";
+    if (!paged) S.feedReachedStart = msgs.length < 200;
+    return;
+  }
   S.messages = msgs;
   feedOldest = msgs.length ? msgs[0].sent : "";
   S.feedLoading = false;
   // A short first page means there's nothing older to page back to.
   S.feedReachedStart = msgs.length < 200;
+  landFeed(id);
+}
+
+// landFeed puts a freshly filled feed where the reader should start.
+function landFeed(id) {
   // Land on the "NEW" divider when there's unread history, instead of dumping
   // the reader at the bottom past everything they missed.
   const hasUnread =
@@ -3857,6 +3898,8 @@ function initEvents() {
     // to be sure about a row whose author's clock is wrong.
     const isLive = !m.backfill && Date.now() - new Date(m.sent).getTime() < 60000;
 
+    // A channel kept for a fast return hears the same news the open one does.
+    if (m.channelId !== S.activeChannelId) feedCache.apply(m);
     if (m.channelId === S.activeChannelId) {
       const i = S.messages.findIndex((x) => x.id === m.id);
       if (i >= 0) {

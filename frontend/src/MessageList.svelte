@@ -837,40 +837,13 @@
     if (a !== lo || b !== hi) scheduleWindow();
   }
 
-  // Switching channel is the thing a person does a hundred times an hour, and
-  // it was the one interaction in the app with no transition at all: the list
-  // swapped in a single frame, which reads as a page reload. This is the
-  // cheapest possible continuity — one opacity, on the compositor, over
-  // --dur-quick — and it is a fade IN rather than a true cross-fade because
-  // there is nothing to fade out against: the old rows are gone in the same
-  // flush that changes the id. It starts from 0.35, not from nothing, so the
-  // new channel is legible from its first frame: the fade is continuity, never
-  // a wait. Instant under reduced motion (the global stand-down).
-  //
-  // It is armed when the new channel's rows ARRIVE, not when the id changes:
-  // armed on the id it ran its whole course over an empty feed while history
-  // loaded, and nobody ever saw it. The step down to 0.35 is instant (no
-  // transition on the way down) and only the rise back is animated.
-  let feedOpacity = $state(1);
-  let feedFadeUp = $state(false);
-  let fadeRaf = 0;
-  let fadeArmed = false;
-  $effect.pre(() => {
-    const loading = S.feedLoading;
-    untrack(() => {
-      if (loading || !fadeArmed) return;
-      fadeArmed = false;
-      feedFadeUp = false;
-      feedOpacity = 0.35;
-      cancelAnimationFrame(fadeRaf);
-      fadeRaf = requestAnimationFrame(() => {
-        fadeRaf = requestAnimationFrame(() => {
-          feedFadeUp = true;
-          feedOpacity = 1;
-        });
-      });
-    });
-  });
+  // A channel switch has no transition. It had a fade (the new rows stepping
+  // down to 0.35 and rising over --dur-quick), which put two frames and 120ms
+  // of motion between the click and a feed at full strength — on every switch,
+  // the thing a person does a hundred times an hour — and animated opacity
+  // over the largest surface in the app, which a software-composited window
+  // (the desktop shell without a working GPU) repaints in full every frame.
+  // The rows arriving at once is the continuity.
 
   // A channel switch is a different thread: every measurement is about rows that
   // no longer exist.
@@ -878,7 +851,6 @@
   $effect(() => {
     const ch = S.activeChannelId;
     if (ch === windowChannel) return;
-    const first = !windowChannel;
     windowChannel = ch;
     untrack(() => {
       advance.clear();
@@ -889,19 +861,24 @@
       lastScrollTop = 0;
       lo = hi = 0;
       topPad = botPad = 0;
-      // Not on the first channel of the session: the app has its own entrance
-      // and a second fade under it reads as a stutter.
-      if (first) return;
-      fadeArmed = true;
+      // A hold placed for the channel we just left must not freeze this one.
+      revealHold = 0;
     });
   });
 
   // Anything that changes the list changes the window.
   $effect(() => {
-    void items.length;
+    const n = items.length;
     void S.editing?.id;
     untrack(() => {
-      scheduleWindow();
+      // An empty window being filled (a channel opened, its rows just
+      // arrived) is computed now, in this flush, so the rows paint in the
+      // same frame as the data. Waiting for the next animation frame here
+      // cost one whole frame of blank feed on every switch.
+      if (n && !hi && feedEl) {
+        rebuildCum();
+        updateWindow();
+      } else scheduleWindow();
       checkLastRow();
     });
   });
@@ -1523,8 +1500,6 @@
 <div
   class="feed"
   class:bar-narrow={barNarrow}
-  class:fade-up={feedFadeUp}
-  style:opacity={feedOpacity}
   bind:this={feedEl}
   role="log"
   aria-label="Messages"
@@ -2118,9 +2093,6 @@
   .feed {
     flex: 1;
     min-height: 0;
-    /* The channel-switch fade (only on its way up, see feedFadeUp). Opacity
-       only, so the whole thing is one compositor property and never touches
-       layout or paint. */
     overflow-y: auto;
     /* Never let one long unbroken string (URL, fingerprint, code) give the
        whole chat a horizontal scrollbar — content wraps or scrolls inside its
@@ -2309,9 +2281,6 @@
   .new-divider .mark-read:active {
     background: var(--bg-3);
     color: var(--text);
-  }
-  .feed.fade-up {
-    transition: opacity var(--dur-quick) var(--ease-out);
   }
   /* Loading shimmer while a channel switch fetches history. It waits 150ms
      (--dur-standard)
