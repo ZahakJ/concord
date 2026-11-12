@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -35,7 +36,10 @@ const nonceSize = 24
 
 // Store is a peer's local encrypted database.
 type Store struct {
-	db  *sql.DB
+	db *sql.DB
+	// rdb serves plain reads (see rd). nil until the schema is migrated, and
+	// for a path it cannot open a second time.
+	rdb *sql.DB
 	key [32]byte // secretbox key for message bodies
 	// chronicleCap is the ceiling on UNPINNED archive chunks. A knob rather
 	// than a constant because the right number depends on the device: the
@@ -92,7 +96,57 @@ func Open(path string, dataKey []byte) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	s.rdb = openReader(path)
 	return s, nil
+}
+
+// openReader opens the pool the store's plain reads go through.
+//
+// The writer is one connection, and every statement queued behind it: while
+// a burst of incoming messages was being stored, each insert holding it for a
+// disk sync, the UI's reads (the channel it is opening, the guild list) waited
+// their turn, and a burst stalled them for 0.3-1.5 s. In WAL mode readers do not
+// block on the writer, so reads get connections of their own: query_only, so
+// nothing written can ever go through them, and the same busy timeout for the
+// moments WAL itself needs a lock (a checkpoint restarting the log). A reader
+// sees everything committed before its statement starts, which is every write
+// a caller has already been told succeeded. Durability settings are the
+// writer's and unchanged. When the second open fails, reads stay on the writer
+// as before.
+func openReader(path string) *sql.DB {
+	if path == "" || strings.HasPrefix(path, ":memory:") || strings.Contains(path, "mode=memory") {
+		return nil
+	}
+	dsn := path
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	if !strings.HasPrefix(dsn, "file:") {
+		dsn = "file:" + (&url.URL{Path: path}).EscapedPath()
+		sep = "?"
+	}
+	dsn += sep + "_pragma=busy_timeout(5000)&_pragma=query_only(1)"
+	rdb, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil
+	}
+	rdb.SetMaxOpenConns(4)
+	rdb.SetMaxIdleConns(4)
+	if err := rdb.Ping(); err != nil {
+		_ = rdb.Close()
+		return nil
+	}
+	return rdb
+}
+
+// rd is where a plain read goes: the reader pool when there is one, else the
+// writer. Statements inside a transaction stay on that transaction.
+func (s *Store) rd() *sql.DB {
+	if s.rdb != nil {
+		return s.rdb
+	}
+	return s.db
 }
 
 func (s *Store) migrate() error {
@@ -512,7 +566,7 @@ func (s *Store) ImportVerifiedFingerprint(fingerprint string) error {
 
 // VerifiedFingerprints returns the set of fingerprints the user has verified.
 func (s *Store) VerifiedFingerprints() (map[string]bool, error) {
-	rows, err := s.db.Query(`SELECT DISTINCT fingerprint FROM contacts WHERE verified = 1`)
+	rows, err := s.rd().Query(`SELECT DISTINCT fingerprint FROM contacts WHERE verified = 1`)
 	if err != nil {
 		return nil, err
 	}
@@ -538,7 +592,7 @@ func (s *Store) VerifiedFingerprints() (map[string]bool, error) {
 // Verified contacts are never touched, whatever else is true of them —
 // verification is a human act and only a human should undo it.
 func (s *Store) PruneContacts(keep map[string]bool) (int, error) {
-	rows, err := s.db.Query(`SELECT peer_id, fingerprint FROM contacts WHERE verified = 0`)
+	rows, err := s.rd().Query(`SELECT peer_id, fingerprint FROM contacts WHERE verified = 0`)
 	if err != nil {
 		return 0, fmt.Errorf("store: prune contacts: %w", err)
 	}
@@ -567,7 +621,7 @@ func (s *Store) PruneContacts(keep map[string]bool) (int, error) {
 
 // Contacts returns all known contacts, first-seen order.
 func (s *Store) Contacts() ([]domain.Contact, error) {
-	rows, err := s.db.Query(`SELECT peer_id, fingerprint, verified, first_seen FROM contacts ORDER BY first_seen`)
+	rows, err := s.rd().Query(`SELECT peer_id, fingerprint, verified, first_seen FROM contacts ORDER BY first_seen`)
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +681,7 @@ func (s *Store) SaveGuild(g domain.Guild) error {
 
 // Guilds loads all guilds with their channels.
 func (s *Store) Guilds() ([]domain.Guild, error) {
-	rows, err := s.db.Query(`SELECT id, name, group_id, owner_id, created, kind, icon, banner, description FROM guilds ORDER BY created`)
+	rows, err := s.rd().Query(`SELECT id, name, group_id, owner_id, created, kind, icon, banner, description FROM guilds ORDER BY created`)
 	if err != nil {
 		return nil, err
 	}
@@ -658,7 +712,7 @@ func (s *Store) Guilds() ([]domain.Guild, error) {
 }
 
 func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT id, guild_id, name, type, category, position, topic, parent, links,
 		        forum_tags, post_tags, pinned, solved, banner, locked, locked_by FROM channels
 		 WHERE guild_id = ? ORDER BY position ASC, rowid ASC`, guildID)
@@ -747,7 +801,7 @@ func (s *Store) SaveCategory(c domain.Category) error {
 
 // Categories returns a guild's categories, ordered by position.
 func (s *Store) Categories(guildID string) ([]domain.Category, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT id, guild_id, name, position FROM categories WHERE guild_id = ? ORDER BY position ASC, rowid ASC`,
 		guildID)
 	if err != nil {
@@ -890,7 +944,7 @@ func (s *Store) DeleteEvent(guildID, id string) error {
 // done by looking for the announcement message itself (see announceEventStart).
 func (s *Store) EventAnnounced(id string) (bool, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM event_announced WHERE event_id=?`, id).Scan(&n)
+	err := s.rd().QueryRow(`SELECT COUNT(*) FROM event_announced WHERE event_id=?`, id).Scan(&n)
 	return n > 0, err
 }
 
@@ -922,7 +976,7 @@ func scanEvent(scan func(dest ...any) error) (domain.Event, error) {
 // the claimed guild would report "unknown" and let an upsert overwrite another
 // guild's row through the primary key.
 func (s *Store) EventByID(id string) (domain.Event, bool, error) {
-	row := s.db.QueryRow(
+	row := s.rd().QueryRow(
 		`SELECT id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host, member_code, location_channel, repeat_rule, repeat_until
 		 FROM events WHERE id=?`, id)
 	e, err := scanEvent(row.Scan)
@@ -937,7 +991,7 @@ func (s *Store) EventByID(id string) (domain.Event, bool, error) {
 
 // Events returns a guild's calendar ordered by start time.
 func (s *Store) Events(guildID string) ([]domain.Event, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host, member_code, location_channel, repeat_rule, repeat_until
 		 FROM events WHERE guild_id=? ORDER BY start_unix ASC, created_at ASC, id ASC`, guildID)
 	if err != nil {
@@ -999,7 +1053,7 @@ func (s *Store) CustomEmoji(guildID string) ([]CustomEmojiRow, error) {
 	if ok {
 		return append([]CustomEmojiRow(nil), cached...), nil
 	}
-	rows, err := s.db.Query(`SELECT guild_id, name, image, author, sig FROM custom_emoji WHERE guild_id=? ORDER BY name`, guildID)
+	rows, err := s.rd().Query(`SELECT guild_id, name, image, author, sig FROM custom_emoji WHERE guild_id=? ORDER BY name`, guildID)
 	if err != nil {
 		return nil, err
 	}
@@ -1061,7 +1115,7 @@ func (s *Store) DeleteGuildGif(guildID, id string) error {
 
 // GuildGifs returns a guild's pack, newest first (how a picker wants it).
 func (s *Store) GuildGifs(guildID string) ([]GuildGifRow, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT guild_id, id, name, tags, att_keys, subtype, width, height, author, sig
 		 FROM guild_gifs WHERE guild_id=? ORDER BY created DESC`, guildID)
 	if err != nil {
@@ -1082,7 +1136,7 @@ func (s *Store) GuildGifs(guildID string) ([]GuildGifRow, error) {
 // GuildGif returns one entry of a guild's pack.
 func (s *Store) GuildGif(guildID, id string) (GuildGifRow, bool, error) {
 	var g GuildGifRow
-	err := s.db.QueryRow(
+	err := s.rd().QueryRow(
 		`SELECT guild_id, id, name, tags, att_keys, subtype, width, height, author, sig
 		 FROM guild_gifs WHERE guild_id=? AND id=?`, guildID, id).
 		Scan(&g.GuildID, &g.ID, &g.Name, &g.Tags, &g.Keys, &g.Subtype, &g.Width, &g.Height, &g.Author, &g.Sig)
@@ -1128,7 +1182,7 @@ func (s *Store) SaveGuildOp(guildID, opHash string, opJSON []byte) error {
 // GuildOps returns the raw op encodings for a guild (unordered; the caller
 // replays them in canonical order).
 func (s *Store) GuildOps(guildID string) ([][]byte, error) {
-	rows, err := s.db.Query(`SELECT op_json FROM guild_ops WHERE guild_id=?`, guildID)
+	rows, err := s.rd().Query(`SELECT op_json FROM guild_ops WHERE guild_id=?`, guildID)
 	if err != nil {
 		return nil, err
 	}
@@ -1147,7 +1201,7 @@ func (s *Store) GuildOps(guildID string) ([][]byte, error) {
 // AllGuildOps returns every stored op across all guilds as guildID → [opJSON],
 // for warming the in-memory governance state at startup.
 func (s *Store) AllGuildOps() (map[string][][]byte, error) {
-	rows, err := s.db.Query(`SELECT guild_id, op_json FROM guild_ops`)
+	rows, err := s.rd().Query(`SELECT guild_id, op_json FROM guild_ops`)
 	if err != nil {
 		return nil, err
 	}
@@ -1167,7 +1221,7 @@ func (s *Store) AllGuildOps() (map[string][][]byte, error) {
 // Nicknames returns every stored per-guild nickname as guildID → fingerprint →
 // nick, for warming the in-memory cache at startup.
 func (s *Store) Nicknames() (map[string]map[string]string, error) {
-	rows, err := s.db.Query(`SELECT guild_id, fingerprint, nick FROM nicknames`)
+	rows, err := s.rd().Query(`SELECT guild_id, fingerprint, nick FROM nicknames`)
 	if err != nil {
 		return nil, err
 	}
@@ -1254,7 +1308,7 @@ func (s *Store) MarkGuildLeft(guildID string) error {
 // every NON-user-initiated adoption path must consult before re-adding it.
 func (s *Store) GuildIsLeft(guildID string) bool {
 	var n int
-	err := s.db.QueryRow(
+	err := s.rd().QueryRow(
 		`SELECT COUNT(1) FROM left_guilds WHERE guild_id = ?`, guildID).Scan(&n)
 	return err == nil && n > 0
 }
@@ -1271,7 +1325,7 @@ func (s *Store) ClearGuildLeft(guildID string) error {
 // when there is no tombstone.
 func (s *Store) LeftAt(guildID string) int64 {
 	var at int64
-	if err := s.db.QueryRow(`SELECT at FROM left_guilds WHERE guild_id = ?`, guildID).Scan(&at); err != nil {
+	if err := s.rd().QueryRow(`SELECT at FROM left_guilds WHERE guild_id = ?`, guildID).Scan(&at); err != nil {
 		return 0
 	}
 	return at
@@ -1280,7 +1334,7 @@ func (s *Store) LeftAt(guildID string) int64 {
 // LeftGuildsSince lists every tombstoned guild with the time it was left, for
 // the account's other devices (see the hello's Left field).
 func (s *Store) LeftGuildsSince() (map[string]int64, error) {
-	rows, err := s.db.Query(`SELECT guild_id, at FROM left_guilds`)
+	rows, err := s.rd().Query(`SELECT guild_id, at FROM left_guilds`)
 	if err != nil {
 		return nil, err
 	}
@@ -1299,7 +1353,7 @@ func (s *Store) LeftGuildsSince() (map[string]int64, error) {
 
 // LeftGuilds lists every tombstoned guild ID (debugging/inspection).
 func (s *Store) LeftGuilds() ([]string, error) {
-	rows, err := s.db.Query(`SELECT guild_id FROM left_guilds ORDER BY at`)
+	rows, err := s.rd().Query(`SELECT guild_id FROM left_guilds ORDER BY at`)
 	if err != nil {
 		return nil, err
 	}
@@ -1401,11 +1455,11 @@ func (s *Store) LatestTimestamp(channelID string) (int64, error) {
 	// then the larger. The old nested MAX(MAX(sent),MAX(updated)) couldn't use
 	// either index and scanned the whole channel partition.
 	var maxSent, maxUpdated sql.NullInt64
-	if err := s.db.QueryRow(
+	if err := s.rd().QueryRow(
 		`SELECT MAX(sent) FROM messages WHERE channel_id = ?`, channelID).Scan(&maxSent); err != nil {
 		return 0, err
 	}
-	if err := s.db.QueryRow(
+	if err := s.rd().QueryRow(
 		`SELECT MAX(updated) FROM messages WHERE channel_id = ?`, channelID).Scan(&maxUpdated); err != nil {
 		return 0, err
 	}
@@ -1428,7 +1482,7 @@ func (s *Store) LatestTimestamps(channelIDs []string) (map[string]int64, error) 
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT j.value,
 		        (SELECT MAX(sent) FROM messages WHERE channel_id = j.value),
 		        (SELECT MAX(updated) FROM messages WHERE channel_id = j.value)
@@ -1473,7 +1527,7 @@ func (s *Store) UnreadCounts(sinceNano map[string]int64) (map[string]int, error)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT j.key, (SELECT COUNT(*) FROM messages
 		                WHERE channel_id = j.key AND sent > j.value
 		                  AND deleted = 0 AND quiet = 0 AND kind IN ('', 'guest'))
@@ -1509,7 +1563,7 @@ type SenderCount struct {
 // empty block list should not call this at all — UnreadCounts is already the
 // answer, and it is the path every login takes.
 func (s *Store) UnreadBySender(channelID string, since int64) ([]SenderCount, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT sender, COUNT(*) FROM messages
 		 WHERE channel_id = ? AND sent > ? AND deleted = 0 AND quiet = 0 AND kind IN ('', 'guest')
 		 GROUP BY sender`,
@@ -1541,7 +1595,7 @@ func (s *Store) UnreadBySenderAll(sinceNano map[string]int64) (map[string][]Send
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT m.channel_id, m.sender, COUNT(*)
 		 FROM json_each(?) j
 		 JOIN messages m ON m.channel_id = j.key AND m.sent > j.value
@@ -1572,7 +1626,7 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 		q += ` LIMIT ?`
 		args = append(args, limit)
 	}
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.rd().Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1630,7 +1684,7 @@ func (s *Store) NewestMessage(channelID string) (domain.Message, bool, error) {
 	var enc, nonceB []byte
 	var sent int64
 	var deleted int
-	err := s.db.QueryRow(
+	err := s.rd().QueryRow(
 		`SELECT id, channel_id, sender, kind, deleted, content_enc, nonce, sent
 		 FROM messages WHERE channel_id = ? ORDER BY sent DESC LIMIT 1`, channelID).
 		Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Kind, &deleted, &enc, &nonceB, &sent)
@@ -1659,7 +1713,7 @@ func (s *Store) MessagesBefore(channelID string, beforeNano int64, limit int) ([
 	if limit <= 0 {
 		limit = 200
 	}
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, expired, content_enc, nonce, sent, sig, unverified
 		 FROM messages WHERE channel_id = ? AND sent < ? ORDER BY sent DESC LIMIT ?`,
 		channelID, beforeNano, limit)
@@ -1726,7 +1780,7 @@ func (s *Store) open(enc, nonceB []byte) (string, error) {
 // second tap of the same emoji un-reacts). Returns whether it is now added.
 func (s *Store) ToggleReaction(messageID, fingerprint, emoji string) (bool, error) {
 	var one int
-	err := s.db.QueryRow(
+	err := s.rd().QueryRow(
 		`SELECT 1 FROM reactions WHERE message_id=? AND fingerprint=? AND emoji=?`,
 		messageID, fingerprint, emoji,
 	).Scan(&one)
@@ -1756,7 +1810,7 @@ func (s *Store) touchMessage(id string) {
 // reactionsForChannel loads all reactions for a channel's messages, grouped as
 // messageID -> emoji -> [fingerprints].
 func (s *Store) reactionsForChannel(channelID string) (map[string]map[string][]string, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT r.message_id, r.emoji, r.fingerprint
 		 FROM reactions r JOIN messages m ON m.id = r.message_id
 		 WHERE m.channel_id = ?`, channelID)
@@ -1825,7 +1879,7 @@ func (s *Store) PropsTally(guildID string, fprOf func(sender []byte) string) (ma
 	for _, e := range propsEmoji {
 		args = append(args, e)
 	}
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT m.sender, COUNT(*)
 		 FROM reactions r
 		 JOIN messages m ON m.id = r.message_id
@@ -1898,7 +1952,7 @@ func (s *Store) messageByID(q querier, id string) (domain.Message, bool, error) 
 // action itself arrives over the authenticated encrypted channel).
 func (s *Store) TogglePinned(id string) (bool, error) {
 	var pinned int
-	err := s.db.QueryRow(`SELECT pinned FROM messages WHERE id = ?`, id).Scan(&pinned)
+	err := s.rd().QueryRow(`SELECT pinned FROM messages WHERE id = ?`, id).Scan(&pinned)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -1932,7 +1986,7 @@ func (s *Store) UnbookmarkMessage(messageID string) error {
 
 func (s *Store) MessageIsBookmarked(messageID string) bool {
 	var n int
-	err := s.db.QueryRow(
+	err := s.rd().QueryRow(
 		`SELECT COUNT(1) FROM saved_messages WHERE message_id = ?`, messageID).Scan(&n)
 	return err == nil && n > 0
 }
@@ -1941,7 +1995,7 @@ func (s *Store) MessageIsBookmarked(messageID string) bool {
 // A bookmark whose message has since been deleted (or belongs to a guild the
 // user left) simply doesn't join — stale rows are pruned as they're noticed.
 func (s *Store) BookmarkedMessages() ([]domain.Message, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT m.id, m.channel_id, m.sender, m.name, m.kind, m.reply_to, m.dir, m.edited, m.pinned, m.content_enc, m.nonce, m.sent
 		 FROM saved_messages sv JOIN messages m ON m.id = sv.message_id
 		 WHERE m.deleted = 0 ORDER BY sv.at DESC LIMIT 200`)
@@ -2063,7 +2117,7 @@ func (s *Store) InboxCandidates(self []byte, terms []string, beforeNano, afterNa
 		q += ` ORDER BY m.sent DESC, m.id ASC LIMIT ?`
 		pageArgs = append(pageArgs, batch)
 
-		rows, err := s.db.Query(q, pageArgs...)
+		rows, err := s.rd().Query(q, pageArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -2207,7 +2261,7 @@ func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) 
 		q += ` ORDER BY sent DESC, id ASC LIMIT ?`
 		pageArgs = append(pageArgs, batch)
 
-		rows, err := s.db.Query(q, pageArgs...)
+		rows, err := s.rd().Query(q, pageArgs...)
 		if err != nil {
 			return nil, err
 		}
@@ -2266,7 +2320,7 @@ func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) 
 // of them should overwrite what is stored.
 func (s *Store) UpdateContent(id string, bySender []byte, newContent string, newSig []byte, newDir string, setDir bool) (bool, error) {
 	var sender []byte
-	err := s.db.QueryRow(`SELECT sender FROM messages WHERE id = ?`, id).Scan(&sender)
+	err := s.rd().QueryRow(`SELECT sender FROM messages WHERE id = ?`, id).Scan(&sender)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -2302,7 +2356,7 @@ func (s *Store) MarkDeleted(id string, bySender []byte, force bool) (domain.Mess
 	var m domain.Message
 	var chID string
 	var sent int64
-	err := s.db.QueryRow(
+	err := s.rd().QueryRow(
 		`SELECT channel_id, sender, sent FROM messages WHERE id = ?`, id,
 	).Scan(&chID, &m.Sender, &sent)
 	if err == sql.ErrNoRows {
@@ -2350,7 +2404,7 @@ func (s *Store) EraseContent(id string) error {
 // soft-deleted guild message's original text.
 func (s *Store) MessageContent(id string) (string, error) {
 	var enc, nonceB []byte
-	err := s.db.QueryRow(`SELECT content_enc, nonce FROM messages WHERE id = ?`, id).Scan(&enc, &nonceB)
+	err := s.rd().QueryRow(`SELECT content_enc, nonce FROM messages WHERE id = ?`, id).Scan(&enc, &nonceB)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -2502,7 +2556,7 @@ func (s *Store) AddReaction(messageID, fingerprint, emoji string) error {
 // including bookmarks whose message is soft-deleted, or a restore would quietly
 // drop them.
 func (s *Store) SavedMessageIDs() (map[string]bool, error) {
-	rows, err := s.db.Query(`SELECT message_id FROM saved_messages`)
+	rows, err := s.rd().Query(`SELECT message_id FROM saved_messages`)
 	if err != nil {
 		return nil, err
 	}
@@ -2533,7 +2587,7 @@ func (s *Store) SaveBookmark(messageID, channelID string, at int64) error {
 // by least-recent use, so what comes back is whatever survived, never a
 // guarantee of every file ever shared.
 func (s *Store) AttachmentBlobs() (map[string][]byte, error) {
-	rows, err := s.db.Query(`SELECT blob_id, ct FROM attachments`)
+	rows, err := s.rd().Query(`SELECT blob_id, ct FROM attachments`)
 	if err != nil {
 		return nil, err
 	}
@@ -2574,7 +2628,7 @@ func (s *Store) DeleteSetting(key string) error {
 // GetSetting returns a stored setting, or "" if unset.
 func (s *Store) GetSetting(key string) (string, error) {
 	var v string
-	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
+	err := s.rd().QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -2618,7 +2672,7 @@ func (s *Store) SaveProfile(p ProfileRow) error {
 
 // Profiles returns every learned peer profile.
 func (s *Store) Profiles() ([]ProfileRow, error) {
-	rows, err := s.db.Query(`SELECT fingerprint, name, status, emoji, color, avatar, banner, presence, bio, birthday, mailbox_pub, games, color2, frame, effect, style FROM profiles`)
+	rows, err := s.rd().Query(`SELECT fingerprint, name, status, emoji, color, avatar, banner, presence, bio, birthday, mailbox_pub, games, color2, frame, effect, style FROM profiles`)
 	if err != nil {
 		return nil, err
 	}
@@ -2656,7 +2710,7 @@ func (s *Store) AdvanceReadState(channelID string, at int64) (bool, error) {
 // ReadMark returns one channel's read-through time (UnixMilli), 0 for none.
 func (s *Store) ReadMark(channelID string) (int64, error) {
 	var at int64
-	err := s.db.QueryRow(`SELECT at FROM read_state WHERE channel_id = ?`, channelID).Scan(&at)
+	err := s.rd().QueryRow(`SELECT at FROM read_state WHERE channel_id = ?`, channelID).Scan(&at)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -2685,7 +2739,7 @@ func (s *Store) NewestSent(channelIDs []string) (map[string]int64, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT j.value, (SELECT MAX(sent) FROM messages WHERE channel_id = j.value)
 		 FROM json_each(?) j`, string(ids))
 	if err != nil {
@@ -2716,7 +2770,7 @@ func (s *Store) DeleteReadState(channelIDs []string) error {
 
 // ReadState returns every channel's read-through time (UnixMilli).
 func (s *Store) ReadState() (map[string]int64, error) {
-	rows, err := s.db.Query(`SELECT channel_id, at FROM read_state`)
+	rows, err := s.rd().Query(`SELECT channel_id, at FROM read_state`)
 	if err != nil {
 		return nil, err
 	}
@@ -2758,7 +2812,7 @@ func (s *Store) SaveCommit(groupID []byte, epoch uint64, commit []byte) error {
 // CommitsAfter returns a group's logged commits with epoch > afterEpoch, in
 // ascending epoch order.
 func (s *Store) CommitsAfter(groupID []byte, afterEpoch uint64) ([]CommitRow, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT epoch, commit_b FROM mls_commits WHERE group_id = ? AND epoch > ? ORDER BY epoch ASC`,
 		groupID, int64(afterEpoch),
 	)
@@ -2856,7 +2910,7 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 	if limit <= 0 {
 		limit = 200
 	}
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified
 		 FROM messages WHERE channel_id = ? AND (sent > ? OR updated > ?) AND kind IN `+syncedKindsSQL+`
 		 ORDER BY sent ASC LIMIT ?`, channelID, sinceNano, sinceNano, limit)
@@ -3210,7 +3264,7 @@ func (s *Store) SaveAttachment(blobID string, ct []byte) error {
 // GetAttachment loads a blob's ciphertext, bumping its recency.
 func (s *Store) GetAttachment(blobID string) ([]byte, bool, error) {
 	var ct []byte
-	err := s.db.QueryRow(`SELECT ct FROM attachments WHERE blob_id = ?`, blobID).Scan(&ct)
+	err := s.rd().QueryRow(`SELECT ct FROM attachments WHERE blob_id = ?`, blobID).Scan(&ct)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
@@ -3244,7 +3298,7 @@ func (s *Store) PinAttachment(blobID string, pinned bool) error {
 // swept.
 func (s *Store) AttachmentPinned(blobID string) (pinned, ok bool, err error) {
 	var v int
-	err = s.db.QueryRow(`SELECT pinned FROM attachments WHERE blob_id = ?`, blobID).Scan(&v)
+	err = s.rd().QueryRow(`SELECT pinned FROM attachments WHERE blob_id = ?`, blobID).Scan(&v)
 	if err == sql.ErrNoRows {
 		return false, false, nil
 	}
@@ -3262,7 +3316,7 @@ func (s *Store) AttachmentPinned(blobID string) (pinned, ok bool, err error) {
 func (s *Store) evictAttachments() {
 	for i := 0; i < 64; i++ { // hard bound on the loop, just in case
 		var total sql.NullInt64
-		if err := s.db.QueryRow(`SELECT SUM(size) FROM attachments`).Scan(&total); err != nil || total.Int64 <= maxAttachmentStore {
+		if err := s.rd().QueryRow(`SELECT SUM(size) FROM attachments`).Scan(&total); err != nil || total.Int64 <= maxAttachmentStore {
 			return
 		}
 		res, err := s.db.Exec(
@@ -3339,7 +3393,7 @@ func (s *Store) SaveChronicleManifest(chronicleID, guildID string, raw []byte) (
 
 // ChronicleManifests returns a guild's manifests, newest first.
 func (s *Store) ChronicleManifests(guildID string) ([]ChronicleManifestRow, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT chronicle_id, guild_id, raw, created FROM chronicle_manifests
 		  WHERE guild_id = ? ORDER BY created DESC, chronicle_id ASC`, guildID)
 	if err != nil {
@@ -3384,7 +3438,7 @@ func (s *Store) SaveChronicleChunk(chunkID string, ct []byte, pinned bool) error
 // ChronicleChunk loads a chunk's ciphertext, bumping its recency.
 func (s *Store) ChronicleChunk(chunkID string) ([]byte, bool, error) {
 	var ct []byte
-	err := s.db.QueryRow(`SELECT ct FROM chronicle_chunks WHERE chunk_id = ?`, chunkID).Scan(&ct)
+	err := s.rd().QueryRow(`SELECT ct FROM chronicle_chunks WHERE chunk_id = ?`, chunkID).Scan(&ct)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
@@ -3404,7 +3458,7 @@ func (s *Store) ChronicleChunk(chunkID string) ([]byte, bool, error) {
 // one keystroke and make the pages the reader actually visits look cold.
 func (s *Store) ChronicleChunkStale(chunkID string) ([]byte, bool, error) {
 	var ct []byte
-	err := s.db.QueryRow(`SELECT ct FROM chronicle_chunks WHERE chunk_id = ?`, chunkID).Scan(&ct)
+	err := s.rd().QueryRow(`SELECT ct FROM chronicle_chunks WHERE chunk_id = ?`, chunkID).Scan(&ct)
 	if err == sql.ErrNoRows {
 		return nil, false, nil
 	}
@@ -3465,7 +3519,7 @@ func (s *Store) ChronicleChunkPresence(chunkIDs []string) (present map[string]bo
 		}
 		q := `SELECT chunk_id, size, pinned FROM chronicle_chunks WHERE chunk_id IN (?` +
 			strings.Repeat(",?", len(ids)-1) + `)`
-		rows, qerr := s.db.Query(q, args...)
+		rows, qerr := s.rd().Query(q, args...)
 		if qerr != nil {
 			return nil, 0, 0, fmt.Errorf("store: chronicle chunk presence: %w", qerr)
 		}
@@ -3498,7 +3552,7 @@ func (s *Store) evictChronicleChunks() {
 	ceiling := s.chronicleCapBytes()
 	for i := 0; i < 4096; i++ {
 		var total sql.NullInt64
-		if err := s.db.QueryRow(
+		if err := s.rd().QueryRow(
 			`SELECT SUM(size) FROM chronicle_chunks WHERE pinned = 0`).Scan(&total); err != nil || total.Int64 <= ceiling {
 			return
 		}
@@ -3530,7 +3584,7 @@ func (s *Store) RemovePendingMember(guildID, fpr string) error {
 // PendingMembers returns guildID -> [fingerprints] for every recorded pending
 // member (loaded into memory at startup).
 func (s *Store) PendingMembers() (map[string][]string, error) {
-	rows, err := s.db.Query("SELECT guild_id, fingerprint FROM pending_members")
+	rows, err := s.rd().Query("SELECT guild_id, fingerprint FROM pending_members")
 	if err != nil {
 		return nil, err
 	}
@@ -3562,7 +3616,7 @@ func (s *Store) UnblockFingerprint(fpr string) error {
 
 // BlockedFingerprints lists every blocked account fingerprint.
 func (s *Store) BlockedFingerprints() ([]string, error) {
-	rows, err := s.db.Query("SELECT fingerprint FROM blocked")
+	rows, err := s.rd().Query("SELECT fingerprint FROM blocked")
 	if err != nil {
 		return nil, err
 	}
@@ -3627,7 +3681,7 @@ func (s *Store) ScheduledSends() ([]ScheduledSend, error) {
 }
 
 func (s *Store) scheduledSendsWhere(where string, args ...any) ([]ScheduledSend, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT id, channel_id, content_enc, nonce, reply_to, fire_at, created
 		 FROM scheduled_sends `+where+` ORDER BY fire_at ASC`, args...)
 	if err != nil {
@@ -3713,7 +3767,7 @@ func (s *Store) SaveStory(r StoryRow) (bool, error) {
 // relying on the sweep having run — a story must never be shown past its time
 // just because the hourly GC hasn't fired yet.
 func (s *Store) GuildStories(guildID string, nowUnix int64) ([]StoryRow, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT story_id, guild_id, author, preset, content_enc, nonce, color1, color2, posted_at, expires_at, sig
 		 FROM stories WHERE guild_id = ? AND expires_at > ?
 		 ORDER BY posted_at DESC, story_id ASC`, guildID, nowUnix)
@@ -3764,7 +3818,7 @@ func (s *Store) DeleteExpiredStories(nowUnix int64) (int, error) {
 func (s *Store) StoryByID(storyID string) (StoryRow, error) {
 	var w StoryRow
 	var enc, nonceB []byte
-	err := s.db.QueryRow(
+	err := s.rd().QueryRow(
 		`SELECT story_id, guild_id, author, preset, content_enc, nonce, color1, color2, posted_at, expires_at, sig
 		 FROM stories WHERE story_id = ?`, storyID).
 		Scan(&w.StoryID, &w.GuildID, &w.Author, &w.Preset, &enc, &nonceB, &w.Color1, &w.Color2, &w.PostedAt, &w.ExpiresAt, &w.Sig)
@@ -3808,13 +3862,13 @@ func (s *Store) DeleteStory(storyID string) error {
 
 func (s *Store) StoryIsTombstoned(storyID string) bool {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM story_tombstones WHERE story_id = ?`, storyID).Scan(&n)
+	err := s.rd().QueryRow(`SELECT COUNT(*) FROM story_tombstones WHERE story_id = ?`, storyID).Scan(&n)
 	return err == nil && n > 0
 }
 
 // StoryTombstones returns a guild's still-relevant retractions, newest first.
 func (s *Store) StoryTombstones(guildID string, nowUnix int64) ([]StoryTombstone, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT story_id, guild_id, author, at, expires_at, sig FROM story_tombstones
 		 WHERE guild_id = ? AND expires_at > ? ORDER BY at DESC LIMIT 40`, guildID, nowUnix)
 	if err != nil {
@@ -3843,7 +3897,7 @@ func (s *Store) MarkStorySeen(storyID string) error {
 // StoryIsSeen reports whether the user has opened a story on this device.
 func (s *Store) StoryIsSeen(storyID string) (bool, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM story_seen WHERE story_id = ?`, storyID).Scan(&n)
+	err := s.rd().QueryRow(`SELECT COUNT(*) FROM story_seen WHERE story_id = ?`, storyID).Scan(&n)
 	return n > 0, err
 }
 
@@ -3852,10 +3906,10 @@ func (s *Store) StoryIsSeen(storyID string) (bool, error) {
 // DBSizeBytes is the on-disk size of the SQLite database.
 func (s *Store) DBSizeBytes() (int64, error) {
 	var pageCount, pageSize int64
-	if err := s.db.QueryRow("PRAGMA page_count").Scan(&pageCount); err != nil {
+	if err := s.rd().QueryRow("PRAGMA page_count").Scan(&pageCount); err != nil {
 		return 0, err
 	}
-	if err := s.db.QueryRow("PRAGMA page_size").Scan(&pageSize); err != nil {
+	if err := s.rd().QueryRow("PRAGMA page_size").Scan(&pageSize); err != nil {
 		return 0, err
 	}
 	return pageCount * pageSize, nil
@@ -3886,7 +3940,7 @@ func (s *Store) GuildStorage(channelIDs []string) (GuildStorageStats, error) {
 	q := "SELECT COUNT(*), COALESCE(SUM(LENGTH(content_enc)),0), " +
 		"COALESCE(MIN(sent),0)/1000000000, COALESCE(MAX(sent),0)/1000000000 " +
 		"FROM messages WHERE deleted = 0 AND channel_id IN (" + strings.Join(ph, ",") + ")"
-	err := s.db.QueryRow(q, args...).Scan(&st.Messages, &st.Bytes, &st.Oldest, &st.Newest)
+	err := s.rd().QueryRow(q, args...).Scan(&st.Messages, &st.Bytes, &st.Oldest, &st.Newest)
 	return st, err
 }
 
@@ -3992,7 +4046,7 @@ func (s *Store) postStatsInto(channelIDs []string, out map[string]PostStats) err
 	// produced the minimum, so this is one grouped scan instead of a correlated
 	// subquery per post. (Only guaranteed with a single MIN/MAX aggregate, which
 	// is why the reply count below is its own query rather than another column.)
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT channel_id, sender, name, content_enc, nonce, MIN(sent) FROM messages
 		 WHERE channel_id IN `+in+realMsg+` GROUP BY channel_id`, args...)
 	if err != nil {
@@ -4029,7 +4083,7 @@ func (s *Store) postStatsInto(channelIDs []string, out map[string]PostStats) err
 	// Bounded by openingBatchScan rows per post: a window function does the
 	// limiting in SQLite so this stays one query, and the bound means a post
 	// with a thousand messages costs the same as one with ten.
-	lead, err := s.db.Query(
+	lead, err := s.rd().Query(
 		`SELECT channel_id, sender, content_enc, nonce FROM (
 		   SELECT channel_id, sender, content_enc, nonce, sent,
 		          ROW_NUMBER() OVER (PARTITION BY channel_id ORDER BY sent ASC) rn
@@ -4097,7 +4151,7 @@ func (s *Store) postStatsInto(channelIDs []string, out map[string]PostStats) err
 	// the board's "3h ago" is when the post last moved, not when it last gained
 	// a reply. Matches LatestTimestamp, which is what ChannelView.LastActivity
 	// already reports for the same channels.
-	act, err := s.db.Query(
+	act, err := s.rd().Query(
 		`SELECT channel_id, MAX(sent), MAX(updated) FROM messages
 		 WHERE channel_id IN `+in+` GROUP BY channel_id`, args...)
 	if err != nil {
@@ -4119,7 +4173,7 @@ func (s *Store) postStatsInto(channelIDs []string, out map[string]PostStats) err
 
 // groupedCount runs a "SELECT key, COUNT(*) … GROUP BY key" and collects it.
 func (s *Store) groupedCount(query string, args []any) (map[string]int64, error) {
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.rd().Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -4139,12 +4193,15 @@ func (s *Store) groupedCount(query string, args []any) (map[string]int64, error)
 // AttachmentTotals is the global blob store footprint. Blobs are content-
 // addressed + deduped and not guild-tagged, so this is a whole-device total.
 func (s *Store) AttachmentTotals() (count int64, bytes int64, err error) {
-	err = s.db.QueryRow("SELECT COUNT(*), COALESCE(SUM(LENGTH(ct)),0) FROM attachments").Scan(&count, &bytes)
+	err = s.rd().QueryRow("SELECT COUNT(*), COALESCE(SUM(LENGTH(ct)),0) FROM attachments").Scan(&count, &bytes)
 	return count, bytes, err
 }
 
 // Close closes the database.
 func (s *Store) Close() error {
+	if s.rdb != nil {
+		_ = s.rdb.Close()
+	}
 	err := s.db.Close()
 	// sql.DB.Close refuses new statements and shuts idle connections, but it
 	// does not wait for one in use: a write already running finished after
@@ -4221,7 +4278,7 @@ func (s *Store) GuildActivitySince(channelIDs []string, sinceNano int64, weeks i
 	in := "(" + strings.Join(ph, ",") + ")"
 	where := " FROM messages WHERE deleted = 0 AND kind = '' AND channel_id IN " + in
 
-	rows, err := s.db.Query("SELECT channel_id, COUNT(*)"+where+" GROUP BY channel_id", base...)
+	rows, err := s.rd().Query("SELECT channel_id, COUNT(*)"+where+" GROUP BY channel_id", base...)
 	if err != nil {
 		return out, err
 	}
@@ -4246,7 +4303,7 @@ func (s *Store) GuildActivitySince(channelIDs []string, sinceNano int64, weeks i
 	out.WeekStart = sinceNano / 1e9
 	out.PerWeek = make([]int64, weeks)
 	args := append(append([]any{}, base...), sinceNano)
-	rows2, err := s.db.Query("SELECT sent"+where+" AND sent >= ?", args...)
+	rows2, err := s.rd().Query("SELECT sent"+where+" AND sent >= ?", args...)
 	if err != nil {
 		return out, err
 	}
@@ -4266,7 +4323,7 @@ func (s *Store) GuildActivitySince(channelIDs []string, sinceNano int64, weeks i
 		return out, err
 	}
 
-	rows3, err := s.db.Query("SELECT sender, COUNT(*)"+where+" AND sent >= ? GROUP BY sender", args...)
+	rows3, err := s.rd().Query("SELECT sender, COUNT(*)"+where+" AND sent >= ? GROUP BY sender", args...)
 	if err != nil {
 		return out, err
 	}

@@ -51,7 +51,7 @@ func (s *Store) migrateSyncMarks() error {
 		return fmt.Errorf("store: migrate sync marks: %w", err)
 	}
 	var floorExists int
-	if err := s.db.QueryRow(
+	if err := s.rd().QueryRow(
 		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sync_floor'`).Scan(&floorExists); err != nil {
 		return fmt.Errorf("store: migrate sync marks: %w", err)
 	}
@@ -146,7 +146,7 @@ func (s *Store) SyncSpace() (string, error) {
 // SyncCounter is the newest change number this database has handed out.
 func (s *Store) SyncCounter() (int64, error) {
 	var n int64
-	err := s.db.QueryRow(`SELECT n FROM sync_counter WHERE id = 0`).Scan(&n)
+	err := s.rd().QueryRow(`SELECT n FROM sync_counter WHERE id = 0`).Scan(&n)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}
@@ -156,7 +156,7 @@ func (s *Store) SyncCounter() (int64, error) {
 // ChannelSeqHead is the newest change number on any row of a channel.
 func (s *Store) ChannelSeqHead(channelID string) (int64, error) {
 	var n sql.NullInt64
-	err := s.db.QueryRow(`SELECT MAX(seq) FROM messages WHERE channel_id = ?`, channelID).Scan(&n)
+	err := s.rd().QueryRow(`SELECT MAX(seq) FROM messages WHERE channel_id = ?`, channelID).Scan(&n)
 	return n.Int64, err
 }
 
@@ -181,7 +181,7 @@ func (s *Store) MessagesAfterSeq(channelID string, afterSeq, sinceNano int64, li
 	if limit <= 0 {
 		limit = 200
 	}
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified, seq
 		 FROM messages WHERE channel_id = ? AND seq > ? AND (? = 0 OR sent > ? OR updated > ?) AND kind IN `+syncedKindsSQL+`
 		 ORDER BY seq ASC LIMIT ?`, channelID, afterSeq, sinceNano, sinceNano, sinceNano, limit)
@@ -242,7 +242,7 @@ func (s *Store) attachReactions(msgs []domain.Message) error {
 		idx[m.ID] = i
 		args = append(args, m.ID)
 	}
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT message_id, emoji, fingerprint FROM reactions WHERE message_id IN (`+
 			strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")+`)`, args...)
 	if err != nil {
@@ -312,7 +312,7 @@ func (s *Store) HeldDigests(channelID string, afterLocal int64, max int) ([]stri
 	if max <= 0 {
 		return nil, nil
 	}
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT id, deleted, edited, pinned, updated FROM messages
 		  WHERE channel_id = ? AND seq > ? AND kind IN `+syncedKindsSQL+`
 		  ORDER BY seq DESC LIMIT ?`, channelID, afterLocal, max)
@@ -362,7 +362,7 @@ func (s *Store) SyncMarks(peer string, channelIDs []string) (space string, seq, 
 	for _, id := range channelIDs {
 		args = append(args, id)
 	}
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT channel_id, space, seq, local FROM sync_marks WHERE peer = ? AND channel_id IN (`+
 			strings.TrimSuffix(strings.Repeat("?,", len(channelIDs)), ",")+`)`, args...)
 	if err != nil {
@@ -406,7 +406,7 @@ func (s *Store) SetSyncMark(peer, channelID, space string, n, local int64) error
 // SyncFloor is a channel's fallback cursor (UnixNano send time), or 0.
 func (s *Store) SyncFloor(channelID string) (int64, error) {
 	var n int64
-	err := s.db.QueryRow(`SELECT sent FROM sync_floor WHERE channel_id = ?`, channelID).Scan(&n)
+	err := s.rd().QueryRow(`SELECT sent FROM sync_floor WHERE channel_id = ?`, channelID).Scan(&n)
 	if err == sql.ErrNoRows {
 		return 0, nil
 	}

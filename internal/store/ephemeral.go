@@ -41,7 +41,7 @@ func (s *Store) migrateExpires() error {
 	if _, err := s.db.Exec(`ALTER TABLE messages ADD COLUMN expires INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return nil // already there
 	}
-	rows, err := s.db.Query(`SELECT id, content_enc, nonce FROM messages WHERE deleted = 0`)
+	rows, err := s.rd().Query(`SELECT id, content_enc, nonce FROM messages WHERE deleted = 0`)
 	if err != nil {
 		return err
 	}
@@ -75,7 +75,7 @@ type DueMessage struct {
 
 // DueEphemeral lists live rows whose deadline is at or before now (unix seconds).
 func (s *Store) DueEphemeral(now int64) ([]DueMessage, error) {
-	rows, err := s.db.Query(
+	rows, err := s.rd().Query(
 		`SELECT id, channel_id FROM messages WHERE expires > 0 AND expires <= ? AND deleted = 0`, now)
 	if err != nil {
 		return nil, err
@@ -94,6 +94,6 @@ func (s *Store) DueEphemeral(now int64) ([]DueMessage, error) {
 // NextEphemeral is the earliest deadline still pending, or 0 when none is.
 func (s *Store) NextEphemeral() int64 {
 	var at int64
-	_ = s.db.QueryRow(`SELECT COALESCE(MIN(expires), 0) FROM messages WHERE expires > 0 AND deleted = 0`).Scan(&at)
+	_ = s.rd().QueryRow(`SELECT COALESCE(MIN(expires), 0) FROM messages WHERE expires > 0 AND deleted = 0`).Scan(&at)
 	return at
 }
