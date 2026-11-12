@@ -713,8 +713,12 @@ export const modalNav = { dir: 0, lateral: false };
 // has nowhere to go.
 export function openPanel(kind, from) {
   modalNav.dir = 1;
+  // A page drilled into from a phone tab's own page (You → Appearance) is
+  // still that tab: it keeps the stamp, so it stops at the tab bar with the
+  // tab lit instead of covering the bar with a page that had both a ‹ and a ×.
+  const tab = S.isMobile ? S.modal?.tab : undefined;
   if (S.modal) S.modalStack = [...S.modalStack, S.modal];
-  S.modal = { kind, from };
+  S.modal = { kind, from, ...(tab ? { tab } : {}) };
 }
 
 // switchPanel moves BETWEEN the pages of a railed surface — the settings rail,

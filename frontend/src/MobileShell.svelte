@@ -291,7 +291,16 @@
   // the tab bar, and the bar stays visible and says where you are.
   const tab = $derived(S.modal?.tab || (isDM ? "messages" : "home"));
   function openTab(which) {
-    if (S.modal?.tab === which) return;
+    // The tab you are on: back to its own first page from wherever you
+    // drilled to inside it, the way Guilds scrolls its list back to the top.
+    if (S.modal?.tab === which) {
+      const root = S.modalStack.find((m) => m.tab === which);
+      if (root && S.modal !== root) {
+        S.modal = root;
+        S.modalStack = [];
+      }
+      return;
+    }
     if (which === "inbox") openInbox({ tab: true });
     else {
       S.modalStack = [];
