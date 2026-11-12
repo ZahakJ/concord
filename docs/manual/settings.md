@@ -50,7 +50,7 @@ How the window is arranged, shown as three small pictures:
 - **Rail**: a column of guilds beside the channel list, with **+** at its foot and the member list docked on the right. Clicking the guild's name opens its settings.
 - **Compact**: the sidebar arrangement with tighter messages and the side panel closed until you open it.
 
-The command palette offers the same three as **Layout: Sidebar**, **Layout: Rail** and **Layout: Compact**. The choice is kept on this device.
+The command palette offers the same three as **Layout: Sidebar**, **Layout: Rail** and **Layout: Compact**. The choice is kept on this device. A phone has one arrangement of its own, so Layout is not shown there.
 
 ### Theme
 
