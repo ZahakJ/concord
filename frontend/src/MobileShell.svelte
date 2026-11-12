@@ -338,6 +338,9 @@
     }
     const g = S.guilds.find((x) => x.id === lastGuildId) || S.guilds.find((x) => x.kind !== "dm");
     if (g) selectGuild(g.id, { browse: true });
+    // No guild to go to yet: the tab is where you would make or join one, and
+    // a tap that did nothing at all was the first thing a new account met.
+    else openGuildSwitcher(null);
   }
   function goMessages() {
     if (leaveTabPage() && isDM) return;

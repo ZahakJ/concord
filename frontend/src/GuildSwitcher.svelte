@@ -34,6 +34,11 @@
   import { focusOnMount } from "./lib/focus.js";
   import { viewport } from "./lib/place.js";
   import { sheetdrag } from "./lib/sheet.js";
+  // On a phone the switcher is a sheet, and a field that takes the caret on
+  // open raises the keyboard over half of it: with no guilds yet, over the two
+  // things the sheet is for (Create a guild, Join with an invite code). The
+  // field is still one tap away; a desktop keeps typing-to-filter at once.
+  const focusUnlessPhone = (node) => (S.isMobile ? undefined : focusOnMount(node));
 
   const L = layer("popover", closeGuildSwitcher);
   void L;
@@ -346,7 +351,7 @@
         spellcheck="false"
         bind:value={query}
         onkeydown={onKey}
-        use:focusOnMount
+        use:focusUnlessPhone
       />
       <span class="gsw-count" aria-hidden="true">{guilds.length}</span>
     </label>
