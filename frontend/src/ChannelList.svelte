@@ -2655,6 +2655,28 @@
      hover-revealed affordances (category +/trash, channel menu, mute bell)
      always visible at reduced opacity — hover doesn't exist on a phone. */
   @media (max-width: 768px) {
+    /* Messages with no conversations yet. The block had no rules at all, so
+       its face sat flush against the Notes row above it, a loose glyph with
+       the sentence a line further down. */
+    .empty-block {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--sp-3);
+      padding: var(--sp-5) var(--sp-3) var(--sp-4);
+    }
+    .empty-block p {
+      margin: 0;
+    }
+    .empty-ic {
+      display: grid;
+      place-items: center;
+      width: var(--sp-6);
+      height: var(--sp-6);
+      border-radius: var(--radius-md);
+      background: var(--bg-3);
+      color: var(--text-muted);
+    }
     .channel {
       min-height: var(--tap-min);
       font-size: var(--fs-body);
