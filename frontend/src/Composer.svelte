@@ -3379,20 +3379,29 @@
      selector here cannot reach a child component's element. */
   .composer.mobile :global(.fmt-bar) {
     opacity: 1;
-    flex-wrap: wrap;
-    padding-bottom: 6px;
     gap: var(--sp-1);
+    padding-bottom: var(--sp-1);
+    /* ONE row that scrolls sideways, the way a keyboard's accessory row does.
+       It used to wrap, and with ten buttons the "two rows of four" were three
+       rows: 150px of bar, which with the keyboard up left about a hundred
+       pixels of conversation above the text being formatted. */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
   }
-  /* Two rows of four rather than eight abreast: eight shared 322px gave each
-     button 33px, side by side with its neighbours, in a row where hitting the
-     wrong one silently inserts the wrong markers into the message. */
+  .composer.mobile :global(.fmt-bar)::-webkit-scrollbar {
+    display: none;
+  }
+  /* Full finger targets, side by side: a wrong neighbour silently inserts the
+     wrong markers into the message. */
   .composer.mobile :global(.fmtbtn) {
-    flex: 1 1 21%;
+    flex: 1 0 var(--tap-min);
     width: auto;
     height: var(--tap-min);
   }
-  /* The separators are a desktop grouping cue; in a wrapped grid they'd land
-     mid-row and eat 22px that the buttons need. */
+  /* The separators are a desktop grouping cue; at finger size they only push
+     the last buttons further out of reach. */
   .composer.mobile :global(.fmt-sep) {
     display: none;
   }
