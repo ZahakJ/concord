@@ -482,7 +482,7 @@
     /* Never a ring round the whole dialog: focus goes to the first field, the
        primary or the title, never the box. */
     outline: none;
-    animation: rise var(--dur-standard) var(--ease-spring);
+    animation: rise var(--dur-standard) var(--ease-lift);
   }
   .dialog.m {
     width: 560px;
@@ -556,11 +556,15 @@
       opacity: 0;
     }
   }
-  /* Arrives: a fade and an 8px rise, decelerating. No scale, no overshoot. */
+  /* Arrives: a fade, a 6px rise and 0.98 to full size, settling on the lift
+     curve (2% past its mark at the peak: a tenth of a pixel). Individual
+     transform properties, so nothing that positions the dialog with
+     `transform` is fought. Reduced motion makes the amounts identity. */
   @keyframes rise {
     from {
       opacity: 0;
-      transform: translateY(8px);
+      translate: 0 var(--rise-y);
+      scale: var(--enter-scale);
     }
   }
   .grip {

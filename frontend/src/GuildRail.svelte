@@ -1133,14 +1133,13 @@
   }
   /* A count at the top-right corner, cut out of the sidebar; a plain unread is
      a dot just under the tile. One mark per tile, never two in one spot. A
-     mark arrives once (it scales in) and then holds still: nothing pulses. */
+     mark arrives once (Badge scales it in) and then holds still. */
   .t-badge {
     position: absolute;
     top: -5px;
     right: -6px;
     pointer-events: none;
     display: flex;
-    animation: mark-in var(--dur-standard) var(--ease-lift) both;
   }
   /* A guild you own, on the rail's larger tiles: a small filled crown cut
      into the bottom-left corner (OwnerMark). The count has the top-right,
@@ -1165,13 +1164,6 @@
     translate: -50% 0;
     pointer-events: none;
     display: flex;
-    animation: mark-in var(--dur-standard) var(--ease-lift) both;
-  }
-  @keyframes mark-in {
-    from {
-      scale: 0.4;
-      opacity: 0;
-    }
   }
   .tile-wrap.drop-before::before,
   .tile-wrap.drop-after::after {

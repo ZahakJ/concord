@@ -3249,14 +3249,11 @@
     inset: -2px;
     border-radius: inherit;
     border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-    animation: seal-breathe 2.4s ease-in-out infinite;
+    /* Armed is a state, so it holds still: the ring used to breathe beside
+       the text you were typing. */
+    opacity: 0.8;
     pointer-events: none;
   }
-  @keyframes seal-breathe {
-    0%, 100% { opacity: 0.45; transform: scale(1); }
-    50% { opacity: 1; transform: scale(1.06); }
-  }
-  :global(:root[data-motion="reduced"]) .sealbtn.armed::after { animation: none; opacity: 0.8; }
 
   /* The overflow trigger wears the composer's own icon-button clothes rather
      than Menu's default ghost chrome — inside the input well a bordered button

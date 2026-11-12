@@ -660,21 +660,13 @@
     padding: var(--sp-3);
     box-shadow: 0 0 10px color-mix(in srgb, var(--warn) 8%, transparent);
   }
-  /* LIVE: the only surfaced card in the list — one beacon, breathing slowly. */
+  /* LIVE: the only surfaced card in the list — one beacon. Its frame says
+     so; it no longer breathes a glow (decoration never loops, and nothing
+     glows). */
   .evcard.live {
     background: var(--bg-1);
     border-color: color-mix(in srgb, var(--ok) 45%, transparent);
     padding: var(--sp-3);
-    animation: ev-breathe 4s ease-in-out infinite;
-  }
-  @keyframes ev-breathe {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 transparent;
-    }
-    50% {
-      box-shadow: 0 0 14px color-mix(in srgb, var(--ok) 10%, transparent);
-    }
   }
   /* Ended: dimmed with ink, not opacity — a blanket fade muddies facepiles. */
   .evcard.ended .title {

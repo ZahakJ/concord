@@ -60,6 +60,7 @@
     text-align: center;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+    animation: badge-in var(--dur-standard) var(--ease-lift);
   }
   .badge.muted {
     background: transparent;
@@ -73,6 +74,16 @@
     height: 6px;
     border-radius: 50%;
     background: var(--text);
+    animation: badge-in var(--dur-standard) var(--ease-lift);
+  }
+  /* A mark arrives once — it scales in when it appears — and then holds still.
+     A changing number does not replay it (the element stays), and nothing
+     here ever loops: a count that pulsed would be shouting. */
+  @keyframes badge-in {
+    from {
+      scale: 0.5;
+      opacity: 0;
+    }
   }
   .badge.ringed {
     box-shadow:

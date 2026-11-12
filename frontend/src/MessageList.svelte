@@ -838,7 +838,9 @@
   // cheapest possible continuity — one opacity, on the compositor, over
   // --dur-quick — and it is a fade IN rather than a true cross-fade because
   // there is nothing to fade out against: the old rows are gone in the same
-  // flush that changes the id. Zeroed under prefers-reduced-motion by the CSS.
+  // flush that changes the id. It starts from 0.35, not from nothing, so the
+  // new channel is legible from its first frame: the fade is continuity, never
+  // a wait. Instant under reduced motion (the global stand-down).
   let feedOpacity = $state(1);
   let fadeRaf = 0;
 
@@ -862,7 +864,7 @@
       // Not on the first channel of the session: the app has its own entrance
       // and a second fade under it reads as a stutter.
       if (first) return;
-      feedOpacity = 0;
+      feedOpacity = 0.35;
       cancelAnimationFrame(fadeRaf);
       fadeRaf = requestAnimationFrame(() => {
         fadeRaf = requestAnimationFrame(() => (feedOpacity = 1));

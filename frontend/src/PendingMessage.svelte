@@ -133,6 +133,15 @@
     border-radius: var(--radius-sm);
     /* The whole point: it is here, and it is not landed yet. */
     opacity: 0.6;
+    /* It eases into its place: a 3px rise and a fade, no size change — the
+       emoji in it are the size they will settle at from the first frame. */
+    animation: pmsg-in var(--dur-standard) var(--ease-out);
+  }
+  @keyframes pmsg-in {
+    from {
+      opacity: 0;
+      translate: 0 3px;
+    }
   }
   /* Groups are made in the markup (see Message.svelte): the first row of a
      run carries the group's space, the rest sit flush. */

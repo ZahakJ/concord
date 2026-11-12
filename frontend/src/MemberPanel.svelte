@@ -533,6 +533,7 @@
     gap: 10px;
     min-width: 0;
     border-radius: var(--radius-sm);
+    transition: background var(--dur-quick) var(--ease-out);
   }
   .member:hover,
   .member:active {

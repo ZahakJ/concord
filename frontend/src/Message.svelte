@@ -141,6 +141,11 @@
   // pills off the viewport instead: they animate once when scrolled to.
   const reactionAnim = coarse ? animateInView : animateOnHover;
   const reduceMotion = reducedMotion();
+  // The reactions this row was drawn with. Only a pill that arrives while the
+  // row is on screen pops in, and only a count that changes ticks: the feed is
+  // virtualised, so a row scrolled back into view is drawn afresh, and every
+  // pill on it used to pop as you read past.
+  const drawnWith = untrack(() => new Map(Object.entries(m.reactions || {}).map(([e, f]) => [e, f.length])));
 
   // Long-press a reaction pill: who reacted — the touch counterpart of the
   // hover card. Rows are informational; tapping one just closes the sheet.
@@ -1635,6 +1640,7 @@
           <span class="react-wrap">
             <button
               class="reaction"
+              class:fresh={!drawnWith.has(emoji)}
               class:mine={fprs.includes(S.identity.fingerprint)}
               onclick={(ev) => reactWithBounce(emoji, ev)}
               use:stopTouch
@@ -1651,7 +1657,7 @@
                 {:else}{emoji}{/if}
               </span>
               <!-- keyed so the count re-mounts (and animates) when it changes -->
-              {#key fprs.length}<span class="rcount">{fprs.length}</span>{/key}
+              {#key fprs.length}<span class="rcount" class:ticked={drawnWith.get(emoji) !== fprs.length}>{fprs.length}</span>{/key}
             </button>
             <!-- who reacted, on hover -->
             <span class="react-who">
@@ -2615,10 +2621,13 @@
     padding: 0 9px 0 7px;
     font-size: var(--fs-small);
     border-radius: 999px;
-    animation: pill-in var(--dur-quick) var(--ease-spring);
     transition:
       border-color var(--dur-quick) ease,
       background var(--dur-quick) ease;
+  }
+  /* A reaction arriving lands: 0.9 to 1 on the lift curve. */
+  .reaction.fresh {
+    animation: pill-in var(--dur-standard) var(--ease-lift);
   }
   @media (pointer: fine) {
     .reaction:hover {
@@ -2667,31 +2676,33 @@
     font-size: var(--fs-small);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
-    animation: count-in var(--dur-move) var(--ease-out); /* replays on {#key} re-mount */
+  }
+  /* A count that changed ticks into place (it re-mounts on {#key}). */
+  .rcount.ticked {
+    animation: count-in var(--dur-move) var(--ease-out);
   }
   /* Click-bounce for the emoji you just tapped (pill glyph + quick bar). */
   .remoji.bounce,
   .msg-actions .emoji-btn.bounce {
-    animation: emoji-bounce 0.45s ease;
+    animation: emoji-tap var(--dur-move) var(--ease-out);
   }
   @keyframes pill-in {
     from {
-      transform: scale(0.9);
+      scale: 0.9;
       opacity: 0;
     }
   }
   @keyframes count-in {
     from {
-      transform: translateY(-7px);
+      translate: 0 -4px;
       opacity: 0;
     }
   }
-  @keyframes emoji-bounce {
-    30% {
-      transform: scale(1.35) rotate(-8deg);
-    }
-    55% {
-      transform: scale(0.92) rotate(6deg);
+  /* The emoji you tapped answers once: a small swell and back. It used to
+     spin and bounce for almost half a second, in the middle of the feed. */
+  @keyframes emoji-tap {
+    40% {
+      scale: 1.15;
     }
   }
   .react-wrap {

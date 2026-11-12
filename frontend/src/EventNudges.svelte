@@ -93,22 +93,11 @@
     border: 1px solid var(--border);
     box-shadow: var(--shadow-pop);
   }
-  /* Live is the loud one: --ok frame + a slow breathing glow, the same
-     temperature EventCard gives the one live card in a list. */
+  /* Live is the loud one: an --ok frame, the same temperature EventCard
+     gives the one live card in a list. It no longer breathes a glow:
+     decoration never loops, and nothing glows. */
   .nudge.live {
     border-color: color-mix(in srgb, var(--ok) 55%, var(--border));
-    animation: nudge-breathe 2.8s ease-in-out infinite;
-  }
-  @keyframes nudge-breathe {
-    0%,
-    100% {
-      box-shadow: var(--shadow-pop);
-    }
-    50% {
-      box-shadow:
-        var(--shadow-pop),
-        0 0 14px color-mix(in srgb, var(--ok) 28%, transparent);
-    }
   }
   .live-dot {
     width: 9px;

@@ -1730,7 +1730,8 @@ button {
   transition:
     background var(--dur-quick) ease,
     color var(--dur-quick) ease,
-    filter var(--dur-quick) ease;
+    filter var(--dur-quick) ease,
+    scale var(--dur-quick) var(--ease-out);
 }
 /* The variants. One primary per surface; quiet for secondary actions and
    chips; ghost for Cancel and tertiary; danger for a confirmed destructive
@@ -1850,9 +1851,13 @@ button.iconbtn {
     border-color: var(--text-faint);
   }
 }
-/* Pressed: a brightness step, so it works on any ground the variant has. */
+/* Pressed: a brightness step, so it works on any ground the variant has, and
+   the button gives a little under the press (--press-scale, 0.97; identity
+   under reduced motion). The scale is its own property, so a component that
+   moves a button with `transform` still gets the press. */
 :is(button.primary, button.quiet, button.ghost, button.danger, button.iconbtn):active:not(:disabled) {
   filter: brightness(1.12);
+  scale: var(--press-scale);
 }
 /* Same scope as the light palette: a dark pack under Light presses like dark. */
 :root[data-theme="light"]:where(:not([data-theme-pack]), [data-theme-pack="paper"], [data-theme-pack="solarized"], [data-theme-pack="meadow"], [data-theme-pack="porcelain"], [data-theme-pack="daybreak"], [data-theme-pack="atrium"])
@@ -1910,7 +1915,7 @@ button.primary:disabled {
   transition:
     background var(--dur-quick) ease,
     color var(--dur-quick) ease,
-    transform var(--dur-quick) ease;
+    scale var(--dur-quick) var(--ease-out);
 }
 /* The three sizes: the header pill's row, the sidebar bar and the dock, and the
    stage. Each surface says which it is; the phone tiers override from there. */
@@ -1936,7 +1941,7 @@ button.primary:disabled {
   }
 }
 .callbtn:active {
-  transform: scale(0.92);
+  scale: var(--press-scale);
 }
 /* Sending. */
 .callbtn.on {
@@ -1963,10 +1968,6 @@ button.primary:disabled {
     background: color-mix(in srgb, var(--danger) 85%, #000);
     color: var(--danger-fg);
   }
-}
-:root[data-motion="reduced"] .callbtn:hover,
-:root[data-motion="reduced"] .callbtn:active {
-  transform: none;
 }
 
 /* Opt-in hit-box expander for controls that must stay visually small — a 22px

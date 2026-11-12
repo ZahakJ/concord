@@ -532,7 +532,18 @@
     user-select: none;
     /* The dock breathes softly while the call is live — a low green ambience
        that says "this is running" without demanding attention. */
-    transition: transform var(--dur-standard) ease, box-shadow var(--dur-standard) ease, width var(--dur-standard) ease;
+    transition: transform var(--dur-standard) ease, box-shadow var(--dur-standard) ease;
+    /* Appears the way a dialog does: a fade and a short rise, on the lift
+       curve. Its width changes in one step when a share starts (360px):
+       animating width re-laid out the window every frame. */
+    animation: dock-in var(--dur-standard) var(--ease-lift);
+  }
+  @keyframes dock-in {
+    from {
+      opacity: 0;
+      translate: 0 var(--rise-y);
+      scale: var(--enter-scale);
+    }
   }
   .dock.watching {
     width: 360px;

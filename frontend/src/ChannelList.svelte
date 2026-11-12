@@ -2337,12 +2337,6 @@
     color: var(--accent-hover);
     box-shadow: inset 0 -2px 0 var(--accent);
   }
-  @media (pointer: fine) {
-    .channel-row:hover .channel,
-    .dm-item:hover {
-      transform: translateX(2px);
-    }
-  }
   /* Live-voice equalizer: three bars dancing while the room is occupied.
      Only occupied voice channels run it (a rarity, not a list-wide loop). */
   .eq {
@@ -2353,11 +2347,16 @@
     flex-shrink: 0;
     color: var(--ok-text);
   }
+  /* The bars grow by scale from their foot, not by height: a height
+     keyframe re-laid out the row on every frame for as long as the room was
+     occupied. */
   .eq i {
     width: 2.5px;
+    height: 100%;
     border-radius: 1px;
     background: currentColor;
-    height: 30%;
+    transform-origin: bottom;
+    scale: 1 0.3;
     animation: eq-bounce 1s ease-in-out infinite;
   }
   .eq i:nth-child(2) {
@@ -2369,19 +2368,15 @@
   @keyframes eq-bounce {
     0%,
     100% {
-      height: 30%;
+      scale: 1 0.3;
     }
     50% {
-      height: 100%;
+      scale: 1 1;
     }
   }
   :global(:root[data-motion="reduced"]) .eq i {
     animation: none;
-    height: 60%;
-  }
-  :global(:root[data-motion="reduced"]) .channel-row:hover .channel,
-  :global(:root[data-motion="reduced"]) .dm-item:hover {
-    transform: none;
+    scale: 1 0.6;
   }
   /* Quiet: it is a reminder, not an alert. A draft is something YOU left, so
      it never competes with the unread count beside it. */
@@ -3140,12 +3135,15 @@
   }
 
   /* ———————— rows ———————— */
+  /* Hover and selection settle as a background fade; the row itself never
+     moves (it used to slide 2px right under the pointer). */
   .channel-row {
     position: relative;
     display: flex;
     align-items: center;
     border-radius: var(--radius-sm);
     margin-bottom: 1px;
+    transition: background var(--dur-quick) var(--ease-out);
   }
   .channel {
     flex: 1;

@@ -50,7 +50,7 @@
     border-radius: 50%;
     background: var(--text-muted);
     transition:
-      transform var(--dur-quick) var(--ease-out),
+      transform var(--dur-move) var(--ease-out),
       background var(--dur-quick) ease;
   }
   .switch.on .knob {
