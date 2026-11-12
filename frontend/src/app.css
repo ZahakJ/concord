@@ -3547,3 +3547,14 @@ textarea {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+/* The guild strip's hover, in the shell: the lift and the caption arrive at
+   once instead of easing over a dozen frames, and the brighten is not drawn
+   (a filter is a repaint of the tile on every frame there). */
+:root[data-shell="desktop"] .strip .tile,
+:root[data-shell="desktop"] .strip .tile-wrap,
+:root[data-shell="desktop"] .strip .caption {
+  transition: none !important;
+}
+:root[data-shell="desktop"] .strip .tile:hover {
+  filter: none !important;
+}

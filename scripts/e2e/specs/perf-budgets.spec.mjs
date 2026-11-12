@@ -296,3 +296,33 @@ test("a busy guild in the background costs the open page next to nothing per mes
   log(`main-thread time per background message: ${perMsg.toFixed(2)} ms (idle ${(idlePerMs * 1e6).toFixed(1)} ms/s subtracted)`);
   assert.ok(perMsg < 7 * SCALE, `each background message cost the page ${perMsg.toFixed(2)} ms of main thread`);
 });
+
+// The desktop shell may composite in software, where every frame of an
+// entrance, a hover ease or a backdrop blur is a repaint. Under its mark the
+// strip's hover lands in one frame, overlays arrive at once and nothing blurs.
+test("under the desktop shell's mark, hovers and entrances are instant and nothing blurs", async ({ world, assert }) => {
+  const [alice] = await world.peers(1);
+  const g = await world.guild({ name: "Shell", members: [alice] });
+  const a = await alice.open();
+  await a.openChannel(g.allChannels[0].name, "Shell");
+  await a.page.evaluate(() => (document.documentElement.dataset.shell = "desktop"));
+  const tile = a.page.locator('nav[aria-label="Guilds"] .tile').nth(1);
+  await tile.hover();
+  const strip = await tile.evaluate((el) => {
+    const durs = (x) => getComputedStyle(x).transitionDuration.split(",").map((d) => parseFloat(d));
+    return { tile: durs(el), wrap: durs(el.parentElement), filter: getComputedStyle(el).filter };
+  });
+  assert.ok([...strip.tile, ...strip.wrap].every((d) => d === 0), `strip transitions: ${JSON.stringify(strip)}`);
+  assert.equal(strip.filter, "none");
+  await a.page.keyboard.press("Control+k");
+  const pal = a.page.locator('[role="dialog"][aria-label="Command palette"]');
+  await pal.waitFor();
+  const longest = await pal.evaluate((el) =>
+    Math.max(0, ...[el, el.parentElement, ...el.querySelectorAll("*")].flatMap((n) => n.getAnimations().map((x) => Number(x.effect.getTiming().duration)))),
+  );
+  assert.equal(longest, 0, "the palette arrives at once");
+  const blurred = await a.page.evaluate(() =>
+    [...document.querySelectorAll("*")].filter((n) => !["none", ""].includes(getComputedStyle(n).backdropFilter)).length,
+  );
+  assert.equal(blurred, 0, "no backdrop blur under the shell's mark");
+});
