@@ -35,7 +35,7 @@
     border-radius: 999px;
     background: var(--bg-3);
     box-shadow: inset 0 0 0 1px var(--border-strong);
-    transition: background var(--dur-quick) ease;
+    transition: background var(--dur-quick) var(--ease-out);
   }
   .switch.on {
     background: var(--accent);

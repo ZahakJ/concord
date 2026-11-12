@@ -159,6 +159,9 @@
   --current-scale: 1.1;
   --aside-x: 2px;
   --press-scale: 0.97;
+  /* A primary or danger button is often the width of its dialog, where 0.97
+     is a 12px shrink: those give a little less. */
+  --press-scale-wide: 0.98;
   --rise-y: 6px;
   --enter-scale: 0.98;
   /* The guild strip's own, a step bolder than chrome's: it is a shelf you
@@ -1865,6 +1868,9 @@ button.iconbtn {
   filter: brightness(1.12);
   scale: var(--press-scale);
 }
+:is(button.primary, button.danger):active:not(:disabled) {
+  scale: var(--press-scale-wide);
+}
 /* Same scope as the light palette: a dark pack under Light presses like dark. */
 :root[data-theme="light"]:where(:not([data-theme-pack]), [data-theme-pack="paper"], [data-theme-pack="solarized"], [data-theme-pack="meadow"], [data-theme-pack="porcelain"], [data-theme-pack="daybreak"], [data-theme-pack="atrium"])
   :is(button.primary, button.quiet, button.ghost, button.danger, button.iconbtn):active:not(:disabled) {
@@ -2621,6 +2627,7 @@ textarea[aria-invalid="true"] {
   --current-scale: 1;
   --aside-x: 0px;
   --press-scale: 1;
+  --press-scale-wide: 1;
   --rise-y: 0px;
   --enter-scale: 1;
   --shelf-lift-y: 0px;
