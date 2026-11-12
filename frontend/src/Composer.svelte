@@ -1517,9 +1517,16 @@
   // Focus follows intent: switching channels or starting a reply puts the
   // caret in the box (desktop only — popping the keyboard on the phone for a
   // mere channel switch would be rude).
+  //
+  // On the frame after, not inside the switch: focusing forces a full layout
+  // of a page that is half way through being rebuilt for the new channel, and
+  // then it is laid out again once the rebuild is done. Measured at about a
+  // fifth of a switch's main-thread time; the caret a frame later is invisible.
   $effect(() => {
     S.activeChannelId;
-    if (!mobile && ch) composerEl?.focus();
+    if (mobile || !ch) return;
+    const id = requestAnimationFrame(() => composerEl?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(id);
   });
   $effect(() => {
     if (S.replyingTo && !mobile) composerEl?.focus();
