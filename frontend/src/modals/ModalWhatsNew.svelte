@@ -14,31 +14,32 @@
   // 3-5 rows maximum: a changelog is a document, this is a wave hello.
   const HIGHLIGHTS = [
     {
-      icon: "folder",
-      title: "Bring a community's history with you",
-      desc: "Point the import wizard at a chat export and it says what is inside, and what your choices will cost, before it writes a byte. What comes out sits above your channels — scrolling past the top simply keeps reading.",
+      icon: "palette",
+      title: "A new look, built around the conversation",
+      desc: "One sidebar holds your guilds and channels, the conversation gets the middle of the window, and members, pins, files and threads open beside it when you ask. Prefer the column of guilds down the side? Settings › Appearance › Layout has it.",
     },
     {
-      icon: "members",
-      title: "A crowd can arrive all at once",
-      desc: "A guild used to pay for every joiner separately, so a wave cost more than the wave. A hundred people joining now settle in 47 seconds rather than two and a quarter minutes, and a newcomer is handed everybody's name instead of everybody's photograph.",
+      icon: "search",
+      title: "Jump anywhere, and find what you meant",
+      desc: "Ctrl+K reaches any channel, person, guild or action — # @ ! * narrow it. Search results, pins, replies and the inbox now open the message itself, however far back it is.",
     },
     {
       icon: "phone",
-      title: "The phone app, rebuilt around your thumb",
-      desc: "Only the messages you are looking at are drawn, so a channel opens in 55ms rather than freezing; half as much is fetched before the first one appears; every sheet answers a pull the same way; and back is Android's own gesture again.",
+      title: "Calls that say what is happening",
+      desc: "A direct call rings, is declined, times out and ends the same way on both sides. Look elsewhere during a call and it follows you in a small window, shared screen included.",
     },
     {
       icon: "bell",
-      title: "Find what was aimed at you",
-      desc: "An inbox gathers every mention, every reply and every hit on the words you asked to be told about — matched on your own machine, told to nobody. Come back after a night away and a card at the unread line hands you what you missed.",
+      title: "Badges mean it is for you",
+      desc: "A number is a mention or a direct message; plain unread is a quiet dot. A channel counts as read only while you are actually reading it, and Invisible now looks exactly like offline.",
     },
     {
-      icon: "die",
-      title: "Draw on a message, play, make a noise",
-      desc: "A pad that sends strokes rather than a picture, four in a row played inside a channel with nothing but the messages holding the board, and a soundboard whose sounds are thirty-byte recipes anyone can write.",
+      icon: "shield",
+      title: "Safer with your account",
+      desc: "Restoring or re-linking can no longer erase a different account without naming it and asking. You can change your passphrase from Settings, and the recovery phrase asks for it before it shows.",
     },
   ];
+
 
 
   // Deliberately no confetti here. The splash already arrives unannounced on
