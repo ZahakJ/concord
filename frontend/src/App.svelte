@@ -489,7 +489,9 @@
     if (!S.voice) return "";
     for (const gg of S.guilds) {
       const c = gg.channels.find((x) => x.id === S.voice.channelId);
-      if (c) return gg.kind === "dm" ? gg.name : `${gg.name} · ${c.name}`;
+      // The room first: where space runs out it is the guild's name that
+      // truncates, not the room you are in ("Lantern Makers · Quiet cor…").
+      if (c) return gg.kind === "dm" ? gg.name : `${c.name} · ${gg.name}`;
     }
     return "";
   });
@@ -670,7 +672,9 @@
   const rejoinWhere = $derived.by(() => {
     for (const gg of S.guilds) {
       const c = gg.channels?.find((x) => x.id === rejoin);
-      if (c) return gg.kind === "dm" ? gg.name : `${gg.name} · ${c.name}`;
+      // The room first: where space runs out it is the guild's name that
+      // truncates, not the room you are in ("Lantern Makers · Quiet cor…").
+      if (c) return gg.kind === "dm" ? gg.name : `${c.name} · ${gg.name}`;
     }
     return "";
   });

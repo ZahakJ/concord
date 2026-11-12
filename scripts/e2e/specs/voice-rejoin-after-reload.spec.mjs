@@ -22,7 +22,7 @@ test("a reload mid-call offers Rejoin, and Rejoin puts you back", async ({ world
 
   step("Alice reloads: she is out of the call and told so, with Rejoin");
   await a.reload();
-  const card = a.page.locator(".ring-card", { hasText: "You left Studio · Lounge" });
+  const card = a.page.locator(".ring-card", { hasText: "You left Lounge · Studio" });
   await card.waitFor({ timeout: 30000 });
   await shot(a, "after reload");
 
