@@ -678,6 +678,10 @@
   .theme-card {
     display: flex;
     flex-direction: column;
+    /* Said outright: the Android WebView (124) gives a button
+       align-items: flex-start in its own stylesheet, so the previews, which
+       have no width of their own, came out as 30px slivers on the phone. */
+    align-items: stretch;
     gap: 6px;
     padding: 0;
     background: transparent;

@@ -56,6 +56,10 @@ test("phone: the + sheet fits, Formatting is one row, and Layout is not offered"
   await p.page.getByRole("button", { name: /^Appearance/ }).first().tap();
   await p.page.getByRole("radiogroup", { name: "Theme" }).first().waitFor({ state: "visible" });
   assert.equal(await p.page.getByRole("radiogroup", { name: "Layout" }).count(), 0, "Layout offered on a phone");
+  // The theme previews stretch across their card in every engine; the
+  // Android WebView's own button stylesheet otherwise squeezes them to slivers.
+  const card = p.page.getByRole("radiogroup", { name: "Theme" }).getByRole("radio").first();
+  assert.equal(await card.evaluate((e) => getComputedStyle(e).alignItems), "stretch");
 
   step("A page drilled into from the You tab keeps the tab bar, lit, and has no ×");
   const you = p.page.locator('nav[aria-label="Sections"]').getByRole("button", { name: /^You/ });
