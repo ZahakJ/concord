@@ -55,6 +55,12 @@ type Store struct {
 	// and DeleteCustomEmoji, which drop the guild's entry.
 	emojiMu sync.Mutex
 	emoji   map[string][]CustomEmojiRow
+
+	// Work Open leaves running after it returns (the deadline backfill): Close
+	// signals closing and waits for bg.
+	closing   chan struct{}
+	closeOnce sync.Once
+	bg        sync.WaitGroup
 }
 
 // Open opens (creating if needed) the SQLite database at path and prepares the
@@ -90,13 +96,15 @@ func Open(path string, dataKey []byte) (*Store, error) {
 		return nil, fmt.Errorf("store: set pragmas: %w", err)
 	}
 
-	s := &Store{db: db, chronicleCap: defaultChronicleCap}
+	s := &Store{db: db, chronicleCap: defaultChronicleCap, closing: make(chan struct{})}
 	copy(s.key[:], dataKey)
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	s.rdb = openReader(path)
+	s.bg.Add(1)
+	go s.backfillExpires(expiresBackfillDelay)
 	return s, nil
 }
 
@@ -4199,6 +4207,10 @@ func (s *Store) AttachmentTotals() (count int64, bytes int64, err error) {
 
 // Close closes the database.
 func (s *Store) Close() error {
+	if s.closing != nil {
+		s.closeOnce.Do(func() { close(s.closing) })
+	}
+	s.bg.Wait()
 	if s.rdb != nil {
 		_ = s.rdb.Close()
 	}

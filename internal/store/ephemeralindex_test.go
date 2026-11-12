@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"testing"
@@ -82,5 +83,90 @@ func BenchmarkDueEphemeral(b *testing.B) {
 		if _, err := st.DueEphemeral(now.Unix()); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// The deadline backfill of an upgraded store runs after Open, a chunk at a
+// time, and still finds every disappearing message written before the column
+// existed; a row that already carries its own deadline is left alone.
+func TestExpiresBackfillRunsInChunksAfterOpen(t *testing.T) {
+	st, path := openTestStore(t)
+	now := time.Now()
+	for i := 0; i < 7; i++ {
+		c := "plain"
+		if i%2 == 0 {
+			c = fmt.Sprintf("bye [eph](concord://eph/v1/%d)", now.Add(time.Duration(i+1)*time.Hour).Unix())
+		}
+		if _, err := st.SaveMessage(domain.Message{ID: fmt.Sprintf("m%d", i), ChannelID: "c", Sender: []byte("s"), Content: c, Sent: now.Add(time.Duration(i) * time.Second)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// As written by a build that could not see deadlines: none recorded.
+	if _, err := st.db.Exec(`UPDATE messages SET expires = 0`); err != nil {
+		t.Fatal(err)
+	}
+	// One row stored since carries its own, which the backfill must keep.
+	if _, err := st.db.Exec(`UPDATE messages SET expires = 42 WHERE id = 'm6'`); err != nil {
+		t.Fatal(err)
+	}
+	from := int64(0)
+	for steps := 0; ; steps++ {
+		next, done, err := st.backfillExpiresChunk(from, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if done {
+			break
+		}
+		if steps > 10 {
+			t.Fatal("backfill does not advance")
+		}
+		from = next
+	}
+	want := map[string]bool{"m0": true, "m2": true, "m4": true}
+	rows, err := st.db.Query(`SELECT id, expires FROM messages`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id string
+		var at int64
+		_ = rows.Scan(&id, &at)
+		switch {
+		case id == "m6":
+			if at != 42 {
+				t.Errorf("m6 expires = %d, its own deadline was overwritten", at)
+			}
+		case want[id] && at == 0:
+			t.Errorf("%s has no deadline after the backfill", id)
+		case !want[id] && at != 0:
+			t.Errorf("%s got a deadline it does not carry", id)
+		}
+	}
+	rows.Close()
+
+	// The marker is what Open resumes from, and the background pass clears it.
+	old := expiresBackfillDelay
+	expiresBackfillDelay = 0
+	defer func() { expiresBackfillDelay = old }()
+	if err := st.SetSetting(expiresBackfillKey, "0"); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+	st2, err := Open(path, bytes.Repeat([]byte{0x42}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st2.Close()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		v, _ := st2.GetSetting(expiresBackfillKey)
+		if v == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the backfill marker was never cleared after Open")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
