@@ -211,3 +211,61 @@ test("phone: the + sheet's Aa raises one row of finger-sized buttons, remembered
   await bar.waitFor({ state: "detached" });
 });
 
+// The send control is in proportion to the box: the size of emoji beside it,
+// an icon rather than a filled bubble while there is nothing to send, and the
+// accent only once there is (text or a staged file). On a phone the glyph
+// stays small inside a full finger target, and mic still stands in for send
+// on an empty draft.
+test("the send control matches emoji and takes the accent only when there is something to send", async ({ world, assert, step }) => {
+  const [alice] = await world.peers(1);
+  const g = await world.guild({ name: "Paper planes", members: [alice] });
+  const ch = g.allChannels[0];
+  for (const viewport of ["desktop", "tablet", "phone"]) {
+    step(`At ${viewport} width`);
+    const a = await alice.open({ viewport });
+    const { page } = a;
+    await a.openChannel(ch.name, "Paper planes");
+    const measure = () =>
+      page.evaluate(() => {
+        const box = (e) => e && { w: Math.round(e.getBoundingClientRect().width), h: Math.round(e.getBoundingClientRect().height) };
+        const send = document.querySelector(".composer .sendbtn");
+        const emoji = document.querySelector('.composer button[aria-label="Emoji picker"]');
+        return {
+          send: box(send),
+          emoji: box(emoji),
+          sendGlyph: box(send?.querySelector("svg")),
+          emojiGlyph: box(emoji?.querySelector("svg")),
+          ground: send && getComputedStyle(send).backgroundColor,
+          mic: !!document.querySelector('.composer button[aria-label="Record a voice message"]'),
+        };
+      });
+    const clear = (bg) => !bg || bg === "transparent" || /^rgba\(0, 0, 0, 0\)$/.test(bg);
+
+    await a.composer().click();
+    await a.composer().fill("");
+    let m = await measure();
+    if (a.isPhone) assert.ok(m.mic && !m.send, "the phone's empty draft shows the mic, not send");
+    else {
+      assert.deepEqual(m.send, m.emoji, `${viewport}: empty send ${JSON.stringify(m.send)} vs emoji ${JSON.stringify(m.emoji)}`);
+      assert.ok(clear(m.ground), `${viewport}: send is filled (${m.ground}) with nothing to send`);
+    }
+
+    await a.composer().fill("   ");
+    m = await measure();
+    if (!a.isPhone) assert.ok(clear(m.ground), `${viewport}: whitespace lit the send control`);
+
+    await a.composer().fill("look at this");
+    m = await measure();
+    assert.deepEqual(m.sendGlyph, m.emojiGlyph, `${viewport}: send glyph ${JSON.stringify(m.sendGlyph)} vs emoji glyph ${JSON.stringify(m.emojiGlyph)}`);
+    assert.deepEqual(m.send, m.emoji, `${viewport}: send ${JSON.stringify(m.send)} vs emoji ${JSON.stringify(m.emoji)}`);
+    assert.ok(!clear(m.ground), `${viewport}: send did not take the accent with text to send`);
+    if (a.isPhone) assert.ok(m.send.w >= 44 && m.send.h >= 44, `phone send target ${m.send.w}x${m.send.h}`);
+
+    await a.composer().fill("");
+    await page.locator(".composer input[type=file]").first().setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello") });
+    await page.locator(".composer .sendbtn.ready").waitFor({ state: "visible" });
+    m = await measure();
+    assert.ok(!clear(m.ground), `${viewport}: a staged file did not light the send control`);
+    await a.close();
+  }
+});

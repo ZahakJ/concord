@@ -2156,8 +2156,8 @@
               <Icon name="clock" size={11} /> {slowLeft}s
             </span>
           {/if}
-          <button type="submit" class="sendbtn" class:launch={launching} aria-label="Send" disabled={!canSend}>
-            <Icon name="send" size={17} />
+          <button type="submit" class="sendbtn" class:ready={canSend} class:launch={launching} aria-label="Send" disabled={!canSend}>
+            <Icon name="send" size={22} />
           </button>
         {/if}
       {:else}
@@ -2244,18 +2244,16 @@
             <Icon name="clock" size={11} /> {slowLeft}s
           </span>
         {/if}
-        {#if hasDraft}
-          <!-- A send button on the desktop too. Enter keeps working and remains
-               the fast path, but "press Enter" was the ONLY path: there was no
-               glyph at any draft length, on the one screen in the app whose job
-               is to send things. It appears with something to send and goes
-               again when there isn't, so the row does not carry a permanently
-               dead control — and it STAYS, disabled, while slow mode is
-               counting, because "wait" is a state worth drawing. -->
-          <button type="submit" class="sendbtn" class:launch={launching} aria-label="Send" disabled={!canSend}>
-            <Icon name="send" size={17} />
-          </button>
-        {/if}
+        <!-- A send button on the desktop too: Enter is the fast path, but it
+             must not be the only one. It is a control the size of emoji and
+             Aa, not a filled bubble: a faint glyph while there is nothing to
+             send, the accent only once there is (text or a staged file), and
+             always in the same place, so the row does not shift on the first
+             keystroke. It stays disabled while slow mode is counting, because
+             "wait" is a state worth drawing. -->
+        <button type="submit" class="sendbtn" class:ready={canSend} class:launch={launching} use:tooltip={"Send (Enter)"} aria-label="Send" disabled={!canSend}>
+          <Icon name="send" size={20} />
+        </button>
         </div>
       {/if}
     </div>
@@ -3480,10 +3478,13 @@
     background-clip: content-box;
     border-radius: 50%;
   }
+  /* The same small glyph as emoji, in a full finger target: the ground is a
+     36px disc inside the 44px+ hit area, not a button that size. */
   .composer.mobile .sendbtn {
-    width: 40px;
-    height: 40px;
-    margin: 2px;
+    width: var(--tap-min);
+    height: var(--tap-min);
+    padding: calc((var(--tap-min) - 36px) / 2);
+    background-clip: content-box;
   }
   /* The recording transport is a different child set, and the row rules above
      were written for the composing one: with align-items:flex-end the 44px send
@@ -3533,25 +3534,38 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
+  /* The size of the controls beside it (emoji, Aa), and an icon: the accent
+     arrives as ink on a soft ground only while there is something to send. */
   .sendbtn {
     display: grid;
     place-items: center;
-    width: 38px;
-    height: 38px;
+    width: 34px;
+    height: 34px;
     padding: 0; /* beat the global button padding — it un-centers the icon */
     flex-shrink: 0;
     align-self: flex-end;
-    margin: 2px 0 2px 2px;
     border-radius: 50%;
-    background: var(--accent);
-    color: var(--accent-fg);
-    transition: opacity var(--dur-quick) ease, transform var(--dur-quick) ease;
+    background: transparent;
+    color: var(--text-faint);
+    transition:
+      background var(--dur-quick) var(--ease-out),
+      color var(--dur-quick) var(--ease-out),
+      transform var(--dur-quick) var(--ease-lift);
+  }
+  .sendbtn.ready {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+  }
+  .sendbtn.ready:hover {
+    transform: scale(1.06);
   }
   .sendbtn:active:not(:disabled) {
-    transform: scale(0.9);
+    transform: scale(0.92);
   }
+  /* Nothing to send yet: present, so the row never shifts, but plainly not
+     a thing to press — fainter than the live controls beside it. */
   .sendbtn:disabled {
-    opacity: 0.35;
+    opacity: 0.55;
   }
   /* On send the plane takes off up-right, then glides back in from the left —
      one quick whoosh, clipped to the round button. */
@@ -3563,11 +3577,11 @@
   }
   @keyframes send-launch {
     45% {
-      transform: translate(26px, -26px);
+      transform: translate(22px, -22px);
       opacity: 0;
     }
     46% {
-      transform: translate(-20px, 20px);
+      transform: translate(-18px, 18px);
       opacity: 0;
     }
     100% {

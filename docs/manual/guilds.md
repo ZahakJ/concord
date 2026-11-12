@@ -106,7 +106,7 @@ Type in the composer and press `Enter`; `Shift+Enter` adds a new line. The compo
 - **+** (**Add to your message**) at its start: **Photo or file** (you can also paste or drop a file; see [Sharing files and media](files-and-media.md)), **GIF**, **Voice message**, **Poll**, **Thread**, **Doodle**, **Sound**, **Game**, **Send later** (or **Scheduled** when the box is empty), **Seal time**, **Formatting** and **Advanced**.
 - **Aa**, which shows or hides the formatting bar (see below).
 - The emoji picker.
-- **Send**, once there is something to send.
+- **Send**. It lights up once there is something to send.
 
 On a phone the box holds **+**, the text, emoji, and the microphone, which becomes **Send** once you type; everything else is in the **Add to your message** sheet.
 
