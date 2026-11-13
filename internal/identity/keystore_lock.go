@@ -27,21 +27,30 @@ var tryLock = tryLockFile
 
 var lockUnsupported sync.Once
 
-var errKeystoreBusy = errors.New("identity: the keystore is busy in another Concord process; try again")
+var errKeystoreBusy = errors.New("identity: the keystore is busy in another Concord window or process; try again")
 
 // lockKeystore takes the keystore lock for path: keystoreMu for this process,
 // and an advisory lock on path+".lock" for any other process on the same data
 // directory (the desktop shell and a web build can both have it unlocked).
 // The lock file is never deleted: removing it while another process waits on
 // it would let the two lock different files.
+//
+// The whole wait, for this process's other writers and for other processes,
+// is bounded by keystoreLockWait, so a writer queued behind a stuck one fails
+// as busy rather than waiting on it indefinitely, holding what it holds.
 func lockKeystore(path string) (unlock func(), err error) {
-	keystoreMu.Lock()
+	deadline := time.Now().Add(keystoreLockWait)
+	for !keystoreMu.TryLock() {
+		if time.Now().After(deadline) {
+			return nil, errKeystoreBusy
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	f, err := os.OpenFile(path+".lock", os.O_RDWR|os.O_CREATE|lockOpenFlags, 0o600)
 	if err != nil {
 		keystoreMu.Unlock()
 		return nil, fmt.Errorf("identity: open keystore lock: %w", err)
 	}
-	deadline := time.Now().Add(keystoreLockWait)
 	for {
 		ok, lerr := tryLock(f)
 		if lerr != nil {

@@ -161,3 +161,42 @@ func TestUnlockableFilesystemIsLoggedOnce(t *testing.T) {
 		t.Fatalf("logged %d times, want once: %q", n, buf.String())
 	}
 }
+
+// A keystore write queued behind another writer in this process that does not
+// finish gives up as busy within the same bound as one waiting on another
+// process, instead of waiting for as long as that writer takes.
+func TestInProcessLockWaitIsBounded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	if _, _, err := LoadOrCreate(path, "old"); err != nil {
+		t.Fatal(err)
+	}
+	orig := keystoreLockWait
+	keystoreLockWait = 200 * time.Millisecond
+	t.Cleanup(func() { keystoreLockWait = orig })
+	keystoreMu.Lock() // a writer in this process that does not let go
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			keystoreMu.Unlock()
+		}
+	}
+	t.Cleanup(release)
+
+	done := make(chan error, 1)
+	go func() { done <- ChangePassphrase(path, "old", "new") }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errKeystoreBusy) {
+			t.Fatalf("change behind a stuck writer: %v, want busy", err)
+		}
+	case <-time.After(5 * time.Second):
+		release()
+		<-done
+		t.Fatal("the change waited for the stuck writer well past the bound")
+	}
+	release()
+	if _, err := LoadKeystore(path, "old"); err != nil {
+		t.Fatalf("a change refused as busy touched the keystore: %v", err)
+	}
+}
