@@ -165,3 +165,12 @@ func TestChangePassphraseOfRefusesAnotherAccount(t *testing.T) {
 		t.Fatalf("change for the account the keystore holds: %v", err)
 	}
 }
+
+// A change on a device with no data directory reports it as not existing,
+// the way every other keystore call does, so callers can tell it apart.
+func TestChangePassphraseOnAMissingDirectoryIsNotExist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gone", "keystore.json")
+	if err := ChangePassphrase(path, "old", "new"); !os.IsNotExist(err) {
+		t.Fatalf("change with no data directory: %v, want a not-exist error", err)
+	}
+}

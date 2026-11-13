@@ -2,7 +2,6 @@ package identity
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -49,7 +48,9 @@ func lockKeystore(path string) (unlock func(), err error) {
 	f, err := os.OpenFile(path+".lock", os.O_RDWR|os.O_CREATE|lockOpenFlags, 0o600)
 	if err != nil {
 		keystoreMu.Unlock()
-		return nil, fmt.Errorf("identity: open keystore lock: %w", err)
+		// Returned as it is (it names the lock file): wrapped, os.IsNotExist
+		// stops recognising a missing data directory.
+		return nil, err
 	}
 	for {
 		ok, lerr := tryLock(f)
