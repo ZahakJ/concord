@@ -373,3 +373,41 @@ func TestResealCorrectsAWrongClearAccountKey(t *testing.T) {
 		t.Fatalf("clear account key after unlock: %x, %v; want %x", pub, err, id.PublicKey())
 	}
 }
+
+// A re-seal that cannot write is silent and harmless: the unlock succeeds,
+// the original file is untouched and still opens, and the next unlock that
+// can write records the account.
+func TestFailedResealLeavesTheKeystoreAndRetriesNextUnlock(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory this user cannot write to")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "keystore.json")
+	id, _, err := LoadOrCreate(path, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripAccountPub(t, path)
+	before := mustRead(t, path)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	unlockWithReseal(t, path, "pw", nil, resealHooks{})
+	if !bytes.Equal(mustRead(t, path), before) {
+		t.Fatal("a re-seal that could not write changed the keystore")
+	}
+	got, err := LoadKeystore(path, "pw")
+	if err != nil || !bytes.Equal(got.Seed(), id.Seed()) {
+		t.Fatalf("the keystore no longer opens after a failed re-seal: %v", err)
+	}
+
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	unlockWithReseal(t, path, "pw", nil, resealHooks{})
+	if !namesAccount(mustRead(t, path), id.PublicKey()) {
+		t.Fatal("the next unlock did not retry the re-seal")
+	}
+}
