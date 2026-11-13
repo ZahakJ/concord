@@ -29,7 +29,7 @@ var errKeystoreBusy = errors.New("identity: the keystore is busy in another Conc
 // it would let the two lock different files.
 func lockKeystore(path string) (unlock func(), err error) {
 	keystoreMu.Lock()
-	f, err := os.OpenFile(path+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	f, err := os.OpenFile(path+".lock", os.O_RDWR|os.O_CREATE|lockOpenFlags, 0o600)
 	if err != nil {
 		keystoreMu.Unlock()
 		return nil, fmt.Errorf("identity: open keystore lock: %w", err)

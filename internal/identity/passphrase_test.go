@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"golang.org/x/crypto/nacl/secretbox"
@@ -110,10 +111,14 @@ func TestChangePassphraseFailureLeavesOldKeystore(t *testing.T) {
 	if err := CreateKeystore(path, "old one", id); err != nil {
 		t.Fatal(err)
 	}
-	// Block the temp file the new keystore is written to.
-	if err := os.Mkdir(path+".tmp", 0o700); err != nil {
+	// Leave nowhere to write the new keystore.
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a directory this user cannot write to")
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 	if err := ChangePassphrase(path, "old one", "new one"); err == nil {
 		t.Fatal("change reported success with its temp file blocked")
 	}

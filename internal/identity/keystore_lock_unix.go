@@ -9,6 +9,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// lockOpenFlags: a symlink planted at the lock file's name is refused rather
+// than followed.
+const lockOpenFlags = unix.O_NOFOLLOW
+
 // tryLockFile takes an exclusive advisory lock on f without blocking. It
 // reports false when another holder has it, and an error only when the
 // filesystem cannot lock at all.

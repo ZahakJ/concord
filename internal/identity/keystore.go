@@ -187,30 +187,59 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte) erro
 		return fmt.Errorf("identity: marshal keystore: %w", err)
 	}
 
-	if dir := filepath.Dir(path); dir != "" {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return fmt.Errorf("identity: create keystore dir: %w", err)
-		}
-	}
 	// Write to a temp file then rename, so a crash mid-write can never leave a
 	// half-written (unopenable) keystore. The sync before the rename is what
 	// makes that true across a power cut: without it the rename can reach the
 	// disk before the bytes it points at, and a passphrase change interrupted
 	// there would leave neither the old file nor a readable new one.
-	tmp := path + ".tmp"
-	if err := writeSynced(tmp, blob); err != nil {
+	//
+	// The temp file is created fresh with a name nobody can predict (O_EXCL,
+	// 0600 from the start). A fixed name was opened with truncation and
+	// followed wherever it pointed: a symlink planted there received the
+	// keystore and became it, a hard link to the keystore had it rewritten in
+	// place, and a second writer without the lock truncated the first one's
+	// file under its rename.
+	dir := filepath.Dir(path)
+	removeStaleTemps(path)
+	f, err := os.CreateTemp(dir, tempPattern(path))
+	if err != nil {
+		return fmt.Errorf("identity: write keystore: %w", err)
+	}
+	tmp := f.Name()
+	defer func() { _ = os.Remove(tmp) }() // a no-op once renamed
+	written, err := writeSynced(f, blob)
+	if err != nil {
 		return fmt.Errorf("identity: write keystore: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("identity: finalize keystore: %w", err)
+	}
+	// Only a rename that put this file at the path counts: one that did not
+	// (two names for one file make rename a silent no-op) must not be
+	// reported as a passphrase changed.
+	if now, err := os.Lstat(path); err != nil || !os.SameFile(now, written) {
+		return errors.New("identity: the keystore was not replaced")
 	}
 	// The rename is an entry in the directory, and until the directory is
 	// synced a power cut can still undo it: a passphrase change reported done
 	// would come back as the old file. Best effort, because the new keystore
 	// is already in place and failing here would tell the user a change that
 	// took effect did not.
-	_ = syncDir(filepath.Dir(path))
+	_ = syncDir(dir)
 	return nil
+}
+
+// tempPattern names a keystore write's temp file (os.CreateTemp pattern).
+func tempPattern(path string) string { return "." + filepath.Base(path) + ".*.tmp" }
+
+// removeStaleTemps deletes temp files a crashed write left, for a caller
+// holding the keystore lock (no write of this build has one open then).
+// Remove takes a name away and never follows it.
+func removeStaleTemps(path string) {
+	stale, _ := filepath.Glob(filepath.Join(filepath.Dir(path), tempPattern(path)))
+	for _, p := range stale {
+		_ = os.Remove(p)
+	}
 }
 
 // syncDir flushes a directory's entries to disk. A variable so a test can see
@@ -253,27 +282,21 @@ func sealParams(prev []byte) kdfParams {
 	return kp
 }
 
-func writeSynced(path string, blob []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	// The mode above applies only when the file is created. A temp file left
-	// behind by a crash or another tool keeps whatever mode it had, and the
-	// rename hands that mode to the keystore.
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		return err
-	}
+func writeSynced(f *os.File, blob []byte) (os.FileInfo, error) {
 	if _, err := f.Write(blob); err != nil {
 		_ = f.Close()
-		return err
+		return nil, err
 	}
 	if err := f.Sync(); err != nil {
 		_ = f.Close()
-		return err
+		return nil, err
 	}
-	return f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return fi, f.Close()
 }
 
 // ReadAccountPub returns the account public key recorded in the clear in the
@@ -320,6 +343,9 @@ func ChangePassphrase(path, oldPass, newPass string) error {
 	defer unlock()
 	id, opened, err := openKeystore(path, oldPass)
 	if err != nil {
+		return err
+	}
+	if err := checkExpected(path, opened); err != nil {
 		return err
 	}
 	return saveKeystoreLocked(path, newPass, id, opened)
@@ -371,6 +397,8 @@ var ErrKeystoreChanged = errors.New("identity: the keystore on this device chang
 // written.
 var ErrKeystoreExists = errors.New("identity: a keystore already exists on this device")
 
+var errKeystoreSymlink = errors.New("identity: the keystore is a symbolic link; Concord will not write through it — replace it with the file it points to")
+
 // ReadKeystore returns the keystore file's bytes: the snapshot a caller
 // decides on (decrypts with OpenKeystoreBytes, compares accounts) and then
 // hands back to ReplaceKeystore or RemoveKeystoreIfUnchanged as expected.
@@ -420,6 +448,11 @@ func writeKeystore(path, passphrase string, id *Identity, expected []byte, hooks
 // checkExpected reports, for a caller holding the keystore lock, whether the
 // file at path is still expected (nil: absent).
 func checkExpected(path string, expected []byte) error {
+	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		// Replacing it would swap the link for a file and leave the keystore
+		// it names, under its old passphrase, wherever that is.
+		return errKeystoreSymlink
+	}
 	now, err := os.ReadFile(path)
 	switch {
 	case os.IsNotExist(err) && expected == nil:
@@ -473,11 +506,13 @@ func RemoveKeystoreIfUnchanged(path string, expected []byte) error {
 }
 
 func removeKeystoreFiles(path string) error {
+	// path+".tmp" is the temp name builds before unique temp files used.
 	for _, p := range []string{path, path + ".tmp"} {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
+	removeStaleTemps(path)
 	return nil
 }
 

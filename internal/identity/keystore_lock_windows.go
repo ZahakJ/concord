@@ -9,6 +9,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+const lockOpenFlags = 0
+
 // tryLockFile takes an exclusive lock on the first byte of f without
 // blocking. It reports false when another holder has it, and an error only
 // when the filesystem cannot lock at all.
