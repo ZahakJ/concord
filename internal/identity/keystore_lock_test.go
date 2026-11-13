@@ -2,10 +2,15 @@ package identity
 
 import (
 	"bufio"
+	"bytes"
+	"errors"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -131,5 +136,28 @@ func TestEraseStaysFinalWhenAnotherProcessHoldsTheLock(t *testing.T) {
 	// A new account can be created here afterwards, as after any erase.
 	if _, created, err := LoadOrCreate(path, "next"); err != nil || !created {
 		t.Fatalf("create after the erase: created %v, %v", created, err)
+	}
+}
+
+// On a filesystem that cannot lock, writes still go ahead (ordered within the
+// process, and each still checks the file), and the log says so once.
+func TestUnlockableFilesystemIsLoggedOnce(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	origLock := tryLock
+	tryLock = func(*os.File) (bool, error) { return false, errors.New("locks not supported") }
+	lockUnsupported = sync.Once{}
+	t.Cleanup(func() { tryLock = origLock; lockUnsupported = sync.Once{} })
+
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	if _, _, err := LoadOrCreate(path, "old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ChangePassphrase(path, "old", "new"); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(buf.String(), "keystore writes are ordered within this process only"); n != 1 {
+		t.Fatalf("logged %d times, want once: %q", n, buf.String())
 	}
 }

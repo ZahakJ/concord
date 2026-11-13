@@ -3,6 +3,7 @@ package identity
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"sync"
 	"time"
@@ -20,6 +21,12 @@ var keystoreMu sync.Mutex
 // (and the passphrase it holds) alive indefinitely. A variable for tests.
 var keystoreLockWait = 10 * time.Second
 
+// tryLock is tryLockFile, a variable so a test can stand in a filesystem
+// that cannot lock.
+var tryLock = tryLockFile
+
+var lockUnsupported sync.Once
+
 var errKeystoreBusy = errors.New("identity: the keystore is busy in another Concord process; try again")
 
 // lockKeystore takes the keystore lock for path: keystoreMu for this process,
@@ -36,10 +43,16 @@ func lockKeystore(path string) (unlock func(), err error) {
 	}
 	deadline := time.Now().Add(keystoreLockWait)
 	for {
-		ok, lerr := tryLockFile(f)
+		ok, lerr := tryLock(f)
 		if lerr != nil {
 			// A filesystem without advisory locks: this process is still
-			// ordered by keystoreMu, which is all there was before.
+			// ordered by keystoreMu, which is all there was before, and every
+			// write still checks the file is what it decided on. Said once, as
+			// it means another process on this data directory is not ordered
+			// against this one.
+			lockUnsupported.Do(func() {
+				log.Printf("concord/identity: cannot lock %s (%v); keystore writes are ordered within this process only", path+".lock", lerr)
+			})
 			ok = true
 		}
 		if ok {
