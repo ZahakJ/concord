@@ -19,8 +19,8 @@ import (
 // /usr/bin, where a package manager owns the file) is a no-op.
 //
 // Returns true when the caller must exit (we relaunched or uninstalled).
-func ensureInstalled() bool {
-	if len(os.Args) > 1 && os.Args[1] == "--uninstall" {
+func ensureInstalled(uninstallRequested bool) bool {
+	if uninstallRequested {
 		uninstallLinux()
 		return true
 	}
@@ -111,6 +111,11 @@ func registerLinux(dir, target, dataHome string) {
 	// Refresh menu caches where the tool exists (best-effort, silent).
 	_ = exec.Command("update-desktop-database", appsDir).Run()
 }
+
+// uninstallHelp is the --uninstall line of the desktop build's --help.
+const uninstallHelp = "  --uninstall  remove the copy installed under $XDG_DATA_HOME/concord\n" +
+	"               (~/.local/share/concord) and its menu entry, then exit;\n" +
+	"               your identity and chats are kept\n"
 
 func uninstallLinux() {
 	home, err := os.UserHomeDir()

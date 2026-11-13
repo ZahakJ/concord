@@ -16,7 +16,9 @@ package main
 import (
 	"context"
 	"embed"
+	"flag"
 	"net/http"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -26,6 +28,7 @@ import (
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/bridge"
+	"github.com/ZahakJ/concord/internal/cli"
 	"github.com/ZahakJ/concord/internal/httpapi"
 )
 
@@ -39,12 +42,37 @@ var assets embed.FS
 //go:embed build/appicon.png
 var appIcon []byte
 
+// flavour names this build in --version.
+const flavour = "desktop"
+
+const usage = `Usage: concord [flag]
+
+Starts the Concord desktop app.
+
+Flags:
+  --version    print the version and exit
+  --help       print this help and exit
+` + uninstallHelp + `
+Environment:
+` + appEnvHelp
+
 func main() {
+	// Before anything else: --version must not relocate the binary (below),
+	// open the profile or show a window.
+	fs := flag.NewFlagSet("concord", flag.ContinueOnError)
+	uninstall := new(bool)
+	if uninstallHelp != "" {
+		uninstall = fs.Bool("uninstall", false, "remove the installed copy and exit")
+	}
+	if done, code := cli.Parse(fs, os.Args[1:], flavour, usage, os.Stdout, os.Stderr); done {
+		os.Exit(code)
+	}
+
 	tuneRenderer()
-	// Windows: behave like a real installed app no matter where the exe was
-	// launched from — self-install to %LOCALAPPDATA%\Concord, register
-	// shortcuts + Add/Remove, and hand over to the installed copy.
-	if ensureInstalled() {
+	// Windows and Linux: behave like a real installed app no matter where the
+	// binary was launched from — self-install, register shortcuts or a menu
+	// entry, and hand over to the installed copy.
+	if ensureInstalled(*uninstall) {
 		return
 	}
 	// Native build: the update check must only ever offer desktop assets.

@@ -185,7 +185,7 @@ to configure anything.
 
 ## Options
 
-Everything is an environment variable, and none is required.
+Everything is an environment variable, and none is required. `rendezvous --help` prints a short form of this table and `rendezvous --version` the version; both exit without starting the node.
 
 | Variable | Default | What it does |
 |---|---|---|

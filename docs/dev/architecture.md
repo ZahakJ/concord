@@ -65,6 +65,8 @@ The same UI and core are packaged four ways.
 | Android and iOS | `mobile/mobile.go` plus `apps/mobile` | The core runs in-process and serves `httpapi` on a loopback port with a bearer token |
 | Headless | `cmd/concord` | No UI: `--status`, `--serve`, and `--bot` (JSON lines on stdin and stdout, see [Bots](../BOTS.md)) drive the `Service` directly |
 
+Every shipped binary, `cmd/rendezvous` included, hands its command line to `internal/cli` before anything else: `--version` and `--help` answer and exit before the profile, the network or the desktop build's self-install are touched, and an unknown flag or a stray argument is a usage error (exit status 2) rather than a reason to start.
+
 ### Browser-served build
 
 A plain `go build .` produces this variant. It embeds `frontend/dist` with `//go:embed all:frontend/dist`, so the binary is self-contained, and it has no system dependencies, which is why it is the one cross-compiled for every OS in a release.

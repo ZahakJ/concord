@@ -85,6 +85,8 @@ Two environment variables change this:
 | `CONCORD_WEB_ADDR` | Listen on another address and port instead of `127.0.0.1:8787` |
 | `CONCORD_NO_OPEN` | Do not open a browser. The printed address (with its token) is the way in. |
 
+`concord --version` prints the version and which build it is, and `concord --help` lists every variable the build reads. Both exit straight away without opening your profile, and so do the same flags on the desktop app, which does not install itself to answer them.
+
 Settings that belong to the interface, such as the theme, are stored by the browser. Opening the same build in a different browser starts those settings from their defaults.
 
 People you invite to a meeting room can join from their own browser without installing anything; see [Voice, video and screen sharing](voice-and-video.md).

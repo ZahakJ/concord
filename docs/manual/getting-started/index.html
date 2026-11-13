@@ -71,6 +71,7 @@ concord</code></pre>
 <p>The single-file build is a local web server with the app built in. When it starts, it listens on <code>127.0.0.1:8787</code>, prints the address, and opens your default browser on it. The address includes an access token, new on each launch, that the page stores and then removes from the address bar; other programs on the machine cannot use the app's interface without it.</p>
 <p>Two environment variables change this:</p>
 <div class="table"><table><thead><tr><th>Variable</th><th>Effect</th></tr></thead><tbody><tr><td><code>CONCORD_WEB_ADDR</code></td><td>Listen on another address and port instead of <code>127.0.0.1:8787</code></td></tr><tr><td><code>CONCORD_NO_OPEN</code></td><td>Do not open a browser. The printed address (with its token) is the way in.</td></tr></tbody></table></div>
+<p><code>concord --version</code> prints the version and which build it is, and <code>concord --help</code> lists every variable the build reads. Both exit straight away without opening your profile, and so do the same flags on the desktop app, which does not install itself to answer them.</p>
 <p>Settings that belong to the interface, such as the theme, are stored by the browser. Opening the same build in a different browser starts those settings from their defaults.</p>
 <p>People you invite to a meeting room can join from their own browser without installing anything; see <a href="../voice-and-video/">Voice, video and screen sharing</a>.</p>
 <h2 id="ios"><a class="anchor" href="#ios" aria-hidden="true">#</a>iOS</h2>

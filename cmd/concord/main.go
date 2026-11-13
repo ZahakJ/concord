@@ -26,15 +26,42 @@ import (
 	"syscall"
 
 	"github.com/ZahakJ/concord/internal/app"
+	"github.com/ZahakJ/concord/internal/cli"
 	"github.com/ZahakJ/concord/internal/identity"
 	"golang.org/x/term"
 )
 
+const usage = `Usage: concord [--status | --serve | --bot | --version | --help]
+
+Runs Concord without a window: for servers, scripts and bots.
+
+Flags:
+  --status   unlock (or create) the identity, print its fingerprint and exit;
+             the default when no flag is given
+  --serve    unlock the identity, join the network and run until interrupted,
+             with a small command prompt on stdin
+  --bot      unlock the identity, join the network and speak newline-delimited
+             JSON on stdin/stdout (docs/BOTS.md)
+  --version  print the version and exit
+  --help     print this help and exit
+
+Environment:
+  CONCORD_PASSPHRASE    the identity's passphrase; required when stdin is not a
+                        terminal, otherwise it is asked for
+  CONCORD_HOME          keep the profile in this directory instead of the
+                        default concord folder in the user config directory
+  CONCORD_BOOTSTRAP     comma-separated rendezvous multiaddrs to bootstrap from
+  CONCORD_DISABLE_MDNS  set to 1 to stop finding peers on the local network
+`
+
 func main() {
-	serve := flag.Bool("serve", false, "boot identity + networking and run until interrupted (headless)")
-	botMode := flag.Bool("bot", false, "boot identity + networking and speak newline-delimited JSON on stdin/stdout (see docs/BOTS.md)")
-	flag.Bool("status", false, "boot identity and print status, then exit (default mode)")
-	flag.Parse()
+	fs := flag.NewFlagSet("concord", flag.ContinueOnError)
+	serve := fs.Bool("serve", false, "boot identity + networking and run until interrupted (headless)")
+	botMode := fs.Bool("bot", false, "boot identity + networking and speak newline-delimited JSON on stdin/stdout (see docs/BOTS.md)")
+	fs.Bool("status", false, "boot identity and print status, then exit (default mode)")
+	if done, code := cli.Parse(fs, os.Args[1:], "headless", usage, os.Stdout, os.Stderr); done {
+		os.Exit(code)
+	}
 
 	var err error
 	switch {

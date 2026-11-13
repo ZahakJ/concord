@@ -30,9 +30,9 @@ import (
 // windows — no console flashes on launch or install.
 //
 // Returns true when the caller must exit (we relaunched or uninstalled).
-func ensureInstalled() bool {
+func ensureInstalled(uninstallRequested bool) bool {
 	// "Concord.exe --uninstall" is the Add/Remove entry's uninstall action.
-	if len(os.Args) > 1 && os.Args[1] == "--uninstall" {
+	if uninstallRequested {
 		uninstall()
 		return true
 	}
@@ -195,6 +195,11 @@ func registerApp(target string) {
 	_ = k.SetDWordValue("NoModify", 1)
 	_ = k.SetDWordValue("NoRepair", 1)
 }
+
+// uninstallHelp is the --uninstall line of the desktop build's --help.
+const uninstallHelp = "  --uninstall  remove the copy installed under %LOCALAPPDATA%\\Concord, its\n" +
+	"               shortcuts and its Add/Remove entry, then exit; your identity\n" +
+	"               and chats are kept\n"
 
 // uninstall undoes registerApp and removes the install dir (the encrypted
 // chat database under %AppData% is deliberately kept — uninstalling the app

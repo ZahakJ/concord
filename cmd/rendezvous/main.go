@@ -18,6 +18,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -29,12 +30,53 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 
+	"github.com/ZahakJ/concord/internal/cli"
 	"github.com/ZahakJ/concord/internal/identity"
 	"github.com/ZahakJ/concord/internal/mailbox"
 	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
+const usage = `Usage: rendezvous [--version | --help]
+
+Runs a Concord rendezvous node: DHT server, circuit relay, encrypted mailbox
+and guest gateway, with an optional STUN responder, TURN relay and GIF search
+proxy. It never sees message plaintext. Configured entirely by environment.
+
+Flags:
+  --version  print the version and exit
+  --help     print this help and exit
+
+Environment:
+  PORT                       libp2p TCP and QUIC port (default 4001)
+  CONCORD_RELAY_SEED         32-byte hex seed for a stable PeerID (default: a
+                             random identity per run)
+  CONCORD_PUBLIC_HOST        public hostname; prints the address to share and
+                             names the TURN realm and guest gateway origin
+  CONCORD_GUEST_PORT         guest gateway HTTP port (default 8080)
+  CONCORD_STUN_PORT          UDP port of the STUN responder (off when unset)
+  CONCORD_STUN_LISTEN        address the STUN responder binds
+  CONCORD_TURN_SECRET        turns the TURN relay on (off when unset)
+  CONCORD_TURN_PORT          TURN TCP port (default 3478)
+  CONCORD_TURN_RELAY_IP      this host's routable IP for relayed media
+  CONCORD_TURN_ALLOW_PRIVATE set to 1 to relay to private addresses (testing)
+  CONCORD_RELAY_CIRCUIT_BYTES, CONCORD_RELAY_CIRCUIT_DURATION,
+  CONCORD_RELAY_MAX_CIRCUITS, CONCORD_RELAY_MAX_RESERVATIONS,
+  CONCORD_RELAY_MAX_RESERVATIONS_PER_PEER, CONCORD_RELAY_MAX_RESERVATIONS_PER_IP
+                             tighten the relay's limits (default: Concord's own)
+  CONCORD_GIF_PROVIDER       giphy or tenor (default giphy)
+  CONCORD_GIF_KEY            GIF provider API key (search is off without one)
+  CONCORD_GIF_BASE, CONCORD_GIF_CONTENTFILTER
+                             provider API base and content rating
+  APNS_AUTH_KEY_P8, APNS_KEY_ID, APNS_TEAM_ID, APNS_TOPIC, APNS_PRODUCTION,
+  FCM_SERVICE_ACCOUNT_JSON   push wake credentials (push is off without them)
+  CONCORD_PUSH_TOKENS        push token store file (default push-tokens.json)
+`
+
 func main() {
+	if done, code := cli.Parse(flag.NewFlagSet("rendezvous", flag.ContinueOnError), os.Args[1:],
+		"rendezvous node", usage, os.Stdout, os.Stderr); done {
+		os.Exit(code)
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "rendezvous:", err)
 		os.Exit(1)

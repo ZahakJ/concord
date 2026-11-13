@@ -12,6 +12,7 @@ import (
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
+	"flag"
 	"fmt"
 	"io/fs"
 	"mime"
@@ -25,13 +26,38 @@ import (
 	"time"
 
 	"github.com/ZahakJ/concord/internal/bridge"
+	"github.com/ZahakJ/concord/internal/cli"
 	"github.com/ZahakJ/concord/internal/httpapi"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// flavour names this build in --version.
+const flavour = "web"
+
+const usage = `Usage: concord [flag]
+
+Starts Concord and opens it in your web browser. The interface is served on a
+local address that is printed, with its access token, at startup.
+
+Flags:
+  --version  print the version and exit
+  --help     print this help and exit
+
+Environment:
+  CONCORD_WEB_ADDR      address to serve the interface on (default 127.0.0.1:8787)
+  CONCORD_NO_OPEN       set to anything to print the address without opening
+                        a browser
+  CONCORD_API_TOKEN     use this access token instead of a fresh random one
+` + appEnvHelp
+
 func main() {
+	if done, code := cli.Parse(flag.NewFlagSet("concord", flag.ContinueOnError), os.Args[1:],
+		flavour, usage, os.Stdout, os.Stderr); done {
+		os.Exit(code)
+	}
+
 	addr := os.Getenv("CONCORD_WEB_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8787"
