@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/nacl/secretbox"
@@ -106,12 +105,23 @@ func passphraseForms(p string) []string {
 // SaveKeystore encrypts id's seed under passphrase and writes it to path,
 // creating parent directories as needed. The file is written 0600.
 func SaveKeystore(path, passphrase string, id *Identity) error {
-	keystoreMu.Lock()
-	defer keystoreMu.Unlock()
+	if passphrase == "" {
+		return errors.New("identity: passphrase must not be empty")
+	}
+	if dir := filepath.Dir(path); dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("identity: create keystore dir: %w", err)
+		}
+	}
+	unlock, err := lockKeystore(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	return saveKeystoreLocked(path, passphrase, id)
 }
 
-// saveKeystoreLocked is SaveKeystore for a caller already holding keystoreMu.
+// saveKeystoreLocked is SaveKeystore for a caller holding the keystore lock.
 func saveKeystoreLocked(path, passphrase string, id *Identity) error {
 	if passphrase == "" {
 		return errors.New("identity: passphrase must not be empty")
@@ -225,19 +235,17 @@ func ChangePassphrase(path, oldPass, newPass string) error {
 	if newPass == "" {
 		return errors.New("identity: passphrase must not be empty")
 	}
-	keystoreMu.Lock()
-	defer keystoreMu.Unlock()
+	unlock, err := lockKeystore(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	id, _, err := openKeystore(path, oldPass)
 	if err != nil {
 		return err
 	}
 	return saveKeystoreLocked(path, newPass, id)
 }
-
-// keystoreMu is held by everything that replaces the keystore file, so that
-// a write conditional on what the file holds (resealIfUnchanged) cannot have
-// another write land between its check and its rename.
-var keystoreMu sync.Mutex
 
 // Test seams, nil outside tests. LoadOrCreate copies them when it decides to
 // re-seal, so a test that sets them does not race a re-seal it did not start.
@@ -277,8 +285,11 @@ func (h resealHooks) done() {
 // so is a failed write: the rename never happened, and the next unlock
 // tries again.
 func resealIfUnchanged(path, passphrase string, id *Identity, opened []byte, hooks resealHooks) error {
-	keystoreMu.Lock()
-	defer keystoreMu.Unlock()
+	unlock, err := lockKeystore(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	now, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -291,12 +302,20 @@ func resealIfUnchanged(path, passphrase string, id *Identity, opened []byte, hoo
 }
 
 // RemoveKeystore deletes the keystore at path, and any temp file a write left
-// beside it, under the keystore lock. An erase has to wait for a re-seal that
-// is already past its check: deleting the file in the ~200 ms that re-seal
-// spends deriving its key let its rename bring the erased account back.
+// beside it, under the keystore lock (see lockKeystore). An erase has to wait
+// for a re-seal that is already past its check: deleting the file in the
+// ~200 ms that re-seal spends deriving its key let its rename bring the
+// erased account back.
 func RemoveKeystore(path string) error {
-	keystoreMu.Lock()
-	defer keystoreMu.Unlock()
+	if unlock, err := lockKeystore(path); err == nil {
+		defer unlock()
+	} else {
+		// Unable to lock (another process stuck holding it, or a data
+		// directory that is already gone): erase anyway. Leaving the
+		// keystore behind is the worse failure for an erase.
+		keystoreMu.Lock()
+		defer keystoreMu.Unlock()
+	}
 	for _, p := range []string{path, path + ".tmp"} {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			return err
