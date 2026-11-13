@@ -150,3 +150,42 @@ func TestIdentityChangesWaitForALinkInProgress(t *testing.T) {
 		}
 	}
 }
+
+// The wipe sets why the session ended and erases under the bridge lock, so a
+// window asking for the session state, or unlocking, while it runs sees
+// either the session before the wipe or the wiped device, never a half of
+// each. Run under -race: the reason used to be written a second time
+// without the lock.
+func TestConfirmWipeIsOrderedAgainstTheSessionState(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CONCORD_HOME", dir)
+	if err := os.WriteFile(filepath.Join(dir, "keystore.json"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := &Bridge{}
+	armTicket(t, "abc123", "Euclid", time.Now())
+	stop := make(chan struct{})
+	seen := make(chan string, 1)
+	go func() {
+		last := ""
+		for {
+			select {
+			case <-stop:
+				seen <- last
+				return
+			default:
+				last = b.SessionState().Reason
+			}
+		}
+	}()
+	if err := b.ConfirmWipe("abc123", "euclid"); err != nil {
+		t.Fatal(err)
+	}
+	close(stop)
+	if got := <-seen; got != "" && got != LockWiped {
+		t.Fatalf("session state during the wipe: %q", got)
+	}
+	if got := b.SessionState(); got.Reason != LockWiped || got.HasIdentity {
+		t.Fatalf("after the wipe: %+v", got)
+	}
+}

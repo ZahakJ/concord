@@ -153,16 +153,19 @@ func (b *Bridge) ConfirmWipe(ticket, typed string) error {
 	// is connected and the reconcile beat is still running; deleting the
 	// database out from under all of that is how a wipe turns into a crash
 	// report instead of a login screen.
+	//
+	// The erase happens under the same lock: an unlock from another window
+	// in between would otherwise open the keystore that is being deleted, or
+	// find it gone and create a fresh account under whatever it was typed.
 	b.mu.Lock()
 	if b.svc != nil {
 		_ = b.svc.Close()
 		b.svc = nil
 	}
 	b.lockReason = LockWiped
+	err = appsvc.ResetIdentity(dir)
 	b.mu.Unlock()
-
-	b.lockReason = LockWiped
-	if err := appsvc.ResetIdentity(dir); err != nil {
+	if err != nil {
 		return err
 	}
 	// The UI is now talking to a locked bridge over a session that no longer
