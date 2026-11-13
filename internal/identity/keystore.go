@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/nacl/secretbox"
@@ -184,7 +185,28 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte) erro
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("identity: finalize keystore: %w", err)
 	}
+	// The rename is an entry in the directory, and until the directory is
+	// synced a power cut can still undo it: a passphrase change reported done
+	// would come back as the old file. Best effort, because the new keystore
+	// is already in place and failing here would tell the user a change that
+	// took effect did not.
+	_ = syncDir(filepath.Dir(path))
 	return nil
+}
+
+// syncDir flushes a directory's entries to disk. A variable so a test can see
+// that it runs; Windows cannot sync a directory handle and needs no sync for
+// the rename to be durable there.
+var syncDir = func(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // kdfParams is a keystore's Argon2id cost.

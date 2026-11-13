@@ -321,3 +321,31 @@ func TestKeystoreStays0600(t *testing.T) {
 	}
 	assertMode("a passphrase change")
 }
+
+// Every keystore write syncs the directory after its rename, so the rename
+// itself survives a power cut. A power cut cannot be staged in a test; this
+// checks the sync happens, on the right directory, after the rename.
+func TestKeystoreWritesSyncTheDirectoryAfterRenaming(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "keystore.json")
+	var synced []string
+	orig := syncDir
+	syncDir = func(d string) error {
+		if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+			t.Errorf("directory synced before the rename (temp file stat: %v)", err)
+		}
+		synced = append(synced, d)
+		return orig(d)
+	}
+	t.Cleanup(func() { syncDir = orig })
+
+	if _, _, err := LoadOrCreate(path, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ChangePassphrase(path, "pw", "new"); err != nil {
+		t.Fatal(err)
+	}
+	if len(synced) != 2 || synced[0] != dir || synced[1] != dir {
+		t.Fatalf("directory syncs: %q, want the keystore's directory once per write", synced)
+	}
+}

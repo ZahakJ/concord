@@ -2,11 +2,9 @@ package identity
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestSaveLoadRoundTrip(t *testing.T) {
@@ -132,33 +130,14 @@ func TestAccountPubResealIsBackground(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	strip := func() {
-		raw, _ := os.ReadFile(path)
-		var env map[string]any
-		_ = json.Unmarshal(raw, &env)
-		delete(env, "account_pub")
-		out, _ := json.Marshal(env)
-		if err := os.WriteFile(path, out, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	// As a file written before AccountPub existed.
-	strip()
-	if _, _, err := LoadOrCreate(path, "pw"); err != nil {
-		t.Fatal(err)
+	stripAccountPub(t, path)
+	unlockWithReseal(t, path, "pw", nil, resealHooks{})
+	pub, err := ReadAccountPub(path)
+	if err != nil || pub == nil {
+		t.Fatalf("the account was never recorded in the clear (%v)", err)
 	}
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if pub, _ := ReadAccountPub(path); pub != nil {
-			if !bytes.Equal(pub, id.PublicKey()) {
-				t.Fatal("re-seal recorded the wrong account")
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the account was never recorded in the clear")
-		}
-		time.Sleep(10 * time.Millisecond)
+	if !bytes.Equal(pub, id.PublicKey()) {
+		t.Fatal("re-seal recorded the wrong account")
 	}
 }
