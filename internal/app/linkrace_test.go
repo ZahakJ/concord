@@ -53,7 +53,7 @@ func TestRelinkNeverRevertsAPassphraseChangedDuringIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The same account, never linked, on the phone.
-	if err := identity.RestoreKeystore(keystorePathIn(phoneDir), phraseOf(t, adaID), "test-pass"); err != nil {
+	if err := identity.RestoreKeystore(keystorePathIn(phoneDir), phraseOf(t, adaID), "test-pass", nil); err != nil {
 		t.Fatal(err)
 	}
 	code, err := ada.LinkOffer()

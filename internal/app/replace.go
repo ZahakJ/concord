@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 
@@ -175,16 +176,49 @@ func RestoreOverExisting(dataDir, phrase, passphrase, confirm string) error {
 	if err != nil {
 		return err
 	}
+	// The keystore as it is now. The gate below looks at it, the user's
+	// confirmation names the account it holds, and both the erase and the
+	// write go through only while the file is still exactly this: another
+	// window may restore, link or change the passphrase in the meantime, and
+	// what it leaves is not what the user agreed to replace.
+	ksPath := keystorePathIn(dataDir)
+	snap, err := identity.ReadKeystore(ksPath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	keep, err := replaceGate(dataDir, seed, confirm, "")
 	if err != nil {
 		return err
 	}
-	if !keep && HasIdentity(dataDir) {
-		if err := ResetIdentity(dataDir); err != nil {
+	if testHookRestoreBeforeWrite != nil {
+		testHookRestoreBeforeWrite()
+	}
+	expected := snap
+	if !keep {
+		if err := resetIdentityIf(dataDir, snap); err != nil {
+			if errors.Is(err, identity.ErrKeystoreChanged) {
+				return errRestoreRaced
+			}
 			return err
 		}
+		expected = nil
 	}
-	// SaveKeystore writes beside the old file and renames over it, so the kept
-	// path is never without a keystore.
-	return identity.RestoreKeystore(keystorePathIn(dataDir), phrase, passphrase)
+	// The new keystore is written beside the old one and renamed over it, so
+	// the kept path is never without a keystore.
+	err = identity.RestoreKeystore(ksPath, phrase, passphrase, expected)
+	switch {
+	case errors.Is(err, identity.ErrKeystoreChanged):
+		return errRestoreRaced
+	case errors.Is(err, identity.ErrKeystoreExists):
+		return errors.New("the account on this device was erased as you confirmed, but another Concord window put a new one here before the restore could; nothing was restored over it")
+	}
+	return err
 }
+
+// errRestoreRaced: the keystore changed between the restore looking at it
+// and writing. Nothing on this device was changed.
+var errRestoreRaced = errors.New("the account on this device changed while you were restoring it (another Concord window?) — nothing was changed; check what is on this device and try again")
+
+// testHookRestoreBeforeWrite runs after the restore has decided and before it
+// erases or writes. Nil outside tests.
+var testHookRestoreBeforeWrite func()

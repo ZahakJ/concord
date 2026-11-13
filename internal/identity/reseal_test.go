@@ -264,7 +264,7 @@ func TestResealAndChangeNeverLowerTheArgon2Cost(t *testing.T) {
 	}
 
 	fresh := filepath.Join(t.TempDir(), "keystore.json")
-	if err := SaveKeystore(fresh, "pw", id); err != nil {
+	if err := CreateKeystore(fresh, "pw", id); err != nil {
 		t.Fatal(err)
 	}
 	if got, def := fileCost(t, fresh), (kdfParams{argonTime, argonMemory, argonThreads}); got != def {
@@ -409,5 +409,76 @@ func TestFailedResealLeavesTheKeystoreAndRetriesNextUnlock(t *testing.T) {
 	unlockWithReseal(t, path, "pw", nil, resealHooks{})
 	if !namesAccount(mustRead(t, path), id.PublicKey()) {
 		t.Fatal("the next unlock did not retry the re-seal")
+	}
+}
+
+// Two first runs on one data directory (the desktop shell and a web build):
+// each finds no keystore and generates an account, and the second write used
+// to replace the first. The first process then ran as an account that was on
+// no disk anywhere. A first run that loses now runs as the account on disk
+// when its passphrase opens it, and fails when it does not; the keystore is
+// never overwritten.
+func TestFirstRunNeverOverwritesAKeystoreThatAppeared(t *testing.T) {
+	for _, tc := range []struct {
+		name, theirs string
+		wantErr      bool
+	}{
+		{"same passphrase", "pw", false},
+		{"other passphrase", "theirs", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "keystore.json")
+			other, _ := Generate()
+			setHooks(t, resealHooks{beforeCreate: func() {
+				if err := CreateKeystore(path, tc.theirs, other); err != nil {
+					t.Fatal(err)
+				}
+			}})
+			id, created, err := LoadOrCreate(path, "pw")
+			if tc.wantErr != (err != nil) {
+				t.Fatalf("first run that lost the race: err %v, want error %v", err, tc.wantErr)
+			}
+			onDisk, lerr := LoadKeystore(path, tc.theirs)
+			if lerr != nil || onDisk.Fingerprint() != other.Fingerprint() {
+				t.Fatalf("the other process's keystore was replaced (%v)", lerr)
+			}
+			if err == nil && (created || id.Fingerprint() != other.Fingerprint()) {
+				t.Fatalf("the losing first run runs as %s (created %v), not as the account on disk %s",
+					id.Fingerprint(), created, other.Fingerprint())
+			}
+		})
+	}
+}
+
+// ReplaceKeystore writes only over exactly the bytes it is given, and with
+// none given only where there is no file; otherwise it writes nothing.
+func TestReplaceKeystoreIsConditional(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	a, _ := Generate()
+	b, _ := Generate()
+	if err := CreateKeystore(path, "pw", a); err != nil {
+		t.Fatal(err)
+	}
+	snap := mustRead(t, path)
+	if err := CreateKeystore(path, "pw", b); !errors.Is(err, ErrKeystoreExists) {
+		t.Fatalf("create over an existing keystore: %v", err)
+	}
+	if err := ReplaceKeystore(path, "pw", b, append([]byte{}, snap[:len(snap)-1]...)); !errors.Is(err, ErrKeystoreChanged) {
+		t.Fatalf("replace with a stale snapshot: %v", err)
+	}
+	if !bytes.Equal(mustRead(t, path), snap) {
+		t.Fatal("a refused write changed the file")
+	}
+	if err := ReplaceKeystore(path, "pw", b, snap); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := LoadKeystore(path, "pw"); got == nil || got.Fingerprint() != b.Fingerprint() {
+		t.Fatal("a replace over the right snapshot did not land")
+	}
+	if err := RemoveKeystoreIfUnchanged(path, snap); !errors.Is(err, ErrKeystoreChanged) {
+		t.Fatalf("erase with a stale snapshot: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("a refused erase removed the keystore")
 	}
 }

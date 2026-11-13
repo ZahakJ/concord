@@ -23,7 +23,7 @@ func seedDevice(t *testing.T, dir, pass, name string, legacy bool) *identity.Ide
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := identity.SaveKeystore(keystorePathIn(dir), pass, id); err != nil {
+	if err := identity.CreateKeystore(keystorePathIn(dir), pass, id); err != nil {
 		t.Fatal(err)
 	}
 	if legacy {
@@ -161,7 +161,7 @@ func TestRestoreOverExistingLegacyKeystore(t *testing.T) {
 func TestRestoreOverExistingUnknownAccountNeedsConfirmation(t *testing.T) {
 	dir := t.TempDir()
 	id, _ := identity.Generate()
-	if err := identity.SaveKeystore(keystorePathIn(dir), "x", id); err != nil {
+	if err := identity.CreateKeystore(keystorePathIn(dir), "x", id); err != nil {
 		t.Fatal(err)
 	}
 	stripAccountPub(t, dir)

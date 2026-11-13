@@ -18,7 +18,7 @@ func TestPassphraseOpensInAnyUnicodeForm(t *testing.T) {
 	nfd := "U\u0308ni\u0308c\u00f8de\u0301 e\u0301 \u03bb \u0643\u0644\u0645\u0629" // decomposed accents
 	path := filepath.Join(t.TempDir(), "keystore.json")
 	id, _ := Generate()
-	if err := SaveKeystore(path, nfc, id); err != nil {
+	if err := CreateKeystore(path, nfc, id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadKeystore(path, nfd); err != nil {
@@ -29,7 +29,8 @@ func TestPassphraseOpensInAnyUnicodeForm(t *testing.T) {
 	}
 
 	// Full-width digits from an IME left in wide mode fold to ASCII.
-	if err := SaveKeystore(path, "pin 123", id); err != nil {
+	path = filepath.Join(t.TempDir(), "keystore.json")
+	if err := CreateKeystore(path, "pin 123", id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadKeystore(path, "pin １２３"); err != nil {
@@ -76,7 +77,7 @@ func sealRaw(t *testing.T, path, pass string, id *Identity) {
 func TestChangePassphrase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "keystore.json")
 	id, _ := Generate()
-	if err := SaveKeystore(path, "old one", id); err != nil {
+	if err := CreateKeystore(path, "old one", id); err != nil {
 		t.Fatal(err)
 	}
 	if err := ChangePassphrase(path, "not it", "new one"); err != ErrWrongPassphrase {
@@ -106,7 +107,7 @@ func TestChangePassphraseFailureLeavesOldKeystore(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "keystore.json")
 	id, _ := Generate()
-	if err := SaveKeystore(path, "old one", id); err != nil {
+	if err := CreateKeystore(path, "old one", id); err != nil {
 		t.Fatal(err)
 	}
 	// Block the temp file the new keystore is written to.

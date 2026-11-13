@@ -11,7 +11,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sub", "keystore.json")
 	id, _ := Generate()
 
-	if err := SaveKeystore(path, "correct horse battery staple", id); err != nil {
+	if err := CreateKeystore(path, "correct horse battery staple", id); err != nil {
 		t.Fatalf("SaveKeystore: %v", err)
 	}
 
@@ -27,7 +27,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 func TestKeystoreFileIsEncrypted(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "keystore.json")
 	id, _ := Generate()
-	if err := SaveKeystore(path, "hunter2", id); err != nil {
+	if err := CreateKeystore(path, "hunter2", id); err != nil {
 		t.Fatalf("SaveKeystore: %v", err)
 	}
 
@@ -50,7 +50,7 @@ func TestKeystoreFileIsEncrypted(t *testing.T) {
 func TestWrongPassphraseFails(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "keystore.json")
 	id, _ := Generate()
-	if err := SaveKeystore(path, "right", id); err != nil {
+	if err := CreateKeystore(path, "right", id); err != nil {
 		t.Fatalf("SaveKeystore: %v", err)
 	}
 	if _, err := LoadKeystore(path, "wrong"); err != ErrWrongPassphrase {
@@ -61,7 +61,7 @@ func TestWrongPassphraseFails(t *testing.T) {
 func TestEmptyPassphraseRejected(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "keystore.json")
 	id, _ := Generate()
-	if err := SaveKeystore(path, "", id); err == nil {
+	if err := CreateKeystore(path, "", id); err == nil {
 		t.Fatal("expected error saving with empty passphrase")
 	}
 }

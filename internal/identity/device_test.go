@@ -74,7 +74,7 @@ func TestLinkingDeviceIssuesCertForNewDevice(t *testing.T) {
 func TestDeviceSeedSurvivesSaveLoad(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "keystore.json")
 	id, _ := Generate()
-	if err := SaveKeystore(path, "pw", id); err != nil {
+	if err := CreateKeystore(path, "pw", id); err != nil {
 		t.Fatal(err)
 	}
 	got, err := LoadKeystore(path, "pw")
@@ -92,7 +92,7 @@ func TestLegacyKeystoreUpgradesToV2(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "keystore.json")
 	id, _ := Generate()
 	// Write a v1-style file: seal only the account seed, drop the device fields.
-	if err := SaveKeystore(path, "pw", id); err != nil {
+	if err := CreateKeystore(path, "pw", id); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(path)

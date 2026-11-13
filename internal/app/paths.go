@@ -5,6 +5,7 @@
 package app
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -130,7 +131,13 @@ func resetDataIn(dataDir string) error {
 // sealed under passphrase. Guilds/history/mailbox are recovered afterwards by
 // logging in and syncing. The caller must ensure no identity already exists.
 func RestoreIdentity(dataDir, phrase, passphrase string) error {
-	return identity.RestoreKeystore(keystorePathIn(dataDir), phrase, passphrase)
+	// Create-only: the caller saw no identity, and one that appeared since
+	// (another window's first unlock or restore) is not overwritten.
+	err := identity.RestoreKeystore(keystorePathIn(dataDir), phrase, passphrase, nil)
+	if errors.Is(err, identity.ErrKeystoreExists) {
+		return errors.New("an account was just put on this device from another Concord window; nothing was restored over it")
+	}
+	return err
 }
 
 // mlsDirIn returns the directory holding persistent MLS group state, creating

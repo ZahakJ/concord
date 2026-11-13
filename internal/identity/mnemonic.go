@@ -39,9 +39,11 @@ func SeedFromMnemonic(phrase string) ([]byte, error) {
 }
 
 // RestoreKeystore reconstructs an identity from a recovery phrase and writes it
-// to a new keystore sealed under passphrase. The rest of the account (guilds,
-// history, mailbox) is then recovered by logging in and syncing from peers.
-func RestoreKeystore(path, phrase, passphrase string) error {
+// sealed under passphrase, over expected: the keystore snapshot the caller
+// decided to replace, or nil when there must be none (see ReplaceKeystore).
+// The rest of the account (guilds, history, mailbox) is then recovered by
+// logging in and syncing from peers.
+func RestoreKeystore(path, phrase, passphrase string, expected []byte) error {
 	seed, err := SeedFromMnemonic(phrase)
 	if err != nil {
 		return err
@@ -50,5 +52,5 @@ func RestoreKeystore(path, phrase, passphrase string) error {
 	if err != nil {
 		return err
 	}
-	return SaveKeystore(path, passphrase, id)
+	return ReplaceKeystore(path, passphrase, id, expected)
 }

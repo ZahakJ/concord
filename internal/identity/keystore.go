@@ -103,26 +103,17 @@ func passphraseForms(p string) []string {
 	return out
 }
 
-// SaveKeystore encrypts id's seed under passphrase and writes it to path,
-// creating parent directories as needed. The file is written 0600.
-func SaveKeystore(path, passphrase string, id *Identity) error {
-	if passphrase == "" {
-		return errors.New("identity: passphrase must not be empty")
-	}
-	if dir := filepath.Dir(path); dir != "" {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return fmt.Errorf("identity: create keystore dir: %w", err)
-		}
-	}
-	unlock, err := lockKeystore(path)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	return saveKeystoreLocked(path, passphrase, id, nil)
+// CreateKeystore seals id under passphrase and writes it to path, creating
+// parent directories as needed, but only if no keystore is there:
+// otherwise ErrKeystoreExists and nothing is written. The file is 0600.
+// There is deliberately no unconditional write: replacing a keystore goes
+// through ReplaceKeystore with the bytes the caller decided on.
+func CreateKeystore(path, passphrase string, id *Identity) error {
+	return ReplaceKeystore(path, passphrase, id, nil)
 }
 
-// saveKeystoreLocked is SaveKeystore for a caller holding the keystore lock.
+// saveKeystoreLocked writes the keystore, for a caller holding the keystore
+// lock that has checked the file is what it expected.
 // prev is the keystore being replaced, as decrypted, or nil: its Argon2 cost
 // is a floor for the new one (see sealParams).
 func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte) error {
@@ -309,6 +300,7 @@ type resealHooks struct {
 	beforeReseal  func() // the unlock has decrypted the file and decided to re-seal
 	resealChecked func() // under the lock, the re-seal found the file unchanged
 	resealDone    func() // the re-seal has written, or declined to
+	beforeCreate  func() // first run found no keystore and is about to create one
 }
 
 var testHooks resealHooks
@@ -322,6 +314,12 @@ func (h resealHooks) before() {
 func (h resealHooks) checked() {
 	if h.resealChecked != nil {
 		h.resealChecked()
+	}
+}
+
+func (h resealHooks) create() {
+	if h.beforeCreate != nil {
+		h.beforeCreate()
 	}
 }
 
@@ -572,7 +570,20 @@ func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
 	if err != nil {
 		return nil, false, err
 	}
-	if err := SaveKeystore(path, passphrase, id); err != nil {
+	testHooks.create()
+	err = CreateKeystore(path, passphrase, id)
+	if errors.Is(err, ErrKeystoreExists) {
+		// Another window or process created (or restored) an account here
+		// between our finding none and our writing. Theirs is on disk; run as
+		// that one if this passphrase opens it, and never as the account we
+		// just generated, which exists nowhere.
+		id, _, err = openKeystore(path, passphrase)
+		if err != nil {
+			return nil, false, err
+		}
+		return id, false, nil
+	}
+	if err != nil {
 		return nil, false, err
 	}
 	return id, true, nil
