@@ -150,8 +150,8 @@ func mlsDirIn(dataDir string) (string, error) {
 }
 
 // ChangePassphrase re-seals the keystore in dataDir under next after proving
-// current opens it. See identity.ChangePassphrase for why a failure part-way
+// current opens it and that it holds account, the signed-in one. See identity.ChangePassphrase for why a failure part-way
 // leaves the old keystore readable.
-func ChangePassphrase(dataDir, current, next string) error {
-	return identity.ChangePassphrase(keystorePathIn(dataDir), current, next)
+func ChangePassphrase(dataDir string, account []byte, current, next string) error {
+	return identity.ChangePassphraseOf(keystorePathIn(dataDir), account, current, next)
 }

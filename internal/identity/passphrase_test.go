@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -141,5 +142,26 @@ func TestAccountPubReadableWithoutPassphrase(t *testing.T) {
 	pub, err := ReadAccountPub(path)
 	if err != nil || !bytes.Equal(pub, id.PublicKey()) {
 		t.Fatalf("after unlock: got %x, %v; want %x", pub, err, id.PublicKey())
+	}
+}
+
+// A signed-in passphrase change re-keys only the signed-in account. If the
+// keystore now holds another account (restored or linked here from another
+// window, under the same passphrase), it is refused and nothing changes.
+func TestChangePassphraseOfRefusesAnotherAccount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	signedIn, _ := Generate()
+	other, _ := Generate()
+	if err := CreateKeystore(path, "pw", other); err != nil {
+		t.Fatal(err)
+	}
+	if err := ChangePassphraseOf(path, signedIn.PublicKey(), "pw", "new"); !errors.Is(err, ErrNotThisAccount) {
+		t.Fatalf("change for the signed-in account over another account's keystore: %v", err)
+	}
+	if _, err := LoadKeystore(path, "pw"); err != nil {
+		t.Fatalf("a refused change touched the keystore: %v", err)
+	}
+	if err := ChangePassphraseOf(path, other.PublicKey(), "pw", "new"); err != nil {
+		t.Fatalf("change for the account the keystore holds: %v", err)
 	}
 }

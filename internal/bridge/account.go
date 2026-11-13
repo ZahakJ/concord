@@ -142,7 +142,8 @@ func codeReplace(err error) error {
 // Needs an unlocked session AND the current passphrase: an unlocked window
 // left on a desk must not be enough to lock its owner out.
 func (b *Bridge) ChangePassphrase(current, next string) error {
-	if _, err := b.service(); err != nil {
+	svc, err := b.service()
+	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(next) == "" {
@@ -154,9 +155,12 @@ func (b *Bridge) ChangePassphrase(current, next string) error {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if err := appsvc.ChangePassphrase(dir, current, next); err != nil {
+	if err := appsvc.ChangePassphrase(dir, svc.PublicKey(), current, next); err != nil {
 		if errors.Is(err, identity.ErrWrongPassphrase) {
 			return wrongPassphrase()
+		}
+		if errors.Is(err, identity.ErrNotThisAccount) {
+			return errors.New("the account stored on this device is no longer the one you're signed in as — another Concord window restored or linked a different one. Nothing was changed; sign out and check")
 		}
 		return err
 	}

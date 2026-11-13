@@ -340,6 +340,19 @@ func namesAccount(blob []byte, pub ed25519.PublicKey) bool {
 // instant exactly one complete keystore is on disk, sealed under one of the
 // two passphrases.
 func ChangePassphrase(path, oldPass, newPass string) error {
+	return ChangePassphraseOf(path, nil, oldPass, newPass)
+}
+
+// ErrNotThisAccount: the keystore on disk holds an account other than the
+// one the caller is signed in as.
+var ErrNotThisAccount = errors.New("identity: the keystore on this device is not the signed-in account")
+
+// ChangePassphraseOf is ChangePassphrase for a signed-in session: it re-seals
+// the keystore only if it holds account. Another window or process can have
+// restored or linked a different account here under the same passphrase,
+// and re-keying that one would tell the user their passphrase changed when
+// the account they are using was not touched.
+func ChangePassphraseOf(path string, account ed25519.PublicKey, oldPass, newPass string) error {
 	if newPass == "" {
 		return errors.New("identity: passphrase must not be empty")
 	}
@@ -351,6 +364,9 @@ func ChangePassphrase(path, oldPass, newPass string) error {
 	id, opened, err := openKeystore(path, oldPass)
 	if err != nil {
 		return err
+	}
+	if account != nil && !bytes.Equal(id.PublicKey(), account) {
+		return ErrNotThisAccount
 	}
 	if err := checkExpected(path, opened); err != nil {
 		return err
