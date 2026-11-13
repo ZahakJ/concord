@@ -282,6 +282,9 @@ export const S = $state({
     // round to it.
     audioDeadNoticed: false,
     hideCallIp: false, // on = force call media through TURN (hide IP from peers)
+    // on (the default) = a call never asks a public STUN server for this
+    // device's address, only the rendezvous's own servers (lib/callice.js)
+    noThirdPartyIce: true,
     theme: "dark",
     accent: "",
     // A soft blip when a message lands in the channel already on screen. OFF:

@@ -744,8 +744,11 @@
       // ICE config. We fetch a TURN relay from this same origin and, when one
       // exists, FORCE-RELAY the guest's media: a meeting link must never hand the
       // stranger who clicked it your real IP. If there's no relay we fall back to
-      // a direct call (the historic behaviour) rather than failing to connect.
-      let ICE = [{ urls: "stun:stun.l.google.com:19302" }];
+      // a direct call rather than failing outright. The only ICE servers this
+      // page ever uses are the ones this node serves: it asks no third party for
+      // the guest's address, so a guest behind a home router reaches a host
+      // behind another only through this node's STUN responder or relay.
+      let ICE = [];
       let relayOnly = false;
       async function loadIce() {
         try {
@@ -755,7 +758,7 @@
           if (cfg?.iceServers?.length) {
             ICE = cfg.iceServers;
             relayOnly = cfg.iceServers.some((s) =>
-              (s.urls || []).some((u) => String(u).startsWith("turn:")),
+              [].concat(s.urls || []).some((u) => String(u).startsWith("turn:")),
             );
           }
         } catch {

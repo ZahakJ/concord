@@ -253,7 +253,7 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);f
     configure — but <em>nearly</em> is not <em>only</em>. Naming the exceptions is the point of this
     section, and this list is exhaustive.</p>
 
-  <h3>Two that can happen without you asking</h3>
+  <h3>One that can happen without you asking</h3>
   <ul>
     <li><b>api.github.com, once at launch, on desktop and web only.</b> The app asks the project's
       own repository for its latest release tag so it can tell you an update exists. It is
@@ -265,13 +265,16 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);f
       GitHub release has no other route to a fix; nothing happens until they press it. A build
       installed from Google Play does not offer it at all — the store owns updates there, and the app
       asks the running install where it came from to decide.</li>
-    <li><b>stun.l.google.com, at call time only.</b> Starting a call needs to learn your own external
-      address, and this public STUN server is how the app finds it. It is the fallback when your
-      rendezvous serves no ICE configuration, and the rendezvous this project ships lists it too,
-      beside its own TURN relay, in the configuration it does serve — so a call reaches it either
-      way. It learns your IP and that you are starting a call — no media, no identity, no
-      group, and nothing at all if you never place a call.</li>
   </ul>
+  <p><b>A call contacts no third party unless you ask for it.</b> To connect two people who are both
+    behind home routers, each side has to learn its own external address when a call starts. The app
+    used to ask a public STUN server (<code>stun.l.google.com</code>) for it, which told that server
+    your IP every time you started a call. It no longer does. If your rendezvous runs its own STUN
+    responder, it answers the question and nobody else is asked. If it does not, nobody is asked:
+    the call connects directly when one of you can be reached as you are, goes through your
+    rendezvous's relay when it has one, and otherwise does not connect. <em>Settings → Privacy &amp;
+    safety → No third-party call servers</em> is on by default; switching it off brings the public
+    server back for that device, and only when your rendezvous has no responder of its own.</p>
 
   <h3>Two searches that are yours to switch on or off</h3>
   <p>These are the only two features where something you type is sent to a search service. Both are

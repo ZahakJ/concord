@@ -115,7 +115,7 @@ Nearly every connection the app makes is to your peers or to whatever rendezvous
 node you configure — but *nearly* is not *only*. Naming the exceptions is the
 point of this section. This list is exhaustive.
 
-### Two that can happen without you asking
+### One that can happen without you asking
 
 - **`api.github.com`, once at launch, on desktop and web only.** The app asks
   the project's own repo (`ZahakJ/concord`) for its latest release tag so it can
@@ -133,19 +133,27 @@ point of this section. This list is exhaustive.
   install where it came from to decide. See
   [`internal/bridge/update.go`](internal/bridge/update.go) and
   [`frontend/src/lib/installsource.js`](frontend/src/lib/installsource.js).
-- **`stun.l.google.com`, at call time only.** Starting a call needs to learn
-  your own external address, and this public STUN server is how the app finds
-  it. It is the fallback when your rendezvous serves no ICE configuration, and
-  the rendezvous this project ships lists it too, beside its own TURN relay, in
-  the configuration it does serve — so a call reaches it either way. It learns
-  your IP and that you are starting a call — no media, no identity, no group,
-  and nothing at all if you never place a call. See
-  [`internal/app/ice.go`](internal/app/ice.go) and
-  [`cmd/rendezvous/turn.go`](cmd/rendezvous/turn.go).
 
-Neither can be switched off from the UI today. DESIGN.md covers the same two
-in architectural terms ([§1](docs/DESIGN.md#1-the-problem-and-the-thesis),
-[§9.2](docs/DESIGN.md#92-ip-privacy-the-state-of-it)).
+It cannot be switched off from the UI today.
+
+**A call contacts no third party unless you ask for it.** To connect two people
+who are both behind home routers, each side has to learn its own external
+address when a call starts. The app used to ask a public STUN server
+(`stun.l.google.com`) for it, and the rendezvous this project ships listed the
+same server, so every call start told that server the caller's IP. Neither
+happens now. If your rendezvous runs its own STUN responder
+(`CONCORD_STUN_PORT`), it answers the question and nobody else is asked. If it
+does not, nobody is asked: the call connects directly when one of you can be
+reached as you are, goes through your rendezvous's relay when it has one, and
+otherwise does not connect. **Settings → Privacy & safety → No third-party call
+servers** is on by default; switching it off brings the public server back for
+that device, and only when your rendezvous has no responder of its own. It then
+learns your IP and that you are starting a call — no media, no identity, no
+group. A browser guest on a meeting link never asks it. See
+[`frontend/src/lib/callice.js`](frontend/src/lib/callice.js),
+[`cmd/rendezvous/turn.go`](cmd/rendezvous/turn.go) and
+[`cmd/rendezvous/stun.go`](cmd/rendezvous/stun.go); DESIGN.md covers it in
+architectural terms ([§9.2](docs/DESIGN.md#92-ip-privacy-the-state-of-it)).
 
 ### Two searches that are yours to switch on or off
 

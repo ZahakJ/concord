@@ -239,8 +239,9 @@ func serveGuestGateway(ctx context.Context, h host.Host, ts *turnServer) {
 	// Public booking page + its request relay (see booking.go). Shares this
 	// door because it IS the same door: plain HTTPS in, libp2p to the host out.
 	registerBookingGateway(ctx, mux, h)
-	// TURN credentials for IP-private calls. Present only when TURN is enabled;
-	// returns fresh time-windowed creds (see turn.go).
+	// ICE configuration for calls: this node's STUN responder and/or its TURN
+	// relay with fresh time-windowed creds (see turn.go). Present only when at
+	// least one of the two is on.
 	if ts != nil {
 		mux.HandleFunc("/turn", ts.handleTURNCreds)
 	}

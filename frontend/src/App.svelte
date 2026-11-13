@@ -8,6 +8,7 @@
   import { precacheCosmetics } from "./lib/cosmetics.svelte.js";
   import { precacheEmoji } from "./lib/emojifull.svelte.js";
   import { api, leaveVoiceOnUnload } from "./lib/api.js";
+  import { callIce } from "./lib/callice.js";
   import { createVisibilityReporter } from "./lib/visibility.js";
   import { windowTitle } from "./lib/readstate.js";
   import { flushOutbox } from "./lib/outbox.svelte.js";
@@ -1431,11 +1432,12 @@
     const kind =
       S.guilds.find((g) => g.channels?.some((c) => c.id === channelId))?.kind ??
       S.guilds.find((g) => g.id === S.activeGuildId)?.kind;
-    let iceServers;
+    const noThirdParty = S.prefs.noThirdPartyIce !== false;
+    let iceServers = callIce(null, { noThirdParty });
     let forceRelay = false;
     try {
       const cfg = await api.callIceServers();
-      iceServers = cfg?.iceServers;
+      iceServers = callIce(cfg?.iceServers, { noThirdParty });
       const wantRelay = kind === "meeting" || S.prefs.hideCallIp === true;
       forceRelay = wantRelay && cfg?.relayAvailable === true;
       if (S.prefs.hideCallIp === true && !cfg?.relayAvailable && !hidIpNotice) {
@@ -1446,7 +1448,7 @@
         );
       }
     } catch {
-      // stay on defaults (plain STUN, no relay)
+      // stay on the default (no relay, and no server at all unless the user allowed the public one)
     }
 
     const mesh = new VoiceMesh({

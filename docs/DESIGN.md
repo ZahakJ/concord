@@ -1424,13 +1424,19 @@ public IP, any small VPS, and point the TURN settings at it. That is the whole
 fix: privacy or connectivity, decided by whether your host will let a relay be a
 relay.
 
-One more note about outbound contact during a call. When no rendezvous supplies
-ICE configuration, the fallback is a public Google STUN server, contacted at call
-time to learn your own external address; the configuration the shipped
-rendezvous does supply lists the same server beside its TURN relay, so a call
-reaches it either way. It fetches no assets and reveals nothing
-but your IP and the fact that you are starting a call, but it is a third party,
-it is hardcoded, and this document would be dishonest not to name it.
+One more note about outbound contact during a call. Two peers behind NAT need
+each side's external address, and a browser only learns that from a STUN server.
+The rendezvous can be that server (`cmd/rendezvous/stun.go`: UDP, Binding only,
+off unless `CONCORD_STUN_PORT` is set, independent of the relay), and when it
+is, a call asks nobody else. When it is not, a call asks nobody at all: two
+peers behind NAT then relay through the rendezvous or, with no relay, do not
+connect. The app used to add a public Google STUN server here, and the shipped
+rendezvous listed the same one, so every call start told a third party the
+caller's IP. That server is now behind a switch the user owns, **No third-party
+call servers** in Privacy & safety, on by default
+(`frontend/src/lib/callice.js`); the rendezvous never lists it. The price of the
+default is connectivity on a rendezvous that has not opened the one UDP port,
+and it is paid there rather than in telling a company who is calling.
 
 **A future optional SFU**, a *selective forwarding unit*, which forwards frames
 without decoding them, could scale rooms beyond what a mesh allows while

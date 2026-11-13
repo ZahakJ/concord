@@ -34,7 +34,7 @@ The details live on the pages for each topic:
 
 ### Privacy & safety at a glance
 
-The **What leaves this device** group lists every feature that makes a request outside your conversations, each with its own switch: **Link previews**, **Game title search**, **Game box art**, **GIF search**, **Hide my IP on calls** and **Rich presence**. **Typing indicators** works both ways: turn it off and you stop sending them and stop seeing other people's. Under **Deleted messages**, **Show deleted messages** leaves a faint marker where a message was removed, and **Empty trash** erases the text kept for deleted messages. **People** holds **Message requests** and **Blocked users**; blocking hides someone on this device only.
+The **What leaves this device** group lists every feature that makes a request outside your conversations, each with its own switch: **Link previews**, **Game title search**, **Game box art**, **GIF search**, **Hide my IP on calls**, **No third-party call servers** and **Rich presence**. **Typing indicators** works both ways: turn it off and you stop sending them and stop seeing other people's. Under **Deleted messages**, **Show deleted messages** leaves a faint marker where a message was removed, and **Empty trash** erases the text kept for deleted messages. **People** holds **Message requests** and **Blocked users**; blocking hides someone on this device only.
 
 ## Appearance
 
