@@ -484,6 +484,9 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 	if err := s.migrateExpires(); err != nil {
 		return err
 	}
+	if err := s.migrateProfileRecords(); err != nil {
+		return err
+	}
 	// Index on (channel_id, updated) — added after the column exists. Without it,
 	// MAX(updated) per channel is a full-partition scan; LatestTimestamp runs per
 	// channel on every sync and presence refresh.

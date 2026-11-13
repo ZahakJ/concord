@@ -102,6 +102,14 @@ type helloFrame struct {
 	// reached it. Merged like any remote marker (max, capped by readSkew).
 	// Older builds neither send nor read it.
 	ReadMarks map[string]int64 `json:"readMarks,omitempty"`
+	// ProfileAt is the edit stamp of the profile record we could hand this
+	// peer's account over the profile stream (profilerecord.go): our own stamp
+	// to a device of our account, and to a member the stamp of the record they
+	// announced to us. It is how a device restored from its phrase, which knows
+	// nobody, learns that someone it never asked holds its profile. Sent only
+	// to a peer the connection authenticates as that account; older builds
+	// neither send nor read it.
+	ProfileAt int64 `json:"profileAt,omitempty"`
 }
 
 // helloTimeout bounds one exchange. A hello is an optimization, not a step in
@@ -175,6 +183,7 @@ func (s *Service) greet(p peer.ID) {
 		Left:         s.leftGuildsFor(p),
 		Arrived:      s.arrivalsFor(p),
 		ReadMarks:    s.readMarksFor(p),
+		ProfileAt:    s.profileHintFor(p),
 	})
 	if err != nil {
 		return
@@ -268,6 +277,7 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	out.Left = s.leftGuildsFor(from)
 	out.Arrived = s.arrivalsFor(from)
 	out.ReadMarks = s.readMarksFor(from)
+	out.ProfileAt = s.profileHintFor(from)
 	if out.Revoked == nil && s.canPlace(from) {
 		out.Credential, out.Name = s.myCredential, s.deviceLabel()
 		out.AppVersion = version.Version
@@ -310,8 +320,22 @@ func (s *Service) profileForDevice(p peer.ID) *Profile {
 	if sp.UpdatedAt == 0 {
 		return nil // never edited: nothing to converge on
 	}
+	// A profile with pictures does not fit: the hello frame is capped at 64 KiB
+	// by every build that reads it, and a banner alone may be 256 KiB. Sending
+	// it anyway made the writer refuse the whole frame, and the guild invites
+	// and read marks riding with it never arrived either. Past the budget the
+	// profile is left out — a device on this build fetches it over the profile
+	// stream on the ProfileAt hint; an older one gets what it got before, which
+	// was nothing.
+	if b, err := json.Marshal(sp); err != nil || len(b) > helloProfileBudget {
+		return nil
+	}
 	return &sp
 }
+
+// helloProfileBudget is the most of the hello frame the inline profile may
+// take, leaving room for invites, read marks and the certificate.
+const helloProfileBudget = 32 << 10
 
 // adoptOfferedProfile applies a profile that rode in on a hello. The receive-
 // side gate is everything here: only a peer that PROVED itself a device of
@@ -401,7 +425,12 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 			s.followSiblingLeaves(from, f.Left)
 			s.redeemOfferedInvites(from, f.GuildInvites, f.Arrived)
 		}()
-		go s.adoptOfferedProfile(from, f.Profile)
+		go func() {
+			// The inline copy first: when it is there it is the same profile,
+			// and adopting it makes the stamp the hint is compared with current.
+			s.adoptOfferedProfile(from, f.Profile)
+			s.fetchOwnProfile(from, f.ProfileAt)
+		}()
 		go s.adoptOfferedReadMarks(from, f.ReadMarks)
 	}()
 	// A revocation naming THIS device is the one thing we act on before anything

@@ -426,6 +426,12 @@ type Service struct {
 	// once and is placed; an outsider spamming a gossip topic pays us nothing
 	// more than that one refused stream.
 	solicited greetSet
+	// profileAsked: the peers we have asked for our own profile record on their
+	// current connection (profilerecord.go). The ask is prompted by a hint the
+	// peer itself sent, so it is held to one per connection.
+	profileAsked greetSet
+	// profileSeal caches the sealed signature of the profile we announce.
+	profileSeal profileSealCache
 
 	// reaching holds the own-account devices we currently have a dial in flight
 	// for (devices.go), so an unreachable phone costs one attempt at a time
@@ -1218,6 +1224,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// "Here is which account I belong to." The one thing a linked device's PeerID
 	// cannot say for itself — see hello.go.
 	host.HandleHello(s.handleHello)
+	host.HandleProfile(s.handleProfileRequest)
 
 	// Serve history catch-up requests from reconnecting peers.
 	host.HandleSync(s.handleSyncRequest)
@@ -1329,6 +1336,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		s.greeted.release(p)
 		s.answered.release(p)
 		s.solicited.release(p)
+		s.profileAsked.release(p)
 		s.markDeviceLeft(p)
 		s.emitPeerDown(p, s.presence(p))
 	})
@@ -1849,6 +1857,30 @@ func (s *Service) SetDisplayName(name string) error {
 	s.bumpProfileStamp()
 	s.announceProfileAll()
 	s.regreetOwnDevices()
+	return nil
+}
+
+// SetProvisionalName names a device restored from its recovery phrase while
+// its real profile has not been found yet. Unlike SetDisplayName it is not an
+// edit: the stamp stays at zero, so the account's real profile — from another
+// of its devices or a member who holds its record — still wins the moment it
+// arrives, and nothing is offered to the account's other devices meanwhile. A
+// name typed on the restore screen used to be stamped as the newest edit of the
+// whole profile, with every other field blank, and the next device it met
+// adopted it: one restore wiped the avatar, bio and status everywhere.
+// Refused once the profile has a stamp: then it is an edit like any other.
+func (s *Service) SetProvisionalName(name string) error {
+	name, err := cleanDisplayName(name)
+	if err != nil {
+		return err
+	}
+	if s.profileStamp() != 0 {
+		return errors.New("app: this account already has a profile; edit it instead")
+	}
+	if err := s.store.SetSetting("display_name", name); err != nil {
+		return err
+	}
+	s.emitGuildUpdate()
 	return nil
 }
 

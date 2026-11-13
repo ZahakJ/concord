@@ -2131,25 +2131,30 @@ type guildMeta struct {
 	// Opener is a new post's opening message, carried in its channel_added
 	// (CreateThread). An older peer ignores it and gets the message from the
 	// channel's own topic, or failing that from sync, as before.
-	Opener      *domain.Message    `json:"opener,omitempty"`
-	Category    domain.Category    `json:"category,omitempty"`
-	Fingerprint string             `json:"fingerprint,omitempty"`
-	Name        string             `json:"name,omitempty"`
-	Status      string             `json:"status,omitempty"`
-	Emoji       string             `json:"emoji,omitempty"`
-	Color       string             `json:"color,omitempty"`
-	Avatar      string             `json:"avatar,omitempty"`
-	Banner      string             `json:"banner,omitempty"` // user profile banner (not the guild banner below)
-	Presence    string             `json:"presence,omitempty"`
-	Bio         string             `json:"bio,omitempty"`
-	MailboxPub  []byte             `json:"mbx,omitempty"`
-	Activity    *Activity          `json:"activity,omitempty"`  // profile + activity: structured now-playing
-	Games       []Game             `json:"games,omitempty"`     // profile: curated game collection
-	Color2      string             `json:"color2,omitempty"`    // profile: gradient partner color
-	Frame       string             `json:"frame,omitempty"`     // profile: avatar frame enum id
-	Effect      string             `json:"effect,omitempty"`    // profile: card effect enum id
-	Style       *Style             `json:"style,omitempty"`     // profile: fine-grained style dials
-	UpdatedAt   int64              `json:"updatedAt,omitempty"` // profile: owner's edit stamp (Profile.UpdatedAt)
+	Opener      *domain.Message `json:"opener,omitempty"`
+	Category    domain.Category `json:"category,omitempty"`
+	Fingerprint string          `json:"fingerprint,omitempty"`
+	Name        string          `json:"name,omitempty"`
+	Status      string          `json:"status,omitempty"`
+	Emoji       string          `json:"emoji,omitempty"`
+	Color       string          `json:"color,omitempty"`
+	Avatar      string          `json:"avatar,omitempty"`
+	Banner      string          `json:"banner,omitempty"` // user profile banner (not the guild banner below)
+	Presence    string          `json:"presence,omitempty"`
+	Bio         string          `json:"bio,omitempty"`
+	MailboxPub  []byte          `json:"mbx,omitempty"`
+	Activity    *Activity       `json:"activity,omitempty"`  // profile + activity: structured now-playing
+	Games       []Game          `json:"games,omitempty"`     // profile: curated game collection
+	Color2      string          `json:"color2,omitempty"`    // profile: gradient partner color
+	Frame       string          `json:"frame,omitempty"`     // profile: avatar frame enum id
+	Effect      string          `json:"effect,omitempty"`    // profile: card effect enum id
+	Style       *Style          `json:"style,omitempty"`     // profile: fine-grained style dials
+	UpdatedAt   int64           `json:"updatedAt,omitempty"` // profile: owner's edit stamp (Profile.UpdatedAt)
+	// ProfileSeal is the account-key signature over this profile, sealed so
+	// only the account can open it (profilerecord.go). Members keep it to hand
+	// the account its profile back after a phrase restore. Older builds neither
+	// send nor read it.
+	ProfileSeal []byte             `json:"pseal,omitempty"`
 	CustomEmoji domain.CustomEmoji `json:"customEmoji,omitempty"`
 	// Gif carries a guild GIF-pack record (gifs.go). Only the reference travels
 	// here — the image itself is an encrypted attachment blob, fetched out of
@@ -2239,6 +2244,7 @@ func (s *Service) applyProfileMeta(guildID, actor string, m guildMeta) {
 	if s.learnProfile(actor, profileFromFrame(m)) {
 		s.announceProfileForce(guildID)
 	}
+	s.keepProfileRecord(actor, profileFromFrame(m), m.ProfileSeal)
 }
 
 // profileFrame and profileFromFrame are the profile announce's encoder and its
@@ -2352,6 +2358,7 @@ func (s *Service) publishProfile(guildID string, force bool) bool {
 		return false
 	}
 	meta := profileFrame(s.selfWireProfile(), s.id.Fingerprint())
+	meta.ProfileSeal = s.profileSealFor(profileFromFrame(meta))
 	payload, _ := json.Marshal(meta)
 	// The nickname rides along, so it is part of what "unchanged" means.
 	nick := s.NickOf(guildID, s.id.Fingerprint())
