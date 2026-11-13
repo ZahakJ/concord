@@ -10,6 +10,7 @@
   import { confettiBurst } from "./lib/burst.js";
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import { finishUnlock } from "./lib/unlock.js";
+  import { foundName, keepTypedArgs, restoreStep } from "./lib/restoreprofile.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import Icon from "./Icon.svelte";
   import PassphraseField from "./PassphraseField.svelte";
@@ -274,10 +275,55 @@
     if (d.device) device = d.device;
   }
 
-  // naming: a restore left this device's account without a name (a recovery
-  // phrase carries none), so ask for one before going in — otherwise everyone
-  // it talks to sees a four-character fingerprint stub.
+  // naming: a restore left this device's account without a profile (a
+  // recovery phrase carries the key and nothing else). The core is already
+  // unlocked and asking the account's other devices and its guild-mates for
+  // the profile the account signed (internal/app/profilerecord.go); this step
+  // says so, shows it when it comes back, and lets the user go in without it.
+  //
+  // It used to ask for a name and save it as a full profile edit — name set,
+  // everything else blank, stamped newest — and the next device of the account
+  // it met adopted that, so a restore wiped the avatar, bio and status
+  // everywhere. A name typed here is now provisional (SetProvisionalName): it
+  // names this device until the real profile turns up, and loses to it.
   let naming = $state(false);
+  let foundId = $state(null); // the identity once a profile has come back
+  let provisional = $state(""); // the name this step saved for now
+  let waitedOut = $state(false); // looked for a while and found nothing yet
+  let watchTimer = 0;
+  const found = $derived(foundName(foundId));
+  const findStep = $derived(restoreStep({ found, typed: displayName, provisional }));
+
+  // Polls the unlocked core for the profile. One cheap call a second, only
+  // while this step is up; the step is left by Continue or Skip, never by the
+  // profile arriving, so nothing the user is in the middle of typing moves.
+  function watchForProfile() {
+    clearInterval(watchTimer);
+    const began = Date.now();
+    watchTimer = setInterval(async () => {
+      if (!naming) return clearInterval(watchTimer);
+      try {
+        const me = await api.identity();
+        if (foundName(me) && foundName(me) !== provisional) foundId = me;
+      } catch {}
+      if (Date.now() - began > 45000) waitedOut = true;
+    }, 1000);
+  }
+  $effect(() => () => clearInterval(watchTimer));
+
+  async function leaveNaming() {
+    naming = false;
+    clearInterval(watchTimer);
+    await enter();
+  }
+
+  // The rendezvous field on the restore screen. A phrase carries no settings,
+  // so a restored device is a fresh install that knows no node to meet its
+  // other devices or guild-mates through. Prefilled with what this device has
+  // saved, else the build's default; an invite code works too (its rendezvous
+  // list is taken, the guild is not joined).
+  let rdvInput = $state("");
+  let rdvBuiltIn = $state(false);
 
   // After CREATING a fresh identity we hold the door and make the user save
   // their 24-word recovery phrase — it's the only way back into the account.
@@ -382,6 +428,12 @@
     error = "";
     try {
       const phrase = restorePhrase.trim();
+      try {
+        await api.setRendezvousInput(rdvInput);
+      } catch (err) {
+        fail(err, "rdv");
+        return;
+      }
       if (hasIdentity) {
         // The forgot-passphrase recovery, over an account that is still here.
         // Ask the core what this phrase would do BEFORE doing it: the same
@@ -414,6 +466,8 @@
       if (await isNameless()) {
         naming = true;
         restoring = false;
+        displayName = "";
+        watchForProfile();
         return;
       }
       await enter();
@@ -435,15 +489,36 @@
     }
   }
 
+  // saveName is Continue on the restore step. Its meaning follows what has
+  // come back: nothing yet → the typed name is provisional; the profile is
+  // back → go in as it; a different name typed → only "Keep" (keepTyped) makes
+  // that an edit, and then with everything else that came back kept.
   async function saveName(e) {
     e?.preventDefault();
+    if (busy) return;
+    if (findStep === "found") return leaveNaming();
+    if (findStep === "conflict") return;
     const nm = displayName.trim();
-    if (!hasVisible(nm) || busy) return;
+    if (!hasVisible(nm)) return;
     busy = true;
     try {
-      await api.setProfile(nm, "", "", "", "");
-      naming = false;
-      await enter();
+      await api.setProvisionalName(nm);
+      provisional = nm;
+      await leaveNaming();
+    } catch (err) {
+      fail(err, "");
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function keepTyped() {
+    if (busy) return;
+    busy = true;
+    try {
+      const me = await api.identity();
+      await api.setProfile(...keepTypedArgs(me, displayName.trim()));
+      await leaveNaming();
     } catch (err) {
       fail(err, "");
     } finally {
@@ -480,6 +555,12 @@
         device = null;
       }
     }
+    try {
+      const r = await api.getRestoreRendezvous();
+      const saved = r?.saved || [];
+      rdvBuiltIn = !saved.length && !!r?.builtIn?.length;
+      rdvInput = (saved.length ? saved : r?.builtIn || []).join("\n");
+    } catch {}
     checked = true;
     if (resumeBackup) return;
     bioCanEnroll = await bioAvailable();
@@ -581,7 +662,11 @@
         : !checked
           ? "Concord"
           : naming
-            ? "What should people call you?"
+            ? findStep === "waiting"
+              ? "Finding your profile"
+              : findStep === "found"
+                ? `Welcome back, ${found}`
+                : "Which name?"
             : replaceAsk
               ? "Before anything is erased"
               : offerBio
@@ -649,21 +734,51 @@
       <div class="error slot" role="alert">{error}</div>
       <button class="primary" type="submit" disabled={!passphrase || busy}>Show my recovery phrase</button>
     {:else if naming}
-      <p class="muted">
-        Your account is back. What should people call you? A recovery phrase
-        carries no name, so this device doesn't have one yet.
-      </p>
-      <input
-        type="text"
-        placeholder="Your name (what people see)"
-        aria-label="Your name"
-        maxlength="32"
-        autocomplete="off"
-        bind:value={displayName}
-        use:focusOnMount={{ skip: S.isMobile }}
-      />
-      <div class="error slot" role="alert">{error}</div>
-      <button class="primary" type="submit" disabled={!hasVisible(displayName) || busy}>Continue</button>
+      {#if findStep === "waiting"}
+        <p class="muted find-status" role="status">
+          {#if !waitedOut}
+            <span class="ls-spin" aria-hidden="true"></span>
+            Your account is back. Looking for your profile on your other devices and guild-mates…
+          {:else}
+            Nothing yet. It fills in by itself when one of your devices or guild-mates is online —
+            you don't have to wait here.
+          {/if}
+        </p>
+        <span class="field-lbl" aria-hidden="true">Your name for now (optional)</span>
+        <input
+          type="text"
+          placeholder="Shown until your profile comes back"
+          aria-label="Your name"
+          maxlength="32"
+          autocomplete="off"
+          bind:value={displayName}
+        />
+        <div class="error slot" role="alert">{error}</div>
+        <button class="primary" type="submit" disabled={!hasVisible(displayName) || busy}>Continue</button>
+        <button type="button" class="link" onclick={leaveNaming}>Skip for now</button>
+      {:else if findStep === "found"}
+        <div class="found" role="status">
+          {#if foundId?.avatar}
+            <img class="found-av" src={foundId.avatar} alt="" />
+          {:else if foundId?.emoji}
+            <span class="found-av emoji" aria-hidden="true">{foundId.emoji}</span>
+          {/if}
+          <span class="found-txt">
+            <strong class="found-name">{found}</strong>
+            <span class="muted small">Your profile came back from another of your devices or a guild-mate.</span>
+          </span>
+        </div>
+        <div class="error slot" role="alert">{error}</div>
+        <button class="primary" type="submit" disabled={busy}>Continue</button>
+      {:else}
+        <p class="muted">
+          Your profile came back as <strong>{found}</strong>, and you typed
+          <strong>{displayName.trim()}</strong>. Which should people see?
+        </p>
+        <div class="error slot" role="alert">{error}</div>
+        <button class="primary" type="button" disabled={busy} onclick={leaveNaming}>Use {found}</button>
+        <button type="button" class="ghost" disabled={busy} onclick={keepTyped}>Keep {displayName.trim()}</button>
+      {/if}
     {:else if replaceAsk}
       <!-- The core refused to put an account on this device because it would
            erase the one here. This is the only place that can say yes, and it
@@ -956,6 +1071,27 @@
         aria-invalid={errField === "phrase" ? "true" : undefined}
         bind:value={restorePhrase}
       ></textarea>
+      <span class="field-lbl" aria-hidden="true">Rendezvous address or an invite code</span>
+      <textarea
+        class="phrase-in rdv-in"
+        rows="2"
+        placeholder="/dns4/…/p2p/… or an invite code"
+        autocapitalize="none"
+        autocorrect="off"
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="Rendezvous address or an invite code"
+        aria-describedby="rdv-help"
+        aria-invalid={errField === "rdv" ? "true" : undefined}
+        bind:value={rdvInput}
+      ></textarea>
+      <p class="muted small" id="rdv-help">
+        {#if rdvBuiltIn}
+          Filled in with this app's default — how it finds your other devices and guild-mates.
+        {:else}
+          How this device finds your other devices and guild-mates. Empty looks only on this network.
+        {/if}
+      </p>
       <span class="field-lbl" aria-hidden="true">New passphrase</span>
       <PassphraseField placeholder="New passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
       <span class="field-lbl" aria-hidden="true">Confirm passphrase</span>
@@ -1297,6 +1433,49 @@
   }
   .small {
     font-size: var(--fs-compact);
+  }
+  .rdv-in {
+    font-size: var(--fs-compact);
+  }
+  #rdv-help {
+    margin: -4px 0 0;
+  }
+  .find-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .found {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    text-align: start;
+  }
+  .found-av {
+    width: 44px;
+    height: 44px;
+    flex: none;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+  .found-av.emoji {
+    display: grid;
+    place-items: center;
+    font-size: 26px;
+    background: var(--bg-2);
+  }
+  .found-txt {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .found-name {
+    overflow-wrap: anywhere;
   }
   .count {
     margin: -8px 0 0;

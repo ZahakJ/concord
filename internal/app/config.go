@@ -52,7 +52,13 @@ func netConfigPath(dataDir string) string {
 // word of complaint. The .bak written on every successful save is the recovery.
 func LoadNetConfig(dataDir string) NetConfig {
 	var c NetConfig
-	if b, err := os.ReadFile(netConfigPath(dataDir)); err == nil {
+	b, err := os.ReadFile(netConfigPath(dataDir))
+	if os.IsNotExist(err) {
+		// Never configured — a fresh install, or one restored from its phrase,
+		// which carries no settings. Both start from the build's default.
+		c.Bootstrap = BuiltInRendezvous()
+	}
+	if err == nil {
 		if len(b) == 0 || json.Unmarshal(b, &c) != nil {
 			if bb, berr := os.ReadFile(netConfigPath(dataDir) + ".bak"); berr == nil {
 				_ = json.Unmarshal(bb, &c)
@@ -132,4 +138,60 @@ func SaveListenPort(dataDir string, port int) error {
 	c := LoadNetConfig(dataDir)
 	c.ListenPort = port
 	return SaveNetConfig(dataDir, c)
+}
+
+// DefaultRendezvous is the rendezvous list compiled into this build, comma
+// separated, set at link time:
+//
+//	-ldflags "-X github.com/ZahakJ/concord/internal/app.DefaultRendezvous=/dns4/…/p2p/…"
+//
+// Empty unless a build sets it, and then an install that has never saved a
+// connection setting starts from it. Which node, if any, a released build names
+// is a decision about who that node gets to see (DESIGN §6.3), so it is made
+// by whoever builds the release, not here.
+var DefaultRendezvous = ""
+
+// BuiltInRendezvous is DefaultRendezvous as a list.
+func BuiltInRendezvous() []string {
+	var out []string
+	for _, a := range strings.Split(DefaultRendezvous, ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// RendezvousFromInput reads what someone pasted where a rendezvous is asked
+// for: one or more rendezvous addresses (one per line or comma separated), or
+// an invite code, whose rendezvous list is taken and nothing else — pasting
+// an invite there configures the connection, it does not join the guild. An
+// address that does not parse is refused here rather than saved, because a
+// saved address that cannot be dialled is a node that comes up alone.
+func RendezvousFromInput(text string) ([]string, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil, nil
+	}
+	if !strings.HasPrefix(text, "/") {
+		ic, err := decodeInviteCode(text)
+		if err != nil {
+			return nil, fmt.Errorf("app: that is neither a rendezvous address nor an invite code")
+		}
+		if len(ic.Bootstrap) == 0 {
+			return nil, fmt.Errorf("app: that invite names no rendezvous")
+		}
+		return ic.Bootstrap, nil
+	}
+	var out []string
+	for _, a := range strings.FieldsFunc(text, func(r rune) bool { return r == '\n' || r == ',' || r == ' ' }) {
+		if a = strings.TrimSpace(a); a == "" {
+			continue
+		}
+		if _, err := parseBootstrapPeers([]string{a}); err != nil {
+			return nil, fmt.Errorf("app: %q is not a rendezvous address (it should end in /p2p/<id>)", a)
+		}
+		out = append(out, a)
+	}
+	return out, nil
 }

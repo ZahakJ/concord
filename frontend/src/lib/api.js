@@ -285,6 +285,13 @@ export const api = {
   lockedAccount: () => call("LockedAccount"),
   checkRecoveryPhrase: (phrase) => call("CheckRecoveryPhrase", phrase),
   restoreFromMnemonic: (phrase, passphrase) => call("RestoreFromMnemonic", phrase, passphrase),
+  // The restore screen's rendezvous field (before unlock): what to prefill it
+  // with, and saving what was typed (addresses, or an invite's rendezvous list).
+  getRestoreRendezvous: () => call("GetRestoreRendezvous"),
+  setRendezvousInput: (text) => call("SetRendezvousInput", text),
+  // A name for a restored account until its real profile comes back; never an
+  // edit, so the real profile still wins (see Login.svelte's naming step).
+  setProvisionalName: (name) => call("SetProvisionalName", name),
   restoreOverExisting: (phrase, passphrase, confirm = "") =>
     call("RestoreOverExisting", phrase, passphrase, confirm),
   login: (passphrase) => call("Login", passphrase),

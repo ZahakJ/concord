@@ -533,6 +533,48 @@ func (b *Bridge) SetBootstrap(addrs string) error {
 	return appsvc.SaveBootstrap(dir, list)
 }
 
+// RestoreRendezvous is what the restore screen prefills its rendezvous field
+// with: the list this device has saved (a forgotten-passphrase restore keeps
+// it), else the build's default (a fresh install would start from it too).
+type RestoreRendezvous struct {
+	Saved   []string `json:"saved"`
+	BuiltIn []string `json:"builtIn"`
+}
+
+// GetRestoreRendezvous reports both, before unlock.
+func (b *Bridge) GetRestoreRendezvous() (RestoreRendezvous, error) {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return RestoreRendezvous{}, err
+	}
+	return RestoreRendezvous{Saved: appsvc.LoadNetConfig(dir).Bootstrap, BuiltIn: appsvc.BuiltInRendezvous()}, nil
+}
+
+// SetRendezvousInput saves what was typed in a rendezvous field: addresses, or
+// an invite code whose rendezvous list is taken (the guild is not joined).
+// Returns the list saved. Before unlock: it takes effect at the unlock.
+func (b *Bridge) SetRendezvousInput(text string) ([]string, error) {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return nil, err
+	}
+	list, err := appsvc.RendezvousFromInput(text)
+	if err != nil {
+		return nil, err
+	}
+	return list, appsvc.SaveBootstrap(dir, list)
+}
+
+// SetProvisionalName names a restored account until its real profile is found
+// (see app.Service.SetProvisionalName).
+func (b *Bridge) SetProvisionalName(name string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetProvisionalName(name)
+}
+
 // GetPublicDHT reports whether the public-IPFS-DHT fallback is enabled.
 func (b *Bridge) GetPublicDHT() (bool, error) {
 	dir, err := appsvc.DataDir()
@@ -3498,6 +3540,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.SessionState(), nil
 	case "LockedAccount":
 		return b.LockedAccount()
+	case "GetRestoreRendezvous":
+		return b.GetRestoreRendezvous()
+	case "SetRendezvousInput":
+		return b.SetRendezvousInput(argStr(args, 0))
+	case "SetProvisionalName":
+		return nil, b.SetProvisionalName(argStr(args, 0))
 	case "CheckRecoveryPhrase":
 		return b.CheckRecoveryPhrase(argStr(args, 0))
 	case "RestoreFromMnemonic":
