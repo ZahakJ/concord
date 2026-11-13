@@ -17,8 +17,8 @@ var keystoreMu sync.Mutex
 // keystoreLockWait bounds how long a keystore write waits for another
 // process. Every holder is done in about one key derivation; a process stuck
 // holding it must not hang a passphrase change, nor keep a background re-seal
-// (and the passphrase it holds) alive indefinitely.
-const keystoreLockWait = 10 * time.Second
+// (and the passphrase it holds) alive indefinitely. A variable for tests.
+var keystoreLockWait = 10 * time.Second
 
 var errKeystoreBusy = errors.New("identity: the keystore is busy in another Concord process; try again")
 
@@ -43,6 +43,10 @@ func lockKeystore(path string) (unlock func(), err error) {
 			ok = true
 		}
 		if ok {
+			// An erase that could not wait for the lock left this to whoever
+			// holds it next (see RemoveKeystore). Finish it before anything
+			// else, so no holder ever acts on a keystore that was erased.
+			finishPendingErase(path)
 			return func() {
 				if lerr == nil {
 					unlockFile(f)

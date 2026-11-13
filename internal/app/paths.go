@@ -61,8 +61,7 @@ func dbPathIn(dataDir string) string {
 // HasIdentity reports whether an identity keystore already exists in dataDir,
 // so the UI can show "unlock" vs "create a passphrase".
 func HasIdentity(dataDir string) bool {
-	_, err := os.Stat(keystorePathIn(dataDir))
-	return err == nil
+	return identity.HasKeystore(keystorePathIn(dataDir))
 }
 
 // ResetIdentity wipes the identity and all data tied to it (keystore, database,
