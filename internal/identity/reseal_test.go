@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"bytes"
 	crand "crypto/rand"
 	"encoding/json"
 	"errors"
@@ -249,7 +250,7 @@ func TestResealAndChangeNeverLowerTheArgon2Cost(t *testing.T) {
 	want := kdfParams{argonTime + 1, argonMemory, argonThreads}
 	sealWithCost(t, path, "pw", id, want.time)
 	unlockWithReseal(t, path, "pw", nil, resealHooks{})
-	if !namesAccount(mustRead(t, path)) {
+	if !namesAccount(mustRead(t, path), id.PublicKey()) {
 		t.Fatal("the re-seal did not run")
 	}
 	if got := fileCost(t, path); got != want {
@@ -347,5 +348,28 @@ func TestKeystoreWritesSyncTheDirectoryAfterRenaming(t *testing.T) {
 	}
 	if len(synced) != 2 || synced[0] != dir || synced[1] != dir {
 		t.Fatalf("directory syncs: %q, want the keystore's directory once per write", synced)
+	}
+}
+
+// A keystore whose clear account key is not its seed's (written by a bug or
+// by hand) is corrected by the next unlock, as one without the key is.
+func TestResealCorrectsAWrongClearAccountKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	id, _, err := LoadOrCreate(path, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _ := Generate()
+	var env map[string]any
+	_ = json.Unmarshal(mustRead(t, path), &env)
+	env["account_pub"] = []byte(other.PublicKey())
+	out, _ := json.Marshal(env)
+	if err := os.WriteFile(path, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unlockWithReseal(t, path, "pw", nil, resealHooks{})
+	pub, err := ReadAccountPub(path)
+	if err != nil || !bytes.Equal(pub, id.PublicKey()) {
+		t.Fatalf("clear account key after unlock: %x, %v; want %x", pub, err, id.PublicKey())
 	}
 }

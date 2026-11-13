@@ -273,11 +273,13 @@ func ReadAccountPub(path string) (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(env.AccountPub), nil
 }
 
-// namesAccount reports whether the keystore bytes blob carry the account's
-// public key in the clear.
-func namesAccount(blob []byte) bool {
+// namesAccount reports whether the keystore bytes blob carry pub, the
+// public key of the seed they seal, as their account in the clear. A key
+// that is present but different is as good as absent: the locked-device
+// restore and re-link trust it to tell the same account from another.
+func namesAccount(blob []byte, pub ed25519.PublicKey) bool {
 	var env keystoreFile
-	return json.Unmarshal(blob, &env) == nil && len(env.AccountPub) == ed25519.PublicKeySize
+	return json.Unmarshal(blob, &env) == nil && bytes.Equal(env.AccountPub, pub)
 }
 
 // ChangePassphrase re-seals the keystore at path under newPass, after proving
@@ -356,10 +358,9 @@ func resealIfUnchanged(path, passphrase string, id *Identity, opened []byte, hoo
 }
 
 // RemoveKeystore deletes the keystore at path, and any temp file a write left
-// beside it, under the keystore lock (see lockKeystore). An erase has to wait
-// for a re-seal that is already past its check: deleting the file in the
-// ~200 ms that re-seal spends deriving its key let its rename bring the
-// erased account back.
+// beside it, under the keystore lock (see lockKeystore). An erase has to wait for a re-seal that
+// is already past its check: deleting the file in the ~200 ms that re-seal
+// spends deriving its key let its rename bring the erased account back.
 func RemoveKeystore(path string) error {
 	if unlock, err := lockKeystore(path); err == nil {
 		defer unlock()
@@ -458,10 +459,11 @@ func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
 			hooks.before()
 			_ = resealIfUnchanged(path, passphrase, id, opened, hooks)
 			hooks.done()
-		case !namesAccount(opened):
+		case !namesAccount(opened, id.PublicKey()):
 			// Also re-sealed when the file does not yet name its account in the
-			// clear (see keystoreFile.AccountPub), so a device that has been
-			// unlocked once by this build can say whose it is while locked. That
+			// clear (see keystoreFile.AccountPub), or names another, so a device
+			// that has been unlocked once by this build can say whose it is
+			// while locked. That
 			// is a second key derivation (about 200 ms) the unlock does not
 			// need to wait for, so it happens behind it; it only replaces the
 			// bytes it decrypted, so a passphrase change in between always wins,
