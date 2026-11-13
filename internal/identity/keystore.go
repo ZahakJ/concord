@@ -687,8 +687,8 @@ func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
 	id, opened, err := openKeystore(path, passphrase)
 	if err == nil {
 		// Transparently upgrade a legacy (v1) keystore: give it a device seed and
-		// persist as v2. Non-fatal if the re-save fails — the device seed lives in
-		// memory for this session and the upgrade retries next unlock. Like the
+		// persist as v2. Non-fatal if the re-save fails — the session runs
+		// without a device seed and the upgrade retries next unlock. Like the
 		// re-seal below it only replaces the file it decrypted, so a passphrase
 		// change that lands between the two is never undone.
 		created, derr := id.ensureDeviceSeed()
@@ -696,7 +696,12 @@ func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
 		switch {
 		case derr == nil && created:
 			hooks.before()
-			_ = resealIfUnchanged(path, passphrase, id, opened, hooks)
+			if resealIfUnchanged(path, passphrase, id, opened, hooks) != nil {
+				// Not on disk, so not in use either: a device key that
+				// exists only in memory would be a different one next
+				// session. The next unlock tries the upgrade again.
+				id.deviceSeed = nil
+			}
 			hooks.done()
 		case !namesAccount(opened, id.PublicKey()):
 			if pub, _ := accountPubOf(opened); pub != nil {

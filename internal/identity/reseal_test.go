@@ -109,12 +109,26 @@ func TestDeviceSeedUpgradeNeverRevertsAPassphraseChangeAfterTheUnlock(t *testing
 	path := filepath.Join(t.TempDir(), "keystore.json")
 	id, _ := Generate()
 	sealRaw(t, path, "old", id) // v1: account seed only
-	unlockWithReseal(t, path, "old", func() {
-		if err := ChangePassphrase(path, "old", "new"); err != nil {
-			t.Fatal(err)
-		}
-	}, resealHooks{})
+	done := make(chan struct{}, 1)
+	setHooks(t, resealHooks{
+		beforeReseal: func() {
+			if err := ChangePassphrase(path, "old", "new"); err != nil {
+				t.Fatal(err)
+			}
+		},
+		resealDone: func() { done <- struct{}{} },
+	})
+	got, _, err := LoadOrCreate(path, "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-done
 	assertOpensWithOnly(t, path, "new", "old")
+	// The upgrade did not land, so the device seed it generated is not on
+	// disk and must not be in use either.
+	if got.DeviceSeed() != nil {
+		t.Fatal("the session runs with a device seed that is on no disk")
+	}
 }
 
 // A passphrase change and a background re-seal, started together with no
