@@ -123,9 +123,9 @@ func TestSealWithPassphraseRoundTripsAndRejects(t *testing.T) {
 }
 
 // The re-seal that records the account in the clear runs behind the unlock
-// (it is a second key derivation), still lands, and never writes over a
-// passphrase change that happened first.
-func TestAccountPubResealIsBackgroundAndYieldsToAPassphraseChange(t *testing.T) {
+// (it is a second key derivation) and still lands. That it never writes over
+// a passphrase change is reseal_test.go's.
+func TestAccountPubResealIsBackground(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "keystore.json")
 	id, _, err := LoadOrCreate(path, "pw")
@@ -160,22 +160,5 @@ func TestAccountPubResealIsBackgroundAndYieldsToAPassphraseChange(t *testing.T) 
 			t.Fatal("the account was never recorded in the clear")
 		}
 		time.Sleep(10 * time.Millisecond)
-	}
-
-	// A passphrase change that lands before the background re-seal wins.
-	strip()
-	before, _ := os.ReadFile(path)
-	keystoreMu.Lock()
-	go resealIfUnchanged(path, "pw", id, before)
-	keystoreMu.Unlock()
-	if err := ChangePassphrase(path, "pw", "new"); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(300 * time.Millisecond)
-	if _, err := LoadKeystore(path, "new"); err != nil {
-		t.Fatalf("the new passphrase no longer opens the keystore: %v", err)
-	}
-	if _, err := LoadKeystore(path, "pw"); err == nil {
-		t.Fatal("the background re-seal wrote the old passphrase back")
 	}
 }
