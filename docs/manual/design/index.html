@@ -1204,13 +1204,19 @@ silently pretends.</p>
 public IP, any small VPS, and point the TURN settings at it. That is the whole
 fix: privacy or connectivity, decided by whether your host will let a relay be a
 relay.</p>
-<p>One more note about outbound contact during a call. When no rendezvous supplies
-ICE configuration, the fallback is a public Google STUN server, contacted at call
-time to learn your own external address; the configuration the shipped
-rendezvous does supply lists the same server beside its TURN relay, so a call
-reaches it either way. It fetches no assets and reveals nothing
-but your IP and the fact that you are starting a call, but it is a third party,
-it is hardcoded, and this document would be dishonest not to name it.</p>
+<p>One more note about outbound contact during a call. Two peers behind NAT need
+each side's external address, and a browser only learns that from a STUN server.
+The rendezvous can be that server (<code>cmd/rendezvous/stun.go</code>: UDP, Binding only,
+off unless <code>CONCORD_STUN_PORT</code> is set, independent of the relay), and when it
+is, a call asks nobody else. When it is not, a call asks nobody at all: two
+peers behind NAT then relay through the rendezvous or, with no relay, do not
+connect. The app used to add a public Google STUN server here, and the shipped
+rendezvous listed the same one, so every call start told a third party the
+caller's IP. That server is now behind a switch the user owns, <strong>No third-party
+call servers</strong> in Privacy &amp; safety, on by default
+(<code>frontend/src/lib/callice.js</code>); the rendezvous never lists it. The price of the
+default is connectivity on a rendezvous that has not opened the one UDP port,
+and it is paid there rather than in telling a company who is calling.</p>
 <p><strong>A future optional SFU</strong>, a <em>selective forwarding unit</em>, which forwards frames
 without decoding them, could scale rooms beyond what a mesh allows while
 forwarding still-encrypted frames, so it would not become trusted. It does not

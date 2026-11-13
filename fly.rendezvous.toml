@@ -78,6 +78,22 @@ primary_region = "iad"
     port = 443
     handlers = ["tls", "http"]
 
+# STUN responder (see cmd/rendezvous/stun.go): OFF until you turn it on. It is
+# what lets two callers behind home routers connect directly without the app
+# asking a third party for their addresses. To enable it, uncomment this block
+# and add to [env] above:
+#   CONCORD_STUN_PORT = "3478"
+#   CONCORD_STUN_LISTEN = "fly-global-services"   # fly delivers UDP only there
+# UDP on fly needs a dedicated IPv4 (fly ips allocate-v4). NOT tested on fly by
+# whoever wrote this block: after deploying, send a STUN Binding request to
+# <your-app>.fly.dev:3478 from outside and check that it is answered.
+#
+# [[services]]
+#   internal_port = 3478
+#   protocol = "udp"
+#   [[services.ports]]
+#     port = 3478
+
 # TURN relay: DISABLED on this host, deliberately. The design assumed the
 # relay could bridge its two TCP allocations internally; measured against the
 # live deployment, packets sent between two allocations on this machine are

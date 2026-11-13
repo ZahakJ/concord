@@ -199,6 +199,8 @@ Everything is an environment variable, and none is required.
 | `CONCORD_GIF_CONTENTFILTER` | strictest | Content rating passed to the provider (for Giphy: `y`, `g`, `pg`, `pg-13`, `r`; default `g`). |
 | `CONCORD_TURN_SECRET` | off | Enables the TURN relay for IP-private calls. Read the fly.io warning above first. |
 | `CONCORD_TURN_PORT` | `3478` | TURN listen port when the relay is enabled. TCP only. |
+| `CONCORD_STUN_PORT` | off | UDP port for this node's own STUN responder. With it, two callers behind home routers find a direct path by asking this node for their address; without it they connect only through the relay, or not at all, unless they have switched **No third-party call servers** off. Works without the relay. The host must deliver UDP on this port to the node: check it from outside. |
+| `CONCORD_STUN_LISTEN` | all interfaces | Address the STUN responder binds. On fly.io UDP only arrives on `fly-global-services`. |
 | `CONCORD_TURN_RELAY_IP` | resolved from `CONCORD_PUBLIC_HOST` | The machine's own public IP for the relay to advertise. Without a routable address the relay refuses to start and calls connect directly. |
 | `CONCORD_PUSH_TOKENS` | `push-tokens.json` | Where push-wake tokens are kept, when push credentials are configured. See [PUSH.md](PUSH.md). |
 | `CONCORD_RELAY_CIRCUIT_BYTES`, `CONCORD_RELAY_CIRCUIT_DURATION` | unlimited | Cap each relayed circuit (bytes each way; a duration such as `2m`). **Do not set these on a node Concord peers use:** a capped circuit is a "limited" connection, and gossipsub will not publish over one. They are for a node that relays only signaling. |
@@ -232,6 +234,7 @@ The legacy `CONCORD_TENOR_KEY`, `CONCORD_TENOR_BASE` and
 | The address stopped working after a restart | No `CONCORD_RELAY_SEED`, so the identity — and the PeerID in the address — was regenerated. |
 | The address stopped working after a rebuild | It was an `/ip4/…` address and the IP changed. Set `CONCORD_PUBLIC_HOST` and hand out the `/dns/…` form. |
 | Works on the LAN, not across the internet | mDNS is doing the work locally. Set `CONCORD_DISABLE_MDNS=1` on a peer to test the real path. |
+| A call between two people at home never connects | Both are behind home routers and nothing told them their external addresses. Set `CONCORD_STUN_PORT` and open that UDP port to the node; or each of them switches **No third-party call servers** off. |
 | Calls connect but nobody hears anything | A TURN relay that cannot hairpin — see the fly.io note. Disable it and calls fall back to direct. |
 | Guest meeting links do nothing | The rendezvous address is an `/ip4/…` one, so there is no name to build the link from, or nothing terminates TLS on port 443 and forwards to `CONCORD_GUEST_PORT` (default 8080). |
 | "Hide my IP on calls" says this rendezvous has no media relay | `CONCORD_TURN_SECRET` is unset; or the relay refused to start for lack of a routable address (it says so on stderr; set `CONCORD_TURN_RELAY_IP`); or peers cannot fetch relay credentials, which come from the guest gateway at `https://<name>/turn` and so need a `/dns/…` address and TLS in front, as for guest links. |

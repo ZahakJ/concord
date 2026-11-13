@@ -92,7 +92,9 @@ When a call starts, Concord asks your rendezvous for its call configuration.
 - If the rendezvous runs a TURN relay, it hands out short-lived credentials (valid for an hour), and your call can be relayed.
 - **Meetings** always relay when a relay exists. For any other call, turn on **Settings → Privacy & safety → Hide my IP on calls**.
 - If the rendezvous has no relay, calls connect directly. With **Hide my IP on calls** on, Concord tells you once: **Can't hide your IP — this rendezvous isn't running a media relay. The call still connects.** The setting stays on and starts working if a relay appears.
-- If your rendezvous provides no call configuration at all, Concord falls back to a public STUN server (`stun.l.google.com`) to learn your external address. The shipped rendezvous lists the same server alongside its relay.
+- To connect two people who are both behind home routers, each side has to learn its own external address. If your rendezvous runs its own STUN responder, it answers that, and nobody else is asked.
+- If it does not, nobody is asked. The call connects directly when one of you can be reached as you are (the same network, a public address, a forwarded port), goes through the relay if your rendezvous has one, and otherwise does not connect.
+- **Settings → Privacy & safety → No third-party call servers** is on by default. Switch it off and Concord asks a public STUN server (`stun.l.google.com`) instead when your rendezvous has no responder; that server learns your IP and that you are starting a call. Both people on the call need an answer, so both would switch it off.
 
 The relay runs over TCP. Its operator can see that you are in a call and with which addresses, but not the media. Setting one up is covered in [Running a rendezvous](../RENDEZVOUS.md#options). What each party can see is summed up in [Privacy and encryption](privacy.md).
 

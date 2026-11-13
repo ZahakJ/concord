@@ -14,7 +14,6 @@ import { tuneOpus } from "./sdp.js";
 import { loadDenoiser, makeDenoiseNode, nrValue } from "./denoise.js";
 import { noteAudioRouteChange } from "./sounds.js";
 
-const DEFAULT_ICE = [{ urls: "stun:stun.l.google.com:19302" }];
 
 // How long the mic stays open after a push-to-talk key comes up.
 const TALK_TAIL_MS = 150;
@@ -73,7 +72,9 @@ export class VoiceMesh {
     this.selfPeerId = selfPeerId;
     this.channelId = channelId;
     this.relay = relay;
-    this.iceServers = iceServers?.length ? iceServers : DEFAULT_ICE;
+    // Exactly the servers the caller chose (lib/callice.js decides whether a
+    // public STUN server is among them). Nothing is added here.
+    this.iceServers = iceServers || [];
     // forceRelay = never emit our real address: only relayed candidates, so a
     // call peer (e.g. a stranger on a meeting link) can't learn our IP. Requires
     // a TURN relay to be reachable, or the call can't connect.

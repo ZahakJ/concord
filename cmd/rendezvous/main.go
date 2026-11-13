@@ -143,6 +143,17 @@ func run() error {
 	// set. Its credential endpoint is served on the guest gateway below.
 	ts := serveTURN(ctx)
 
+	// This node's own STUN responder (see stun.go): lets two callers behind
+	// home routers find a direct path without asking a third party for their
+	// address. Off unless CONCORD_STUN_PORT is set. It does not need the relay;
+	// with the relay off, /turn lists the responder alone.
+	if stunPort := serveSTUN(ctx, os.Getenv("CONCORD_STUN_LISTEN"), os.Getenv("CONCORD_STUN_PORT")); stunPort != "" {
+		if ts == nil {
+			ts = &turnServer{public: os.Getenv("CONCORD_PUBLIC_HOST")}
+		}
+		ts.stunPort = stunPort
+	}
+
 	// Guest gateway: plain-HTTPS door for browser guests joining a meeting
 	// (see guest.go). It relays their WebSocket to the meeting host and never
 	// reads the meeting itself; it also serves TURN credentials when TURN is on.

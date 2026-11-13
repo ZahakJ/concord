@@ -2,9 +2,10 @@ package app
 
 // Client side of IP-private calls (see cmd/rendezvous/turn.go for the relay).
 //
-// A member's app fetches ICE configuration — a STUN server, plus a TURN relay
-// with fresh short-lived credentials — from the rendezvous it already bootstraps
-// through. The frontend adds these to its RTCPeerConnection and, when the user
+// A member's app fetches ICE configuration — the rendezvous's own STUN
+// responder when it runs one, plus a TURN relay with fresh short-lived
+// credentials — from the rendezvous it already bootstraps through. No server
+// outside that rendezvous is ever listed. The frontend adds these to its RTCPeerConnection and, when the user
 // wants IP privacy (or when a browser guest is in the call), forces
 // `iceTransportPolicy: "relay"` so its real address never leaves the machine.
 //
@@ -34,18 +35,20 @@ type IceConfig struct {
 	RelayAvailable bool `json:"relayAvailable"`
 }
 
-// defaultIce is the fallback when no relay is configured: a public STUN server,
-// exactly the behaviour before TURN existed. Calls still work; they just can't
-// hide IPs.
+// defaultIce is the fallback when the rendezvous serves no ICE configuration:
+// no servers at all. This layer reports only what the rendezvous itself
+// offers; whether a public STUN server is added on top is the frontend's
+// decision, because it depends on a setting the user owns
+// (frontend/src/lib/callice.js).
 var defaultIce = IceConfig{
-	IceServers:     []IceServer{{URLs: []string{"stun:stun.l.google.com:19302"}}},
+	IceServers:     []IceServer{},
 	RelayAvailable: false,
 }
 
 // CallIceServers returns ICE configuration for a call, fetching fresh TURN
 // credentials from the rendezvous gateway when one is deployed. On any failure
-// it degrades to plain STUN — a call is never blocked by the relay being
-// absent or unreachable.
+// it degrades to no servers of the rendezvous's (see defaultIce) — a call is
+// never blocked by the relay being absent or unreachable.
 func (s *Service) CallIceServers() IceConfig {
 	base := s.guestGatewayBase()
 	if base == "" {

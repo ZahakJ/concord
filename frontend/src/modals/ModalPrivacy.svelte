@@ -11,6 +11,7 @@
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
   import { api } from "../lib/api.js";
+  import { hasOwnStun } from "../lib/callice.js";
   import { bioEnrolled } from "../lib/biometric.js";
   import { S, setPref, flash, setOffDeviceSearch } from "../lib/state.svelte.js";
 
@@ -21,10 +22,13 @@
   // out of a privacy control (and left it stuck on if they had already
   // flipped it) without saying why. The note under the row is the honest bit.
   let mediaRelay = $state(null);
+  // Whether the rendezvous answers STUN itself (then no public server is asked).
+  let ownStun = $state(false);
   onMount(async () => {
     try {
       const cfg = await api.callIceServers();
       mediaRelay = cfg?.relayAvailable === true;
+      ownStun = hasOwnStun(cfg?.iceServers);
     } catch {
       mediaRelay = false;
     }
@@ -144,6 +148,20 @@
       info="A connected rendezvous is how peers find each other. Hiding your IP from the people on a call needs a TURN media relay running on that same host, which the operator has to turn on. Without one, calls still connect, peer-to-peer. Meetings with browser guests always try to relay when one exists."
       checked={S.prefs.hideCallIp}
       onclick={() => setPref("hideCallIp", !S.prefs.hideCallIp)}
+    />
+    <SettingRow
+      icon="lock"
+      title="No third-party call servers"
+      sub={S.prefs.noThirdPartyIce !== false
+        ? ownStun
+          ? "On — calls ask only your rendezvous"
+          : "On — your rendezvous has no STUN responder, so calls between two home networks may not connect"
+        : ownStun
+          ? "Off, but your rendezvous answers this itself — no third party is asked"
+          : "Off — starting a call asks a public server for your address"}
+      info="To connect two people who are both behind home routers, each side has to learn its own public address when a call starts. If your rendezvous runs its own STUN responder, it answers that and nobody else is asked. If it does not, then with this switch on (the default) nobody is asked: calls connect directly only when one of you can be reached as you are, go through your rendezvous's relay when it has one, and otherwise do not connect. Switch it off and the app asks a public STUN server (stun.l.google.com) instead, which learns your IP and that you are starting a call — nothing else. Both people on a call need an answer, so both would have to switch it off."
+      checked={S.prefs.noThirdPartyIce !== false}
+      onclick={() => setPref("noThirdPartyIce", S.prefs.noThirdPartyIce === false)}
     />
     {#if mediaRelay === false}
       <Caution

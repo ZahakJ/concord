@@ -88,7 +88,7 @@ func serveTURN(ctx context.Context) *turnServer {
 	//
 	// So: resolve the public hostname when no IP is given, and if we cannot
 	// produce a routable address, refuse to run the relay at all. No relay means
-	// /turn advertises plain STUN, relayAvailable is false, and calls connect
+	// no /turn, relayAvailable is false, and calls connect
 	// directly — without IP privacy, which is a real loss, but a working call
 	// beats a private one that cannot carry sound.
 	relayIP := os.Getenv("CONCORD_TURN_RELAY_IP") // the machine's own routable IP
@@ -162,6 +162,11 @@ type turnServer struct {
 	secret string
 	public string
 	port   string
+	// stunPort is the UDP port of this node's own STUN responder (stun.go),
+	// empty when it is off. When set, /turn lists it. A node may run the
+	// responder without the relay: then secret is empty and /turn lists the
+	// responder alone.
+	stunPort string
 
 	// creds rate-limits /turn per client IP. A value, not a pointer: the zero
 	// value works, so a turnServer built anywhere is never one credential
@@ -256,8 +261,11 @@ type turnCredsResponse struct {
 	TTL        int         `json:"ttl"`
 }
 
-// handleTURNCreds serves fresh ICE-server config (a public STUN server plus this
-// TURN relay with ephemeral creds) to any caller. It is intentionally open: the
+// handleTURNCreds serves fresh ICE-server config (this node's own STUN
+// responder when it runs one, plus this TURN relay with ephemeral creds) to any
+// caller. It lists no server but this node. Whether a third party's STUN server
+// is asked when this node runs none is the app's decision, behind a switch the
+// user owns (frontend/src/lib/callice.js), not the operator's. It is intentionally open: the
 // credentials are short-lived and the relay exists to be usable by unauthed
 // guests joining a meeting link. It reveals nothing — the secret stays here.
 //
@@ -270,7 +278,6 @@ func (t *turnServer) handleTURNCreds(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many credential requests — try again shortly", http.StatusTooManyRequests)
 		return
 	}
-	user, pass, ttl := t.credentials()
 	host := t.public
 	if host == "" {
 		// Dev / direct-IP: derive the hostname from the request, WITHOUT the
@@ -281,18 +288,20 @@ func (t *turnServer) handleTURNCreds(w http.ResponseWriter, r *http.Request) {
 			host = h
 		}
 	}
-	resp := turnCredsResponse{
-		TTL: ttl,
-		IceServers: []iceServer{
-			{URLs: []string{"stun:stun.l.google.com:19302"}},
-			{
-				// TURN over TCP (turns: would need the relay behind TLS; plain
-				// turn: is fine here — the media inside is already DTLS-SRTP).
-				URLs:       []string{"turn:" + host + ":" + t.port + "?transport=tcp"},
-				Username:   user,
-				Credential: pass,
-			},
-		},
+	resp := turnCredsResponse{TTL: int(turnCredTTL.Seconds()), IceServers: []iceServer{}}
+	if t.stunPort != "" {
+		resp.IceServers = append(resp.IceServers, iceServer{URLs: []string{"stun:" + net.JoinHostPort(host, t.stunPort)}})
+	}
+	if t.secret != "" { // the relay is on (a node can run the STUN responder alone)
+		user, pass, ttl := t.credentials()
+		resp.TTL = ttl
+		resp.IceServers = append(resp.IceServers, iceServer{
+			// TURN over TCP (turns: would need the relay behind TLS; plain
+			// turn: is fine here — the media inside is already DTLS-SRTP).
+			URLs:       []string{"turn:" + host + ":" + t.port + "?transport=tcp"},
+			Username:   user,
+			Credential: pass,
+		})
 	}
 	// Same-origin fetch from the guest page (connect-src 'self'); the member app
 	// fetches server-side, so a permissive CORS header here is harmless and lets

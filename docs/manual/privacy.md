@@ -78,7 +78,7 @@ Search runs on your device only. It decrypts and scans your own history, and the
 | Connection | When | Switch |
 |---|---|---|
 | `api.github.com` update check | Once at launch, desktop and web release builds only | None |
-| `stun.l.google.com` | When a call starts, to learn your external address | None |
+| `stun.l.google.com` | Never by default. When a call starts, if you switched the setting off and your rendezvous has no STUN responder of its own | **No third-party call servers**, on by default |
 | Your rendezvous, for GIF search | As you type in the GIF picker | **GIF search**, on by default |
 | Steam store search | As you type a game title | **Game title search**, off by default |
 | Steam image CDN | When a profile lists games | **Game box art**, off by default |
