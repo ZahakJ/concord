@@ -67,7 +67,7 @@ func OpenWithPassphrase(passphrase string, sealed []byte) ([]byte, error) {
 	if box.KDF != "argon2id" {
 		return nil, fmt.Errorf("identity: unsupported key derivation %q", box.KDF)
 	}
-	if len(box.Nonce) != nonceSize {
+	if len(box.Nonce) != nonceSize || !validKDF(box.ArgonTime, box.ArgonMemory, box.ArgonThreads, box.Salt) {
 		return nil, ErrWrongPassphrase
 	}
 	key := deriveKeyWithParams(passphrase, box.Salt, box.ArgonTime, box.ArgonMemory, box.ArgonThreads)

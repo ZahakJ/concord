@@ -47,6 +47,32 @@ const (
 // recovered with the supplied passphrase.
 var ErrWrongPassphrase = errors.New("identity: wrong passphrase or corrupted keystore")
 
+// errCorruptKeystore is a keystore that cannot be what any build wrote. It is
+// ErrWrongPassphrase to every caller (errors.Is), which is what a user can act
+// on: the recovery phrase.
+var errCorruptKeystore = fmt.Errorf("%w (its key derivation settings are out of range)", ErrWrongPassphrase)
+
+// Bounds on the Argon2id cost a file may ask for. The cost is read from the
+// file before anything is verified, and Argon2 panics on zero passes or
+// lanes, takes the process down asking for terabytes, or never returns on
+// billions of passes: one flipped bit in a stored value used to turn a
+// damaged keystore into a crash at every launch. The ceilings sit far above
+// anything this code writes (3 passes, 64 MiB, 4 lanes).
+const (
+	maxArgonTime    = 16
+	maxArgonMemory  = 1 << 20 // KiB => 1 GiB
+	maxArgonThreads = 64
+)
+
+// validKDF reports whether a stored Argon2id cost and salt are safe to derive
+// with.
+func validKDF(time, memory uint32, threads uint8, salt []byte) bool {
+	return time >= 1 && time <= maxArgonTime &&
+		threads >= 1 && threads <= maxArgonThreads &&
+		memory >= 8*uint32(threads) && memory <= maxArgonMemory &&
+		len(salt) >= saltSize
+}
+
 // keystoreFile is the on-disk JSON envelope. All binary fields are base64 via
 // encoding/json's []byte handling.
 type keystoreFile struct {
@@ -217,6 +243,9 @@ func sealParams(prev []byte) kdfParams {
 	var env keystoreFile
 	if len(prev) == 0 || json.Unmarshal(prev, &env) != nil {
 		return kp
+	}
+	if !validKDF(env.ArgonTime, env.ArgonMemory, env.ArgonThreads, env.Salt) {
+		return kp // never carried forward: it could not be opened again
 	}
 	kp.time = max(kp.time, env.ArgonTime)
 	kp.memory = max(kp.memory, env.ArgonMemory)
@@ -556,6 +585,9 @@ func OpenKeystoreBytes(blob []byte, passphrase string) (*Identity, error) {
 	}
 	if len(env.Nonce) != nonceSize {
 		return nil, errors.New("identity: bad nonce length in keystore")
+	}
+	if !validKDF(env.ArgonTime, env.ArgonMemory, env.ArgonThreads, env.Salt) {
+		return nil, errCorruptKeystore
 	}
 
 	var nonce [nonceSize]byte
