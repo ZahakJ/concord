@@ -39,22 +39,21 @@ func setHooks(t *testing.T, h resealHooks) {
 	t.Cleanup(func() { testHooks = resealHooks{} })
 }
 
-// unlockWithReseal runs LoadOrCreate, calling gap at the moment the unlock has
-// decrypted the file and decided to re-seal (before the re-seal looks at the
-// file), and returns once that re-seal has finished.
-func unlockWithReseal(t *testing.T, path, pass string, gap func()) {
+// unlockWithReseal runs LoadOrCreate with the seams in h (gap is called at
+// the moment the unlock has decrypted the file and decided to re-seal, before
+// the re-seal looks at the file) and returns once that re-seal has finished.
+func unlockWithReseal(t *testing.T, path, pass string, gap func(), h resealHooks) {
 	t.Helper()
 	done := make(chan struct{}, 1)
 	var decided atomic.Bool
-	setHooks(t, resealHooks{
-		beforeReseal: func() {
-			decided.Store(true)
-			if gap != nil {
-				gap()
-			}
-		},
-		resealDone: func() { done <- struct{}{} },
-	})
+	h.beforeReseal = func() {
+		decided.Store(true)
+		if gap != nil {
+			gap()
+		}
+	}
+	h.resealDone = func() { done <- struct{}{} }
+	setHooks(t, h)
 	if _, _, err := LoadOrCreate(path, pass); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +92,7 @@ func TestResealNeverRevertsAPassphraseChangeAfterTheUnlock(t *testing.T) {
 		if err := ChangePassphrase(path, "old", "new"); err != nil {
 			t.Fatal(err)
 		}
-	})
+	}, resealHooks{})
 	assertOpensWithOnly(t, path, "new", "old")
 }
 
@@ -107,7 +106,7 @@ func TestDeviceSeedUpgradeNeverRevertsAPassphraseChangeAfterTheUnlock(t *testing
 		if err := ChangePassphrase(path, "old", "new"); err != nil {
 			t.Fatal(err)
 		}
-	})
+	}, resealHooks{})
 	assertOpensWithOnly(t, path, "new", "old")
 }
 
@@ -161,5 +160,41 @@ func TestResealAndPassphraseChangeInAnyOrder(t *testing.T) {
 			}
 		}
 		assertOpensWithOnly(t, path, next, cur)
+	}
+}
+
+// An erase that lands while the re-seal is deriving its key (it has already
+// found the file unchanged) must not be undone by the re-seal's rename. The
+// unlock that spawns the re-seal is followed at once by the check for a
+// revoked device, whose erase is exactly this.
+func TestResealDoesNotRecreateAnErasedKeystore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	if _, _, err := LoadOrCreate(path, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	stripAccountPub(t, path)
+	erased := make(chan error, 1)
+	unlockWithReseal(t, path, "pw", nil, resealHooks{
+		resealChecked: func() {
+			go func() { erased <- RemoveKeystore(path) }()
+			// Give an erase that does not wait for the re-seal the chance
+			// to finish first; one that waits stays blocked here.
+			select {
+			case err := <-erased:
+				erased <- err
+			case <-time.After(300 * time.Millisecond):
+			}
+		},
+	})
+	if err := <-erased; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the keystore came back after it was erased (stat: %v)", err)
+	}
+	// And an unlock after the erase starts from nothing rather than finding a
+	// re-seal's leftovers.
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Fatalf("a re-seal temp file survived the erase (stat: %v)", err)
 	}
 }

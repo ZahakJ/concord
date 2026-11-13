@@ -68,9 +68,12 @@ func HasIdentity(dataDir string) bool {
 // MLS group state) so a fresh identity can be created — for a forgotten
 // passphrase or a corrupted keystore. Irreversible.
 func ResetIdentity(dataDir string) error {
+	// Through identity, so a keystore write in flight (the re-seal behind an
+	// unlock) finishes before the file goes rather than recreating it after.
+	if err := identity.RemoveKeystore(keystorePathIn(dataDir)); err != nil {
+		return err
+	}
 	for _, p := range []string{
-		keystorePathIn(dataDir),
-		keystorePathIn(dataDir) + ".tmp",
 		dbPathIn(dataDir),
 		dbPathIn(dataDir) + "-wal",
 		dbPathIn(dataDir) + "-shm",

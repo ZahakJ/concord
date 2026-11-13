@@ -242,8 +242,9 @@ var keystoreMu sync.Mutex
 // Test seams, nil outside tests. LoadOrCreate copies them when it decides to
 // re-seal, so a test that sets them does not race a re-seal it did not start.
 type resealHooks struct {
-	beforeReseal func() // the unlock has decrypted the file and decided to re-seal
-	resealDone   func() // the re-seal has written, or declined to
+	beforeReseal  func() // the unlock has decrypted the file and decided to re-seal
+	resealChecked func() // under the lock, the re-seal found the file unchanged
+	resealDone    func() // the re-seal has written, or declined to
 }
 
 var testHooks resealHooks
@@ -251,6 +252,12 @@ var testHooks resealHooks
 func (h resealHooks) before() {
 	if h.beforeReseal != nil {
 		h.beforeReseal()
+	}
+}
+
+func (h resealHooks) checked() {
+	if h.resealChecked != nil {
+		h.resealChecked()
 	}
 }
 
@@ -266,9 +273,10 @@ func (h resealHooks) done() {
 // the path. A second read can already be another passphrase's file, and
 // re-sealing that under this passphrase would revert the change. Anything
 // that does not match — a changed passphrase, a restored or re-linked
-// account, an erased device — is left as it is, and so is a failed write:
-// the rename never happened, and the next unlock tries again.
-func resealIfUnchanged(path, passphrase string, id *Identity, opened []byte) error {
+// account, a device erased through RemoveKeystore — is left as it is, and
+// so is a failed write: the rename never happened, and the next unlock
+// tries again.
+func resealIfUnchanged(path, passphrase string, id *Identity, opened []byte, hooks resealHooks) error {
 	keystoreMu.Lock()
 	defer keystoreMu.Unlock()
 	now, err := os.ReadFile(path)
@@ -278,7 +286,23 @@ func resealIfUnchanged(path, passphrase string, id *Identity, opened []byte) err
 	if len(opened) == 0 || !bytes.Equal(now, opened) {
 		return errKeystoreChanged
 	}
+	hooks.checked()
 	return saveKeystoreLocked(path, passphrase, id)
+}
+
+// RemoveKeystore deletes the keystore at path, and any temp file a write left
+// beside it, under the keystore lock. An erase has to wait for a re-seal that
+// is already past its check: deleting the file in the ~200 ms that re-seal
+// spends deriving its key let its rename bring the erased account back.
+func RemoveKeystore(path string) error {
+	keystoreMu.Lock()
+	defer keystoreMu.Unlock()
+	for _, p := range []string{path, path + ".tmp"} {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 var errKeystoreChanged = errors.New("identity: keystore changed since it was unlocked")
@@ -359,7 +383,7 @@ func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
 		switch {
 		case derr == nil && created:
 			hooks.before()
-			_ = resealIfUnchanged(path, passphrase, id, opened)
+			_ = resealIfUnchanged(path, passphrase, id, opened, hooks)
 			hooks.done()
 		case !namesAccount(opened):
 			// Also re-sealed when the file does not yet name its account in the
@@ -371,7 +395,7 @@ func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
 			// and a re-seal lost to an exit is simply retried at the next unlock.
 			hooks.before()
 			go func() {
-				_ = resealIfUnchanged(path, passphrase, id, opened)
+				_ = resealIfUnchanged(path, passphrase, id, opened, hooks)
 				hooks.done()
 			}()
 		}
