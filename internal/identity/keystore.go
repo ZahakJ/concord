@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -96,8 +97,10 @@ type keystoreFile struct {
 	// passphrase" from "a different account that would erase this one". It is
 	// no secret — every peer the account talks to holds it — and it is never
 	// trusted for anything but that comparison: the seed is still what
-	// unlocks. Absent in files written before it existed; LoadOrCreate adds it
-	// on the next unlock.
+	// unlocks. It is advisory, not integrity: nothing authenticates it, so
+	// anyone who can write the file can change it, and the comparison defers
+	// to the database where that can answer. Absent in files written before
+	// it existed; LoadOrCreate adds it, or corrects it, on the next unlock.
 	AccountPub []byte `json:"account_pub,omitempty"`
 }
 
@@ -308,6 +311,10 @@ func ReadAccountPub(path string) (ed25519.PublicKey, error) {
 	if err != nil {
 		return nil, err
 	}
+	return accountPubOf(blob)
+}
+
+func accountPubOf(blob []byte) (ed25519.PublicKey, error) {
 	var env keystoreFile
 	if err := json.Unmarshal(blob, &env); err != nil {
 		return nil, fmt.Errorf("identity: parse keystore: %w", err)
@@ -676,6 +683,10 @@ func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
 			_ = resealIfUnchanged(path, passphrase, id, opened, hooks)
 			hooks.done()
 		case !namesAccount(opened, id.PublicKey()):
+			if pub, _ := accountPubOf(opened); pub != nil {
+				// Present but not this seed's: written by a bug, or by hand.
+				log.Printf("concord/identity: the keystore's clear account key did not match its seed; correcting it")
+			}
 			// Also re-sealed when the file does not yet name its account in the
 			// clear (see keystoreFile.AccountPub), or names another, so a device
 			// that has been unlocked once by this build can say whose it is

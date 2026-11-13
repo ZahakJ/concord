@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -367,10 +369,17 @@ func TestResealCorrectsAWrongClearAccountKey(t *testing.T) {
 	if err := os.WriteFile(path, out, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 	unlockWithReseal(t, path, "pw", nil, resealHooks{})
 	pub, err := ReadAccountPub(path)
 	if err != nil || !bytes.Equal(pub, id.PublicKey()) {
 		t.Fatalf("clear account key after unlock: %x, %v; want %x", pub, err, id.PublicKey())
+	}
+	// Corrected, and said: a wrong key that is present is a bug or tampering.
+	if !strings.Contains(logged.String(), "clear account key did not match its seed") {
+		t.Fatalf("the correction was silent: %q", logged.String())
 	}
 }
 

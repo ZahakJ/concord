@@ -91,15 +91,23 @@ func MatchDeviceAccount(dataDir string, seed []byte) string {
 	if err != nil {
 		return MatchUnknown
 	}
+	// The database's message bodies are sealed under a key derived from the
+	// account seed, so a stored message settles it when there is one. The
+	// clear key in the keystore is written by Concord but authenticated by
+	// nothing, so where the two disagree neither is believed: the device is
+	// one Concord cannot name, and erasing it needs the full confirmation.
+	opens, known := store.KeyOpensMessages(dbPathIn(dataDir), deriveStoreKey(incoming))
 	if pub := lockedAccountPub(dataDir); pub != nil {
-		if bytes.Equal(pub, incoming.PublicKey()) {
+		same := bytes.Equal(pub, incoming.PublicKey())
+		if known && opens != same {
+			return MatchUnknown
+		}
+		if same {
 			return MatchSame
 		}
 		return MatchDifferent
 	}
-	// No clear key: the database's message bodies are sealed under a key
-	// derived from the account seed, so a stored message settles it.
-	if opens, known := store.KeyOpensMessages(dbPathIn(dataDir), deriveStoreKey(incoming)); known {
+	if known {
 		if opens {
 			return MatchSame
 		}
@@ -158,9 +166,15 @@ func replaceGate(dataDir string, seed []byte, confirm, incomingName string) (kee
 	if confirm != "" && confirm == fp {
 		return false, nil
 	}
+	match, device := MatchDeviceAccount(dataDir, seed), LockedAccount(dataDir)
+	if match == MatchUnknown {
+		// Whatever the keystore claims about itself is exactly what could not
+		// be confirmed; the confirmation must not show it as the account here.
+		device.Fingerprint = ""
+	}
 	return false, &ReplaceRefusedError{
-		Match:        MatchDeviceAccount(dataDir, seed),
-		Device:       LockedAccount(dataDir),
+		Match:        match,
+		Device:       device,
 		Incoming:     fp,
 		IncomingName: incomingName,
 	}
