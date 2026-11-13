@@ -118,11 +118,13 @@ func SaveKeystore(path, passphrase string, id *Identity) error {
 		return err
 	}
 	defer unlock()
-	return saveKeystoreLocked(path, passphrase, id)
+	return saveKeystoreLocked(path, passphrase, id, nil)
 }
 
 // saveKeystoreLocked is SaveKeystore for a caller holding the keystore lock.
-func saveKeystoreLocked(path, passphrase string, id *Identity) error {
+// prev is the keystore being replaced, as decrypted, or nil: its Argon2 cost
+// is a floor for the new one (see sealParams).
+func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte) error {
 	if passphrase == "" {
 		return errors.New("identity: passphrase must not be empty")
 	}
@@ -136,16 +138,17 @@ func saveKeystoreLocked(path, passphrase string, id *Identity) error {
 		return fmt.Errorf("identity: read nonce: %w", err)
 	}
 
-	key := deriveKey(NormalizePassphrase(passphrase), salt)
+	kp := sealParams(prev)
+	key := deriveKeyWithParams(NormalizePassphrase(passphrase), salt, kp.time, kp.memory, kp.threads)
 	sealed := secretbox.Seal(nil, id.Seed(), &nonce, &key)
 
 	env := keystoreFile{
 		Version:      keystoreVersion,
 		KDF:          "argon2id",
 		Salt:         salt,
-		ArgonTime:    argonTime,
-		ArgonMemory:  argonMemory,
-		ArgonThreads: argonThreads,
+		ArgonTime:    kp.time,
+		ArgonMemory:  kp.memory,
+		ArgonThreads: kp.threads,
 		Nonce:        nonce[:],
 		Ciphertext:   sealed,
 		AccountPub:   id.PublicKey(),
@@ -182,6 +185,28 @@ func saveKeystoreLocked(path, passphrase string, id *Identity) error {
 		return fmt.Errorf("identity: finalize keystore: %w", err)
 	}
 	return nil
+}
+
+// kdfParams is a keystore's Argon2id cost.
+type kdfParams struct {
+	time, memory uint32
+	threads      uint8
+}
+
+// sealParams is the cost to seal a replacement for prev under: this build's
+// defaults, raised to whatever prev was sealed with. A re-seal or passphrase
+// change must never weaken a file that a later build (or a deliberate
+// setting) made more expensive to guess at.
+func sealParams(prev []byte) kdfParams {
+	kp := kdfParams{argonTime, argonMemory, argonThreads}
+	var env keystoreFile
+	if len(prev) == 0 || json.Unmarshal(prev, &env) != nil {
+		return kp
+	}
+	kp.time = max(kp.time, env.ArgonTime)
+	kp.memory = max(kp.memory, env.ArgonMemory)
+	kp.threads = max(kp.threads, env.ArgonThreads)
+	return kp
 }
 
 func writeSynced(path string, blob []byte) error {
@@ -240,11 +265,11 @@ func ChangePassphrase(path, oldPass, newPass string) error {
 		return err
 	}
 	defer unlock()
-	id, _, err := openKeystore(path, oldPass)
+	id, opened, err := openKeystore(path, oldPass)
 	if err != nil {
 		return err
 	}
-	return saveKeystoreLocked(path, newPass, id)
+	return saveKeystoreLocked(path, newPass, id, opened)
 }
 
 // Test seams, nil outside tests. LoadOrCreate copies them when it decides to
@@ -298,7 +323,7 @@ func resealIfUnchanged(path, passphrase string, id *Identity, opened []byte, hoo
 		return errKeystoreChanged
 	}
 	hooks.checked()
-	return saveKeystoreLocked(path, passphrase, id)
+	return saveKeystoreLocked(path, passphrase, id, opened)
 }
 
 // RemoveKeystore deletes the keystore at path, and any temp file a write left

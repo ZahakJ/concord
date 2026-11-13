@@ -1,6 +1,7 @@
 package identity
 
 import (
+	crand "crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/nacl/secretbox"
 )
 
 // stripAccountPub rewrites the keystore at path the way builds before the
@@ -197,4 +200,81 @@ func TestResealDoesNotRecreateAnErasedKeystore(t *testing.T) {
 	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
 		t.Fatalf("a re-seal temp file survived the erase (stat: %v)", err)
 	}
+}
+
+// sealWithCost writes a keystore sealed with Argon2 time cost tc, as a build
+// with raised parameters would, without the clear account key so the next
+// unlock re-seals it.
+func sealWithCost(t *testing.T, path, pass string, id *Identity, tc uint32) {
+	t.Helper()
+	salt := make([]byte, saltSize)
+	_, _ = crand.Read(salt)
+	var nonce [nonceSize]byte
+	_, _ = crand.Read(nonce[:])
+	key := deriveKeyWithParams(pass, salt, tc, argonMemory, argonThreads)
+	env := keystoreFile{
+		Version: keystoreVersion, KDF: "argon2id", Salt: salt,
+		ArgonTime: tc, ArgonMemory: argonMemory, ArgonThreads: argonThreads,
+		Nonce: nonce[:], Ciphertext: secretbox.Seal(nil, id.Seed(), &nonce, &key),
+	}
+	var dnonce [nonceSize]byte
+	_, _ = crand.Read(dnonce[:])
+	env.DeviceNonce = dnonce[:]
+	env.DeviceCiphertext = secretbox.Seal(nil, id.DeviceSeed(), &dnonce, &key)
+	blob, _ := json.Marshal(env)
+	if err := os.WriteFile(path, blob, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func fileCost(t *testing.T, path string) kdfParams {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env keystoreFile
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatal(err)
+	}
+	return kdfParams{env.ArgonTime, env.ArgonMemory, env.ArgonThreads}
+}
+
+// Neither the re-seal nor a passphrase change may lower the Argon2 cost of
+// the file it replaces; a fresh keystore gets this build's defaults.
+func TestResealAndChangeNeverLowerTheArgon2Cost(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	id, _ := Generate()
+	want := kdfParams{argonTime + 1, argonMemory, argonThreads}
+	sealWithCost(t, path, "pw", id, want.time)
+	unlockWithReseal(t, path, "pw", nil, resealHooks{})
+	if !namesAccount(mustRead(t, path)) {
+		t.Fatal("the re-seal did not run")
+	}
+	if got := fileCost(t, path); got != want {
+		t.Fatalf("re-seal changed the Argon2 cost from %+v to %+v", want, got)
+	}
+	if err := ChangePassphrase(path, "pw", "new"); err != nil {
+		t.Fatal(err)
+	}
+	if got := fileCost(t, path); got != want {
+		t.Fatalf("passphrase change changed the Argon2 cost from %+v to %+v", want, got)
+	}
+
+	fresh := filepath.Join(t.TempDir(), "keystore.json")
+	if err := SaveKeystore(fresh, "pw", id); err != nil {
+		t.Fatal(err)
+	}
+	if got, def := fileCost(t, fresh), (kdfParams{argonTime, argonMemory, argonThreads}); got != def {
+		t.Fatalf("a new keystore was sealed with %+v, want the defaults %+v", got, def)
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
