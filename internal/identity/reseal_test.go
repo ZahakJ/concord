@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -277,4 +278,46 @@ func mustRead(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// The keystore is 0600 after every kind of write, even when a temp file with
+// a wider mode was left where the write puts its new file.
+func TestKeystoreStays0600(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no POSIX modes")
+	}
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	assertMode := func(what string) {
+		t.Helper()
+		st, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m := st.Mode().Perm(); m != 0o600 {
+			t.Fatalf("after %s the keystore is %o, want 600", what, m)
+		}
+	}
+	plantTmp := func() {
+		t.Helper()
+		if err := os.WriteFile(path+".tmp", []byte("stale"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path+".tmp", 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plantTmp()
+	if _, _, err := LoadOrCreate(path, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	assertMode("creating it")
+	stripAccountPub(t, path)
+	plantTmp()
+	unlockWithReseal(t, path, "pw", nil, resealHooks{})
+	assertMode("the re-seal")
+	plantTmp()
+	if err := ChangePassphrase(path, "pw", "new"); err != nil {
+		t.Fatal(err)
+	}
+	assertMode("a passphrase change")
 }

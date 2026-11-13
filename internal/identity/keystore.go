@@ -214,6 +214,13 @@ func writeSynced(path string, blob []byte) error {
 	if err != nil {
 		return err
 	}
+	// The mode above applies only when the file is created. A temp file left
+	// behind by a crash or another tool keeps whatever mode it had, and the
+	// rename hands that mode to the keystore.
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return err
+	}
 	if _, err := f.Write(blob); err != nil {
 		_ = f.Close()
 		return err
