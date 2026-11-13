@@ -40,6 +40,11 @@ type Bridge struct {
 	// Lock* value; "" = nothing in this process ended a session, so the core
 	// must have started since). See SessionState.
 	lockReason string
+	// linking is set while RedeemLinkCode runs. The link spends up to a
+	// minute and a half on the network without b.mu, and then erases or
+	// replaces the identity on this device; an unlock, restore or reset from
+	// another window in that time would have the ground taken from under it.
+	linking bool
 	// The visibility vote. See visibility.go: shellBackground is the native
 	// mobile lifecycle's answer, clientVisible is what each attached UI says
 	// about itself, and the two are ANDed. All three are remembered across a
@@ -407,6 +412,10 @@ func (b *Bridge) HasIdentity() (bool, error) {
 	return appsvc.HasIdentity(dir), nil
 }
 
+// errLinkInProgress refuses an identity-changing call while another window
+// is linking this device.
+var errLinkInProgress = errors.New("this device is being linked to an account in another window; wait for that to finish")
+
 // RestoreFromMnemonic reconstructs the identity from a recovery phrase, sealing
 // it under a new passphrase. Refused if an identity already exists here (the
 // user must "start over" first) or while unlocked.
@@ -415,6 +424,9 @@ func (b *Bridge) RestoreFromMnemonic(phrase, passphrase string) error {
 	defer b.mu.Unlock()
 	if b.svc != nil {
 		return errors.New("already unlocked; restart the app to restore")
+	}
+	if b.linking {
+		return errLinkInProgress
 	}
 	dir, err := appsvc.DataDir()
 	if err != nil {
@@ -448,6 +460,9 @@ func (b *Bridge) RestoreOverExisting(phrase, passphrase, confirm string) error {
 	if b.svc != nil {
 		return errors.New("already unlocked; restart the app to restore")
 	}
+	if b.linking {
+		return errLinkInProgress
+	}
 	if strings.TrimSpace(passphrase) == "" {
 		return errors.New("choose a new passphrase to protect the restored identity")
 	}
@@ -473,6 +488,9 @@ func (b *Bridge) ResetIdentity() error {
 	defer b.mu.Unlock()
 	if b.svc != nil {
 		return errors.New("already unlocked; restart the app to reset")
+	}
+	if b.linking {
+		return errLinkInProgress
 	}
 	dir, err := appsvc.DataDir()
 	if err != nil {
@@ -625,6 +643,9 @@ func (b *Bridge) Login(passphrase string) error {
 	dataDir, err := appsvc.DataDir()
 	if err != nil {
 		return err
+	}
+	if b.linking {
+		return errLinkInProgress
 	}
 	// Already unlocked (e.g. a second tab): still require the correct passphrase
 	// rather than silently succeeding.
@@ -2766,12 +2787,21 @@ func (b *Bridge) RedeemLinkCode(code, passphrase, confirm string) (string, error
 		return "", err
 	}
 	b.mu.Lock()
-	hasSvc := b.svc != nil
+	hasSvc, busy := b.svc != nil, b.linking
+	if !hasSvc && !busy {
+		b.linking = true
+	}
 	b.mu.Unlock()
 	if hasSvc {
 		return "", errors.New("log out before linking this device to an account")
 	}
+	if busy {
+		return "", errLinkInProgress
+	}
 	res, err := appsvc.RedeemLink(b.ctx, dataDir, code, passphrase, confirm)
+	b.mu.Lock()
+	b.linking = false
+	b.mu.Unlock()
 	if err != nil {
 		return "", codeReplace(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -298,6 +299,14 @@ func (s *Service) ownerAddrs(fingerprint string) (peer.ID, []string, bool) {
 	return fallback, nil, found
 }
 
+// errLinkRaced: the keystore changed between the link reading it and the
+// link writing it. Nothing on this device was changed.
+var errLinkRaced = errors.New("this device's account changed while it was being linked (another Concord window, or a passphrase change) — nothing was changed; link again")
+
+// testHookLinkBeforeWrite runs after the link has its answer from the issuer
+// and before it decides what to write. Nil outside tests.
+var testHookLinkBeforeWrite func()
+
 // RedeemLink performs the joiner side of device linking: it dials the issuer
 // named in the scanned code over a temporary libp2p host (keyed by a fresh
 // device key), proves the shared secret, receives and MITM-verifies the account
@@ -339,7 +348,18 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 	if err != nil {
 		return LinkResult{}, err
 	}
-	if existing, lerr := identity.LoadKeystore(keystorePathIn(dataDir), passphrase); lerr == nil {
+	// snap is the keystore as it is now. Everything decided below — reuse its
+	// device seed, keep or erase what is here — is decided on these bytes, and
+	// the write at the end goes through only if the file is still them: the
+	// link can spend a minute and a half on the network in between, and a
+	// passphrase changed in that time (another window, another process) must
+	// not be sealed back to this one.
+	ksPath := keystorePathIn(dataDir)
+	snap, serr := identity.ReadKeystore(ksPath)
+	if serr != nil && !os.IsNotExist(serr) {
+		return LinkResult{}, serr
+	}
+	if existing, lerr := identity.OpenKeystoreBytes(snap, passphrase); snap != nil && lerr == nil {
 		if ds := existing.DeviceSeed(); ds != nil {
 			if reused, ferr := identity.FromSeeds(joiner.Seed(), ds); ferr == nil {
 				joiner = reused
@@ -398,26 +418,43 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 	// of it, before the new keystore lands. Keeping the database is what used
 	// to publish the erased account's profile over the real one: its edit
 	// stamp was newer, so the handover lost to it and every device adopted it.
+	if testHookLinkBeforeWrite != nil {
+		testHookLinkBeforeWrite()
+	}
 	keep, err := replaceGate(dataDir, accountSeed, confirm, resp.Profile.Name)
 	if err != nil {
 		return LinkResult{}, err
 	}
-	if !keep {
-		// With no keystore whatever else is here belongs to nobody that can
-		// open it, and its settings are readable: they must not become the
-		// new account's.
-		if err := ResetIdentity(dataDir); err != nil {
-			return LinkResult{}, err
-		}
-	}
-
-	// Adopt the account: keystore = received account seed + our device seed;
-	// marker = the issuer-signed cert. Next login runs in linked mode.
 	linked, err := identity.FromSeeds(accountSeed, joiner.DeviceSeed())
 	if err != nil {
 		return LinkResult{}, err
 	}
-	if err := identity.SaveKeystore(keystorePathIn(dataDir), passphrase, linked); err != nil {
+	expected := snap
+	if !keep {
+		// With no keystore whatever else is here belongs to nobody that can
+		// open it, and its settings are readable: they must not become the
+		// new account's.
+		if err := resetIdentityIf(dataDir, snap); err != nil {
+			if errors.Is(err, identity.ErrKeystoreChanged) {
+				return LinkResult{}, errLinkRaced
+			}
+			return LinkResult{}, err
+		}
+		expected = nil
+	}
+
+	// Adopt the account: keystore = received account seed + our device seed;
+	// marker = the issuer-signed cert. Next login runs in linked mode.
+	if err := identity.ReplaceKeystore(ksPath, passphrase, linked, expected); err != nil {
+		switch {
+		case errors.Is(err, identity.ErrKeystoreChanged):
+			return LinkResult{}, errLinkRaced
+		case errors.Is(err, identity.ErrKeystoreExists):
+			// Only after an erase: the account that was here is gone, as
+			// the user confirmed, and another window put a new one in its
+			// place before this link could.
+			return LinkResult{}, errors.New("the account on this device was erased as you confirmed, but another Concord window created a new one before the link finished; the link was not applied — close the other window and link again")
+		}
 		return LinkResult{}, err
 	}
 	if err := saveDeviceMarker(dataDir, resp.Cert); err != nil {

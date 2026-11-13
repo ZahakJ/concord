@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,6 +128,25 @@ func TestConfirmWipeErasesTheDataDir(t *testing.T) {
 	for _, name := range []string{"keystore.json", "concord.db", "concord.db-wal", "peers.json", "mls"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
 			t.Errorf("%s survived the wipe (stat err = %v)", name, err)
+		}
+	}
+}
+
+// While a link is running (it waits on the network without the bridge lock,
+// then replaces the identity), nothing else may unlock, restore, reset or
+// start a second link from another window.
+func TestIdentityChangesWaitForALinkInProgress(t *testing.T) {
+	t.Setenv("CONCORD_HOME", t.TempDir())
+	b := &Bridge{linking: true}
+	for name, call := range map[string]func() error{
+		"Login":               func() error { return b.Login("pw") },
+		"RestoreFromMnemonic": func() error { return b.RestoreFromMnemonic("x", "pw") },
+		"RestoreOverExisting": func() error { return b.RestoreOverExisting("x", "pw", "") },
+		"ResetIdentity":       func() error { return b.ResetIdentity() },
+		"RedeemLinkCode":      func() error { _, err := b.RedeemLinkCode("x", "pw", ""); return err },
+	} {
+		if err := call(); !errors.Is(err, errLinkInProgress) {
+			t.Errorf("%s during a link: %v, want it refused", name, err)
 		}
 	}
 }

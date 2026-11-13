@@ -331,6 +331,75 @@ func (h resealHooks) done() {
 	}
 }
 
+// ErrKeystoreChanged is returned by a conditional keystore write or erase
+// when the file on disk is no longer the one the caller read: another window
+// or process changed the passphrase, restored, linked or erased in between.
+// Nothing was written.
+var ErrKeystoreChanged = errors.New("identity: the keystore on this device changed while this was in progress")
+
+// ErrKeystoreExists is returned by a create-only keystore write when a
+// keystore appeared at the path after the caller found none. Nothing was
+// written.
+var ErrKeystoreExists = errors.New("identity: a keystore already exists on this device")
+
+// ReadKeystore returns the keystore file's bytes: the snapshot a caller
+// decides on (decrypts with OpenKeystoreBytes, compares accounts) and then
+// hands back to ReplaceKeystore or RemoveKeystoreIfUnchanged as expected.
+func ReadKeystore(path string) ([]byte, error) { return os.ReadFile(path) }
+
+// ReplaceKeystore seals id under passphrase and writes it to path, if and
+// only if the file there is still expected: byte for byte the snapshot the
+// caller read and decided on, or, when expected is nil, no file at all
+// (create only). Otherwise it returns ErrKeystoreChanged or
+// ErrKeystoreExists and writes nothing. Every write of the keystore goes
+// through this check under the keystore lock, so a decision taken on what
+// the file held, however long ago, can never be applied to a file that has
+// since become something else: a passphrase changed since, an account
+// restored or linked since, a keystore created by another window.
+func ReplaceKeystore(path, passphrase string, id *Identity, expected []byte) error {
+	return writeKeystore(path, passphrase, id, expected, resealHooks{})
+}
+
+func writeKeystore(path, passphrase string, id *Identity, expected []byte, hooks resealHooks) error {
+	if passphrase == "" {
+		return errors.New("identity: passphrase must not be empty")
+	}
+	if dir := filepath.Dir(path); dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return fmt.Errorf("identity: create keystore dir: %w", err)
+		}
+	}
+	unlock, err := lockKeystore(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := checkExpected(path, expected); err != nil {
+		return err
+	}
+	hooks.checked()
+	return saveKeystoreLocked(path, passphrase, id, expected)
+}
+
+// checkExpected reports, for a caller holding the keystore lock, whether the
+// file at path is still expected (nil: absent).
+func checkExpected(path string, expected []byte) error {
+	now, err := os.ReadFile(path)
+	switch {
+	case os.IsNotExist(err) && expected == nil:
+		return nil
+	case os.IsNotExist(err):
+		return ErrKeystoreChanged
+	case err != nil:
+		return err
+	case expected == nil:
+		return ErrKeystoreExists
+	case !bytes.Equal(now, expected):
+		return ErrKeystoreChanged
+	}
+	return nil
+}
+
 // resealIfUnchanged rewrites the keystore under passphrase, but only if the
 // file is still byte for byte the one that passphrase was proven against:
 // opened must be the exact bytes that were decrypted, never a second read of
@@ -341,20 +410,39 @@ func (h resealHooks) done() {
 // so is a failed write: the rename never happened, and the next unlock
 // tries again.
 func resealIfUnchanged(path, passphrase string, id *Identity, opened []byte, hooks resealHooks) error {
+	if len(opened) == 0 {
+		return ErrKeystoreChanged
+	}
+	return writeKeystore(path, passphrase, id, opened, hooks)
+}
+
+// RemoveKeystoreIfUnchanged erases the keystore at path only if it is still
+// expected, the snapshot on which the caller (and the user) decided that it
+// may go. A keystore that became another account's, or the same account's
+// under a newer passphrase, is not the one that was agreed to and is left
+// alone with ErrKeystoreChanged.
+func RemoveKeystoreIfUnchanged(path string, expected []byte) error {
 	unlock, err := lockKeystore(path)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	now, err := os.ReadFile(path)
-	if err != nil {
+	if expected == nil {
+		return ErrKeystoreChanged
+	}
+	if err := checkExpected(path, expected); err != nil {
 		return err
 	}
-	if len(opened) == 0 || !bytes.Equal(now, opened) {
-		return errKeystoreChanged
+	return removeKeystoreFiles(path)
+}
+
+func removeKeystoreFiles(path string) error {
+	for _, p := range []string{path, path + ".tmp"} {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	}
-	hooks.checked()
-	return saveKeystoreLocked(path, passphrase, id, opened)
+	return nil
 }
 
 // RemoveKeystore deletes the keystore at path, and any temp file a write left
@@ -371,15 +459,8 @@ func RemoveKeystore(path string) error {
 		keystoreMu.Lock()
 		defer keystoreMu.Unlock()
 	}
-	for _, p := range []string{path, path + ".tmp"} {
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-	return nil
+	return removeKeystoreFiles(path)
 }
-
-var errKeystoreChanged = errors.New("identity: keystore changed since it was unlocked")
 
 // LoadKeystore reads and decrypts the identity at path using passphrase.
 func LoadKeystore(path, passphrase string) (*Identity, error) {
@@ -390,23 +471,31 @@ func LoadKeystore(path, passphrase string) (*Identity, error) {
 // openKeystore is LoadKeystore that also returns the bytes it decrypted, so a
 // later write can be made conditional on the file still being exactly those.
 func openKeystore(path, passphrase string) (*Identity, []byte, error) {
-	blob, err := os.ReadFile(path)
+	blob, err := ReadKeystore(path)
 	if err != nil {
 		return nil, nil, err // callers use os.IsNotExist to detect first-run
 	}
+	id, err := OpenKeystoreBytes(blob, passphrase)
+	if err != nil {
+		return nil, nil, err
+	}
+	return id, blob, nil
+}
 
+// OpenKeystoreBytes decrypts a keystore snapshot taken with ReadKeystore.
+func OpenKeystoreBytes(blob []byte, passphrase string) (*Identity, error) {
 	var env keystoreFile
 	if err := json.Unmarshal(blob, &env); err != nil {
-		return nil, nil, fmt.Errorf("identity: parse keystore: %w", err)
+		return nil, fmt.Errorf("identity: parse keystore: %w", err)
 	}
 	if env.Version < 1 || env.Version > keystoreVersion {
-		return nil, nil, fmt.Errorf("identity: unsupported keystore version %d", env.Version)
+		return nil, fmt.Errorf("identity: unsupported keystore version %d", env.Version)
 	}
 	if env.KDF != "argon2id" {
-		return nil, nil, fmt.Errorf("identity: unsupported kdf %q", env.KDF)
+		return nil, fmt.Errorf("identity: unsupported kdf %q", env.KDF)
 	}
 	if len(env.Nonce) != nonceSize {
-		return nil, nil, errors.New("identity: bad nonce length in keystore")
+		return nil, errors.New("identity: bad nonce length in keystore")
 	}
 
 	var nonce [nonceSize]byte
@@ -422,11 +511,11 @@ func openKeystore(path, passphrase string) (*Identity, []byte, error) {
 		}
 	}
 	if !ok {
-		return nil, nil, ErrWrongPassphrase
+		return nil, ErrWrongPassphrase
 	}
 	id, err := FromSeed(seed)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	// Unseal the device seed if this file has one (v2). A wrong device nonce/
 	// ciphertext shouldn't strand the account, so a failure here just leaves the
@@ -438,7 +527,7 @@ func openKeystore(path, passphrase string) (*Identity, []byte, error) {
 			id.deviceSeed = ds
 		}
 	}
-	return id, blob, nil
+	return id, nil
 }
 
 // LoadOrCreate loads the identity at path, or generates and persists a new one
@@ -463,11 +552,11 @@ func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
 			// Also re-sealed when the file does not yet name its account in the
 			// clear (see keystoreFile.AccountPub), or names another, so a device
 			// that has been unlocked once by this build can say whose it is
-			// while locked. That
-			// is a second key derivation (about 200 ms) the unlock does not
-			// need to wait for, so it happens behind it; it only replaces the
-			// bytes it decrypted, so a passphrase change in between always wins,
-			// and a re-seal lost to an exit is simply retried at the next unlock.
+			// while locked. That is a second key derivation (about 200 ms) the
+			// unlock does not need to wait for, so it happens behind it; it only
+			// replaces the bytes it decrypted, so a passphrase change in between
+			// always wins, and a re-seal lost to an exit is simply retried at
+			// the next unlock.
 			hooks.before()
 			go func() {
 				_ = resealIfUnchanged(path, passphrase, id, opened, hooks)
