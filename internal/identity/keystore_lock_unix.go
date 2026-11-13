@@ -28,3 +28,7 @@ func tryLockFile(f *os.File) (bool, error) {
 }
 
 func unlockFile(f *os.File) { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN) }
+
+// renameDurable is os.Rename; the directory sync after it (syncDir) is what
+// makes it survive a power cut here.
+func renameDurable(from, to string) error { return os.Rename(from, to) }

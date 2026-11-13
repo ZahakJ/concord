@@ -214,7 +214,7 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte) erro
 	if err != nil {
 		return fmt.Errorf("identity: write keystore: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := renameDurable(tmp, path); err != nil {
 		return fmt.Errorf("identity: finalize keystore: %w", err)
 	}
 	// Only a rename that put this file at the path counts: one that did not
@@ -246,8 +246,8 @@ func removeStaleTemps(path string) {
 }
 
 // syncDir flushes a directory's entries to disk. A variable so a test can see
-// that it runs; Windows cannot sync a directory handle and needs no sync for
-// the rename to be durable there.
+// that it runs. Windows cannot sync a directory handle; there the rename is
+// made durable by renameDurable itself (write-through) instead.
 var syncDir = func(dir string) error {
 	if runtime.GOOS == "windows" {
 		return nil

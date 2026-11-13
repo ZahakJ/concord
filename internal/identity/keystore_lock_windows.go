@@ -29,3 +29,19 @@ func tryLockFile(f *os.File) (bool, error) {
 func unlockFile(f *os.File) {
 	_ = windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, new(windows.Overlapped))
 }
+
+// renameDurable replaces to with from and returns only once the change is on
+// disk. os.Rename asks for no write-through, and NTFS may then lose a lazily
+// flushed rename to a power cut: a passphrase change reported done would come
+// back as the old keystore.
+func renameDurable(from, to string) error {
+	f, err := windows.UTF16PtrFromString(from)
+	if err != nil {
+		return err
+	}
+	t, err := windows.UTF16PtrFromString(to)
+	if err != nil {
+		return err
+	}
+	return windows.MoveFileEx(f, t, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+}
