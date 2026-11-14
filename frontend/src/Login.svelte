@@ -1064,8 +1064,14 @@
       {:else}
         <p class="muted">
           Your 24 words bring back who you are, not your history: this device starts with no
-          guilds and no messages. If another of your devices still has the account, link to it
-          instead and everything comes with it.
+          guilds and no messages.
+        </p>
+        <p class="muted small use-link">
+          Is the account still open on another device? Don't restore — a copy restored beside it
+          can't see it or its guilds.
+          <button type="button" class="link inline" onclick={() => ((restoring = false), (linking = true), (error = ""))}>
+            Add this device to my account instead
+          </button>
         </p>
       {/if}
       <!-- Same reason as the link code, and worse here: the IME will happily
@@ -1129,9 +1135,11 @@
       <button class="primary" type="button" onclick={() => ((linking = true), (forgot = false), (error = ""))}>
         Re-link from my other device
       </button>
+      <p class="muted small">If the account is still open on another device: everything comes back.</p>
       <button type="button" class="ghost" onclick={() => ((restoring = true), (forgot = false), (error = ""))}>
         Use my recovery phrase
       </button>
+      <p class="muted small">If no other device of yours has the account any more.</p>
       <button type="button" class="link warn-link" onclick={() => ((confirmingReset = true), (forgot = false), (error = ""))}>
         I have neither — start over (deletes everything)
       </button>
@@ -1201,12 +1209,20 @@
       <button class="primary" type="submit" disabled={!hasVisible(displayName) || !passphrase || !confirmPass || busy}>
         {busy ? "Creating…" : "Create identity"}
       </button>
-      <button type="button" class="link" onclick={() => ((restoring = true), (error = ""))}>
-        Restore from a recovery phrase
-      </button>
-      <button type="button" class="link" onclick={() => ((linking = true), (error = ""))}>
-        Link to an existing account
-      </button>
+      <!-- The two ways in for an account that already exists, linking first.
+           People with a working second device reached for the phrase, and a
+           phrase restore beside a running original makes a copy that shares
+           its network identity and can see neither it nor its guilds. -->
+      <div class="other-ways">
+        <button type="button" class="link" onclick={() => ((linking = true), (error = ""))}>
+          Add this device to my account
+        </button>
+        <span class="muted small">Your account is open on another device: link this one with a code from it.</span>
+        <button type="button" class="link" onclick={() => ((restoring = true), (error = ""))}>
+          I lost my devices — restore from my recovery phrase
+        </button>
+        <span class="muted small">Only when no other device of yours still has the account.</span>
+      </div>
     {/if}
 
     {#if !backupPhrase && !resumeBackup && !naming && !replaceAsk}
@@ -1342,6 +1358,22 @@
     min-height: 40px;
     width: 100%;
     font-size: var(--fs-ui);
+  }
+  .other-ways {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    margin-top: var(--sp-2);
+    text-align: start;
+  }
+  .other-ways .link + .small {
+    margin-bottom: var(--sp-2);
+  }
+  .link.inline {
+    display: inline;
+    padding: 0;
+    min-height: 0;
   }
   .links {
     display: flex;

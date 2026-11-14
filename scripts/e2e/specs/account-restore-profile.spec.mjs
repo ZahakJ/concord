@@ -24,7 +24,7 @@ async function restoreThroughUI(world, phrase) {
   const app = await dev.open({ unlock: false });
   const { page } = app;
   await page.goto(`${dev.url}/?t=${dev.token}`, { waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "Restore from a recovery phrase" }).click();
+  await page.getByRole("button", { name: "I lost my devices — restore from my recovery phrase" }).click();
   await page.getByRole("textbox", { name: "Recovery phrase" }).fill(phrase);
   await page.getByPlaceholder("New passphrase").fill(dev.passphrase);
   await page.getByPlaceholder("Confirm passphrase").fill(dev.passphrase);

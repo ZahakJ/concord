@@ -127,7 +127,7 @@
     </div>
   {:else}
   <p class="muted">
-    On your other device, choose <strong>“Link to an existing account”</strong> and
+    On your other device, choose <strong>“Add this device to my account”</strong> and
     scan this code (or paste it). It works for a few minutes, then expires.
   </p>
 

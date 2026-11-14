@@ -11,7 +11,7 @@ Linking needs both devices online at the same time and able to reach each other.
 ## Link a new device
 
 1. On the device that already has your account, open **Settings → Link a device**. It shows a QR code and a **Copy code instead** button.
-2. On the new device, at the first-run screen, choose **Link to an existing account**.
+2. On the new device, at the first-run screen, choose **Add this device to my account**.
 3. Select **Scan QR code** and point the camera at the code, or paste the copied code into the box. **Scan QR code** appears on touch-screen devices with a camera, such as a phone; on a computer, paste the code.
 4. Choose a passphrase for the new device and type it twice. It protects your identity on that device only and does not have to match the passphrase on your other devices.
 5. Select **Link this device**, and keep both devices on their linking screens until it finishes.

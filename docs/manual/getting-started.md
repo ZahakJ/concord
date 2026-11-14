@@ -106,7 +106,7 @@ Select **Create identity**. Concord generates your identity, a cryptographic key
 
 ![The first-run screen, Create your account, with the name and passphrase fields filled in](../media/manual/first-run.webp)
 
-The same screen also offers **Restore from a recovery phrase** and **Link to an existing account**, for when this is not your first device. See [Accounts and identity](identity.md) and [Multiple devices](devices.md).
+The same screen also offers **Add this device to my account** (link it from a device that already has the account) and, below it, **I lost my devices — restore from my recovery phrase** (only when no other device has the account any more). See [Accounts and identity](identity.md) and [Multiple devices](devices.md).
 
 ### Unlocking
 

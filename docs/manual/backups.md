@@ -19,7 +19,7 @@ The most complete safety net is a second linked device (see [Multiple devices](d
 
 Your recovery phrase is your account key written as 24 words. It is shown when the identity is created and can be revealed again in **Settings → Account → Recovery phrase**. Write it down on paper or in a password manager.
 
-To use it on a new or reset device, choose **Restore from a recovery phrase** on the first-run screen, enter the 24 words, choose a new passphrase for the device, and select **Restore account**.
+To use it on a new or reset device, choose **I lost my devices — restore from my recovery phrase** on the first-run screen (if another device still has the account, choose **Add this device to my account** instead: a phrase restored beside a running device makes a copy that cannot see it), enter the 24 words, choose a new passphrase for the device, and select **Restore account**.
 
 What comes back is the key: you are the same person, with the same fingerprint, to everyone who has verified you. What does not come back is everything else. The restored device starts with no name, no guilds and no history. To fill it in:
 
