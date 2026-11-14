@@ -40,10 +40,6 @@ type tombstone struct {
 	FileID string `json:"file_id,omitempty"` // device and inode where the platform has them
 }
 
-// finishers counts the background goroutines finishing erases, so a test can
-// wait for them.
-var finishers sync.WaitGroup
-
 func tombstonePath(path string) string { return path + ".erased" }
 
 func tombstoneTempPattern(path string) string { return "." + filepath.Base(path) + ".erased-*" }
@@ -155,8 +151,7 @@ func RemoveKeystore(path string) error {
 		return err
 	}
 	if !present {
-		removeStaleTemps(path)
-		return nil
+		return nil // temp files are left to a lock holder: one may be in use
 	}
 	if err := writeTombstone(path, t); err != nil {
 		return err
@@ -169,21 +164,41 @@ func RemoveKeystore(path string) error {
 		_ = syncDir(filepath.Dir(path))
 		return err
 	}
+	startFinisher(path)
+	return nil
+}
+
+// Finishing an erase in the background: at most one goroutine per keystore,
+// and it gives up after finisherAttempts tries (about five minutes). Giving
+// up is safe: the marker only ever condemns the file it names, and the next
+// holder of the lock still finishes it. Variables for tests.
+var (
+	finisherAttempts = 30
+	finisherPause    = time.Second
+	finishing        sync.Map // path -> struct{}
+	// finishers counts the running goroutines, so a test can wait for them.
+	finishers sync.WaitGroup
+)
+
+func startFinisher(path string) {
+	if _, running := finishing.LoadOrStore(path, struct{}{}); running {
+		return
+	}
+	attempts, pause := finisherAttempts, finisherPause
 	finishers.Add(1)
 	go func() {
 		defer finishers.Done()
-		// Taking the lock finishes the erase (see lockKeystore). Retried, one
-		// bounded attempt at a time so this never sits on keystoreMu, until
-		// it happens here or another holder has done it.
-		for erasePending(path) {
+		defer finishing.Delete(path)
+		// Taking the lock finishes the erase (see lockKeystore), one bounded
+		// attempt at a time so this never sits on keystoreMu.
+		for i := 0; i < attempts && erasePending(path); i++ {
 			if unlock, err := lockKeystore(path); err == nil {
 				unlock()
 				return
 			}
-			time.Sleep(time.Second)
+			time.Sleep(pause)
 		}
 	}()
-	return nil
 }
 
 // finishPendingErase completes an erase that could not take the lock, for a

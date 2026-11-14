@@ -236,3 +236,40 @@ func TestEraseSyncsTheDirectory(t *testing.T) {
 		t.Fatalf("an erase without the lock synced the directory %d times, want the marker and the removal", *n)
 	}
 }
+
+// Erases that cannot take the lock run one background finisher per keystore,
+// not one each, and it gives up after a bounded number of attempts when the
+// lock never comes free.
+func TestEraseFinisherIsSingleAndBounded(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	if _, _, err := LoadOrCreate(path, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	blob := mustRead(t, path)
+	origA, origP := finisherAttempts, finisherPause
+	finisherAttempts, finisherPause = 3, 10*time.Millisecond
+	t.Cleanup(func() { finisherAttempts, finisherPause = origA, origP })
+	release := holdKeystoreInProcess(t) // the lock never comes free
+
+	for i := range 3 {
+		if err := os.WriteFile(path, blob, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := RemoveKeystore(path); err != nil {
+			t.Fatalf("erase %d: %v", i, err)
+		}
+	}
+	running := 0
+	finishing.Range(func(any, any) bool { running++; return true })
+	if running > 1 {
+		t.Fatalf("%d finishers for one keystore", running)
+	}
+	gaveUp := make(chan struct{})
+	go func() { finishers.Wait(); close(gaveUp) }()
+	select {
+	case <-gaveUp:
+	case <-time.After(10 * time.Second):
+		release()
+		t.Fatal("the finisher never gave up on a lock that never came free")
+	}
+}
