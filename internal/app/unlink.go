@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -174,7 +175,7 @@ func (s *Service) UnlinkDevice(deviceKeyHex string) error {
 	s.markDeviceRevoked(hex.EncodeToString(raw), rev.RevokedAt)
 
 	// The half that holds: drop its leaf wherever we can commit.
-	failed := s.removeDeviceLeaves(raw)
+	failed, pending := s.removeDeviceLeaves(raw)
 
 	// And tell it, if it happens to be here right now. If it isn't, the hello
 	// reply catches it whenever it next connects.
@@ -186,10 +187,38 @@ func (s *Service) UnlinkDevice(deviceKeyHex string) error {
 		s.host.UnprotectDevice(id)
 		go s.pushRevocation(id, rev)
 	}
-	if len(failed) > 0 {
-		return fmt.Errorf("app: unlinked, but %s still list that device — reopen them when you can commit there", plural(len(failed), "guild", "guilds"))
+	if len(failed) > 0 || len(pending) > 0 {
+		return &UnlinkIncompleteError{Failed: failed, Pending: pending}
 	}
 	return nil
+}
+
+// UnlinkIncompleteError: the device is unlinked (revoked, told when it next
+// connects, no longer treated as this account), but some guilds still hold
+// its leaf, so it keeps receiving their traffic until the leaf goes.
+//
+// Pending are guilds and DMs where this device may not remove a member: only
+// their owner or a manage-members holder can, and honest members refuse a
+// removal commit from anyone else. Committing it anyway advanced only this
+// device's own copy of the group and cut it out of the conversation, both
+// ways and silently; so it is not attempted. Failed are guilds where this
+// device could have committed but the removal failed.
+type UnlinkIncompleteError struct {
+	Failed  []string // guild names
+	Pending []string // guild names
+}
+
+func (e *UnlinkIncompleteError) Error() string {
+	var parts []string
+	if len(e.Pending) > 0 {
+		parts = append(parts, fmt.Sprintf("%s still list that device until an owner or moderator there removes it (%s)",
+			plural(len(e.Pending), "guild", "guilds"), strings.Join(e.Pending, ", ")))
+	}
+	if len(e.Failed) > 0 {
+		parts = append(parts, fmt.Sprintf("removing it from %s failed (%s); unlink it again to retry",
+			plural(len(e.Failed), "guild", "guilds"), strings.Join(e.Failed, ", ")))
+	}
+	return "app: unlinked, but " + strings.Join(parts, "; ")
 }
 
 // markDeviceRevoked stamps the registry so the device stops being dialled and
@@ -208,28 +237,31 @@ func (s *Service) markDeviceRevoked(key string, at int64) {
 	s.saveDeviceRegistry(append(recs, ownDevice{Key: key, Revoked: at}))
 }
 
-// removeDeviceLeaves drops a device's MLS leaf from every guild it is in,
-// returning the guilds where we could not. A guild we do not have commit
-// authority in is one of those: the device keeps receiving that guild's traffic
-// until somebody who can commit removes it, which the caller must say out loud
-// rather than report success.
-func (s *Service) removeDeviceLeaves(devicePub []byte) []string {
+// removeDeviceLeaves drops a device's MLS leaf from every guild it is in where
+// this device may commit membership changes, returning the guilds where that
+// failed and those where it may not (pending). In a pending guild the removal
+// is not attempted: honest members apply a membership commit only from the
+// owner or a manage-members holder (authorizedCommitter), so a commit from
+// anyone else advances only the committer's own copy of the group, and it can
+// then neither read nor be read by the rest. The device keeps that guild's
+// traffic until somebody who can commit removes it, which the caller must say
+// out loud rather than report success.
+func (s *Service) removeDeviceLeaves(devicePub []byte) (failed, pending []string) {
 	s.mu.RLock()
 	type target struct {
-		id      string
-		groupID []byte
+		id, name string
+		groupID  []byte
 	}
 	guilds := make([]target, 0, len(s.guilds))
 	for _, g := range s.guilds {
-		guilds = append(guilds, target{g.ID, g.GroupID})
+		guilds = append(guilds, target{g.ID, g.Name, g.GroupID})
 	}
 	s.mu.RUnlock()
 
-	var failed []string
 	for _, g := range guilds {
 		creds, err := s.mls.Members(s.ctx, g.groupID)
 		if err != nil {
-			failed = append(failed, g.id)
+			failed = append(failed, g.name)
 			continue
 		}
 		for _, c := range creds {
@@ -237,9 +269,14 @@ func (s *Service) removeDeviceLeaves(devicePub []byte) []string {
 			if !ok || !bytes.Equal(cert.DevicePub, devicePub) {
 				continue
 			}
+			// The same rule the other members apply to our commit.
+			if !s.authorizedCommitter(g.id, s.myCredential) {
+				pending = append(pending, g.name)
+				break
+			}
 			commit, err := s.mls.Remove(s.ctx, g.groupID, c)
 			if err != nil {
-				failed = append(failed, g.id)
+				failed = append(failed, g.name)
 				break
 			}
 			s.logCommit(g.groupID, commit)
@@ -251,7 +288,7 @@ func (s *Service) removeDeviceLeaves(devicePub []byte) []string {
 	if len(failed) > 0 {
 		s.emitGuildUpdate()
 	}
-	return failed
+	return failed, pending
 }
 
 // pushRevocation hands a revocation straight to the device, by greeting it. Our
