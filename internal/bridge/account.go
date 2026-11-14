@@ -30,6 +30,7 @@ const (
 	CodeWrongPassphrase     = "wrong-passphrase"      // the passphrase does not open this device's keystore
 	CodeErasePending        = "erase-pending"         // erased; the keystore file itself goes at the next chance (not a failure)
 	CodeDataWithoutKeystore = "data-without-keystore" // an account's data but no keystore: restore or start over; nothing was created
+	CodeConfirmWord         = "confirm-word"          // start over needs StartOverWord typed; nothing was deleted
 )
 
 // Why a running core has no session, for a window that had one. A fresh
@@ -197,3 +198,7 @@ func (b *Bridge) RevealMnemonicWith(passphrase string) (string, error) {
 	}
 	return svc.Mnemonic()
 }
+
+// StartOverWord is what the user types to erase this device from the lock
+// screen (start over, or erasing data found without its keystore).
+const StartOverWord = "ERASE"

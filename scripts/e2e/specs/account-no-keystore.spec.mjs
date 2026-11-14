@@ -110,7 +110,7 @@ test("data without a keystore: another account's phrase is asked about, declinin
   assert.ok(!left.some((m) => m.content === "alice's note"), "Alice's note survived the erase");
 });
 
-test("data without a keystore: erasing it is a choice, asked once, and then a new account can be set up", async ({ world, assert, waitFor, step }) => {
+test("data without a keystore: erasing it takes the typed word, and then a new account can be set up", async ({ world, assert, waitFor, step }) => {
   const [alice] = await world.peers(1);
   const notes = (await alice.rpc("NotesDM")).channels[0].id;
   await alice.send(notes, "erase me only if asked");
@@ -120,16 +120,35 @@ test("data without a keystore: erasing it is a choice, asked once, and then a ne
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
   await refusedCreate(page);
 
-  step("choosing to erase asks first; cancelling keeps everything");
+  step("the core refuses an erase without the typed word, whoever calls it");
+  for (const args of [[], [""], ["delete"], ["Alice"]]) {
+    await assert.rejects(alice.rpc("ResetIdentity", ...args), /type ERASE/, `ResetIdentity(${JSON.stringify(args)}) was not refused`);
+  }
+  untouched(assert, alice, dbBefore, "after erase calls without the word");
+
+  step("choosing to erase asks for the word; a wrong word keeps the button disabled");
   await page.getByRole("button", { name: "Erase this data and start over" }).click();
-  await page.getByRole("button", { name: "Yes, delete and start over" }).waitFor();
+  const word = page.getByRole("textbox", { name: "Type ERASE to confirm" });
+  const yes = page.getByRole("button", { name: "Yes, delete and start over" });
+  await word.waitFor();
+  assert.ok(await yes.isDisabled(), "the erase button is enabled before anything is typed");
+  for (const wrong of ["ERAS", "delete", "Alice", "ERASE!"]) {
+    await word.fill(wrong);
+    assert.ok(await yes.isDisabled(), `the erase button is enabled with "${wrong}" typed`);
+    await word.press("Enter");
+  }
+  untouched(assert, alice, dbBefore, "after wrong words");
+
+  step("cancelling keeps everything");
   await page.getByRole("button", { name: "Cancel" }).click();
   untouched(assert, alice, dbBefore, "after cancelling the erase");
 
-  step("confirmed, the data goes and a new account can be set up");
+  step("with the word typed, the data goes and a new account can be set up");
   await refusedCreate(page);
   await page.getByRole("button", { name: "Erase this data and start over" }).click();
-  await page.getByRole("button", { name: "Yes, delete and start over" }).click();
+  await word.fill(" erase ");
+  assert.ok(await yes.isEnabled(), "the erase button stays disabled with the word typed");
+  await yes.click();
   await waitFor(async () => !fs.existsSync(path.join(alice.home, "concord.db")), { message: "the confirmed erase removes the database" });
   await page.getByRole("textbox", { name: "Your name" }).fill("Someone new");
   await page.getByPlaceholder("Choose a passphrase").fill("a-new-passphrase");

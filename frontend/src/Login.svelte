@@ -120,6 +120,12 @@
     await enter();
   }
   let confirmingReset = $state(false);
+  // Erasing from here takes a fixed word typed out, the same strength as the
+  // in-app wipe. The core checks it too (ResetIdentity refuses without it);
+  // it is never taken from a name, which could be untypeable.
+  const START_OVER_WORD = "ERASE";
+  let resetTyped = $state("");
+  const resetMatches = $derived(resetTyped.trim().toLowerCase() === START_OVER_WORD.toLowerCase());
   // dataNoKeystore: the core refused to create because this device holds an
   // account's data without its keystore; the choices are worded for that.
   let dataNoKeystore = $state(false);
@@ -657,11 +663,12 @@
   }
 
   async function doReset() {
+    if (!resetMatches || busy) return;
     busy = true;
     error = "";
     try {
       try {
-        await api.resetIdentity();
+        await api.resetIdentity(resetTyped.trim());
       } catch (err) {
         // Erased, with the keystore file itself still to go: not a failure.
         if (err?.code !== "erase-pending") throw err;
@@ -669,6 +676,7 @@
       }
       hasIdentity = false;
       confirmingReset = false;
+      resetTyped = "";
       dataNoKeystore = false;
       passphrase = "";
       confirmPass = "";
@@ -1011,11 +1019,23 @@
         so you can create a new passphrase. Guilds you own will be lost. This
         cannot be undone.
       </p>
+      <p class="muted">Type <b>{START_OVER_WORD}</b> to confirm.</p>
+      <input
+        type="text"
+        bind:value={resetTyped}
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        aria-label="Type {START_OVER_WORD} to confirm"
+        placeholder={START_OVER_WORD}
+        disabled={busy}
+        onkeydown={(e) => e.key === "Enter" && doReset()}
+      />
       <div class="error slot" role="alert">{error}</div>
-      <button type="button" class="danger" disabled={busy} onclick={doReset}>
+      <button type="button" class="danger" disabled={busy || !resetMatches} onclick={doReset}>
         {busy ? "Resetting…" : "Yes, delete and start over"}
       </button>
-      <button type="button" class="link" onclick={() => (confirmingReset = false)}>Cancel</button>
+      <button type="button" class="link" onclick={() => ((confirmingReset = false), (resetTyped = ""))}>Cancel</button>
     {:else if linking}
       <p class="muted">
         On your other device, open <strong>Settings → Your devices</strong>.

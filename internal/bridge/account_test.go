@@ -372,3 +372,41 @@ func TestARecordedEraseAuthorisesNothing(t *testing.T) {
 	}
 	adaIsBack(t, b, ks, saved)
 }
+
+// Erasing from the lock screen (the no-keystore screen's "erase this data",
+// and start over from the Forgot menu, which are the same call) takes the
+// fixed word typed by the user, checked here and not only in the screen: a
+// call without it, or with anything else, deletes nothing.
+func TestStartOverRefusesWithoutTheTypedWord(t *testing.T) {
+	for _, keystoreLost := range []bool{true, false} {
+		b, _ := newLockedDevice(t, "pw", "Ada")
+		ks, _ := appsvc.KeystorePath()
+		saved, err := os.ReadFile(ks)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if keystoreLost {
+			_ = os.Remove(ks)
+		}
+		dir, _ := appsvc.DataDir()
+		db := filepath.Join(dir, "concord.db")
+		for _, args := range [][]json.RawMessage{nil, {json.RawMessage(`""`)}, {json.RawMessage(`"delete"`)}, {json.RawMessage(`"Ada"`)}} {
+			if _, err := b.Dispatch("ResetIdentity", args); err == nil {
+				t.Fatalf("keystore lost %v: start over with %s erased without the typed word", keystoreLost, args)
+			} else if code, _ := codeOf(err); code != CodeConfirmWord {
+				t.Fatalf("keystore lost %v: refusal %v, want code %q", keystoreLost, err, CodeConfirmWord)
+			}
+			if _, err := os.Stat(db); err != nil {
+				t.Fatalf("keystore lost %v: the database went without the typed word: %v", keystoreLost, err)
+			}
+		}
+		adaIsBack(t, b, ks, saved)
+		_ = b.Logout()
+		if _, err := b.Dispatch("ResetIdentity", []json.RawMessage{json.RawMessage(`"  erase "`)}); err != nil {
+			t.Fatalf("keystore lost %v: start over with the word typed: %v", keystoreLost, err)
+		}
+		if _, err := os.Stat(db); !os.IsNotExist(err) {
+			t.Fatalf("keystore lost %v: the typed word did not erase the database (%v)", keystoreLost, err)
+		}
+	}
+}

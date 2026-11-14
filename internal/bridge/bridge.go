@@ -511,7 +511,17 @@ func (b *Bridge) RestoreOverExisting(phrase, passphrase, confirm string) error {
 // BeginWipe/ConfirmWipe instead (wipe.go), which is the same erase behind a
 // typed confirmation. This refusal stays as it is on purpose: it is what stops
 // a single unqualified RPC call from destroying an open account.
-func (b *Bridge) ResetIdentity() error {
+//
+// typed is what the user typed into the confirmation; it must be StartOverWord
+// (surrounding space and letter case ignored) or nothing is deleted. The check
+// is here, not only in the screen, so no caller can skip it. The word is fixed
+// on purpose: it never comes from a name or anything else on the device, which
+// could make it untypeable (a name of zero-width characters once made the
+// in-app wipe impossible to confirm).
+func (b *Bridge) ResetIdentity(typed string) error {
+	if !strings.EqualFold(strings.TrimSpace(typed), StartOverWord) {
+		return &CodedError{Code: CodeConfirmWord, Msg: "Nothing was deleted. To erase this device, type " + StartOverWord + " to confirm."}
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.svc != nil {
@@ -3639,7 +3649,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "HasIdentity":
 		return b.HasIdentity()
 	case "ResetIdentity":
-		return nil, b.ResetIdentity()
+		return nil, b.ResetIdentity(argStr(args, 0))
 	case "BeginWipe":
 		return b.BeginWipe()
 	case "ConfirmWipe":

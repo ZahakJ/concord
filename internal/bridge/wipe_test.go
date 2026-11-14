@@ -147,7 +147,7 @@ func TestIdentityChangesWaitForALinkInProgress(t *testing.T) {
 		"Login":               func() error { return b.Login("pw") },
 		"RestoreFromMnemonic": func() error { return b.RestoreFromMnemonic("x", "pw", "") },
 		"RestoreOverExisting": func() error { return b.RestoreOverExisting("x", "pw", "") },
-		"ResetIdentity":       func() error { return b.ResetIdentity() },
+		"ResetIdentity":       func() error { return b.ResetIdentity(StartOverWord) },
 		"RedeemLinkCode":      func() error { _, err := b.RedeemLinkCode("x", "pw", ""); return err },
 	} {
 		if err := call(); !errors.Is(err, errLinkInProgress) {
