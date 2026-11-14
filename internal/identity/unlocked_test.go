@@ -88,3 +88,30 @@ func TestCreatingANewAccountIsLogged(t *testing.T) {
 		t.Fatal("an ordinary unlock was logged as creating an account")
 	}
 }
+
+// The create guard runs only inside the create, under the lock, after the
+// check that there is still no keystore: a keystore another process puts
+// there first (a restore over the device's data) is never met by the guard,
+// so the guard can never delete that account's data.
+func TestCreateGuardNeverRunsOverAKeystoreThatAppeared(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	called := false
+	orig := CreateGuard
+	CreateGuard = func(string) error { called = true; return nil }
+	t.Cleanup(func() { CreateGuard = orig })
+	other, _ := Generate()
+	setHooks(t, resealHooks{beforeCreate: func() {
+		if err := CreateKeystore(path, "theirs", other); err != nil { // the other process
+			t.Fatal(err)
+		}
+	}})
+	if _, _, err := LoadOrCreate(path, "mine"); err == nil {
+		t.Fatal("the losing create opened a keystore under another passphrase")
+	}
+	if called {
+		t.Fatal("the create guard ran although a keystore had appeared")
+	}
+	if got, err := LoadKeystore(path, "theirs"); err != nil || got.Fingerprint() != other.Fingerprint() {
+		t.Fatalf("the other process's keystore: %v", err)
+	}
+}

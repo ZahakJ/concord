@@ -627,6 +627,9 @@
       await enter();
     } catch (err) {
       fail(err);
+      // An account's data but no keystore: nothing was created. Offer the
+      // ways forward (recovery phrase, re-link, start over) right away.
+      if (err?.code === "data-without-keystore") forgot = true;
     } finally {
       busy = false;
     }

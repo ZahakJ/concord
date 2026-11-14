@@ -271,26 +271,36 @@ func TestDeferredEraseWithDataLeftSaysBoth(t *testing.T) {
 	if !errors.Is(err, identity.ErrEraseDeferred) || !errors.Is(err, ErrDataNotErased) {
 		t.Fatalf("deferred keystore erase with data left: %v, want both said", err)
 	}
+	if !dataErasePending(dir) {
+		t.Fatal("an unfinished erase left no record for the next create to finish it")
+	}
 }
 
-// With no keystore, data an erased account left behind is removed before a
-// new account can be set up, and a device with a keystore is left alone.
-func TestClearLeftoverDataBeforeANewAccount(t *testing.T) {
+// The create guard deletes data found without a keystore only when an erase
+// of it was recorded; otherwise it refuses and deletes nothing.
+func TestCreateGuardDeletesOnlyARecordedErase(t *testing.T) {
 	dir := t.TempDir()
+	ks := keystorePathIn(dir)
+	if err := guardCreate(ks); err != nil {
+		t.Fatalf("an empty device: %v", err)
+	}
 	seedDevice(t, dir, "pw", "Bea", false)
-	if err := ClearLeftoverData(dir); err != nil {
+	if err := os.Remove(ks); err != nil {
 		t.Fatal(err)
+	}
+	if err := guardCreate(ks); !errors.Is(err, ErrDataWithoutKeystore) {
+		t.Fatalf("data, no keystore, no recorded erase: %v", err)
 	}
 	if store.PeekSetting(dbPathIn(dir), "display_name") != "Bea" {
-		t.Fatal("data of the account on the device was removed")
+		t.Fatal("data was deleted on an inference")
 	}
-	if err := os.Remove(keystorePathIn(dir)); err != nil {
+	if err := markDataErase(dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := ClearLeftoverData(dir); err != nil {
-		t.Fatal(err)
+	if err := guardCreate(ks); err != nil {
+		t.Fatalf("data with a recorded erase: %v", err)
 	}
-	if _, err := os.Stat(dbPathIn(dir)); !os.IsNotExist(err) {
-		t.Fatal("an erased account's database survived into the new account's setup")
+	if _, err := os.Stat(dbPathIn(dir)); !os.IsNotExist(err) || dataErasePending(dir) {
+		t.Fatal("the recorded erase was not finished")
 	}
 }

@@ -225,30 +225,105 @@ func TestLoginSaysOnceThatTheKeystoreLabelWasAltered(t *testing.T) {
 	}
 }
 
-// An account erased with its data left behind (the data erase failed) must
-// not have a new account created beside that data: the next unlock removes
-// it first, so the new account does not inherit the old one's profile.
-func TestLoginNeverCreatesBesideAnotherAccountsData(t *testing.T) {
-	b, _ := newLockedDevice(t, "pw", "Ada")
-	ks, _ := appsvc.KeystorePath()
-	if err := os.Remove(ks); err != nil { // keystore gone, data left
+// lostKeystore makes Ada's device as it is when its keystore has gone missing
+// but its data has not: returns the keystore's bytes, to put back later.
+func lostKeystore(t *testing.T) (b *Bridge, ks string, saved []byte) {
+	t.Helper()
+	b, _ = newLockedDevice(t, "pw", "Ada")
+	ks, _ = appsvc.KeystorePath()
+	saved, err := os.ReadFile(ks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(ks); err != nil {
+		t.Fatal(err)
+	}
+	return b, ks, saved
+}
+
+// adaIsBack puts the keystore back and checks the account opens with its data.
+func adaIsBack(t *testing.T, b *Bridge, ks string, saved []byte) {
+	t.Helper()
+	_ = os.Remove(ks)
+	if err := os.WriteFile(ks, saved, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Login("pw"); err != nil {
+		t.Fatal(err)
+	}
+	svc, _ := b.service()
+	if svc.DisplayName() != "Ada" {
+		t.Fatalf("the account came back without its data: %q", svc.DisplayName())
+	}
+}
+
+// The keystore is lost and the user unlocks before restoring: no account is
+// created and nothing is deleted. The data is still there for the recovery
+// phrase, or for the keystore when it is found.
+func TestUnlockWithTheKeystoreLostDeletesNothing(t *testing.T) {
+	b, ks, saved := lostKeystore(t)
+	err := b.Login("new")
+	if code, _ := codeOf(err); code != CodeDataWithoutKeystore {
+		t.Fatalf("unlock with the keystore lost: %v", err)
+	}
+	if _, err := os.Stat(ks); !os.IsNotExist(err) {
+		t.Fatal("an account was created beside the data")
+	}
+	adaIsBack(t, b, ks, saved)
+}
+
+// The keystore is a symlink to a drive that is not mounted: that is not "no
+// keystore". Nothing is deleted, and after the drive returns the account
+// opens with everything.
+func TestUnlockWithTheKeystoreOnAnUnmountedDriveDeletesNothing(t *testing.T) {
+	b, ks, saved := lostKeystore(t)
+	if err := os.Symlink(filepath.Join(t.TempDir(), "unmounted", "keystore.json"), ks); err != nil {
+		t.Skip("no symlinks here")
+	}
+	if err := b.Login("new"); err == nil {
+		t.Fatal("unlock through a dangling keystore link succeeded")
+	}
+	adaIsBack(t, b, ks, saved)
+}
+
+// A data directory copied back file by file gets the database before the
+// keystore; a service unlocking itself in that window (Login called
+// directly) creates nothing, deletes nothing, and says so in the log.
+func TestServiceStartingMidCopyDeletesNothing(t *testing.T) {
+	b, ks, saved := lostKeystore(t)
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	if err := b.Login("from-a-file"); err == nil {
+		t.Fatal("a service came up as a new account beside the copied data")
+	}
+	if !strings.Contains(logged.String(), "no keystore; not creating") {
+		t.Fatalf("the refusal was not logged: %q", logged.String())
+	}
+	adaIsBack(t, b, ks, saved)
+}
+
+// After an erase that recorded itself and could not remove all the data, the
+// next unlock finishes that erase before creating, so the new account does
+// not come up with the old one's profile; if it cannot, nothing is created.
+func TestUnlockFinishesARecordedEraseFirst(t *testing.T) {
+	b, ks, _ := lostKeystore(t)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(ks), "data-erase-pending"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.Login("new"); err != nil {
 		t.Fatal(err)
 	}
 	svc, _ := b.service()
-	if name := svc.DisplayName(); name == "Ada" {
-		t.Fatalf("the new account came up with the erased account's profile: %q", name)
+	if svc.DisplayName() == "Ada" {
+		t.Fatal("the new account came up with the erased account's profile")
 	}
 }
 
-// If that data cannot be removed, nothing is created: the unlock refuses.
-func TestLoginRefusesWhenAnErasedAccountsDataCannotGo(t *testing.T) {
-	b, _ := newLockedDevice(t, "pw", "Ada")
-	ks, _ := appsvc.KeystorePath()
+func TestUnlockRefusesWhenARecordedEraseCannotFinish(t *testing.T) {
+	b, ks, _ := lostKeystore(t)
 	dir := filepath.Dir(ks)
-	if err := os.Remove(ks); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "data-erase-pending"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	db := filepath.Join(dir, "concord.db")

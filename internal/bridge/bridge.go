@@ -712,14 +712,6 @@ func (b *Bridge) Login(passphrase string) error {
 		}
 		return nil
 	}
-	// With no keystore this unlock creates an account. Never beside another
-	// account's leftover data (an erase that could not remove all of it):
-	// that is removed first, or nothing is created.
-	if !appsvc.HasIdentity(dataDir) {
-		if err := appsvc.ClearLeftoverData(dataDir); err != nil {
-			return err
-		}
-	}
 	cfg := appsvc.Config{DataDir: dataDir, Passphrase: passphrase}
 	if bs := os.Getenv("CONCORD_BOOTSTRAP"); bs != "" {
 		cfg.BootstrapPeers = strings.Split(bs, ",")
@@ -731,6 +723,12 @@ func (b *Bridge) Login(passphrase string) error {
 	if err != nil {
 		if errors.Is(err, identity.ErrWrongPassphrase) {
 			return wrongPassphrase()
+		}
+		if errors.Is(err, appsvc.ErrDataWithoutKeystore) {
+			// Nothing was created and nothing deleted (see the create guard in
+			// internal/app). Logged too: a headless unlock has nobody to show.
+			log.Printf("concord: this device has an account's data but no keystore; not creating a new account beside it")
+			return &CodedError{Code: CodeDataWithoutKeystore, Msg: "This device has an account's messages and settings, but not the keystore that opens them, so a new account wasn't created beside them. If it's your account, restore it from its recovery phrase — that keeps everything here. To start over instead, choose Forgot passphrase → start over, which erases it."}
 		}
 		return err
 	}

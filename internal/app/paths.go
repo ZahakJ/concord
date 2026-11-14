@@ -72,6 +72,11 @@ func HasIdentity(dataDir string) bool {
 func ResetIdentity(dataDir string) error {
 	// Through identity, so a keystore write in flight (the re-seal behind an
 	// unlock) finishes before the file goes rather than recreating it after.
+	// Recorded first: if any part of this erase fails, the next create on
+	// this device knows the data it finds was meant to go.
+	if err := markDataErase(dataDir); err != nil {
+		return err
+	}
 	err := removeKeystore(keystorePathIn(dataDir))
 	if err != nil && !errors.Is(err, identity.ErrEraseDeferred) {
 		return err
@@ -96,20 +101,61 @@ var removeKeystore = identity.RemoveKeystore
 
 // ErrDataNotErased: some of an erased account's data (database, peer cache,
 // device marker, group state) could not be removed. Nothing new is created
-// beside it: the next unlock removes it first (ClearLeftoverData).
+// beside it: the erase is recorded (dataErasePath) and completed by the next
+// create on this device, which refuses if it cannot.
 var ErrDataNotErased = errors.New("app: some of this device's data could not be removed")
 
-// ClearLeftoverData makes sure no new account is ever created beside another
-// account's data. When there is no keystore to unlock (a first run, or an
-// erase whose keystore removal completed but whose data removal did not),
-// any account data still here belongs to an account that is gone: it is
-// removed before anything is created, and if it cannot be, the caller must
-// refuse rather than create. A device with a keystore is left alone.
-func ClearLeftoverData(dataDir string) error {
-	if HasIdentity(dataDir) || !hasAccountData(dataDir) {
+// ErrDataWithoutKeystore refuses to set up a new account on a device that has
+// another account's data but no keystore, and no record that its erase was
+// asked for. Nothing is deleted on an inference: the keystore may be lost,
+// on a drive not mounted, or not copied back yet. The way forward is the
+// recovery phrase (which keeps the data if it is that account's) or an
+// explicit start over.
+var ErrDataWithoutKeystore = errors.New("app: this device has an account's data but no keystore to open it")
+
+// dataErasePath records that an erase of this device's data was asked for and
+// has not finished. Written, durably, before an erase removes anything, and
+// removed once all of it is gone; it is the only thing that lets a later
+// create delete data it finds without a keystore.
+func dataErasePath(dataDir string) string { return filepath.Join(dataDir, "data-erase-pending") }
+
+func dataErasePending(dataDir string) bool {
+	_, err := os.Lstat(dataErasePath(dataDir))
+	return err == nil
+}
+
+func markDataErase(dataDir string) error {
+	f, err := os.OpenFile(dataErasePath(dataDir), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	_ = syncDataDir(dataDir)
+	return nil
+}
+
+func init() { identity.CreateGuard = guardCreate }
+
+// guardCreate is identity.CreateGuard: run under the keystore lock inside a
+// first-run create, once the new keystore is safely beside where it goes.
+// No account data here: go ahead. Data and a recorded erase: finish that
+// erase first, or refuse. Data and no record: refuse, deleting nothing.
+func guardCreate(keystorePath string) error {
+	dataDir := filepath.Dir(keystorePath)
+	if !hasAccountData(dataDir) {
+		_ = os.Remove(dataErasePath(dataDir))
 		return nil
 	}
-	log.Printf("concord/app: removing data left by an account that is no longer on this device before setting up a new one")
+	if !dataErasePending(dataDir) {
+		return ErrDataWithoutKeystore
+	}
+	log.Printf("concord/app: finishing the erase of this device's data before setting up a new account")
 	if err := resetDataIn(dataDir); err != nil {
 		return fmt.Errorf("%w (%v); nothing was set up — close anything else using Concord's files and try again", ErrDataNotErased, err)
 	}
@@ -170,6 +216,10 @@ func resetDataIn(dataDir string) error {
 	// it is what makes that stick. Best effort: Windows cannot sync a
 	// directory.
 	_ = syncDataDir(dataDir)
+	// All of it is gone: the erase is no longer pending.
+	if err := os.Remove(dataErasePath(dataDir)); err == nil {
+		_ = syncDataDir(dataDir)
+	}
 	return nil
 }
 

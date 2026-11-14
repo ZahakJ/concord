@@ -167,6 +167,22 @@ func passphraseForms(p string) []string {
 	return out
 }
 
+// CreateGuard, when set, runs inside every first-run create (LoadOrCreate),
+// under the keystore lock, after the check that there is still no keystore
+// and after the new one is written and synced beside where it goes, before
+// it is renamed into place. It decides what a device with no keystore but
+// some other account's data may do: an error refuses the create and nothing
+// is renamed in. The app package sets it (it knows the data directory);
+// set once at start, before any create.
+var CreateGuard func(keystorePath string) error
+
+func createGuardFor(path string) func() error {
+	if CreateGuard == nil {
+		return nil
+	}
+	return func() error { return CreateGuard(path) }
+}
+
 // CreateKeystore seals id under passphrase and writes it to path, creating
 // parent directories as needed, but only if no keystore is there:
 // otherwise ErrKeystoreExists and nothing is written. The file is 0600.
@@ -725,7 +741,15 @@ func loadOrCreate(path, passphrase string, again bool) (*Identity, bool, error) 
 	if !os.IsNotExist(err) {
 		return nil, false, err
 	}
-	if _, lerr := os.Lstat(path); lerr == nil {
+	// "No keystore" means exactly that the path does not exist. Anything else
+	// (a symlink to somewhere unreadable, an error looking) is not absence,
+	// and nothing is created on the strength of it.
+	if fi, lerr := os.Lstat(path); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		target, _ := os.Readlink(path)
+		return nil, false, fmt.Errorf("identity: the keystore is a symbolic link to %s, which cannot be read (is it on a drive that is not mounted?); nothing was created", target)
+	} else if lerr != nil && !os.IsNotExist(lerr) {
+		return nil, false, lerr
+	} else if lerr == nil {
 		// Absent only because an unfinished erase condemned it. Finish that
 		// erase before anything is created here, and look again: nothing is
 		// ever created over a keystore that is on the disk.
@@ -742,7 +766,7 @@ func loadOrCreate(path, passphrase string, again bool) (*Identity, bool, error) 
 		return nil, false, err
 	}
 	testHooks.create()
-	err = CreateKeystore(path, passphrase, id)
+	err = ReplaceKeystoreWith(path, passphrase, id, nil, createGuardFor(path))
 	if errors.Is(err, ErrKeystoreExists) {
 		// Another window or process created (or restored) an account here
 		// between our finding none and our writing. Theirs is on disk; run as
