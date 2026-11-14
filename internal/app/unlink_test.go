@@ -1,12 +1,16 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // Unlink, tested for exactly what it claims (see the threat model at the top of
@@ -146,6 +150,14 @@ func TestForeignRevocationIsIgnored(t *testing.T) {
 	if s.revokesUs(s.id.RevokeDevice(s.id.PublicKey(), time.Now().Unix())) {
 		t.Error("an unlinked original device treated an account-key revocation as its own")
 	}
+	// Signed by us, naming THIS install's device key, but the install holds no
+	// device marker (never linked, or restored): not a linked device, so not
+	// erased. Without the marker requirement only this case would catch it.
+	if dev := s.id.DevicePublicKey(); len(dev) == 0 {
+		t.Fatal("the test install has no device key")
+	} else if s.revokesUs(s.id.RevokeDevice(dev, time.Now().Unix())) {
+		t.Error("an install with no device marker treated a revocation of its device key as its own")
+	}
 	if _, err := os.Stat(keystorePathIn(dir)); err != nil {
 		t.Fatalf("keystore disappeared during a test that erases nothing: %v", err)
 	}
@@ -224,5 +236,72 @@ func TestAHelloAnsweredAfterItsConnectionDroppedHoldsNoClaim(t *testing.T) {
 	}
 	if !s.answered.claim(gone) {
 		t.Fatal("a hello from a peer with no connection left its claim held")
+	}
+}
+
+// A device unlinked while it was away, then linked again keeping its device
+// key, holds a certificate newer than the old revocation. That revocation is
+// not about this certificate and must not erase it; a revocation issued after
+// the certificate still does.
+func TestOldRevocationDoesNotEraseARelinkedDevice(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	s := startServiceInDir(t, ctx, dir)
+	dev := s.id.DevicePublicKey()
+	if len(dev) == 0 {
+		t.Fatal("the test install has no device key")
+	}
+	now := time.Now()
+	if err := saveDeviceMarker(dir, s.id.IssueDeviceCertFor(dev, "relinked", now.Add(-24*time.Hour).Unix())); err != nil {
+		t.Fatal(err)
+	}
+	if s.revokesUs(s.id.RevokeDevice(dev, now.Add(-48*time.Hour).Unix())) {
+		t.Error("a revocation older than this device's certificate would have erased it")
+	}
+	if !s.revokesUs(s.id.RevokeDevice(dev, now.Unix())) {
+		t.Error("a revocation issued after this device's certificate no longer erases it")
+	}
+	if !s.revokesUs(s.id.RevokeDevice(dev, now.Add(-24*time.Hour).Unix())) {
+		t.Error("a revocation issued in the same second as the certificate no longer erases it")
+	}
+}
+
+// The issuer, certifying a device key it once revoked (the device came back
+// and was linked again), drops that revocation: it is not handed to the device
+// at its next hello, and the device is not treated as revoked here.
+func TestRecertifyingADeviceDropsItsOldRevocation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startServiceInDir(t, ctx, t.TempDir())
+	dev, _, _ := ed25519.GenerateKey(nil)
+	sib, _, _ := ed25519.GenerateKey(nil)
+	s.saveRevocations([]*identity.DeviceRevocation{
+		s.id.RevokeDevice(dev, time.Now().Add(-time.Hour).Unix()),
+		s.id.RevokeDevice(sib, time.Now().Add(-time.Hour).Unix()),
+	})
+	s.loadRevoked()
+	s.markDeviceRevoked(hex.EncodeToString(dev), time.Now().Add(-time.Hour).Unix())
+	if cert := s.certifyDevice(dev, "phone again"); cert == nil || !cert.Verify() {
+		t.Fatal("no certificate issued")
+	}
+	for _, r := range s.revocations() {
+		if bytes.Equal(r.DevicePub, dev) {
+			t.Fatal("the old revocation is still stored and would be handed to the re-linked device")
+		}
+	}
+	if len(s.revocations()) != 1 {
+		t.Fatalf("the sibling's revocation went too: %d left", len(s.revocations()))
+	}
+	if s.deviceIsRevoked(dev) {
+		t.Fatal("the re-linked device is still treated as revoked")
+	}
+	if !s.deviceIsRevoked(sib) {
+		t.Fatal("the sibling is no longer treated as revoked")
+	}
+	for _, r := range s.deviceRegistry() {
+		if r.Key == hex.EncodeToString(dev) && r.Revoked != 0 {
+			t.Fatal("the registry still marks the re-linked device revoked")
+		}
 	}
 }

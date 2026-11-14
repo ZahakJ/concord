@@ -306,10 +306,50 @@ func (s *Service) revokesUs(rev *identity.DeviceRevocation) bool {
 	if len(dev) == 0 {
 		return false
 	}
-	if _, linked := loadDeviceMarker(s.dataDir, s.id.PublicKey(), dev); !linked {
+	m, linked := loadDeviceMarker(s.dataDir, s.id.PublicKey(), dev)
+	if !linked {
+		return false
+	}
+	// A revocation is about the certificate the device held when it was
+	// issued. A device unlinked while it was away and then linked again keeping
+	// its device key holds a newer certificate, which that old revocation does
+	// not withdraw. Both times are stamped by devices of this account; in
+	// doubt, this errs toward not erasing.
+	if rev.RevokedAt < m.Cert.IssuedAt {
 		return false
 	}
 	return bytes.Equal(rev.DevicePub, dev)
+}
+
+// forgetRevocation drops what this device holds against one device key: the
+// stored revocation (so it is no longer handed to that device at its hello),
+// the in-memory revoked mark and the registry's revoked stamp. Called when the
+// key is certified again: the device came back and was linked anew.
+func (s *Service) forgetRevocation(devicePub []byte) {
+	recs := s.revocations()
+	kept := make([]*identity.DeviceRevocation, 0, len(recs))
+	for _, r := range recs {
+		if !bytes.Equal(r.DevicePub, devicePub) {
+			kept = append(kept, r)
+		}
+	}
+	if len(kept) != len(recs) {
+		s.saveRevocations(kept)
+	}
+	key := hex.EncodeToString(devicePub)
+	s.deviceMu.Lock()
+	delete(s.revokedDevices, key)
+	s.deviceMu.Unlock()
+	s.regMu.Lock()
+	defer s.regMu.Unlock()
+	recsReg := s.deviceRegistry()
+	for i := range recsReg {
+		if recsReg[i].Key == key && recsReg[i].Revoked != 0 {
+			recsReg[i].Revoked = 0
+			s.saveDeviceRegistry(recsReg)
+			return
+		}
+	}
 }
 
 // selfRevoked reports (at startup) that this device is already known to be
