@@ -143,7 +143,11 @@ func (s *Service) noteOwnDevice(cert *identity.DeviceCert, name, appVersion stri
 			continue
 		}
 		changed := false
-		if recs[i].Cert == nil {
+		// The newest certificate for the key is kept, not the first seen: an
+		// unlink stamps its revocation no earlier than it (UnlinkDevice), so a
+		// stale one here would let a re-linked device's newer certificate
+		// outlive its revocation.
+		if recs[i].Cert == nil || cert.IssuedAt > recs[i].Cert.IssuedAt {
 			recs[i].Cert, changed = cert, true
 		}
 		if name != "" && recs[i].Name != name {

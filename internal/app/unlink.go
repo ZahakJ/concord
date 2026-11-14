@@ -85,10 +85,12 @@ func (s *Service) revocations() []*identity.DeviceRevocation {
 	return out
 }
 
-func (s *Service) saveRevocations(recs []*identity.DeviceRevocation) {
-	if raw, err := json.Marshal(recs); err == nil {
-		_ = s.store.SetSetting(deviceRevocationsKey, string(raw))
+func (s *Service) saveRevocations(recs []*identity.DeviceRevocation) error {
+	raw, err := json.Marshal(recs)
+	if err != nil {
+		return err
 	}
+	return s.store.SetSetting(deviceRevocationsKey, string(raw))
 }
 
 // revocationFor returns the revocation to hand a peer, if the peer is a device
@@ -118,9 +120,35 @@ func (s *Service) revocationFor(p peer.ID) *identity.DeviceRevocation {
 // read passes through learnDeviceCert, which asks this, and a settings query per
 // message is not a thing to put on that path.
 func (s *Service) deviceIsRevoked(devicePub []byte) bool {
+	_, revoked := s.revokedAt(devicePub)
+	return revoked
+}
+
+// revokedAt is the newest RevokedAt this device holds against a device key.
+func (s *Service) revokedAt(devicePub []byte) (int64, bool) {
 	s.deviceMu.RLock()
 	defer s.deviceMu.RUnlock()
-	return s.revokedDevices[hex.EncodeToString(devicePub)]
+	at, ok := s.revokedDevices[hex.EncodeToString(devicePub)]
+	return at, ok
+}
+
+// stillRevoked reports whether cert's device key is revoked here. A
+// certificate of this account for that key issued after the revocation
+// supersedes it: the device was linked again (by this device or another one
+// of the account) and is using the new certificate, so the revocation, which
+// withdrew an earlier one, is forgotten. One issued no later is still revoked.
+// A revoked device holding the account seed could sign itself such a
+// certificate, but it could equally certify a fresh device key; see the
+// threat model above.
+func (s *Service) stillRevoked(cert *identity.DeviceCert) bool {
+	at, revoked := s.revokedAt(cert.DevicePub)
+	if !revoked {
+		return false
+	}
+	if cert.IssuedAt > at && cert.Verify() && ed25519Equal(cert.AccountPub, s.id.PublicKey()) {
+		return !s.forgetRevocation(cert.DevicePub, cert.IssuedAt)
+	}
+	return true
 }
 
 // loadRevoked seeds the in-memory revoked set at startup, and drops anything a
@@ -128,9 +156,12 @@ func (s *Service) deviceIsRevoked(devicePub []byte) bool {
 // touches learnDeviceCert from several places and pinning this to being first
 // would be one refactor away from silently un-revoking a device.
 func (s *Service) loadRevoked() {
-	set := map[string]bool{}
+	set := map[string]int64{}
 	for _, r := range s.revocations() {
-		set[hex.EncodeToString(r.DevicePub)] = true
+		k := hex.EncodeToString(r.DevicePub)
+		if at, ok := set[k]; !ok || r.RevokedAt > at {
+			set[k] = r.RevokedAt
+		}
 	}
 	s.deviceMu.Lock()
 	s.revokedDevices = set
@@ -158,17 +189,32 @@ func (s *Service) UnlinkDevice(deviceKeyHex string) error {
 		return fmt.Errorf("app: use the account reset to erase the device you are holding")
 	}
 
-	rev := s.id.RevokeDevice(raw, time.Now().Unix())
-	s.saveRevocations(append(s.revocations(), rev))
+	// Stamped no earlier than the newest certificate known for the key, so the
+	// revocation is never older than the certificate it withdraws, whatever
+	// the clocks of the device that issued it and this one said (revokesUs
+	// compares the two).
+	at := time.Now().Unix()
+	if issued := s.newestCertIssuedAt(raw); issued > at {
+		at = issued
+	}
+	rev := s.id.RevokeDevice(raw, at)
+	s.revMu.Lock()
+	err = s.saveRevocations(append(s.revocations(), rev))
+	s.revMu.Unlock()
+	if err != nil {
+		return fmt.Errorf("app: could not record the unlink: %w", err)
+	}
 
 	// Stop treating the key as this account, everywhere local: rosters, voice,
 	// diagnostics, and the reconnect loop that would otherwise keep dialling it.
 	s.deviceMu.Lock()
 	delete(s.deviceAccounts, hex.EncodeToString(raw))
 	if s.revokedDevices == nil {
-		s.revokedDevices = map[string]bool{}
+		s.revokedDevices = map[string]int64{}
 	}
-	s.revokedDevices[hex.EncodeToString(raw)] = true
+	if prev, ok := s.revokedDevices[hex.EncodeToString(raw)]; !ok || rev.RevokedAt > prev {
+		s.revokedDevices[hex.EncodeToString(raw)] = rev.RevokedAt
+	}
 	s.deviceMu.Unlock()
 	s.markDeviceRevoked(hex.EncodeToString(raw), rev.RevokedAt)
 
@@ -285,7 +331,15 @@ func (s *Service) applyRevocation(rev *identity.DeviceRevocation) {
 	if !s.revokesUs(rev) {
 		return
 	}
-	s.saveRevocations(append(s.revocations(), rev))
+	// Kept so a wipe that cannot finish is resumed at the next start
+	// (selfRevoked). If it cannot be kept, the wipe still runs now; it is only
+	// the resumption that is lost, so say so.
+	s.revMu.Lock()
+	err := s.saveRevocations(append(s.revocations(), rev))
+	s.revMu.Unlock()
+	if err != nil {
+		log.Printf("concord/app: this device was unlinked; the record of it could not be saved (%v), so an erase that does not finish now is not resumed at the next start", err)
+	}
 	go s.wipeSelf()
 }
 
@@ -320,25 +374,48 @@ func (s *Service) revokesUs(rev *identity.DeviceRevocation) bool {
 	return bytes.Equal(rev.DevicePub, dev)
 }
 
-// forgetRevocation drops what this device holds against one device key: the
-// stored revocation (so it is no longer handed to that device at its hello),
-// the in-memory revoked mark and the registry's revoked stamp. Called when the
-// key is certified again: the device came back and was linked anew.
-func (s *Service) forgetRevocation(devicePub []byte) {
+// forgetRevocation drops what this device holds against one device key
+// from before a certificate issued at `issued`: the stored revocations (so
+// none is handed to that device at its hello any more), the in-memory revoked
+// mark and the registry's revoked stamp. Called only when the device shows a
+// certificate newer than the revocation (stillRevoked). It reports whether
+// the key is no longer revoked; if the stored list cannot be saved nothing is
+// forgotten, so a restart cannot bring back a revocation the memory dropped.
+func (s *Service) forgetRevocation(devicePub []byte, issued int64) bool {
+	s.revMu.Lock()
 	recs := s.revocations()
 	kept := make([]*identity.DeviceRevocation, 0, len(recs))
+	newest, still := int64(0), false
 	for _, r := range recs {
-		if !bytes.Equal(r.DevicePub, devicePub) {
-			kept = append(kept, r)
+		if bytes.Equal(r.DevicePub, devicePub) {
+			if r.RevokedAt < issued {
+				continue
+			}
+			if !still || r.RevokedAt > newest {
+				newest, still = r.RevokedAt, true
+			}
 		}
+		kept = append(kept, r)
 	}
 	if len(kept) != len(recs) {
-		s.saveRevocations(kept)
+		if err := s.saveRevocations(kept); err != nil {
+			s.revMu.Unlock()
+			log.Printf("concord/app: a re-linked device's old unlink could not be cleared: %v", err)
+			return false
+		}
 	}
 	key := hex.EncodeToString(devicePub)
 	s.deviceMu.Lock()
-	delete(s.revokedDevices, key)
+	if still {
+		s.revokedDevices[key] = newest
+	} else {
+		delete(s.revokedDevices, key)
+	}
 	s.deviceMu.Unlock()
+	s.revMu.Unlock()
+	if still {
+		return false
+	}
 	s.regMu.Lock()
 	defer s.regMu.Unlock()
 	recsReg := s.deviceRegistry()
@@ -346,9 +423,24 @@ func (s *Service) forgetRevocation(devicePub []byte) {
 		if recsReg[i].Key == key && recsReg[i].Revoked != 0 {
 			recsReg[i].Revoked = 0
 			s.saveDeviceRegistry(recsReg)
-			return
+			break
 		}
 	}
+	return true
+}
+
+// newestCertIssuedAt is the IssuedAt of the newest certificate this device
+// knows for a device key (0 if none).
+func (s *Service) newestCertIssuedAt(devicePub []byte) int64 {
+	key := hex.EncodeToString(devicePub)
+	s.regMu.Lock()
+	defer s.regMu.Unlock()
+	for _, r := range s.deviceRegistry() {
+		if r.Key == key && r.Cert != nil {
+			return r.Cert.IssuedAt
+		}
+	}
+	return 0
 }
 
 // selfRevoked reports (at startup) that this device is already known to be

@@ -106,12 +106,21 @@ func (s *Service) CancelLinkOffer() {
 // recognisable through the group rosters it manages to join. See
 // ownDevicesKey.
 func (s *Service) certifyDevice(devicePub []byte, name string) *identity.DeviceCert {
-	// A key revoked earlier and now linked again: its old revocation is not
-	// about this certificate, so it is not kept to be handed back (it would
-	// erase the device minutes after the user linked it).
-	s.forgetRevocation(devicePub)
-	cert := s.id.IssueDeviceCertFor(devicePub, name, time.Now().Unix())
-	s.rememberOwnDevice(cert)
+	// A key revoked earlier and now being linked again keeps its revocation
+	// for now: the joiner may still cancel, or its answer be lost, and a
+	// cancelled re-link must not undo the unlink. The revocation goes when the
+	// device shows this certificate (stillRevoked), so the certificate is
+	// stamped after the revocation, whatever this clock says, and is not
+	// recorded as the device's until then.
+	issuedAt := time.Now().Unix()
+	at, revoked := s.revokedAt(devicePub)
+	if revoked && issuedAt <= at {
+		issuedAt = at + 1
+	}
+	cert := s.id.IssueDeviceCertFor(devicePub, name, issuedAt)
+	if !revoked {
+		s.rememberOwnDevice(cert)
+	}
 	return cert
 }
 

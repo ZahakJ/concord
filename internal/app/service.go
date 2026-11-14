@@ -403,10 +403,15 @@ type Service struct {
 	// raw pubkey embedded in the PeerID.
 	deviceMu       sync.RWMutex
 	deviceAccounts map[string]string
-	// revokedDevices are our own device keys we have unlinked (hex), guarded by
-	// deviceMu. Kept in memory because learnDeviceCert consults it on every
-	// inbound message; see unlink.go.
-	revokedDevices map[string]bool
+	// revokedDevices are our own device keys we have unlinked (hex), with the
+	// newest revocation's RevokedAt, guarded by deviceMu. Kept in memory
+	// because learnDeviceCert consults it on every inbound message; see
+	// unlink.go.
+	revokedDevices map[string]int64
+	// revMu serialises every read-modify-write of the stored revocations
+	// (unlink, a revocation applied to us, one superseded by a re-link), so
+	// two of them at once cannot save a list without the other's change.
+	revMu sync.Mutex
 
 	// regMu guards the persisted own-device registry (devices.go). Separate from
 	// deviceMu on purpose: the registry writes to the store, and the in-memory
@@ -2624,8 +2629,10 @@ func (s *Service) learnDeviceCert(cred []byte) {
 	// A device of ours that we unlinked must not be re-adopted, whatever carries
 	// its certificate back to us — a leaf we could not remove from some guild, a
 	// message that was already in flight, its own hello. This is the single place
-	// every one of those paths goes through.
-	if s.deviceIsRevoked(cert.DevicePub) {
+	// every one of those paths goes through. A certificate newer than the
+	// revocation (the device was linked again, here or by another device of
+	// the account, and is using it) supersedes it.
+	if s.stillRevoked(cert) {
 		return
 	}
 	key := hex.EncodeToString(cert.DevicePub)

@@ -1,9 +1,7 @@
 package app
 
 import (
-	"bytes"
 	"context"
-	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
 	"os"
@@ -269,45 +267,6 @@ func TestOldRevocationDoesNotEraseARelinkedDevice(t *testing.T) {
 	}
 }
 
-// The issuer, certifying a device key it once revoked (the device came back
-// and was linked again), drops that revocation: it is not handed to the device
-// at its next hello, and the device is not treated as revoked here.
-func TestRecertifyingADeviceDropsItsOldRevocation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	s := startServiceInDir(t, ctx, t.TempDir())
-	dev, _, _ := ed25519.GenerateKey(nil)
-	sib, _, _ := ed25519.GenerateKey(nil)
-	s.saveRevocations([]*identity.DeviceRevocation{
-		s.id.RevokeDevice(dev, time.Now().Add(-time.Hour).Unix()),
-		s.id.RevokeDevice(sib, time.Now().Add(-time.Hour).Unix()),
-	})
-	s.loadRevoked()
-	s.markDeviceRevoked(hex.EncodeToString(dev), time.Now().Add(-time.Hour).Unix())
-	if cert := s.certifyDevice(dev, "phone again"); cert == nil || !cert.Verify() {
-		t.Fatal("no certificate issued")
-	}
-	for _, r := range s.revocations() {
-		if bytes.Equal(r.DevicePub, dev) {
-			t.Fatal("the old revocation is still stored and would be handed to the re-linked device")
-		}
-	}
-	if len(s.revocations()) != 1 {
-		t.Fatalf("the sibling's revocation went too: %d left", len(s.revocations()))
-	}
-	if s.deviceIsRevoked(dev) {
-		t.Fatal("the re-linked device is still treated as revoked")
-	}
-	if !s.deviceIsRevoked(sib) {
-		t.Fatal("the sibling is no longer treated as revoked")
-	}
-	for _, r := range s.deviceRegistry() {
-		if r.Key == hex.EncodeToString(dev) && r.Revoked != 0 {
-			t.Fatal("the registry still marks the re-linked device revoked")
-		}
-	}
-}
-
 // A revoke wipe that cannot remove the keystore leaves the install looking
 // like what it is, a revoked linked device: the marker goes last, so the next
 // start sees the revocation still applies and finishes the erase.
@@ -361,4 +320,69 @@ func TestPartialEraseKeepsTheDeviceMarker(t *testing.T) {
 	if _, err := os.Stat(deviceMarkerPath(dir)); err != nil {
 		t.Fatalf("the device marker went while other data stayed: %v", err)
 	}
+}
+
+// The whole sequence over two real peers: the phone is unlinked while it is
+// offline; it is linked again from its lock screen (a first attempt
+// cancelled at "erase this device's copy and link?", which must leave the
+// unlink standing, then a confirmed one keeping its device key); it comes
+// online and is not erased by the old revocation, and the desktop stops
+// treating it as revoked; and a fresh unlink then erases it.
+func TestUnlinkOfflineRelinkThenUnlinkAgain(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	boot := testRendezvous(t, ctx)
+	deskDir, phoneDir := t.TempDir(), t.TempDir()
+	desk, phone, _, _ := linkedPair(t, ctx, deskDir, phoneDir, boot)
+	key := deviceKeyOf(t, phone)
+	dev, _ := hex.DecodeString(key)
+
+	_ = phone.Close()
+	if err := desk.UnlinkDevice(key); err != nil {
+		t.Fatalf("UnlinkDevice: %v", err)
+	}
+
+	// Re-link, cancelled at the question.
+	code, err := desk.LinkOffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = RedeemLink(ctx, phoneDir, code, "test-pass", "")
+	var refused *ReplaceRefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("re-linking a linked install did not ask first: %v", err)
+	}
+	if !desk.deviceIsRevoked(dev) {
+		t.Fatal("a cancelled re-link undid the unlink on the desktop")
+	}
+
+	// Re-link, confirmed.
+	code, err = desk.LinkOffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RedeemLink(ctx, phoneDir, code, "test-pass", refused.Confirm); err != nil {
+		t.Fatalf("confirmed re-link: %v", err)
+	}
+	phone2 := startServiceOn(t, ctx, phoneDir, boot)
+	if deviceKeyOf(t, phone2) != key {
+		t.Fatal("the re-link did not keep the device key; the case under test did not arise")
+	}
+	_ = phone2.host.Connect(ctx, desk.host.AddrInfo())
+	waitUntil(t, 30*time.Second, func() bool { return !desk.deviceIsRevoked(dev) },
+		"the desktop still treats the re-linked phone as revoked")
+	time.Sleep(3 * time.Second) // time for any revocation to arrive and be acted on
+	if !HasIdentity(phoneDir) {
+		t.Fatal("the re-linked phone was erased by the old revocation")
+	}
+
+	// A fresh unlink, with the phone online.
+	if err := desk.UnlinkDevice(key); err != nil {
+		t.Fatalf("second UnlinkDevice: %v", err)
+	}
+	waitUntil(t, 30*time.Second, func() bool { return !HasIdentity(phoneDir) },
+		"the phone did not erase itself after the second unlink")
 }
