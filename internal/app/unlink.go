@@ -341,8 +341,11 @@ func (s *Service) wipeSelf() {
 
 	s.Close()
 	_ = os.Remove(deviceMarkerPath(dir))
-	_ = ResetIdentity(dir)
-	log.Printf("concord/app: this device was unlinked from its account; local data erased")
+	if err := ResetIdentity(dir); err != nil {
+		log.Printf("concord/app: this device was unlinked from its account, but erasing it failed: %v", err)
+	} else {
+		log.Printf("concord/app: this device was unlinked from its account; local data erased")
+	}
 	for _, cb := range cbs {
 		cb()
 	}

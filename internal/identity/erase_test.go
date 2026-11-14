@@ -273,3 +273,29 @@ func TestEraseFinisherIsSingleAndBounded(t *testing.T) {
 		t.Fatal("the finisher never gave up on a lock that never came free")
 	}
 }
+
+// Erasing a keystore that is a symbolic link is refused with an error naming
+// the file it points to; removing only the link would report an erase while
+// the sealed keystore survives.
+func TestEraseRefusesASymlinkedKeystore(t *testing.T) {
+	skipWithoutLinks(t)
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.json")
+	if _, _, err := LoadOrCreate(real, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "keystore.json")
+	if err := os.Symlink(real, path); err != nil {
+		t.Fatal(err)
+	}
+	err := RemoveKeystore(path)
+	if err == nil || !strings.Contains(err.Error(), real) {
+		t.Fatalf("erase of a symlinked keystore: %v, want a refusal naming %s", err, real)
+	}
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatal("the link was removed")
+	}
+	if _, err := LoadKeystore(real, "pw"); err != nil {
+		t.Fatalf("the keystore it points to changed: %v", err)
+	}
+}

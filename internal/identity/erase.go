@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -139,6 +140,9 @@ func removeKeystoreOnly(path string) error {
 // RemoveKeystore erases the keystore at path. See the top of this file for
 // what happens when the keystore lock cannot be had in time.
 func RemoveKeystore(path string) error {
+	if err := refuseSymlinkErase(path); err != nil {
+		return err
+	}
 	if unlock, err := lockKeystore(path); err == nil {
 		defer unlock()
 		return removeKeystoreFiles(path)
@@ -268,4 +272,16 @@ func RemoveKeystoreIfUnchanged(path string, expected []byte) error {
 		return err
 	}
 	return removeKeystoreFiles(path)
+}
+
+// refuseSymlinkErase: removing a symlinked keystore removes the link and
+// leaves the sealed seeds wherever it points, which is not an erase. The
+// erase refuses and names the file, rather than reporting success.
+func refuseSymlinkErase(path string) error {
+	fi, err := os.Lstat(path)
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		return nil
+	}
+	target, _ := os.Readlink(path)
+	return fmt.Errorf("identity: the keystore is a symbolic link to %s; erasing the link would leave the keystore there, so nothing was erased — delete that file, or replace the link with it, and try again", target)
 }
