@@ -98,8 +98,10 @@ func TestBridgeRestoreOverExistingBranches(t *testing.T) {
 	}
 	_ = b.Logout()
 
-	// Confirmed: the other account replaces Bea.
-	if _, err := b.Dispatch("RestoreOverExisting", rawArgs(otherPhrase, "new-pass", other.Fingerprint())); err != nil {
+	// Confirmed, with the token the check gave the screen: the other account
+	// replaces Bea.
+	chk, _ = b.Dispatch("CheckRecoveryPhrase", rawArgs(otherPhrase))
+	if _, err := b.Dispatch("RestoreOverExisting", rawArgs(otherPhrase, "new-pass", chk.(PhraseCheck).Confirm)); err != nil {
 		t.Fatalf("confirmed restore: %v", err)
 	}
 	if err := b.Login("new-pass"); err != nil {

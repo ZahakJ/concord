@@ -84,7 +84,7 @@ func TestConfirmedLinkErasesNothingIfTheKeystoreChangedMeanwhile(t *testing.T) {
 		t.Fatal(err)
 	}
 	changePassphraseDuringLink(t, cyDir, "test-pass", "changed")
-	if _, err := RedeemLink(ctx, cyDir, code, "test-pass", ada.Fingerprint()); err == nil {
+	if _, err := RedeemLink(ctx, cyDir, code, "test-pass", ConfirmToken(cyDir, ada.Fingerprint())); err == nil {
 		t.Fatal("the link reported success over a keystore that changed under it")
 	}
 	opensOnlyWith(t, cyDir, "changed", "test-pass", cy)

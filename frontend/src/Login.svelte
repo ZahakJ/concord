@@ -215,7 +215,7 @@
       // over — better said out loud than discovered as missing guilds later.
       // confirm: set only once the user has agreed, in the replace step below,
       // that THIS account may replace the one on the device.
-      const confirm = replaceAsk?.kind === "link" ? replaceAsk.incoming : "";
+      const confirm = replaceAsk?.kind === "link" ? replaceAsk.confirm : "";
       const warning = await api.redeemLinkCode(code, passphrase, confirm);
       replaceAsk = null;
       if (warning) flash(warning);
@@ -271,7 +271,9 @@
   // agrees for exactly that account or goes back. kind: "restore" | "link".
   let replaceAsk = $state(null);
   function askReplace(kind, d) {
-    replaceAsk = { kind, match: d.match, incoming: d.incoming, incomingName: d.incomingName || "" };
+    // confirm: the core's token for this account replacing the keystore shown
+    // here; sent back as the yes, so a device changed meanwhile is asked again.
+    replaceAsk = { kind, match: d.match, incoming: d.incoming, incomingName: d.incomingName || "", confirm: d.confirm || "" };
     if (d.device) device = d.device;
   }
 
@@ -444,7 +446,7 @@
         // what is here, and that needs a yes for exactly this phrase's account.
         let confirm = "";
         if (replaceAsk?.kind === "restore") {
-          confirm = replaceAsk.incoming;
+          confirm = replaceAsk.confirm;
         } else {
           const chk = await api.checkRecoveryPhrase(phrase);
           if (!chk.keepsData) {

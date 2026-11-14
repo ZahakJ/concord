@@ -44,3 +44,22 @@ test("a recovery phrase for another account asks before erasing the one here", a
   assert.equal(me.fingerprint, alice.fingerprint);
   assert.equal(me.displayName, "Alice");
 });
+
+test("agreeing in the dialog erases the account it named and restores the other", async ({ world, assert, waitFor, step }) => {
+  const [alice, bashir] = await world.peers(2);
+  const bashirPhrase = await bashir.rpc("RevealMnemonic", bashir.passphrase);
+  await alice.rpc("Logout");
+
+  step("Alice's locked device, Bashir's phrase, and the yes");
+  const app = await alice.open({ unlock: false });
+  await app.page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
+  await toRestoreForm(app);
+  await fillRestore(app, bashirPhrase, "brand-new-pass");
+  const ask = app.page.getByRole("alertdialog");
+  await ask.waitFor();
+  assert.match(await ask.innerText(), /Alice/);
+  await app.page.getByRole("button", { name: /^Erase .* and restore$/ }).click();
+  await waitFor(async () => (await alice.rpc("Session")) === true, { message: "the confirmed restore unlocks" });
+  const me = await alice.rpc("Identity");
+  assert.equal(me.fingerprint, bashir.fingerprint, "the device now holds the phrase's account");
+});

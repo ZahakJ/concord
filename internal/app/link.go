@@ -316,9 +316,9 @@ var testHookLinkBeforeWrite func()
 // fingerprints for the caller to apply after logging in, so the new device
 // joins every existing group and knows who the account has verified.
 //
-// confirm is the fingerprint of the account the user agreed to erase this
-// device's current account for (see replaceGate); "" when they have agreed to
-// nothing. A different account is refused before anything is written, with a
+// confirm is the ConfirmToken of the replacement the user agreed to (the
+// incoming account, over the keystore they were shown); "" when they have
+// agreed to nothing. A different account is refused before anything is written, with a
 // *ReplaceRefusedError naming both accounts.
 func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) (LinkResult, error) {
 	if passphrase == "" {
@@ -421,7 +421,7 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 	if testHookLinkBeforeWrite != nil {
 		testHookLinkBeforeWrite()
 	}
-	keep, err := replaceGate(dataDir, accountSeed, confirm, resp.Profile.Name)
+	keep, err := replaceGate(dataDir, accountSeed, confirm, resp.Profile.Name, snap)
 	if err != nil {
 		return LinkResult{}, err
 	}

@@ -85,9 +85,11 @@ type PhraseCheck struct {
 	KeepsData bool `json:"keepsData"`
 	// Device is the account on the device now.
 	Device appsvc.DeviceAccount `json:"device"`
-	// Incoming is the fingerprint of the phrase's account — what a
-	// confirmation to erase must name.
+	// Incoming is the fingerprint of the phrase's account.
 	Incoming string `json:"incoming"`
+	// Confirm is what a confirmation to erase sends back: the incoming
+	// account over the keystore the device holds now (app.ConfirmToken).
+	Confirm string `json:"confirm"`
 }
 
 // CheckRecoveryPhrase validates a recovery phrase and says what restoring it
@@ -110,6 +112,7 @@ func (b *Bridge) CheckRecoveryPhrase(phrase string) (PhraseCheck, error) {
 		KeepsData: appsvc.RestoreKeepsData(dir, seed),
 		Device:    appsvc.LockedAccount(dir),
 		Incoming:  id.Fingerprint(),
+		Confirm:   appsvc.ConfirmToken(dir, id.Fingerprint()),
 	}, nil
 }
 
@@ -121,6 +124,9 @@ type ReplaceRefusal struct {
 	Device       appsvc.DeviceAccount `json:"device"`
 	Incoming     string               `json:"incoming"`
 	IncomingName string               `json:"incomingName,omitempty"`
+	// Confirm is what the screen sends back as its yes to exactly this
+	// replacement: the incoming account over the keystore shown.
+	Confirm string `json:"confirm"`
 }
 
 // codeReplace turns the app's refusal into the coded error the UI confirms on.
@@ -132,6 +138,7 @@ func codeReplace(err error) error {
 			Msg:  "this would erase the account on this device; confirm to continue",
 			Detail: ReplaceRefusal{
 				Match: r.Match, Device: r.Device, Incoming: r.Incoming, IncomingName: r.IncomingName,
+				Confirm: r.Confirm,
 			},
 		}
 	}

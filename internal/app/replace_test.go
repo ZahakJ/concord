@@ -108,12 +108,12 @@ func TestRestoreOverExistingDifferentAccountNeedsConfirmation(t *testing.T) {
 	}
 
 	// Confirmed for some OTHER account (the phrase was edited after agreeing).
-	if err := RestoreOverExisting(dir, phraseOf(t, other), "new-pass", bea.Fingerprint()); !errors.As(err, &refused) {
+	if err := RestoreOverExisting(dir, phraseOf(t, other), "new-pass", ConfirmToken(dir, bea.Fingerprint())); !errors.As(err, &refused) {
 		t.Fatalf("a confirmation for a different account was accepted: %v", err)
 	}
 	deviceIs(t, dir, "bea-pass", bea)
 
-	if err := RestoreOverExisting(dir, phraseOf(t, other), "new-pass", other.Fingerprint()); err != nil {
+	if err := RestoreOverExisting(dir, phraseOf(t, other), "new-pass", ConfirmToken(dir, other.Fingerprint())); err != nil {
 		t.Fatalf("confirmed restore: %v", err)
 	}
 	deviceIs(t, dir, "new-pass", other)
@@ -169,7 +169,7 @@ func TestRestoreOverExistingUnknownAccountNeedsConfirmation(t *testing.T) {
 	if err := RestoreOverExisting(dir, phraseOf(t, id), "new-pass", ""); !errors.As(err, &refused) || refused.Match != MatchUnknown {
 		t.Fatalf("unknown device account: %v", err)
 	}
-	if err := RestoreOverExisting(dir, phraseOf(t, id), "new-pass", id.Fingerprint()); err != nil {
+	if err := RestoreOverExisting(dir, phraseOf(t, id), "new-pass", ConfirmToken(dir, id.Fingerprint())); err != nil {
 		t.Fatal(err)
 	}
 	deviceIs(t, dir, "new-pass", id)
@@ -190,7 +190,7 @@ func TestRestoreOverExistingLinkedDeviceNeedsConfirmation(t *testing.T) {
 		t.Fatalf("linked device, own phrase: %v", err)
 	}
 	deviceIs(t, dir, "forgotten", bea)
-	if err := RestoreOverExisting(dir, phraseOf(t, bea), "new-pass", bea.Fingerprint()); err != nil {
+	if err := RestoreOverExisting(dir, phraseOf(t, bea), "new-pass", ConfirmToken(dir, bea.Fingerprint())); err != nil {
 		t.Fatal(err)
 	}
 	deviceIs(t, dir, "new-pass", bea)
@@ -257,7 +257,7 @@ func TestRedeemLinkOverDifferentAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := RedeemLink(ctx, cyDir, code, "new-pass", ada.Fingerprint())
+	res, err := RedeemLink(ctx, cyDir, code, "new-pass", ConfirmToken(cyDir, ada.Fingerprint()))
 	if err != nil {
 		t.Fatalf("confirmed link: %v", err)
 	}

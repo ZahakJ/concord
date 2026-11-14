@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -140,18 +142,41 @@ type ReplaceRefusedError struct {
 	// IncomingName is the incoming account's display name when known (a link
 	// carries the account's profile; a recovery phrase carries none).
 	IncomingName string
+	// Confirm is what to pass back as confirm to agree to exactly this
+	// replacement (see ConfirmToken).
+	Confirm string
 }
 
 func (e *ReplaceRefusedError) Error() string {
 	return "this would erase the account on this device; confirm to continue"
 }
 
+// ConfirmToken is what a yes to erasing this device is bound to: the incoming
+// account, and the keystore on the device when the user was shown what it
+// holds. The screen that asks hands it back unchanged, so a confirmation is
+// for one specific replacement of one specific account: a phrase edited, a
+// new code pasted, or the device's account replaced from another window after
+// the user agreed is asked about again rather than erased on the strength of
+// a yes given for something else.
+func ConfirmToken(dataDir, incomingFingerprint string) string {
+	snap, _ := identity.ReadKeystore(keystorePathIn(dataDir))
+	return confirmToken(incomingFingerprint, snap)
+}
+
+func confirmToken(fp string, snap []byte) string {
+	held := "none"
+	if snap != nil {
+		sum := sha256.Sum256(snap)
+		held = hex.EncodeToString(sum[:16])
+	}
+	return fp + "@" + held
+}
+
 // replaceGate decides whether an account with this seed may be written over
-// whatever is on the device. keep: the device's data stays. Otherwise erasing
-// is allowed only when confirm names the incoming account's fingerprint — a
-// confirmation is for one specific replacement, so a phrase edited or a new
-// code pasted after the user agreed is asked about again.
-func replaceGate(dataDir string, seed []byte, confirm, incomingName string) (keep bool, err error) {
+// snap, the keystore on the device as the caller read it. keep: the device's
+// data stays. Otherwise erasing is allowed only when confirm is the
+// ConfirmToken for the incoming account and exactly that keystore.
+func replaceGate(dataDir string, seed []byte, confirm, incomingName string, snap []byte) (keep bool, err error) {
 	if !HasIdentity(dataDir) {
 		return false, nil
 	}
@@ -163,7 +188,8 @@ func replaceGate(dataDir string, seed []byte, confirm, incomingName string) (kee
 		return false, ierr
 	}
 	fp := incoming.Fingerprint()
-	if confirm != "" && confirm == fp {
+	token := confirmToken(fp, snap)
+	if confirm != "" && confirm == token {
 		return false, nil
 	}
 	match, device := MatchDeviceAccount(dataDir, seed), LockedAccount(dataDir)
@@ -177,6 +203,7 @@ func replaceGate(dataDir string, seed []byte, confirm, incomingName string) (kee
 		Device:       device,
 		Incoming:     fp,
 		IncomingName: incomingName,
+		Confirm:      token,
 	}
 }
 
@@ -200,7 +227,7 @@ func RestoreOverExisting(dataDir, phrase, passphrase, confirm string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	keep, err := replaceGate(dataDir, seed, confirm, "")
+	keep, err := replaceGate(dataDir, seed, confirm, "", snap)
 	if err != nil {
 		return err
 	}

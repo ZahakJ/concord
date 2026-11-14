@@ -24,7 +24,7 @@ func TestRestoreErasesNothingIfTheKeystoreChangedAfterTheConfirmation(t *testing
 		}
 	}
 	t.Cleanup(func() { testHookRestoreBeforeWrite = nil })
-	if err := RestoreOverExisting(dir, phraseOf(t, incoming), "new-pass", incoming.Fingerprint()); err == nil {
+	if err := RestoreOverExisting(dir, phraseOf(t, incoming), "new-pass", ConfirmToken(dir, incoming.Fingerprint())); err == nil {
 		t.Fatal("the restore reported success over a keystore that changed under it")
 	}
 	deviceIs(t, dir, "changed", bea)
@@ -97,11 +97,38 @@ func TestFailedRestoreLeavesTheDeviceAsItWas(t *testing.T) {
 	bea := seedDevice(t, dir, "pw", "Bea", false)
 	incoming, _ := identity.Generate()
 	// An empty passphrase cannot be sealed under: the write fails.
-	if err := RestoreOverExisting(dir, phraseOf(t, incoming), "", incoming.Fingerprint()); err == nil {
+	if err := RestoreOverExisting(dir, phraseOf(t, incoming), "", ConfirmToken(dir, incoming.Fingerprint())); err == nil {
 		t.Fatal("restore with an unsealable passphrase reported success")
 	}
 	deviceIs(t, dir, "pw", bea)
 	if store.PeekSetting(dbPathIn(dir), "display_name") != "Bea" {
 		t.Fatal("a restore that failed to write erased the device's data")
 	}
+}
+
+// A yes to erasing this device is a yes for the account the user was shown.
+// If another window puts a different account on the device between the
+// confirmation screen and the restore, that account is not erased on the
+// strength of it: the restore is refused again, naming the account now here.
+func TestConfirmationOnlyErasesTheAccountTheUserWasShown(t *testing.T) {
+	dir := t.TempDir()
+	seedDevice(t, dir, "pw", "Bea", false)
+	incoming, _ := identity.Generate()
+	shown := ConfirmToken(dir, incoming.Fingerprint()) // the screen, showing Bea
+
+	// Another window replaces Bea with Cy.
+	if err := ResetIdentity(dir); err != nil {
+		t.Fatal(err)
+	}
+	cy := seedDevice(t, dir, "cy-pass", "Cy", false)
+
+	err := RestoreOverExisting(dir, phraseOf(t, incoming), "new-pass", shown)
+	var refused *ReplaceRefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("a confirmation given for Bea erased Cy: %v", err)
+	}
+	if refused.Device.Name != "Cy" || refused.Confirm == shown {
+		t.Fatalf("the new refusal does not ask about Cy: %+v", refused)
+	}
+	deviceIs(t, dir, "cy-pass", cy)
 }
