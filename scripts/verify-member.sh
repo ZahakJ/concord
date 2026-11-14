@@ -20,6 +20,11 @@ done
 RDV_P2P="${PORTS[0]}" GATEWAY="${PORTS[1]}" WEB_A="${PORTS[2]}" WEB_B="${PORTS[3]}"
 
 TMP="$(mktemp -d /tmp/concord-member-verify.XXXXXX)"
+# A binary started without CONCORD_HOME uses the default profile, which on a
+# developer's machine is a real one. Each peer below gets its own CONCORD_HOME;
+# the config root is moved here as well, so one started without it still lands
+# in this throwaway directory.
+export XDG_CONFIG_HOME="$TMP/xdg-config"
 PIDS=()
 cleanup() { for pid in "${PIDS[@]:-}"; do kill "$pid" 2>/dev/null || true; done; wait 2>/dev/null || true; echo "artifacts in $TMP" >&2; }
 trap cleanup EXIT

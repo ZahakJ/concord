@@ -21,6 +21,11 @@ port_free() { ! (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 pick() { for p in $(seq "$1" "$2"); do port_free "$p" && { echo "$p"; return; }; done; echo "" ; }
 
 TMP="$(mktemp -d /tmp/concord-compat.XXXXXX)"
+# A binary started without CONCORD_HOME uses the default profile, which on a
+# developer's machine is a real one. Each peer below gets its own CONCORD_HOME;
+# the config root is moved here as well, so one started without it still lands
+# in this throwaway directory.
+export XDG_CONFIG_HOME="$TMP/xdg-config"
 PIDS=()
 cleanup() { for pid in "${PIDS[@]:-}"; do kill "$pid" 2>/dev/null || true; done; wait 2>/dev/null || true; echo "artifacts in $TMP" >&2; }
 trap cleanup EXIT

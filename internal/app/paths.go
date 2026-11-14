@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"testing"
 
 	"github.com/ZahakJ/concord/internal/identity"
 )
@@ -18,6 +19,10 @@ import (
 // appDir is the subdirectory under the OS config root where Concord stores all
 // per-user state.
 const appDir = "concord"
+
+// ErrNoHomeUnderTest: code running under `go test` asked for the default data
+// directory without CONCORD_HOME set. The default is a real profile.
+var ErrNoHomeUnderTest = errors.New("app: no CONCORD_HOME set under go test; refusing to use the default data directory")
 
 // DataDir returns Concord's per-user data directory, creating it if needed.
 // It follows OS conventions via os.UserConfigDir (e.g. ~/.config/concord on
@@ -29,6 +34,14 @@ func DataDir() (string, error) {
 			return "", err
 		}
 		return override, nil
+	}
+	// A test binary never gets the real profile. Tests name their own
+	// directory (CONCORD_HOME, or an explicit path); one that forgot, or one
+	// that relied on a check to stop it before this line, is refused here
+	// instead of reading, writing or erasing whatever the developer keeps in
+	// the default directory.
+	if testing.Testing() {
+		return "", ErrNoHomeUnderTest
 	}
 	root, err := os.UserConfigDir()
 	if err != nil {

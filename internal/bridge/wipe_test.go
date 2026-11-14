@@ -77,6 +77,19 @@ func TestWipeTicketExpires(t *testing.T) {
 // Both branches return before the bridge needs a session, which is why this can
 // run against a bare Bridge.
 func TestConfirmWipeSpendsTheTicketOnAMismatch(t *testing.T) {
+	// Its own directory, although both branches return before one is needed:
+	// if the check under test is ever broken, what gets erased is this.
+	dir := t.TempDir()
+	t.Setenv("CONCORD_HOME", dir)
+	kept := filepath.Join(dir, "keystore.json")
+	if err := os.WriteFile(kept, []byte("kept"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := os.Stat(kept); err != nil {
+			t.Error("a confirmation that should have been refused erased the device")
+		}
+	})
 	b := &Bridge{}
 	armTicket(t, "abc123", "euclid", time.Now())
 

@@ -200,6 +200,9 @@ export class Peer {
       cwd: this.home,
       env: {
         CONCORD_HOME: this.home,
+        // Also the config root: a peer whose CONCORD_HOME were ever dropped
+        // would otherwise open the default profile of whoever runs the suite.
+        XDG_CONFIG_HOME: path.join(this.home, "xdg-config"),
         CONCORD_WEB_ADDR: `127.0.0.1:${this.port}`,
         CONCORD_NO_OPEN: "1",
         CONCORD_DISABLE_MDNS: "1",

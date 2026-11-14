@@ -26,6 +26,11 @@ done
 RDV_P2P="${PORTS[0]}" GATEWAY="${PORTS[1]}" WEB="${PORTS[2]}"
 
 TMP="$(mktemp -d /tmp/concord-guest-smoke.XXXXXX)"
+# A binary started without CONCORD_HOME uses the default profile, which on a
+# developer's machine is a real one. Each peer below gets its own CONCORD_HOME;
+# the config root is moved here as well, so one started without it still lands
+# in this throwaway directory.
+export XDG_CONFIG_HOME="$TMP/xdg-config"
 PIDS=()
 STATUS=1
 cleanup() {

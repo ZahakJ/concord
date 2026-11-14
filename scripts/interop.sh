@@ -48,6 +48,11 @@ OLD_WEB_PORT=${OLD_WEB_PORT:-8962}
 NEW_WEB_PORT=${NEW_WEB_PORT:-8963}
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/concord-interop.XXXXXXXX")"
+# A binary started without CONCORD_HOME uses the default profile, which on a
+# developer's machine is a real one. Each peer below gets its own CONCORD_HOME;
+# the config root is moved here as well, so one started without it still lands
+# in this throwaway directory.
+export XDG_CONFIG_HOME="$WORK/xdg-config"
 RV_BIN="$WORK/rendezvous"
 PIDS=()
 
