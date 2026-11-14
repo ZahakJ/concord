@@ -232,3 +232,11 @@ func TestDeferredEraseIsReportedAsPending(t *testing.T) {
 		t.Fatal("a complete wipe reported something")
 	}
 }
+
+// A deferred keystore erase with data left over is not reported as done.
+func TestDeferredEraseWithDataLeftIsNotReportedDone(t *testing.T) {
+	err := erasePendingError(errors.Join(identity.ErrEraseDeferred, fmt.Errorf("%w: x", appsvc.ErrDataNotErased)))
+	if code, _ := codeOf(err); code == CodeErasePending || err == nil {
+		t.Fatalf("reported as done with one file to go: %v", err)
+	}
+}

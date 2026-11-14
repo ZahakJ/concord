@@ -711,6 +711,14 @@ func (b *Bridge) Login(passphrase string) error {
 		}
 		return nil
 	}
+	// With no keystore this unlock creates an account. Never beside another
+	// account's leftover data (an erase that could not remove all of it):
+	// that is removed first, or nothing is created.
+	if !appsvc.HasIdentity(dataDir) {
+		if err := appsvc.ClearLeftoverData(dataDir); err != nil {
+			return err
+		}
+	}
 	cfg := appsvc.Config{DataDir: dataDir, Passphrase: passphrase}
 	if bs := os.Getenv("CONCORD_BOOTSTRAP"); bs != "" {
 		cfg.BootstrapPeers = strings.Split(bs, ",")

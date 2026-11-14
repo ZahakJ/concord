@@ -185,6 +185,12 @@ func erasePendingError(err error) error {
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, appsvc.ErrDataNotErased) {
+		// Not done: the account can no longer be opened and its keystore goes
+		// at the next chance, but some of its data is still here. Concord
+		// removes it before anything new is set up on this device.
+		return errors.New("This device's account can no longer be opened and its keystore will be deleted, but some of its data could not be removed yet. Concord removes it before anything new is set up here; close anything else using Concord's files and try again.")
+	}
 	return &CodedError{
 		Code: CodeErasePending,
 		Msg:  "Everything on this device was erased. One file is still held by another program; it can no longer be opened, and Concord deletes it as soon as it can — at the latest the next time this device is unlocked or set up.",

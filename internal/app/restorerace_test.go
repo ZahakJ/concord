@@ -226,3 +226,71 @@ func TestKeepingDataNeedsProofNotTheClearKey(t *testing.T) {
 		t.Fatalf("locked account after an unlock: %+v", a)
 	}
 }
+
+// A group-state directory that cannot be removed is an error, so a restore
+// or link stops before its new keystore lands beside the old account's
+// group state.
+func TestResetDataReportsGroupStateItCannotRemove(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can remove anything")
+	}
+	dir := t.TempDir()
+	stuck := filepath.Join(dir, "mls", "group")
+	if err := os.MkdirAll(stuck, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stuck, "state"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(stuck, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(stuck, 0o700) })
+	if err := resetDataIn(dir); err == nil {
+		t.Fatal("erasing the data reported success with the group state still there")
+	}
+}
+
+// A keystore erase that had to be deferred and a data erase that failed are
+// both reported: the second alone reads as "nothing happened", while the
+// keystore erase still completes later.
+func TestDeferredEraseWithDataLeftSaysBoth(t *testing.T) {
+	dir := t.TempDir()
+	seedDevice(t, dir, "pw", "Bea", false)
+	orig := removeKeystore
+	removeKeystore = func(string) error { return identity.ErrEraseDeferred }
+	t.Cleanup(func() { removeKeystore = orig })
+	// Something the data erase cannot take.
+	if err := os.Remove(dbPathIn(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dbPathIn(dir), "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err := ResetIdentity(dir)
+	if !errors.Is(err, identity.ErrEraseDeferred) || !errors.Is(err, ErrDataNotErased) {
+		t.Fatalf("deferred keystore erase with data left: %v, want both said", err)
+	}
+}
+
+// With no keystore, data an erased account left behind is removed before a
+// new account can be set up, and a device with a keystore is left alone.
+func TestClearLeftoverDataBeforeANewAccount(t *testing.T) {
+	dir := t.TempDir()
+	seedDevice(t, dir, "pw", "Bea", false)
+	if err := ClearLeftoverData(dir); err != nil {
+		t.Fatal(err)
+	}
+	if store.PeekSetting(dbPathIn(dir), "display_name") != "Bea" {
+		t.Fatal("data of the account on the device was removed")
+	}
+	if err := os.Remove(keystorePathIn(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := ClearLeftoverData(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dbPathIn(dir)); !os.IsNotExist(err) {
+		t.Fatal("an erased account's database survived into the new account's setup")
+	}
+}

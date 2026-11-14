@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -219,5 +220,44 @@ func TestLoginSaysOnceThatTheKeystoreLabelWasAltered(t *testing.T) {
 	_ = b.Logout()
 	if notice, err := b.Dispatch("Login", rawArgs("pw")); err != nil || notice != "" {
 		t.Fatalf("second unlock: %q, %v; want no notice", notice, err)
+	}
+}
+
+// An account erased with its data left behind (the data erase failed) must
+// not have a new account created beside that data: the next unlock removes
+// it first, so the new account does not inherit the old one's profile.
+func TestLoginNeverCreatesBesideAnotherAccountsData(t *testing.T) {
+	b, _ := newLockedDevice(t, "pw", "Ada")
+	ks, _ := appsvc.KeystorePath()
+	if err := os.Remove(ks); err != nil { // keystore gone, data left
+		t.Fatal(err)
+	}
+	if err := b.Login("new"); err != nil {
+		t.Fatal(err)
+	}
+	svc, _ := b.service()
+	if name := svc.DisplayName(); name == "Ada" {
+		t.Fatalf("the new account came up with the erased account's profile: %q", name)
+	}
+}
+
+// If that data cannot be removed, nothing is created: the unlock refuses.
+func TestLoginRefusesWhenAnErasedAccountsDataCannotGo(t *testing.T) {
+	b, _ := newLockedDevice(t, "pw", "Ada")
+	ks, _ := appsvc.KeystorePath()
+	dir := filepath.Dir(ks)
+	if err := os.Remove(ks); err != nil {
+		t.Fatal(err)
+	}
+	db := filepath.Join(dir, "concord.db")
+	_ = os.Remove(db)
+	if err := os.MkdirAll(filepath.Join(db, "x"), 0o700); err != nil { // cannot be removed
+		t.Fatal(err)
+	}
+	if err := b.Login("new"); err == nil {
+		t.Fatal("an account was set up beside data that could not be removed")
+	}
+	if _, err := os.Stat(ks); !os.IsNotExist(err) {
+		t.Fatal("a keystore was created although the unlock refused")
 	}
 }
