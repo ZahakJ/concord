@@ -372,3 +372,20 @@ func TestHeadlessUnlockLogsTheNoticeAndKeepsItForTheUI(t *testing.T) {
 		t.Fatalf("the UI's Login did not get the pending notice: %q", notice)
 	}
 }
+
+// The reviewer's probe: keystore removed, a different account restored from
+// its phrase. It must not come up with the old account's profile; it is
+// asked about first.
+func TestRestoreFromPhraseNeverComesUpBesideAnotherAccountsData(t *testing.T) {
+	b, ks, saved := lostKeystore(t)
+	other, _ := identity.Generate()
+	phrase, err := other.Mnemonic()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = b.RestoreFromMnemonic(phrase, "new", "")
+	if code, _ := codeOf(err); code != CodeReplaceRefused {
+		t.Fatalf("restore of another account over Ada's data: %v, want it asked about", err)
+	}
+	adaIsBack(t, b, ks, saved)
+}

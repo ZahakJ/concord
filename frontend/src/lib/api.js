@@ -284,7 +284,7 @@ export const api = {
   sessionState: () => call("SessionState"),
   lockedAccount: () => call("LockedAccount"),
   checkRecoveryPhrase: (phrase) => call("CheckRecoveryPhrase", phrase),
-  restoreFromMnemonic: (phrase, passphrase) => call("RestoreFromMnemonic", phrase, passphrase),
+  restoreFromMnemonic: (phrase, passphrase, confirm = "") => call("RestoreFromMnemonic", phrase, passphrase, confirm),
   // The restore screen's rendezvous field (before unlock): what to prefill it
   // with, and saving what was typed (addresses, or an invite's rendezvous list).
   getRestoreRendezvous: () => call("GetRestoreRendezvous"),

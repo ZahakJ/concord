@@ -466,7 +466,19 @@
         }
         replaceAsk = null;
       } else {
-        await api.restoreFromMnemonic(phrase, passphrase);
+        // No keystore here, but there may be data (a lost keystore, an erase
+        // that did not finish): the core keeps it if it is this phrase's
+        // account's, and otherwise asks, exactly as above.
+        try {
+          await api.restoreFromMnemonic(phrase, passphrase, replaceAsk?.kind === "restore" ? replaceAsk.confirm : "");
+        } catch (err) {
+          if (err?.code === "replace-refused") {
+            askReplace("restore", err.detail);
+            return;
+          }
+          throw err;
+        }
+        replaceAsk = null;
       }
       const notice = await api.login(passphrase);
       if (notice) flash(notice, "info"); // e.g. the keystore's label had been altered

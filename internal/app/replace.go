@@ -202,7 +202,7 @@ func confirmToken(fp string, snap []byte) string {
 // ConfirmToken for the incoming account and exactly that keystore.
 func replaceGate(dataDir string, seed []byte, confirm, incomingName string, snap []byte) (keep bool, err error) {
 	if !HasIdentity(dataDir) {
-		return false, nil
+		return noKeystoreGate(dataDir, seed, confirm, incomingName, snap)
 	}
 	if RestoreKeepsData(dataDir, seed) {
 		return true, nil
@@ -226,6 +226,42 @@ func replaceGate(dataDir string, seed []byte, confirm, incomingName string, snap
 	return false, &ReplaceRefusedError{
 		Match:        match,
 		Device:       device,
+		Incoming:     fp,
+		IncomingName: incomingName,
+		Confirm:      token,
+	}
+}
+
+// noKeystoreGate is replaceGate for a device with no keystore. Nothing here,
+// or data whose erase was recorded: go ahead (the erase finishes under the
+// lock). Data that opens under the incoming seed is this account's: keep it,
+// no question, since nothing is erased. Any other data is another account's,
+// or nobody's that Concord can prove: the standard confirmation, then it is
+// erased before the new keystore lands, never kept beside it.
+func noKeystoreGate(dataDir string, seed []byte, confirm, incomingName string, snap []byte) (bool, error) {
+	if !hasAccountData(dataDir) || dataErasePending(dataDir) {
+		return false, nil
+	}
+	incoming, err := identity.FromSeed(seed)
+	if err != nil {
+		return false, err
+	}
+	opens, known := store.KeyOpensMessages(dbPathIn(dataDir), deriveStoreKey(incoming))
+	if known && opens {
+		return true, nil
+	}
+	fp := incoming.Fingerprint()
+	token := confirmToken(fp, snap)
+	if confirm != "" && confirm == token {
+		return false, nil
+	}
+	match := MatchUnknown
+	if known {
+		match = MatchDifferent
+	}
+	return false, &ReplaceRefusedError{
+		Match:        match,
+		Device:       DeviceAccount{Name: strings.TrimSpace(store.PeekSetting(dbPathIn(dataDir), "display_name"))},
 		Incoming:     fp,
 		IncomingName: incomingName,
 		Confirm:      token,

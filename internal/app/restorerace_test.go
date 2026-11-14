@@ -304,3 +304,46 @@ func TestCreateGuardDeletesOnlyARecordedErase(t *testing.T) {
 		t.Fatal("the recorded erase was not finished")
 	}
 }
+
+// With the keystore gone, restoring the phrase of the account whose data is
+// here keeps that data without asking: nothing is erased.
+func TestRestoreWithNoKeystoreKeepsTheAccountsOwnData(t *testing.T) {
+	dir := t.TempDir()
+	bea := seedDevice(t, dir, "pw", "Bea", false)
+	if err := os.Remove(keystorePathIn(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := RestoreIdentity(dir, phraseOf(t, bea), "new-pass"); err != nil {
+		t.Fatal(err)
+	}
+	deviceIs(t, dir, "new-pass", bea)
+	if store.PeekSetting(dbPathIn(dir), "display_name") != "Bea" {
+		t.Fatal("restoring the account's own phrase lost its data")
+	}
+}
+
+// Restoring a different account's phrase there must not come up beside the
+// old account's data: it is asked about, and erased once confirmed.
+func TestRestoreWithNoKeystoreAsksBeforeErasingAnotherAccountsData(t *testing.T) {
+	dir := t.TempDir()
+	seedDevice(t, dir, "pw", "Bea", false)
+	if err := os.Remove(keystorePathIn(dir)); err != nil {
+		t.Fatal(err)
+	}
+	other, _ := identity.Generate()
+	err := RestoreIdentity(dir, phraseOf(t, other), "new-pass")
+	var refused *ReplaceRefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("another account restored beside Bea's data without asking: %v", err)
+	}
+	if store.PeekSetting(dbPathIn(dir), "display_name") != "Bea" {
+		t.Fatal("the refusal touched the data")
+	}
+	if err := RestoreOverExisting(dir, phraseOf(t, other), "new-pass", refused.Confirm); err != nil {
+		t.Fatalf("confirmed: %v", err)
+	}
+	deviceIs(t, dir, "new-pass", other)
+	if store.PeekSetting(dbPathIn(dir), "display_name") == "Bea" {
+		t.Fatal("the restored account came up beside the old account's data")
+	}
+}

@@ -441,7 +441,7 @@ var errLinkInProgress = errors.New("this device is being linked to an account in
 // RestoreFromMnemonic reconstructs the identity from a recovery phrase, sealing
 // it under a new passphrase. Refused if an identity already exists here (the
 // user must "start over" first) or while unlocked.
-func (b *Bridge) RestoreFromMnemonic(phrase, passphrase string) error {
+func (b *Bridge) RestoreFromMnemonic(phrase, passphrase, confirm string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.svc != nil {
@@ -460,7 +460,13 @@ func (b *Bridge) RestoreFromMnemonic(phrase, passphrase string) error {
 	if strings.TrimSpace(passphrase) == "" {
 		return errors.New("choose a passphrase to protect the restored identity")
 	}
-	return appsvc.RestoreIdentity(dir, phrase, passphrase)
+	if _, err := identity.SeedFromMnemonic(phrase); err != nil {
+		return errBadPhrase
+	}
+	// Data already on the device (a lost keystore, an unfinished erase) goes
+	// through the replace gate: kept if it is the phrase's account's, else
+	// asked about with the same confirmation as a restore over an account.
+	return codeReplace(appsvc.RestoreOverExisting(dir, phrase, passphrase, confirm))
 }
 
 // RestoreOverExisting is the forgot-passphrase recovery path: a (locked,
@@ -3657,7 +3663,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "CheckRecoveryPhrase":
 		return b.CheckRecoveryPhrase(argStr(args, 0))
 	case "RestoreFromMnemonic":
-		return nil, b.RestoreFromMnemonic(argStr(args, 0), argStr(args, 1))
+		return nil, b.RestoreFromMnemonic(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "RestoreOverExisting":
 		return nil, b.RestoreOverExisting(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "Login":

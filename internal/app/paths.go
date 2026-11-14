@@ -230,13 +230,10 @@ var syncDataDir = identity.SyncDir
 // sealed under passphrase. Guilds/history/mailbox are recovered afterwards by
 // logging in and syncing. The caller must ensure no identity already exists.
 func RestoreIdentity(dataDir, phrase, passphrase string) error {
-	// Create-only: the caller saw no identity, and one that appeared since
-	// (another window's first unlock or restore) is not overwritten.
-	err := identity.RestoreKeystore(keystorePathIn(dataDir), phrase, passphrase, nil)
-	if errors.Is(err, identity.ErrKeystoreExists) {
-		return errors.New("an account was just put on this device from another Concord window; nothing was restored over it")
-	}
-	return err
+	// Through the same gate as a restore over an account: data already here
+	// is kept only if it is the phrase's account's, and otherwise asked about
+	// and erased, never kept beside the restored account.
+	return RestoreOverExisting(dataDir, phrase, passphrase, "")
 }
 
 // mlsDirIn returns the directory holding persistent MLS group state, creating

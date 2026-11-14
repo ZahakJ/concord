@@ -145,7 +145,7 @@ func TestIdentityChangesWaitForALinkInProgress(t *testing.T) {
 	b := &Bridge{linking: true}
 	for name, call := range map[string]func() error{
 		"Login":               func() error { return b.Login("pw") },
-		"RestoreFromMnemonic": func() error { return b.RestoreFromMnemonic("x", "pw") },
+		"RestoreFromMnemonic": func() error { return b.RestoreFromMnemonic("x", "pw", "") },
 		"RestoreOverExisting": func() error { return b.RestoreOverExisting("x", "pw", "") },
 		"ResetIdentity":       func() error { return b.ResetIdentity() },
 		"RedeemLinkCode":      func() error { _, err := b.RedeemLinkCode("x", "pw", ""); return err },
