@@ -59,19 +59,16 @@ func newErasePending(path string) bool {
 }
 
 // markerIdentity names the erase marker beside path so a stale one can be
-// recognised: by its content when it can be read, otherwise by size, time
-// and file identity. A new erase writes a fresh marker (new file, new
-// content), so it never matches a stale one, readable or not.
+// recognised: always by size, time and file identity, never by content, so
+// that the same file has one identity whether or not it can be read at the
+// moment (a scanner letting go of it, its permissions changed). A new erase
+// writes a fresh marker, a new file, so it never matches a stale one.
 func markerIdentity(path string) (string, bool) {
 	fi, err := os.Lstat(tombstonePath(path))
 	if err != nil {
 		return "", false
 	}
-	if raw, rerr := os.ReadFile(tombstonePath(path)); rerr == nil {
-		sum := sha256.Sum256(raw)
-		return "content:" + hex.EncodeToString(sum[:]), true
-	}
-	return fmt.Sprintf("unreadable:%d:%d:%s", fi.Size(), fi.ModTime().UnixNano(), fileID(fi)), true
+	return fmt.Sprintf("%d:%d:%s", fi.Size(), fi.ModTime().UnixNano(), fileID(fi)), true
 }
 
 // errErasePending: an erase of this device has not finished and could not be

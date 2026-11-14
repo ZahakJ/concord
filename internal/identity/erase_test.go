@@ -435,3 +435,45 @@ func TestUnreadableUnremovableMarkerDoesNotBlockWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A stale marker that cannot be read when the lock is taken and becomes
+// readable during the write (a scanner letting go of it) is still the same
+// stale marker: the write must not take it for a new erase and remove the
+// keystore it has just put in place.
+func TestStaleMarkerTurningReadableMidWriteKeepsTheKeystore(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads anything")
+	}
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	if _, _, err := LoadOrCreate(path, "old"); err != nil {
+		t.Fatal(err)
+	}
+	marker := path + ".erased"
+	plantTombstone(t, path, []byte("some other keystore"))
+	old := time.Now().Add(-time.Hour) // older than the keystore: provably stale
+	if err := os.Chtimes(marker, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(marker, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	origRemove := removeFile
+	removeFile = func(p string) error {
+		if p == marker {
+			return os.ErrPermission
+		}
+		return origRemove(p)
+	}
+	t.Cleanup(func() { removeFile = origRemove; _ = os.Chmod(marker, 0o600) })
+	setHooks(t, resealHooks{beforeRename: func() {
+		if err := os.Chmod(marker, 0o600); err != nil { // readable from here on
+			t.Error(err)
+		}
+	}})
+	if err := ChangePassphrase(path, "old", "new"); err != nil {
+		t.Fatalf("change beside a stale marker that turned readable: %v", err)
+	}
+	if _, err := LoadKeystore(path, "new"); err != nil {
+		t.Fatalf("the keystore the change wrote is gone: %v", err)
+	}
+}
