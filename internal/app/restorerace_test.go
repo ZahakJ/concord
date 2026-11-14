@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ZahakJ/concord/internal/identity"
 	"github.com/ZahakJ/concord/internal/store"
@@ -400,5 +401,38 @@ func TestAFailedWipeNeverErasesAnOwnPhraseRestore(t *testing.T) {
 	}
 	if !noteSurvives(t, dir, bea) {
 		t.Fatal("the restore erased the account's messages on the say-so of a failed wipe")
+	}
+}
+
+// With no keystore, a linked install's own data is not kept: it is bound to
+// the device key that went with the keystore. The restore asks, as it does
+// with the keystore present, and once confirmed the data and the device
+// marker go, leaving no dead marker behind.
+func TestNoKeystoreLinkedInstallAsksAndLeavesNoDeadMarker(t *testing.T) {
+	dir := t.TempDir()
+	bea := seedDevice(t, dir, "pw", "Bea", false)
+	dev, _ := identity.Generate()
+	if err := saveDeviceMarker(dir, bea.IssueDeviceCertFor(dev.DevicePublicKey(), "phone", time.Now().Unix())); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(keystorePathIn(dir)); err != nil {
+		t.Fatal(err)
+	}
+	err := RestoreIdentity(dir, phraseOf(t, bea), "new-pass")
+	var refused *ReplaceRefusedError
+	if !errors.As(err, &refused) || refused.Match != MatchSame || !refused.Device.Linked {
+		t.Fatalf("linked install, no keystore, own phrase: %v, want the linked-install question", err)
+	}
+	if !noteSurvives(t, dir, bea) {
+		t.Fatal("the refusal touched the data")
+	}
+	if err := RestoreOverExisting(dir, phraseOf(t, bea), "new-pass", refused.Confirm); err != nil {
+		t.Fatalf("confirmed: %v", err)
+	}
+	if _, err := os.Stat(deviceMarkerPath(dir)); !os.IsNotExist(err) {
+		t.Fatal("a dead device marker was left behind")
+	}
+	if noteSurvives(t, dir, bea) {
+		t.Fatal("a linked install's data was kept")
 	}
 }

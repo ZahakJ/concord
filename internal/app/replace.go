@@ -253,7 +253,13 @@ func noKeystoreGate(dataDir string, seed []byte, confirm, incomingName string, s
 		return false, err
 	}
 	opens, known := store.KeyOpensMessages(dbPathIn(dataDir), deriveStoreKey(incoming))
-	if known && opens {
+	// The one keep rule, as with a keystore present (RestoreKeepsData): the
+	// data is this account's AND the install was never linked. A linked
+	// install's data is also bound to its device key, which went with the
+	// keystore; kept, it would come up on group state for a key it no
+	// longer has, beside a device marker that no longer loads.
+	_, linked := readMarker(dataDir)
+	if known && opens && !linked {
 		return true, nil
 	}
 	fp := incoming.Fingerprint()
@@ -262,12 +268,15 @@ func noKeystoreGate(dataDir string, seed []byte, confirm, incomingName string, s
 		return false, nil
 	}
 	match := MatchUnknown
-	if known {
+	switch {
+	case known && opens: // linked: the account's own, but not keepable
+		match = MatchSame
+	case known:
 		match = MatchDifferent
 	}
 	return false, &ReplaceRefusedError{
 		Match:        match,
-		Device:       DeviceAccount{Name: strings.TrimSpace(store.PeekSetting(dbPathIn(dataDir), "display_name"))},
+		Device:       DeviceAccount{Name: strings.TrimSpace(store.PeekSetting(dbPathIn(dataDir), "display_name")), Linked: linked},
 		Incoming:     fp,
 		IncomingName: incomingName,
 		Confirm:      token,
