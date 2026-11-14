@@ -18,7 +18,7 @@ import (
 // The hard part is not the banner. It is being SURE, because the failure this
 // looks like from the inside — "the guild's traffic stopped making sense" — is
 // also exactly what a stranded member sees, and a stranded member must heal, not
-// be told they were thrown out. So there are exactly two ways in, and both are
+// be told they were thrown out. So there are exactly three ways in, and all are
 // evidence rather than inference:
 //
 //  1. A commit we could read, from an authorized committer, that blanked our own
@@ -27,6 +27,8 @@ import (
 //  2. An authorized committer answering our admission request with "you were
 //     removed" / "you are banned" — a peer that holds manage-members telling us,
 //     in response to a question we asked, what the guild's governance log says.
+//  3. A signed remove_member or ban op naming our account, folded into our own
+//     copy of that log (noteGovernanceRemoval).
 //
 // Everything else — an undecryptable frame, an epoch gap, a payload we could not
 // read — stays what it always was: stranded, recoverable, and shown as catching
@@ -169,6 +171,27 @@ func (s *Service) clearEvicted(guildID string) {
 	_ = s.store.SetSetting(evictedSettingPrefix+guildID, "")
 	_ = s.store.SetSetting(evictedReasonPrefix+guildID, "")
 	s.emitGuildUpdate()
+}
+
+// noteGovernanceRemoval records the eviction a governance op just decided for
+// this account. A kick removes the account's leaves one commit each, and each
+// device used to learn it was out only from the commit for its own leaf. When
+// that commit never comes, because the kick failed part-way, the device would
+// stay a working member of a guild that removed its account. The log is the
+// decision, so it is enough.
+func (s *Service) noteGovernanceRemoval(guildID string) {
+	if s.id == nil {
+		return
+	}
+	me := s.id.Fingerprint()
+	s.mu.RLock()
+	st := s.govState[guildID]
+	removed := st.Removed[me] || st.Banned[me]
+	s.mu.RUnlock()
+	if removed {
+		// noteEvicted reads a ban from the same state and says so.
+		s.noteEvicted(guildID, evictedKicked)
+	}
 }
 
 // loadEvicted restores the terminal state at startup. Without it a restart looks

@@ -1010,6 +1010,10 @@ type Config struct {
 	// on purpose — no production caller can reach them.
 	listenAddrs []string
 	blockedIPs  []string
+	// wrapMLS, when set, wraps the MLS engine before the service uses it, so a
+	// test in this package can make one operation fail. Unexported for the
+	// same reason as the two above.
+	wrapMLS func(mls.Engine) mls.Engine
 }
 
 // Start loads (or creates) the identity, then brings up storage, networking
@@ -1094,11 +1098,15 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// node can both receive and send. mlsIdentity selects the account-key
 	// credential (default) or the device cert + device signing key (linked).
 	mlsCred, mlsSigning := mlsIdentity(id, marker)
-	engine, err := mls.NewPersistent(mlsCred, mlsSigning, mlsDir)
+	var engine mls.Engine
+	engine, err = mls.NewPersistent(mlsCred, mlsSigning, mlsDir)
 	if err != nil {
 		_ = host.Close()
 		_ = st.Close()
 		return nil, fmt.Errorf("app: start mls: %w", err)
+	}
+	if cfg.wrapMLS != nil {
+		engine = cfg.wrapMLS(engine)
 	}
 
 	s := &Service{
