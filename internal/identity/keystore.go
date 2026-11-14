@@ -52,6 +52,14 @@ var ErrWrongPassphrase = errors.New("identity: wrong passphrase or corrupted key
 // on: the recovery phrase.
 var errCorruptKeystore = fmt.Errorf("%w (its key derivation settings are out of range)", ErrWrongPassphrase)
 
+// errDamagedKeystore is a keystore file that does not parse (empty, cut
+// short, overwritten) or lacks what every build writes. Like a wrong
+// passphrase, the recovery phrase is the way back, so it is reported the same
+// way (errors.Is ErrWrongPassphrase), which is what the unlock screen routes
+// to recovery. A file from a newer build (an unknown version or key
+// derivation) is not damaged and keeps its own error.
+var errDamagedKeystore = fmt.Errorf("%w (the keystore file is damaged)", ErrWrongPassphrase)
+
 // Bounds on the Argon2id cost a file may ask for. The cost is read from the
 // file before anything is verified, and Argon2 panics on zero passes or
 // lanes, takes the process down asking for terabytes, or never returns on
@@ -331,7 +339,7 @@ func ReadAccountPub(path string) (ed25519.PublicKey, error) {
 func accountPubOf(blob []byte) (ed25519.PublicKey, error) {
 	var env keystoreFile
 	if err := json.Unmarshal(blob, &env); err != nil {
-		return nil, fmt.Errorf("identity: parse keystore: %w", err)
+		return nil, errDamagedKeystore
 	}
 	if len(env.AccountPub) != ed25519.PublicKeySize {
 		return nil, nil
@@ -553,7 +561,7 @@ func openKeystore(path, passphrase string) (*Identity, []byte, error) {
 func OpenKeystoreBytes(blob []byte, passphrase string) (*Identity, error) {
 	var env keystoreFile
 	if err := json.Unmarshal(blob, &env); err != nil {
-		return nil, fmt.Errorf("identity: parse keystore: %w", err)
+		return nil, errDamagedKeystore
 	}
 	if env.Version < 1 || env.Version > keystoreVersion {
 		return nil, fmt.Errorf("identity: unsupported keystore version %d", env.Version)
@@ -562,7 +570,7 @@ func OpenKeystoreBytes(blob []byte, passphrase string) (*Identity, error) {
 		return nil, fmt.Errorf("identity: unsupported kdf %q", env.KDF)
 	}
 	if len(env.Nonce) != nonceSize {
-		return nil, errors.New("identity: bad nonce length in keystore")
+		return nil, errDamagedKeystore
 	}
 	if !validKDF(env.ArgonTime, env.ArgonMemory, env.ArgonThreads, env.Salt) {
 		return nil, errCorruptKeystore

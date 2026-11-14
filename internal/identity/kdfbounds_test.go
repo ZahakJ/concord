@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"os"
@@ -86,6 +87,37 @@ func TestOutOfRangeKDFSettingsFailToOpenWithoutHarm(t *testing.T) {
 			case <-time.After(20 * time.Second):
 				t.Fatalf("%s %s=%s: still deriving after 20 s", kind, tc.field, tc.value)
 			}
+		}
+	}
+}
+
+// An empty, truncated or overwritten keystore is reported as the
+// wrong-passphrase-or-corrupted error the unlock screen sends to recovery,
+// and an unlock never creates an account over it.
+func TestDamagedKeystoreIsReportedForRecovery(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	id, _ := Generate()
+	if err := CreateKeystore(path, "pw", id); err != nil {
+		t.Fatal(err)
+	}
+	good := mustRead(t, path)
+	for name, blob := range map[string][]byte{
+		"empty":       {},
+		"truncated":   good[:len(good)/2],
+		"overwritten": []byte("\x00\x00\x00\x00"),
+		"no nonce":    []byte(`{"version":2,"kdf":"argon2id"}`),
+	} {
+		if err := os.WriteFile(path, blob, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadKeystore(path, "pw"); !errors.Is(err, ErrWrongPassphrase) {
+			t.Errorf("%s: %v, want the wrong-passphrase-or-corrupted error", name, err)
+		}
+		if _, created, err := LoadOrCreate(path, "pw"); created || !errors.Is(err, ErrWrongPassphrase) {
+			t.Errorf("%s: unlock created %v, %v", name, created, err)
+		}
+		if !bytes.Equal(mustRead(t, path), blob) {
+			t.Errorf("%s: the unlock wrote over the damaged keystore", name)
 		}
 	}
 }
