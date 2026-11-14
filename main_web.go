@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io/fs"
 	"mime"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -111,27 +110,52 @@ func main() {
 	// The token rides the opened URL once; the page stores it and strips it
 	// from the address bar (frontend/src/main.js), so it does not linger in
 	// browser history or in a screenshot of the window.
+	sock, isSock := socketPath(addr)
 	url := "http://" + addr + "/?t=" + token
-	// Bind with a short retry: after a self-update restart the previous process
-	// may hold the port for a beat (Windows spawn-and-exit path especially).
-	var ln net.Listener
-	var err error
-	for i := 0; i < 25; i++ {
-		ln, err = net.Listen("tcp", addr)
-		if err == nil {
-			break
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
+	ln, err := listen(addr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "concord:", err)
 		os.Exit(1)
 	}
-	// Print the URL WITH the token: on a headless box (CONCORD_NO_OPEN) this
-	// line is the only way in, and the terminal is already as trusted as the
-	// process itself.
-	fmt.Printf("Concord is running — %s\n", url)
-	if os.Getenv("CONCORD_NO_OPEN") == "" {
+	// With a token file the token goes there and nowhere else — in particular
+	// not to stdout, which a service manager keeps in a log other users read.
+	tokenFile := os.Getenv("CONCORD_API_TOKEN_FILE")
+	if tokenFile != "" {
+		if err := writeTokenFile(tokenFile, token); err != nil {
+			fmt.Fprintln(os.Stderr, "concord: could not write the API token file:", err)
+			os.Exit(1)
+		}
+	}
+	switch {
+	case isSock:
+		fmt.Printf("Concord is running — unix socket %s\n", sock)
+	case tokenFile != "":
+		fmt.Printf("Concord is running — http://%s (token in %s)\n", addr, tokenFile)
+	default:
+		// Print the URL WITH the token: on a headless box (CONCORD_NO_OPEN) this
+		// line is the only way in, and the terminal is already as trusted as the
+		// process itself.
+		fmt.Printf("Concord is running — %s\n", url)
+	}
+	// Unlock from a file when asked: a service then comes up signed in, and
+	// stays signed in across a self-update's re-exec (same environment). Runs
+	// after the listener is up so the UI can watch it happen; the passphrase
+	// and its error text never reach the log, only whether it worked.
+	if pf := os.Getenv("CONCORD_PASSPHRASE_FILE"); pf != "" {
+		go func() {
+			pass, err := readPassphraseFile(pf)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "concord: passphrase file:", err)
+				return
+			}
+			if err := srv.Bridge().Login(pass); err != nil {
+				fmt.Fprintln(os.Stderr, "concord: unlock from passphrase file failed")
+				return
+			}
+			fmt.Println("concord: unlocked from passphrase file")
+		}()
+	}
+	if os.Getenv("CONCORD_NO_OPEN") == "" && !isSock {
 		go openBrowser(url)
 	}
 	if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
