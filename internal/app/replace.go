@@ -200,6 +200,15 @@ func confirmToken(dataDir, fp string, snap []byte) string {
 	return fp + "@" + hex.EncodeToString(h.Sum(nil)[:16])
 }
 
+// StartOverToken is what a yes to start over (erase this device from the
+// lock screen) is bound to: the keystore, if any, and the data on the device
+// when the confirmation opened. A page left open while another window
+// restored or linked a different account erases nothing.
+func StartOverToken(dataDir string) string {
+	snap, _ := identity.ReadKeystore(keystorePathIn(dataDir))
+	return confirmToken(dataDir, "start-over", snap)
+}
+
 // replaceGate decides whether an account with this seed may be written over
 // snap, the keystore on the device as the caller read it. keep: the device's
 // data stays. Otherwise erasing is allowed only when confirm is the

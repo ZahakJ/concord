@@ -121,11 +121,27 @@
   }
   let confirmingReset = $state(false);
   // Erasing from here takes a fixed word typed out, the same strength as the
-  // in-app wipe. The core checks it too (ResetIdentity refuses without it);
-  // it is never taken from a name, which could be untypeable.
+  // in-app wipe, and a ticket the core issues when the confirmation opens,
+  // bound to what the device holds then. The core checks both (ResetIdentity
+  // refuses without them); the word is never taken from a name, which could
+  // be untypeable.
   const START_OVER_WORD = "ERASE";
   let resetTyped = $state("");
+  let resetTicket = $state("");
   const resetMatches = $derived(resetTyped.trim().toLowerCase() === START_OVER_WORD.toLowerCase());
+
+  async function openReset() {
+    error = "";
+    try {
+      const v = await api.beginStartOver();
+      resetTicket = v.ticket;
+      resetTyped = "";
+      confirmingReset = true;
+      forgot = false;
+    } catch (err) {
+      fail(err, "");
+    }
+  }
   // dataNoKeystore: the core refused to create because this device holds an
   // account's data without its keystore; the choices are worded for that.
   let dataNoKeystore = $state(false);
@@ -668,7 +684,7 @@
     error = "";
     try {
       try {
-        await api.resetIdentity(resetTyped.trim());
+        await api.resetIdentity(resetTicket, resetTyped.trim());
       } catch (err) {
         // Erased, with the keystore file itself still to go: not a failure.
         if (err?.code !== "erase-pending") throw err;
@@ -677,10 +693,19 @@
       hasIdentity = false;
       confirmingReset = false;
       resetTyped = "";
+      resetTicket = "";
       dataNoKeystore = false;
       passphrase = "";
       confirmPass = "";
     } catch (err) {
+      // The ticket was spent or the device changed since the confirmation
+      // opened: back to the choices, to look again before erasing.
+      if (err?.code === "confirm-stale") {
+        confirmingReset = false;
+        resetTicket = "";
+        resetTyped = "";
+        forgot = true;
+      }
       fail(err, "");
     } finally {
       busy = false;
@@ -1035,7 +1060,7 @@
       <button type="button" class="danger" disabled={busy || !resetMatches} onclick={doReset}>
         {busy ? "Resetting…" : "Yes, delete and start over"}
       </button>
-      <button type="button" class="link" onclick={() => ((confirmingReset = false), (resetTyped = ""))}>Cancel</button>
+      <button type="button" class="link" onclick={() => ((confirmingReset = false), (resetTyped = ""), (resetTicket = ""))}>Cancel</button>
     {:else if linking}
       <p class="muted">
         On your other device, open <strong>Settings → Your devices</strong>.
@@ -1208,7 +1233,7 @@
         Use my recovery phrase
       </button>
       <p class="muted small">If no other device of yours has the account any more.</p>
-      <button type="button" class="link warn-link" onclick={() => ((confirmingReset = true), (forgot = false), (error = ""))}>
+      <button type="button" class="link warn-link" onclick={openReset}>
         {dataNoKeystore ? "Erase this data and start over" : "I have neither — start over (deletes everything)"}
       </button>
       <button type="button" class="link" onclick={() => (forgot = false)}>Back</button>

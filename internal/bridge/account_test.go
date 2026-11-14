@@ -374,23 +374,28 @@ func TestARecordedEraseAuthorisesNothing(t *testing.T) {
 }
 
 // Erasing from the lock screen (the no-keystore screen's "erase this data",
-// and start over from the Forgot menu, which are the same call) takes the
-// fixed word typed by the user, checked here and not only in the screen: a
-// call without it, or with anything else, deletes nothing.
+// and start over from the Forgot menu, which are the same call) takes a
+// ticket from when the confirmation opened and the fixed word typed by the
+// user, both checked here and not only in the screen: a call without them,
+// or with anything else, deletes nothing.
 func TestStartOverRefusesWithoutTheTypedWord(t *testing.T) {
 	for _, keystoreLost := range []bool{true, false} {
 		b, _ := newLockedDevice(t, "pw", "Ada")
 		ks, _ := appsvc.KeystorePath()
-		saved, err := os.ReadFile(ks)
-		if err != nil {
-			t.Fatal(err)
-		}
 		if keystoreLost {
 			_ = os.Remove(ks)
 		}
 		dir, _ := appsvc.DataDir()
 		db := filepath.Join(dir, "concord.db")
-		for _, args := range [][]json.RawMessage{nil, {json.RawMessage(`""`)}, {json.RawMessage(`"delete"`)}, {json.RawMessage(`"Ada"`)}} {
+		view, err := b.BeginStartOver()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view.Word != StartOverWord {
+			t.Fatalf("the confirmation asks for %q, want the fixed word", view.Word)
+		}
+		q := func(s string) json.RawMessage { b, _ := json.Marshal(s); return b }
+		for _, args := range [][]json.RawMessage{nil, {q(view.Ticket)}, {q(view.Ticket), q("")}, {q(view.Ticket), q("delete")}, {q(view.Ticket), q("Ada")}} {
 			if _, err := b.Dispatch("ResetIdentity", args); err == nil {
 				t.Fatalf("keystore lost %v: start over with %s erased without the typed word", keystoreLost, args)
 			} else if code, _ := codeOf(err); code != CodeConfirmWord {
@@ -400,13 +405,70 @@ func TestStartOverRefusesWithoutTheTypedWord(t *testing.T) {
 				t.Fatalf("keystore lost %v: the database went without the typed word: %v", keystoreLost, err)
 			}
 		}
-		adaIsBack(t, b, ks, saved)
-		_ = b.Logout()
-		if _, err := b.Dispatch("ResetIdentity", []json.RawMessage{json.RawMessage(`"  erase "`)}); err != nil {
-			t.Fatalf("keystore lost %v: start over with the word typed: %v", keystoreLost, err)
+		// The word without a ticket from this device's confirmation.
+		for _, ticket := range []string{"", "0123456789abcdef"} {
+			if _, err := b.Dispatch("ResetIdentity", []json.RawMessage{q(ticket), q("ERASE")}); err == nil {
+				t.Fatalf("keystore lost %v: start over erased with ticket %q", keystoreLost, ticket)
+			} else if code, _ := codeOf(err); code != CodeConfirmStale {
+				t.Fatalf("keystore lost %v: refusal %v, want code %q", keystoreLost, err, CodeConfirmStale)
+			}
+		}
+		if _, err := b.Dispatch("ResetIdentity", []json.RawMessage{q(view.Ticket), q("  erase ")}); err != nil {
+			t.Fatalf("keystore lost %v: start over with the ticket and the word typed: %v", keystoreLost, err)
 		}
 		if _, err := os.Stat(db); !os.IsNotExist(err) {
 			t.Fatalf("keystore lost %v: the typed word did not erase the database (%v)", keystoreLost, err)
 		}
+	}
+}
+
+// The start-over confirmation is bound to what the screen showed when it
+// opened: if the device's account changed since (another window restored a
+// different account), the stale page erases nothing. The ticket is single
+// use, and a start over is refused while an account is open even with one.
+func TestStartOverIsBoundToWhatTheScreenShowed(t *testing.T) {
+	b, _ := newLockedDevice(t, "pw", "Ada")
+	dir, _ := appsvc.DataDir()
+	db := filepath.Join(dir, "concord.db")
+	view, err := b.BeginStartOver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another window replaces the device's data meanwhile.
+	if err := os.WriteFile(db+"-replaced", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(db+"-replaced", db); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := codeOf(b.ResetIdentity(view.Ticket, "ERASE")); code != CodeConfirmStale {
+		t.Fatal("a start over confirmed for other data went ahead")
+	}
+	if _, err := os.Stat(db); err != nil {
+		t.Fatal("the stale confirmation erased the data")
+	}
+	// Single use: a fresh look, then a second try with the old ticket fails.
+	again, _ := b.BeginStartOver()
+	if code, _ := codeOf(b.ResetIdentity(view.Ticket, "ERASE")); code != CodeConfirmStale {
+		t.Fatal("a spent ticket was accepted")
+	}
+	// Unlocked: refused even with a valid ticket and the word.
+	_ = os.Remove(db)
+	if err := b.Login("pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ResetIdentity(again.Ticket, "ERASE"); err == nil {
+		t.Fatal("start over erased an open account")
+	}
+	// Even with a ticket that matches the device as it is now (as if issued
+	// the moment before another window unlocked): the open account is safe.
+	b.mu.Lock()
+	b.startOver.ticket, b.startOver.token, b.startOver.issued = "fresh", appsvc.StartOverToken(dir), time.Now()
+	b.mu.Unlock()
+	if err := b.ResetIdentity("fresh", "ERASE"); err == nil {
+		t.Fatal("start over erased an open account with a current ticket")
+	}
+	if !appsvc.HasIdentity(dir) {
+		t.Fatal("start over removed the keystore of an open account")
 	}
 }

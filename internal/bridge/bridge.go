@@ -3,7 +3,9 @@ package bridge
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,6 +51,14 @@ type Bridge struct {
 	// replaces the identity on this device; an unlock, restore or reset from
 	// another window in that time would have the ground taken from under it.
 	linking bool
+
+	// startOver is the outstanding lock-screen erase confirmation (see
+	// BeginStartOver): its ticket, the device state it was opened on, and
+	// when. Guarded by mu.
+	startOver struct {
+		ticket, token string
+		issued        time.Time
+	}
 	// The visibility vote. See visibility.go: shellBackground is the native
 	// mobile lifecycle's answer, clientVisible is what each attached UI says
 	// about itself, and the two are ANDed. All three are remembered across a
@@ -505,6 +515,44 @@ func (b *Bridge) RestoreOverExisting(phrase, passphrase, confirm string) error {
 	return codeReplace(appsvc.RestoreOverExisting(dir, phrase, passphrase, confirm))
 }
 
+// StartOverView is what the lock screen's erase confirmation is built from.
+type StartOverView struct {
+	// Ticket goes back to ResetIdentity. It proves the call follows a
+	// confirmation opened on this device as it is now, not a secret.
+	Ticket string `json:"ticket"`
+	// Word is what the user must type (StartOverWord).
+	Word string `json:"word"`
+}
+
+// startOverTTL bounds how long a start-over confirmation stays valid.
+const startOverTTL = 5 * time.Minute
+
+// BeginStartOver opens the lock screen's erase confirmation (start over from
+// the Forgot menu, or erasing data found without its keystore). It destroys
+// nothing. The ticket it returns is bound to the keystore and data on the
+// device now; ResetIdentity refuses it if they changed.
+func (b *Bridge) BeginStartOver() (StartOverView, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.svc != nil {
+		return StartOverView{}, errors.New("already unlocked; restart the app to reset")
+	}
+	if b.linking {
+		return StartOverView{}, errLinkInProgress
+	}
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return StartOverView{}, err
+	}
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return StartOverView{}, err
+	}
+	ticket := hex.EncodeToString(raw)
+	b.startOver.ticket, b.startOver.token, b.startOver.issued = ticket, appsvc.StartOverToken(dir), time.Now()
+	return StartOverView{Ticket: ticket, Word: StartOverWord}, nil
+}
+
 // ResetIdentity deletes the identity and all data tied to it so a new identity
 // can be created (forgotten passphrase / corrupted keystore). Only allowed
 // while locked — a logged-in user who wants to erase this device goes through
@@ -512,13 +560,16 @@ func (b *Bridge) RestoreOverExisting(phrase, passphrase, confirm string) error {
 // typed confirmation. This refusal stays as it is on purpose: it is what stops
 // a single unqualified RPC call from destroying an open account.
 //
-// typed is what the user typed into the confirmation; it must be StartOverWord
-// (surrounding space and letter case ignored) or nothing is deleted. The check
-// is here, not only in the screen, so no caller can skip it. The word is fixed
-// on purpose: it never comes from a name or anything else on the device, which
-// could make it untypeable (a name of zero-width characters once made the
-// in-app wipe impossible to confirm).
-func (b *Bridge) ResetIdentity(typed string) error {
+// ticket is from BeginStartOver, and typed is what the user typed into the
+// confirmation; it must be StartOverWord (surrounding space and letter case
+// ignored). Both are checked here, not only in the screen, so no caller can
+// skip them. The word is fixed on purpose: it never comes from a name or
+// anything else on the device, which could make it untypeable (a name of
+// zero-width characters once made the in-app wipe impossible to confirm).
+// The ticket is spent on any attempt that gets that far, and is refused when
+// it expired or the keystore or data changed since it was issued: a page left
+// open while another window changed the device erases nothing.
+func (b *Bridge) ResetIdentity(ticket, typed string) error {
 	if !strings.EqualFold(strings.TrimSpace(typed), StartOverWord) {
 		return &CodedError{Code: CodeConfirmWord, Msg: "Nothing was deleted. To erase this device, type " + StartOverWord + " to confirm."}
 	}
@@ -533,6 +584,17 @@ func (b *Bridge) ResetIdentity(typed string) error {
 	dir, err := appsvc.DataDir()
 	if err != nil {
 		return err
+	}
+	want, issued := b.startOver.token, b.startOver.issued
+	valid := ticket != "" && ticket == b.startOver.ticket
+	if valid {
+		b.startOver.ticket, b.startOver.token = "", ""
+	}
+	switch {
+	case !valid || time.Since(issued) > startOverTTL:
+		return &CodedError{Code: CodeConfirmStale, Msg: "This confirmation has expired. Nothing was deleted. Open it again to erase this device."}
+	case appsvc.StartOverToken(dir) != want:
+		return &CodedError{Code: CodeConfirmStale, Msg: "What is on this device changed since this confirmation opened. Nothing was deleted. Look again before erasing."}
 	}
 	if err := appsvc.ResetIdentity(dir); errors.Is(err, identity.ErrEraseDeferred) || errors.Is(err, appsvc.ErrDataNotErased) {
 		return erasePendingError(err)
@@ -3649,7 +3711,9 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "HasIdentity":
 		return b.HasIdentity()
 	case "ResetIdentity":
-		return nil, b.ResetIdentity(argStr(args, 0))
+		return nil, b.ResetIdentity(argStr(args, 0), argStr(args, 1))
+	case "BeginStartOver":
+		return b.BeginStartOver()
 	case "BeginWipe":
 		return b.BeginWipe()
 	case "ConfirmWipe":

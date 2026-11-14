@@ -110,7 +110,7 @@ test("data without a keystore: another account's phrase is asked about, declinin
   assert.ok(!left.some((m) => m.content === "alice's note"), "Alice's note survived the erase");
 });
 
-test("data without a keystore: erasing it takes the typed word, and then a new account can be set up", async ({ world, assert, waitFor, step }) => {
+test("data without a keystore: erasing it takes the typed word and a current confirmation, and then a new account can be set up", async ({ world, assert, waitFor, step }) => {
   const [alice] = await world.peers(1);
   const notes = (await alice.rpc("NotesDM")).channels[0].id;
   await alice.send(notes, "erase me only if asked");
@@ -120,11 +120,15 @@ test("data without a keystore: erasing it takes the typed word, and then a new a
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
   await refusedCreate(page);
 
-  step("the core refuses an erase without the typed word, whoever calls it");
-  for (const args of [[], [""], ["delete"], ["Alice"]]) {
+  step("the core refuses an erase without the typed word or a current ticket, whoever calls it");
+  const { ticket } = await alice.rpc("BeginStartOver");
+  for (const args of [[], [ticket], [ticket, ""], [ticket, "delete"], [ticket, "Alice"]]) {
     await assert.rejects(alice.rpc("ResetIdentity", ...args), /type ERASE/, `ResetIdentity(${JSON.stringify(args)}) was not refused`);
   }
-  untouched(assert, alice, dbBefore, "after erase calls without the word");
+  for (const args of [["", "ERASE"], ["0123456789abcdef", "ERASE"]]) {
+    await assert.rejects(alice.rpc("ResetIdentity", ...args), /Nothing was deleted/, `ResetIdentity(${JSON.stringify(args)}) was not refused`);
+  }
+  untouched(assert, alice, dbBefore, "after erase calls without the word or a ticket");
 
   step("choosing to erase asks for the word; a wrong word keeps the button disabled");
   await page.getByRole("button", { name: "Erase this data and start over" }).click();

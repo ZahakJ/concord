@@ -277,7 +277,8 @@ export const api = {
   redeemLinkCode: (code, passphrase, confirm = "") => call("RedeemLinkCode", code, passphrase, confirm),
   logout: () => call("Logout"),
   hasIdentity: () => call("HasIdentity"),
-  resetIdentity: (typed) => call("ResetIdentity", typed),
+  beginStartOver: () => call("BeginStartOver"),
+  resetIdentity: (ticket, typed) => call("ResetIdentity", ticket, typed),
   // The phrase is the account; the core wants the passphrase again first.
   revealMnemonic: (passphrase) => call("RevealMnemonic", passphrase),
   changePassphrase: (current, next) => call("ChangePassphrase", current, next),
