@@ -133,9 +133,8 @@ type keystoreFile struct {
 	// to the database where that can answer. Absent in files written before
 	// it existed; LoadOrCreate adds it, or corrects it, on the next unlock.
 	AccountPub []byte `json:"account_pub,omitempty"`
-	// ClearTag authenticates the clear fields above (see cleartag.go).
-	// Absent in files written before it existed; added at the next re-seal.
-	ClearTag []byte `json:"clear_tag,omitempty"`
+	// A "clear_tag" field written by interim builds of this code is not read
+	// and is dropped by the next write: an unknown field is simply ignored.
 }
 
 // NormalizePassphrase is the form a passphrase is sealed under. The same
@@ -225,7 +224,6 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte, befo
 		env.DeviceNonce = dnonce[:]
 		env.DeviceCiphertext = secretbox.Seal(nil, ds, &dnonce, &key)
 	}
-	env.ClearTag = clearTag(&key, &env)
 	blob, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
 		return fmt.Errorf("identity: marshal keystore: %w", err)
@@ -670,7 +668,6 @@ func OpenKeystoreBytes(blob []byte, passphrase string) (*Identity, error) {
 			id.deviceSeed = ds
 		}
 	}
-	id.label = checkClearTag(&key, &env)
 	return id, nil
 }
 
@@ -701,18 +698,16 @@ func loadOrCreate(path, passphrase string, again bool) (*Identity, bool, error) 
 				id.deviceSeed = nil
 			}
 			hooks.done()
-		case !namesAccount(opened, id.PublicKey()) || id.label != labelVerified:
-			if pub, _ := accountPubOf(opened); pub != nil && !namesAccount(opened, id.PublicKey()) {
-				// Present but not this seed's: written by a bug, or by hand.
+		case !namesAccount(opened, id.PublicKey()):
+			if pub, _ := accountPubOf(opened); pub != nil {
+				// Present but not this seed's: written by a bug, or by someone
+				// with the device's files. Corrected below, and the user is told
+				// once (TakeLabelAltered).
 				log.Printf("concord/identity: the keystore's clear account key did not match its seed; correcting it")
-				noteAltered(path)
-			} else if id.label == labelAltered {
-				log.Printf("concord/identity: the keystore's clear fields did not match their tag; correcting them")
 				noteAltered(path)
 			}
 			// Also re-sealed when the file does not yet name its account in the
-			// clear (see keystoreFile.AccountPub), names another, or has no valid
-			// tag over its clear fields (cleartag.go), so a device
+			// clear (see keystoreFile.AccountPub), or names another, so a device
 			// that has been unlocked once by this build can say whose it is
 			// while locked. That is a second key derivation (about 200 ms) the
 			// unlock does not need to wait for, so it happens behind it; it only

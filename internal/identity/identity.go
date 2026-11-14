@@ -44,10 +44,6 @@ type Identity struct {
 	// from a v1 keystore until it is upgraded (LoadOrCreate generates + persists
 	// one on first unlock).
 	deviceSeed []byte
-
-	// label is what the unlock that produced this identity found about the
-	// keystore's clear fields (see cleartag.go); zero for one not unlocked.
-	label labelState
 }
 
 // Generate creates a brand-new random identity, including a fresh device seed.

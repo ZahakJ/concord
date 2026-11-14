@@ -175,20 +175,23 @@ func TestBridgeChangePassphrase(t *testing.T) {
 	}
 }
 
-// An unlock that finds the keystore's clear fields altered tells the user
-// once, through the Login result; the next unlock, after the correction, is
-// quiet.
+// An unlock that finds the keystore's clear account key naming another
+// account than the one it seals tells the user once, through the Login
+// result; the next unlock, after the correction, is quiet.
 func TestLoginSaysOnceThatTheKeystoreLabelWasAltered(t *testing.T) {
 	b, _ := newLockedDevice(t, "pw", "Ada")
 	ks, err := appsvc.KeystorePath()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Someone with the device's files changes a clear field.
+	// Someone with the device's files makes it name another account.
 	raw, _ := os.ReadFile(ks)
 	var env map[string]json.RawMessage
 	_ = json.Unmarshal(raw, &env)
-	env["version"] = json.RawMessage("1")
+	real := string(env["account_pub"])
+	other, _ := identity.Generate()
+	forged, _ := json.Marshal([]byte(other.PublicKey()))
+	env["account_pub"] = forged
 	out, _ := json.Marshal(env)
 	if err := os.WriteFile(ks, out, 0o600); err != nil {
 		t.Fatal(err)
@@ -205,7 +208,7 @@ func TestLoginSaysOnceThatTheKeystoreLabelWasAltered(t *testing.T) {
 	for {
 		raw, _ = os.ReadFile(ks)
 		_ = json.Unmarshal(raw, &env)
-		if string(env["version"]) == "2" {
+		if string(env["account_pub"]) == real {
 			break
 		}
 		if time.Now().After(deadline) {
