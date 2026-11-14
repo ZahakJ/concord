@@ -609,12 +609,17 @@ func (b *Bridge) ResetIdentity(ticket, typed string) error {
 	case appsvc.StartOverToken(dir) != want:
 		return &CodedError{Code: CodeConfirmStale, Msg: "What is on this device changed since this confirmation opened. Nothing was deleted. Look again before erasing."}
 	}
-	if err := appsvc.ResetIdentity(dir); errors.Is(err, identity.ErrEraseDeferred) || errors.Is(err, appsvc.ErrDataNotErased) {
+	// Checked again where it counts: under the keystore lock, with the erase.
+	// Waiting for that lock can take seconds, and what another window or
+	// process wrote meanwhile was never shown to this confirmation.
+	err = appsvc.ResetIdentityIf(dir, func() bool { return appsvc.StartOverToken(dir) == want })
+	switch {
+	case errors.Is(err, identity.ErrKeystoreChanged):
+		return &CodedError{Code: CodeConfirmStale, Msg: "What is on this device changed since this confirmation opened. Nothing was deleted. Look again before erasing."}
+	case errors.Is(err, identity.ErrEraseDeferred) || errors.Is(err, appsvc.ErrDataNotErased):
 		return erasePendingError(err)
-	} else if err != nil {
-		return err
 	}
-	return nil
+	return err
 }
 
 // AppVersion returns the release tag stamped into this binary ("dev" for

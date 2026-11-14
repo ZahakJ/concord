@@ -186,16 +186,43 @@ func removeKeystoreOnly(path string) error {
 
 // RemoveKeystore erases the keystore at path. See the top of this file for
 // what happens when the keystore lock cannot be had in time.
-func RemoveKeystore(path string) error {
+func RemoveKeystore(path string) error { return RemoveKeystoreIf(path, nil, nil) }
+
+// RemoveKeystoreIf is RemoveKeystore for an erase the user confirmed for the
+// device as a screen showed it. still is asked under the keystore lock, with
+// every other writer of this data directory shut out, and the erase happens
+// only if it answers true: a keystore another window or process restored,
+// linked or re-keyed between the confirmation and this call is not the one
+// that was confirmed, and is left (ErrKeystoreChanged, nothing removed).
+// then, when set, runs under the same lock once the keystore is gone, so the
+// rest of the erase cannot fall on what a writer waiting for the lock is
+// about to put there.
+//
+// Without the lock (a holder that will not let go) still is asked once before
+// the erase is recorded, then is not run and the caller erases the rest
+// itself: the marker left behind condemns only the file that was there.
+func RemoveKeystoreIf(path string, still func() bool, then func()) error {
 	if err := refuseSymlinkErase(path); err != nil {
 		return err
 	}
 	if unlock, err := lockKeystore(path); err == nil {
 		defer unlock()
-		return removeKeystoreFiles(path)
+		if still != nil && !still() {
+			return ErrKeystoreChanged
+		}
+		if err := removeKeystoreFiles(path); err != nil {
+			return err
+		}
+		if then != nil {
+			then()
+		}
+		return nil
 	}
 	if _, err := os.Stat(filepath.Dir(path)); os.IsNotExist(err) {
 		return nil // nothing to erase
+	}
+	if still != nil && !still() {
+		return ErrKeystoreChanged
 	}
 	t, present, err := identify(path)
 	if err != nil {

@@ -14,6 +14,13 @@ import (
 	"github.com/ZahakJ/concord/internal/identity"
 )
 
+// dropWipeTicket leaves no confirmation outstanding for the next test.
+func dropWipeTicket() {
+	wipeMu.Lock()
+	wipeTicket, wipePhrase, wipeSvc, wipeKeystore = "", "", nil, nil
+	wipeMu.Unlock()
+}
+
 // armTicket plants an outstanding confirmation without needing a live session,
 // and guarantees the package-level state is clean afterwards.
 func armTicket(t *testing.T, ticket, phrase string, issued time.Time) {
@@ -21,11 +28,7 @@ func armTicket(t *testing.T, ticket, phrase string, issued time.Time) {
 	wipeMu.Lock()
 	wipeTicket, wipePhrase, wipeIssued = ticket, phrase, issued
 	wipeMu.Unlock()
-	t.Cleanup(func() {
-		wipeMu.Lock()
-		wipeTicket, wipePhrase = "", ""
-		wipeMu.Unlock()
-	})
+	t.Cleanup(dropWipeTicket)
 }
 
 // TestWipeTicketIsSingleUse: the whole reason the erase is two calls is that
@@ -117,26 +120,24 @@ func TestConfirmWipeSpendsTheTicketOnAMismatch(t *testing.T) {
 // "  Euclid " would be pedantry, not security; the security is that it had to
 // be read off their own screen at all.
 func TestConfirmWipeErasesTheDataDir(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CONCORD_HOME", dir)
-
-	// Stand in for a real install: the two files ResetIdentity is defined by,
-	// plus the MLS directory and the plaintext peer cache that outlive it.
-	for _, name := range []string{"keystore.json", "concord.db", "concord.db-wal", "peers.json"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
-			t.Fatalf("seed %s: %v", name, err)
+	b, _ := newLockedDevice(t, "pw-pw-pw-1", "Euclid")
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Login("pw-pw-pw-1"); err != nil {
+		t.Fatal(err)
+	}
+	view, err := b.BeginWipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"keystore.json", "concord.db", "mls"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("setup: no %s before the wipe: %v", name, err)
 		}
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "mls"), 0o700); err != nil {
-		t.Fatalf("seed mls dir: %v", err)
-	}
-	if got, err := (&Bridge{}).HasIdentity(); err != nil || !got {
-		t.Fatalf("setup: HasIdentity = %v, %v — want true", got, err)
-	}
-
-	b := &Bridge{}
-	armTicket(t, "abc123", "Euclid", time.Now())
-	if err := b.ConfirmWipe("abc123", "  euclid "); err != nil {
+	if err := b.ConfirmWipe(view.Ticket, "  euclid "); err != nil {
 		t.Fatalf("ConfirmWipe: %v", err)
 	}
 
@@ -175,13 +176,14 @@ func TestIdentityChangesWaitForALinkInProgress(t *testing.T) {
 // each. Run under -race: the reason used to be written a second time
 // without the lock.
 func TestConfirmWipeIsOrderedAgainstTheSessionState(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("CONCORD_HOME", dir)
-	if err := os.WriteFile(filepath.Join(dir, "keystore.json"), []byte("x"), 0o600); err != nil {
+	b, _ := newLockedDevice(t, "pw-pw-pw-1", "Euclid")
+	if err := b.Login("pw-pw-pw-1"); err != nil {
 		t.Fatal(err)
 	}
-	b := &Bridge{}
-	armTicket(t, "abc123", "Euclid", time.Now())
+	view, err := b.BeginWipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	stop := make(chan struct{})
 	seen := make(chan string, 1)
 	go func() {
@@ -196,7 +198,7 @@ func TestConfirmWipeIsOrderedAgainstTheSessionState(t *testing.T) {
 			}
 		}
 	}()
-	if err := b.ConfirmWipe("abc123", "euclid"); err != nil {
+	if err := b.ConfirmWipe(view.Ticket, "euclid"); err != nil {
 		t.Fatal(err)
 	}
 	close(stop)

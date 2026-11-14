@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -55,6 +56,12 @@ var (
 	wipeTicket string    // "" when none is outstanding
 	wipePhrase string    // what must be typed for this ticket
 	wipeIssued time.Time // when it was minted
+	// What the confirmation was opened for: the session that showed the
+	// dialog and the keystore on the device then. ConfirmWipe erases only for
+	// that session, still running, over that same keystore; a ticket armed
+	// without them (zero values) confirms nothing.
+	wipeSvc      *appsvc.Service
+	wipeKeystore []byte
 )
 
 // WipeView is what the confirmation dialog is built from. Every number in it is
@@ -94,6 +101,14 @@ func (b *Bridge) BeginWipe() (WipeView, error) {
 	if err != nil {
 		return WipeView{}, err
 	}
+	ksPath, err := appsvc.KeystorePath()
+	if err != nil {
+		return WipeView{}, err
+	}
+	keystore, err := identity.ReadKeystore(ksPath)
+	if err != nil {
+		return WipeView{}, err
+	}
 	raw := make([]byte, 16)
 	if _, err := rand.Read(raw); err != nil {
 		return WipeView{}, err
@@ -108,6 +123,7 @@ func (b *Bridge) BeginWipe() (WipeView, error) {
 
 	wipeMu.Lock()
 	wipeTicket, wipePhrase, wipeIssued = ticket, phrase, time.Now()
+	wipeSvc, wipeKeystore = svc, keystore
 	wipeMu.Unlock()
 
 	return WipeView{
@@ -122,14 +138,20 @@ func (b *Bridge) BeginWipe() (WipeView, error) {
 // minted with. It is spent whether or not it matches, so a mismatched
 // confirmation cannot be retried against the same ticket.
 func takeWipeTicket(ticket string) (phrase string, ok bool) {
+	phrase, _, _, ok = takeWipe(ticket)
+	return phrase, ok
+}
+
+// takeWipe is takeWipeTicket with what the ticket was opened for.
+func takeWipe(ticket string) (phrase string, svc *appsvc.Service, keystore []byte, ok bool) {
 	wipeMu.Lock()
 	defer wipeMu.Unlock()
 	if wipeTicket == "" || ticket == "" || ticket != wipeTicket {
-		return "", false
+		return "", nil, nil, false
 	}
-	phrase, ok = wipePhrase, time.Since(wipeIssued) <= wipeTicketTTL
-	wipeTicket, wipePhrase = "", ""
-	return phrase, ok
+	phrase, svc, keystore, ok = wipePhrase, wipeSvc, wipeKeystore, time.Since(wipeIssued) <= wipeTicketTTL
+	wipeTicket, wipePhrase, wipeSvc, wipeKeystore = "", "", nil, nil
+	return phrase, svc, keystore, ok
 }
 
 // ConfirmWipe locks the app and erases the identity, the encrypted database and
@@ -137,15 +159,23 @@ func takeWipeTicket(ticket string) (phrase string, ok bool) {
 // recovery phrase, and even that recovers the account, not this device's copy of
 // what was in it.
 func (b *Bridge) ConfirmWipe(ticket, typed string) error {
-	phrase, ok := takeWipeTicket(ticket)
+	phrase, svc, keystore, ok := takeWipe(ticket)
 	if !ok {
 		return errors.New("that confirmation expired — close this and start again")
 	}
 	if !strings.EqualFold(strings.TrimSpace(typed), phrase) {
 		return errors.New("that didn't match — type it exactly as shown")
 	}
+	// The yes was for one session and the account it had open. Signed out
+	// since, or unlocked again (as this account or another): it is for
+	// nothing, and nothing is erased.
+	stale := &CodedError{Code: CodeConfirmStale, Msg: "This confirmation was opened in a session that has ended. Nothing was deleted. Open it again to erase this device."}
 
 	dir, err := appsvc.DataDir()
+	if err != nil {
+		return err
+	}
+	ksPath, err := appsvc.KeystorePath()
 	if err != nil {
 		return err
 	}
@@ -159,12 +189,28 @@ func (b *Bridge) ConfirmWipe(ticket, typed string) error {
 	// in between would otherwise open the keystore that is being deleted, or
 	// find it gone and create a fresh account under whatever it was typed.
 	b.mu.Lock()
-	if b.svc != nil {
-		_ = b.svc.Close()
-		b.svc = nil
+	if svc == nil || b.svc != svc {
+		b.mu.Unlock()
+		return stale
+	}
+	_ = b.svc.Close()
+	b.svc = nil
+	// And only over the keystore that session opened, checked under the
+	// keystore lock with the erase: one another process has since written
+	// (a restore, a link, a new passphrase) was never shown to this dialog.
+	err = appsvc.ResetIdentityIf(dir, func() bool {
+		now, rerr := identity.ReadKeystore(ksPath)
+		return rerr == nil && bytes.Equal(now, keystore)
+	})
+	if errors.Is(err, identity.ErrKeystoreChanged) {
+		b.lockReason = LockSignedOut
+		b.mu.Unlock()
+		if b.OnPresence != nil {
+			b.OnPresence()
+		}
+		return &CodedError{Code: CodeConfirmStale, Msg: "The keystore on this device changed since this confirmation opened. Nothing was deleted, and you have been signed out. Unlock and look again before erasing."}
 	}
 	b.lockReason = LockWiped
-	err = appsvc.ResetIdentity(dir)
 	b.mu.Unlock()
 	if err != nil && !errors.Is(err, identity.ErrEraseDeferred) && !errors.Is(err, appsvc.ErrDataNotErased) {
 		return err

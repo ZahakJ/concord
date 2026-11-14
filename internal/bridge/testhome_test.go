@@ -57,11 +57,10 @@ func TestABridgeUnderTestCannotReachTheDefaultHome(t *testing.T) {
 		}
 	}
 
-	// The wipe, with a live ticket and the right word: nothing but the data
-	// directory's own refusal is in the way.
+	// The wipe, with a live ticket and the right word.
 	armTicket(t, "abc123", "euclid", time.Now())
-	if err := (&Bridge{}).ConfirmWipe("abc123", "euclid"); !errors.Is(err, appsvc.ErrNoHomeUnderTest) {
-		t.Fatalf("ConfirmWipe on a bare Bridge with no CONCORD_HOME: %v, want ErrNoHomeUnderTest", err)
+	if err := (&Bridge{}).ConfirmWipe("abc123", "euclid"); err == nil {
+		t.Fatal("ConfirmWipe on a bare Bridge with no CONCORD_HOME went through")
 	}
 	intact("ConfirmWipe")
 

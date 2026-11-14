@@ -104,6 +104,35 @@ func ResetIdentity(dataDir string) error {
 	return err
 }
 
+// ResetIdentityIf is ResetIdentity for an erase confirmed on a screen: still
+// reports whether the device is what that screen showed. It is asked under
+// the keystore lock, and both the keystore and the data are erased under it,
+// so a restore or link that finished in another window in between is not
+// erased on a yes that was given for something else. ErrKeystoreChanged:
+// nothing was removed.
+func ResetIdentityIf(dataDir string, still func() bool) error {
+	var derr error
+	erased := false
+	err := identity.RemoveKeystoreIf(keystorePathIn(dataDir), still, func() {
+		erased, derr = true, resetDataIn(dataDir)
+	})
+	if errors.Is(err, identity.ErrKeystoreChanged) {
+		return err
+	}
+	if err != nil && !errors.Is(err, identity.ErrEraseDeferred) {
+		return err
+	}
+	if !erased {
+		// The keystore erase could not take the lock and was recorded
+		// instead (it already reads as gone): the rest goes now, as asked.
+		derr = resetDataIn(dataDir)
+	}
+	if derr != nil {
+		return errors.Join(err, derr)
+	}
+	return err
+}
+
 // removeLeftoverEraseRecord removes the erase record an interim build wrote
 // when a wipe began. It authorises nothing either way (nothing reads it);
 // once a keystore has opened or been created it is only litter.
