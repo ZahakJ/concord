@@ -118,3 +118,22 @@ func TestCreateGuardNeverRunsOverAKeystoreThatAppeared(t *testing.T) {
 		t.Fatalf("the other process's keystore: %v", err)
 	}
 }
+
+// A keystore that is a symlink to something that cannot be read (a drive not
+// mounted) is not "no keystore": the unlock says what it is, and creates
+// nothing.
+func TestDanglingKeystoreLinkIsNamedNotTakenForAbsence(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "keystore.json")
+	target := filepath.Join(dir, "unmounted", "keystore.json")
+	if err := os.Symlink(target, path); err != nil {
+		t.Skip("no symlinks here")
+	}
+	_, created, err := LoadOrCreate(path, "pw")
+	if err == nil || created {
+		t.Fatalf("unlock through a dangling keystore link: created %v, %v", created, err)
+	}
+	if !strings.Contains(err.Error(), "symbolic link") || !strings.Contains(err.Error(), target) {
+		t.Fatalf("the error does not say the keystore is a link to %s: %v", target, err)
+	}
+}
