@@ -62,7 +62,7 @@ eq(humanError({ offline: true, message: "anything" }), "Concord isn't responding
 const wrong = Object.assign(new Error("app: open identity: identity: wrong passphrase or corrupted keystore"), {
   code: "wrong-passphrase",
 });
-eq(humanError(wrong), "That passphrase doesn't unlock this device. Check caps lock and try again.", "wrong passphrase by code");
+eq(humanError(wrong), "That passphrase doesn't unlock this device. Check caps lock and try again — if you're sure it's right, this device's keystore file may have been damaged or changed.", "wrong passphrase by code, which cannot be told from a damaged keystore");
 eq(errorField(wrong), "pass", "wrong passphrase is about the passphrase");
 eq(humanError("link: bad code").startsWith("That isn't a link code."), true, "bad link code");
 eq(errorField("link: bad code"), "code", "bad link code is about the code");
@@ -98,7 +98,7 @@ const silence = console.warn;
 console.warn = () => {}; // the unmapped ones log the raw text; not this test's business
 eq(
   humanError("app: open identity: identity: wrong passphrase or corrupted keystore"),
-  "That passphrase doesn't unlock this device. Check caps lock and try again.",
+  "That passphrase doesn't unlock this device. Check caps lock and try again — if you're sure it's right, this device's keystore file may have been damaged or changed.",
   "wrong passphrase without a code",
 );
 eq(errorField("open identity: identity: wrong passphrase or corrupted keystore"), "pass", "…and it is about the passphrase");

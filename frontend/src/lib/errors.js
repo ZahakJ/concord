@@ -44,11 +44,18 @@ export const slowModeWait = (msg) => {
 // sentence nor something anybody can act on.
 const BARE_HTTP = /^HTTP \d{3}$/;
 
+const WRONG_PASSPHRASE =
+  "That passphrase doesn't unlock this device. Check caps lock and try again — if you're sure it's right, this device's keystore file may have been damaged or changed.";
+
 // Outcomes the core names with a code (internal/bridge CodedError), and the
 // sentence each one is read as. A code is a promise about what happened; the
 // sentence that came with it is for a log.
 const BY_CODE = {
-  "wrong-passphrase": "That passphrase doesn't unlock this device. Check caps lock and try again.",
+  // The core cannot tell a wrong passphrase from a keystore file that was
+  // damaged or altered (its key settings changed): both fail the same way.
+  // The sentence says both, so somebody sure of their passphrase is not
+  // left assuming they misremembered it before choosing the recovery path.
+  "wrong-passphrase": WRONG_PASSPHRASE,
 };
 
 // Core sentences that reach the login card, in the words they should have had.
@@ -69,8 +76,7 @@ const KNOWN = [
   [/recovery phrase isn'?t valid|valid 24-word recovery phrase/i, "phrase",
     "That recovery phrase isn't valid. Check each word and their order — it is 24 words."],
   // The login card, by the core's words when no code came with them.
-  [/wrong passphrase or corrupted keystore/i, "pass",
-    "That passphrase doesn't unlock this device. Check caps lock and try again."],
+  [/wrong passphrase or corrupted keystore/i, "pass", WRONG_PASSPHRASE],
   // A node restarted under an open page: the identity is merely locked again.
   // It used to be answered with a sentence about erased data, which was false.
   [/identity is locked/i, "",
