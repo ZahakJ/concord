@@ -162,3 +162,67 @@ func TestResetDataSyncsTheDataDirectory(t *testing.T) {
 		t.Fatal("erasing the data did not sync the data directory")
 	}
 }
+
+// unverifiedKeystore puts an account's keystore on dir as another process
+// (or someone with the files) would: same content, but bytes this process
+// never unlocked or wrote, so nothing here has verified what it holds.
+func unverifiedKeystore(t *testing.T, dir, pass string, id *identity.Identity, claim []byte) {
+	t.Helper()
+	if err := identity.CreateKeystore(keystorePathIn(dir), pass, id); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(keystorePathIn(dir))
+	var env map[string]any
+	_ = json.Unmarshal(raw, &env)
+	if claim != nil {
+		env["account_pub"] = claim
+	}
+	out, _ := json.Marshal(env) // re-encoded: other bytes than were written
+	if err := os.WriteFile(keystorePathIn(dir), out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// With no stored message to check against and no unlock in this process,
+// the clear account key is a claim: a forged one naming the phrase's account
+// does not make a restore "the same account" (no confirmation, data kept).
+// The refusal shows what the file claims, marked unverified.
+func TestForgedClearKeyWithoutMessagesIsOnlyAClaim(t *testing.T) {
+	dir := t.TempDir()
+	bea, _ := identity.Generate()
+	incoming, _ := identity.Generate()
+	unverifiedKeystore(t, dir, "pw", bea, incoming.PublicKey())
+
+	err := RestoreOverExisting(dir, phraseOf(t, incoming), "new-pass", "")
+	var refused *ReplaceRefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("a forged clear key alone made the restore go ahead: %v", err)
+	}
+	if refused.Match != MatchUnknown || refused.Device.Verified || refused.Device.Fingerprint != incoming.Fingerprint() {
+		t.Fatalf("refusal: match %q, device %+v; want unknown, showing the unverified claim", refused.Match, refused.Device)
+	}
+	deviceIs(t, dir, "pw", bea)
+}
+
+// The same goes for a true claim: keeping the data needs proof. After an
+// unlock of exactly this keystore in this process, it has it.
+func TestKeepingDataNeedsProofNotTheClearKey(t *testing.T) {
+	dir := t.TempDir()
+	ada, _ := identity.Generate()
+	unverifiedKeystore(t, dir, "pw", ada, nil)
+	if MatchDeviceAccount(dir, ada.Seed()) != MatchUnknown {
+		t.Fatal("the clear key alone confirmed the account")
+	}
+	if a := LockedAccount(dir); a.Verified || a.Fingerprint != ada.Fingerprint() {
+		t.Fatalf("locked account before an unlock: %+v", a)
+	}
+	if _, err := identity.LoadKeystore(keystorePathIn(dir), "pw"); err != nil {
+		t.Fatal(err)
+	}
+	if MatchDeviceAccount(dir, ada.Seed()) != MatchSame {
+		t.Fatal("after an unlock of this keystore the account is still unconfirmed")
+	}
+	if a := LockedAccount(dir); !a.Verified {
+		t.Fatalf("locked account after an unlock: %+v", a)
+	}
+}

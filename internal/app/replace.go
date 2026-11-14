@@ -29,6 +29,12 @@ type DeviceAccount struct {
 	// without the passphrase (a keystore no build since the clear account key
 	// was added has unlocked, on a device that was never linked).
 	Fingerprint string `json:"fingerprint"`
+	// Verified: Fingerprint is known to be the account inside the keystore,
+	// because this process unlocked or wrote exactly the keystore that is
+	// there. Otherwise it is what the device's files CLAIM: the clear account
+	// key, or a linked device's certificate, which anyone able to write the
+	// data directory can change, and which only an unlock can check.
+	Verified bool `json:"verified"`
 	// Name is the display name stored on this device, "" if none.
 	Name string `json:"name"`
 	// Linked: this install joined its account by linking, so its device key —
@@ -75,7 +81,9 @@ func LockedAccount(dataDir string) DeviceAccount {
 	if !HasIdentity(dataDir) {
 		return out
 	}
-	if pub := lockedAccountPub(dataDir); pub != nil {
+	if pub := identity.VerifiedAccount(keystorePathIn(dataDir)); pub != nil {
+		out.Fingerprint, out.Verified = identity.FingerprintOf(pub), true
+	} else if pub := lockedAccountPub(dataDir); pub != nil {
 		out.Fingerprint = identity.FingerprintOf(pub)
 	}
 	_, out.Linked = readMarker(dataDir)
@@ -84,38 +92,47 @@ func LockedAccount(dataDir string) DeviceAccount {
 }
 
 // MatchDeviceAccount compares the account an account seed belongs to with the
-// account on this device.
+// account on this device, believing only what can be checked without the
+// passphrase. "same" (which keeps the device's data without a confirmation)
+// needs proof: an unlock of exactly this keystore in this process, or the
+// database, whose message bodies are sealed under a key derived from the
+// account seed. The clear account key in the keystore, and a linked device's
+// certificate, are claims anyone able to write the data directory can make;
+// on their own they make the device one Concord cannot confirm, and erasing
+// it needs the full confirmation.
 func MatchDeviceAccount(dataDir string, seed []byte) string {
+	m, _ := matchDevice(dataDir, seed)
+	return m
+}
+
+// matchDevice is MatchDeviceAccount, also reporting whether the device's
+// claim about its account is contradicted by the evidence.
+func matchDevice(dataDir string, seed []byte) (match string, contradicted bool) {
 	if !HasIdentity(dataDir) {
-		return MatchNone
+		return MatchNone, false
 	}
 	incoming, err := identity.FromSeed(seed)
 	if err != nil {
-		return MatchUnknown
+		return MatchUnknown, false
 	}
-	// The database's message bodies are sealed under a key derived from the
-	// account seed, so a stored message settles it when there is one. The
-	// clear key in the keystore is written by Concord but authenticated by
-	// nothing, so where the two disagree neither is believed: the device is
-	// one Concord cannot name, and erasing it needs the full confirmation.
+	if pub := identity.VerifiedAccount(keystorePathIn(dataDir)); pub != nil {
+		if bytes.Equal(pub, incoming.PublicKey()) {
+			return MatchSame, false
+		}
+		return MatchDifferent, false
+	}
+	claimed := lockedAccountPub(dataDir)
 	opens, known := store.KeyOpensMessages(dbPathIn(dataDir), deriveStoreKey(incoming))
-	if pub := lockedAccountPub(dataDir); pub != nil {
-		same := bytes.Equal(pub, incoming.PublicKey())
-		if known && opens != same {
-			return MatchUnknown
-		}
-		if same {
-			return MatchSame
-		}
-		return MatchDifferent
+	if !known {
+		return MatchUnknown, false
 	}
-	if known {
-		if opens {
-			return MatchSame
-		}
-		return MatchDifferent
+	if claimed != nil && opens != bytes.Equal(claimed, incoming.PublicKey()) {
+		return MatchUnknown, true
 	}
-	return MatchUnknown
+	if opens {
+		return MatchSame, false
+	}
+	return MatchDifferent, false
 }
 
 // RestoreKeepsData reports whether restoring this seed over the identity on
@@ -192,11 +209,12 @@ func replaceGate(dataDir string, seed []byte, confirm, incomingName string, snap
 	if confirm != "" && confirm == token {
 		return false, nil
 	}
-	match, device := MatchDeviceAccount(dataDir, seed), LockedAccount(dataDir)
-	if match == MatchUnknown {
-		// Whatever the keystore claims about itself is exactly what could not
-		// be confirmed; the confirmation must not show it as the account here.
-		device.Fingerprint = ""
+	match, contradicted := matchDevice(dataDir, seed)
+	device := LockedAccount(dataDir)
+	if contradicted {
+		// The device's claim about its account is contradicted by its own
+		// data: the confirmation must not show it, not even as a claim.
+		device.Fingerprint, device.Verified = "", false
 	}
 	return false, &ReplaceRefusedError{
 		Match:        match,

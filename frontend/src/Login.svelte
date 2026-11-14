@@ -828,13 +828,16 @@
             messages and notes. If your other device still has the account, re-linking
             from it brings everything back instead.
           {:else if replaceAsk.match === "unknown"}
-            Concord can't tell which account is on this device without its passphrase.
+            Concord can't confirm which account is on this device{#if device?.fingerprint}{" — "}its
+              files say {deviceName} ({shortFp(device.fingerprint)}), but only its
+              passphrase can prove that{/if}.
             Going ahead erases <strong>everything on this device</strong> — the account
             here, its guilds, messages and notes — and replaces it with the account
             {replaceAsk.kind === "link" ? "the code is for" : "the phrase is for"}
             ({shortFp(replaceAsk.incoming)}).
           {:else}
-            This device holds <strong>{deviceName}</strong>{#if device?.fingerprint}&nbsp;({shortFp(
+            {device?.verified ? "This device holds" : "This device's files say it holds"}
+            <strong>{deviceName}</strong>{#if device?.fingerprint}&nbsp;({shortFp(
                 device.fingerprint,
               )}){/if}. The {replaceAsk.kind === "link" ? "code" : "phrase"} belongs to
             <strong>{replaceAsk.incomingName || "another account"}</strong> ({shortFp(replaceAsk.incoming)}).
@@ -1032,11 +1035,12 @@
       {/if}
       {#if hasIdentity}
         <p class="muted small">
-          This device holds <strong>{deviceName}</strong>{#if device?.fingerprint}&nbsp;({shortFp(
+          {device?.verified ? "This device holds" : "This device's files say it holds"}
+          <strong>{deviceName}</strong>{#if device?.fingerprint}&nbsp;({shortFp(
               device.fingerprint,
-            )}){/if}. A code from the same account keeps
-          everything here; if it's from a different account you'll be asked before
-          anything is erased.
+            )}){/if}. A code from the same account keeps everything here when Concord
+          can confirm it is the same; otherwise you'll be asked before anything is
+          erased.
         </p>
       {/if}
       <span class="field-lbl" aria-hidden="true">Passphrase for this device</span>
@@ -1065,9 +1069,9 @@
            and it is the only one anybody reads while deciding. -->
       {#if hasIdentity}
         <p class="muted">
-          Enter your 24-word recovery phrase and a new passphrase. If the phrase is
-          for <strong>{deviceName}</strong>, the account on this device, everything
-          here stays — only the passphrase changes. If it's for a different account,
+          Enter your 24-word recovery phrase and a new passphrase. If Concord can
+          confirm the phrase is for <strong>{deviceName}</strong>, the account on this
+          device, everything here stays — only the passphrase changes. Otherwise
           you'll be told before anything is erased.
         </p>
       {:else}

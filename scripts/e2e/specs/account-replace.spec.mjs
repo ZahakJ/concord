@@ -63,3 +63,32 @@ test("agreeing in the dialog erases the account it named and restores the other"
   const me = await alice.rpc("Identity");
   assert.equal(me.fingerprint, bashir.fingerprint, "the device now holds the phrase's account");
 });
+
+test("a device nothing has unlocked since it started says what its files claim, and asks even for its own phrase", async ({ world, assert, step }) => {
+  const [alice, bashir] = await world.peers(2);
+  const bashirPhrase = await bashir.rpc("RevealMnemonic", bashir.passphrase);
+  const alicePhrase = await alice.rpc("RevealMnemonic", alice.passphrase);
+  await alice.rpc("Logout");
+  // A fresh process: the keystore's clear account key is now only a claim,
+  // and Alice has no messages for Concord to check it against.
+  await alice.stop();
+  await alice.start();
+
+  step("another account's phrase: the file's claim, marked as one");
+  const app = await alice.open({ unlock: false });
+  await app.page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
+  await toRestoreForm(app);
+  await fillRestore(app, bashirPhrase, "brand-new-pass");
+  const ask = app.page.getByRole("alertdialog");
+  await ask.waitFor();
+  const text = await ask.innerText();
+  assert.match(text, /can't confirm which account is on this device/);
+  assert.match(text, /its files say Alice/);
+  await app.screenshot(`${world.dir}/unconfirmed-device.png`);
+
+  step("her own phrase is asked about too: nothing can prove it is hers");
+  await app.page.getByRole("button", { name: "Go back" }).click();
+  await fillRestore(app, alicePhrase, "brand-new-pass");
+  await app.page.getByRole("alertdialog").waitFor();
+  assert.equal(await alice.rpc("Session"), false, "nothing was restored without a confirmation");
+});
