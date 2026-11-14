@@ -386,3 +386,46 @@ func TestUnlinkOfflineRelinkThenUnlinkAgain(t *testing.T) {
 	waitUntil(t, 30*time.Second, func() bool { return !HasIdentity(phoneDir) },
 		"the phone did not erase itself after the second unlink")
 }
+
+// A revoke wipe that cannot finish says what is true: the device is
+// unlinked, and what is still on it. Not "its local data was erased".
+func TestAStuckRevokeWipeSaysWhatIsStillHere(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for _, stuck := range []string{"keystore", "peer cache"} {
+		dir := t.TempDir()
+		s := startServiceInDir(t, ctx, dir)
+		dev := s.id.DevicePublicKey()
+		if err := saveDeviceMarker(dir, s.id.IssueDeviceCertFor(dev, "phone", time.Now().Add(-time.Hour).Unix())); err != nil {
+			t.Fatal(err)
+		}
+		s.saveRevocations([]*identity.DeviceRevocation{s.id.RevokeDevice(dev, time.Now().Unix())})
+		_ = s.Close()
+
+		orig := removeKeystore
+		if stuck == "keystore" {
+			removeKeystore = func(string) error { return errors.New("held by another program") }
+		} else {
+			pc := peerCachePath(dir)
+			_ = os.Remove(pc)
+			if err := os.MkdirAll(filepath.Join(pc, "held"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, err := Start(ctx, Config{DataDir: dir, Passphrase: "test-pass", DisableMDNS: true})
+		removeKeystore = orig
+		if err == nil {
+			t.Fatalf("%s stuck: a revoked device opened", stuck)
+		}
+		if errors.Is(err, ErrDeviceUnlinked) || strings.Contains(err.Error(), "data was erased") {
+			t.Fatalf("%s stuck: the error says the data was erased: %v", stuck, err)
+		}
+		if !errors.Is(err, ErrDeviceUnlinkedNotErased) {
+			t.Fatalf("%s stuck: %v, want ErrDeviceUnlinkedNotErased", stuck, err)
+		}
+		want := map[string]string{"keystore": "nothing was erased", "peer cache": "peers.json"}[stuck]
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s stuck: %q does not say %q", stuck, err, want)
+		}
+	}
+}

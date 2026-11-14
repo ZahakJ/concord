@@ -340,7 +340,7 @@ func (s *Service) applyRevocation(rev *identity.DeviceRevocation) {
 	if err != nil {
 		log.Printf("concord/app: this device was unlinked; the record of it could not be saved (%v), so an erase that does not finish now is not resumed at the next start", err)
 	}
-	go s.wipeSelf()
+	go func() { _ = s.wipeSelf() }()
 }
 
 // revokesUs is the whole safety check for the self-erase, kept in one place and
@@ -466,23 +466,35 @@ func (s *Service) selfRevoked() bool {
 // is deliberately KEPT — it is not account data, and leaving it means the person
 // holding the device can re-link it (a fresh, freshly-authorized device) without
 // having to find their rendezvous address again.
-func (s *Service) wipeSelf() {
+func (s *Service) wipeSelf() error {
 	dir := s.dataDir
 	s.mu.RLock()
 	cbs := append([]func(){}, s.onUnlinked...)
 	s.mu.RUnlock()
 
 	s.Close()
-	if err := ResetIdentity(dir); errors.Is(err, identity.ErrEraseDeferred) {
+	err := ResetIdentity(dir)
+	switch {
+	case errors.Is(err, ErrDataNotErased):
+		// Names what is still here (and, joined, a deferred keystore erase).
+		err = fmt.Errorf("%w: %w", ErrDeviceUnlinkedNotErased, err)
+	case errors.Is(err, identity.ErrEraseDeferred):
+		// Everything else is gone, and the keystore already reads as gone.
 		log.Printf("concord/app: this device was unlinked from its account; local data erased, and the keystore's removal completes at the next unlock")
-	} else if err != nil {
-		log.Printf("concord/app: this device was unlinked from its account, but erasing it failed: %v", err)
-	} else {
+		err = nil
+	case err != nil:
+		// ResetIdentity stops at the keystore: everything is still here.
+		err = fmt.Errorf("%w; nothing was erased yet: %w", ErrDeviceUnlinkedNotErased, err)
+	default:
 		log.Printf("concord/app: this device was unlinked from its account; local data erased")
+	}
+	if err != nil {
+		log.Printf("concord/app: %v", err)
 	}
 	for _, cb := range cbs {
 		cb()
 	}
+	return err
 }
 
 // plural counts a thing in a user-facing sentence. It exists because the one
@@ -495,3 +507,8 @@ func plural(n int, one, many string) string {
 	}
 	return fmt.Sprintf("%d %s", n, many)
 }
+
+// ErrDeviceUnlinkedNotErased is returned by Start when this install finds a
+// valid revocation for its own device key and could not finish erasing
+// itself. The error names what is still here; the next start tries again.
+var ErrDeviceUnlinkedNotErased = errors.New("app: this device has been unlinked from the account, but erasing it did not finish")

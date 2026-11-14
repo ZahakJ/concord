@@ -1173,7 +1173,9 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// install never serves a roster, answers a sync, or joins a topic.
 	s.loadRevoked()
 	if s.selfRevoked() {
-		s.wipeSelf()
+		if err := s.wipeSelf(); err != nil {
+			return nil, err
+		}
 		return nil, ErrDeviceUnlinked
 	}
 
