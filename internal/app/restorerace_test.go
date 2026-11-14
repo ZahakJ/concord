@@ -553,3 +553,39 @@ func TestALoneDatabaseSideFileIsData(t *testing.T) {
 		}
 	}
 }
+
+// Every kind of account data is part of what a confirmation is bound to:
+// a yes given with no keystore, replayed after a group-state file, the peer
+// cache or the device marker changed, erases nothing and asks again.
+func TestNoKeystoreConfirmationCoversEveryKindOfData(t *testing.T) {
+	for _, name := range []string{filepath.Join("mls", "group-1"), "peers.json", "device.json"} {
+		dir := t.TempDir()
+		seedDevice(t, dir, "pw", "Bea", false)
+		if err := os.Remove(keystorePathIn(dir)); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("before"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		incoming, _ := identity.Generate()
+		err := RestoreIdentity(dir, phraseOf(t, incoming), "new-pass")
+		var refused *ReplaceRefusedError
+		if !errors.As(err, &refused) {
+			t.Fatalf("%s: restore over Bea's data: %v", name, err)
+		}
+		if err := os.WriteFile(p, []byte("changed after the yes"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		err = RestoreOverExisting(dir, phraseOf(t, incoming), "new-pass", refused.Confirm)
+		if !errors.As(err, &refused) {
+			t.Fatalf("%s changed after the yes, and the yes was applied anyway: %v", name, err)
+		}
+		if got, _ := os.ReadFile(p); string(got) != "changed after the yes" {
+			t.Fatalf("%s was erased on a yes given before it changed", name)
+		}
+	}
+}

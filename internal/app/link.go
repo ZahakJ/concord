@@ -314,7 +314,7 @@ func (s *Service) ownerAddrs(fingerprint string) (peer.ID, []string, bool) {
 var errLinkRaced = errors.New("this device's account changed while it was being linked (another Concord window, or a passphrase change) — nothing was changed; link again")
 
 // testHookLinkBeforeWrite runs after the link has its answer from the issuer
-// and before it decides what to write. Nil outside tests.
+// and has decided what to keep or erase, before it writes. Nil outside tests.
 var testHookLinkBeforeWrite func()
 
 // RedeemLink performs the joiner side of device linking: it dials the issuer
@@ -429,9 +429,6 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 	// of it, before the new keystore lands. Keeping the database is what used
 	// to publish the erased account's profile over the real one: its edit
 	// stamp was newer, so the handover lost to it and every device adopted it.
-	if testHookLinkBeforeWrite != nil {
-		testHookLinkBeforeWrite()
-	}
 	keep, err := replaceGate(dataDir, accountSeed, confirm, resp.Profile.Name, snap)
 	if err != nil {
 		return LinkResult{}, err
@@ -448,6 +445,9 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 	var eraseOld func() error
 	if !keep {
 		eraseOld = eraseIfUnchanged(dataDir, seen)
+	}
+	if testHookLinkBeforeWrite != nil {
+		testHookLinkBeforeWrite()
 	}
 
 	// Adopt the account: keystore = received account seed + our device seed;

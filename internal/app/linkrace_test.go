@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/ZahakJ/concord/internal/identity"
@@ -90,5 +91,34 @@ func TestConfirmedLinkErasesNothingIfTheKeystoreChangedMeanwhile(t *testing.T) {
 	opensOnlyWith(t, cyDir, "changed", "test-pass", cy)
 	if store.PeekSetting(dbPathIn(cyDir), "display_name") != "Cy" {
 		t.Fatal("the link erased the data of an account that changed after the user agreed")
+	}
+}
+
+// A link onto a device with no data erases nothing that appears after its
+// decision and before its write (a data directory being copied in while the
+// link waits): the erase is checked under the lock, at the write.
+func TestLinkErasesNothingThatAppearsAfterItsDecision(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	adaDir, phoneDir := t.TempDir(), t.TempDir()
+	ada := startServiceInDir(t, ctx, adaDir)
+	code, err := ada.LinkOffer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testHookLinkBeforeWrite = func() {
+		if err := os.WriteFile(dbPathIn(phoneDir), []byte("copied in"), 0o600); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { testHookLinkBeforeWrite = nil })
+	if _, err := RedeemLink(ctx, phoneDir, code, "test-pass", ""); err == nil {
+		t.Fatal("the link went ahead over data that appeared after its decision")
+	}
+	if got, _ := os.ReadFile(dbPathIn(phoneDir)); string(got) != "copied in" {
+		t.Fatal("data that appeared after the link's decision was erased")
 	}
 }
