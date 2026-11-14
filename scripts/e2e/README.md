@@ -149,6 +149,8 @@ A test fails on the first thrown error, and after five minutes
   with the stored message), `sendRaw(channelId, text, replyTo?)` (the same
   without waiting for storage), `waitForMessage(channelId, textOrPredicate,
   {timeout, deleted})`, `guilds()`
+- `bin` → run this peer on another `concord-web` binary (from the next
+  `start()`), e.g. one built with `-ldflags -X …version.Rendezvous=…`.
 - `env` → extra environment variables for the process, used from the next
   `start()` (so set it and `restart()` a running peer). The rendezvous's guest
   gateway is on the port after the rendezvous's own, so

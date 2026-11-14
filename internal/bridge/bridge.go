@@ -568,7 +568,37 @@ func (b *Bridge) GetRestoreRendezvous() (RestoreRendezvous, error) {
 	if err != nil {
 		return RestoreRendezvous{}, err
 	}
-	return RestoreRendezvous{Saved: appsvc.LoadNetConfig(dir).Bootstrap, BuiltIn: appsvc.BuiltInRendezvous()}, nil
+	var saved []string
+	if appsvc.HasNetConfig(dir) {
+		saved = appsvc.LoadNetConfig(dir).Bootstrap
+	}
+	return RestoreRendezvous{Saved: saved, BuiltIn: appsvc.BuiltInRendezvous()}, nil
+}
+
+// RendezvousSource says where the rendezvous list in use came from, for
+// Settings > Connection and About: the list built in to this copy (with its
+// hosts, for people), and whether what is in use is exactly that list.
+type RendezvousSource struct {
+	BuiltIn      []string `json:"builtIn"`
+	BuiltInHosts []string `json:"builtInHosts"`
+	FromBuild    bool     `json:"fromBuild"`
+}
+
+// GetRendezvousSource reports it, before or after unlock.
+func (b *Bridge) GetRendezvousSource() (RendezvousSource, error) {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return RendezvousSource{}, err
+	}
+	built := appsvc.BuiltInRendezvous()
+	inUse := appsvc.LoadNetConfig(dir).Bootstrap
+	same := len(built) > 0 && len(built) == len(inUse)
+	for i := range built {
+		if same && built[i] != inUse[i] {
+			same = false
+		}
+	}
+	return RendezvousSource{BuiltIn: built, BuiltInHosts: version.RendezvousHosts(), FromBuild: same}, nil
 }
 
 // SetRendezvousInput saves what was typed in a rendezvous field: addresses, or
@@ -3580,6 +3610,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.SessionState(), nil
 	case "LockedAccount":
 		return b.LockedAccount()
+	case "GetRendezvousSource":
+		return b.GetRendezvousSource()
 	case "GetRestoreRendezvous":
 		return b.GetRestoreRendezvous()
 	case "SetRendezvousInput":

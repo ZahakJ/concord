@@ -106,9 +106,11 @@ jobs:
           Write-Host "productVersion -> $v"
       # -ldflags stamps internal/version.Version (the tag) into the binary for the update
       # check. Wails still adds -w -s in production; that's fine — the version
-      # string survives stripping.
+      # string survives stripping. The built-in rendezvous comes from the
+      # repository variable CONCORD_RENDEZVOUS (Settings > Variables); unset, the
+      # app names no node, which is what a fork gets until it sets its own.
       - name: Build native app
-        run: wails build -tags "wails webkit2_41" -skipbindings -ldflags "-X github.com/ZahakJ/concord/internal/version.Version=${{ github.ref_name }}"
+        run: wails build -tags "wails webkit2_41" -skipbindings -ldflags "-X github.com/ZahakJ/concord/internal/version.Version=${{ github.ref_name }} -X github.com/ZahakJ/concord/internal/version.Rendezvous=${{ vars.CONCORD_RENDEZVOUS }}"
 
       # Name each output per-OS so it's a direct download and doesn't collide
       # with the web track (which also emits a concord-windows.exe). Windows and

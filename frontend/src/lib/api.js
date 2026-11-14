@@ -288,6 +288,8 @@ export const api = {
   // The restore screen's rendezvous field (before unlock): what to prefill it
   // with, and saving what was typed (addresses, or an invite's rendezvous list).
   getRestoreRendezvous: () => call("GetRestoreRendezvous"),
+  // Where the rendezvous in use came from: { builtIn, builtInHosts, fromBuild }.
+  getRendezvousSource: () => call("GetRendezvousSource"),
   setRendezvousInput: (text) => call("SetRendezvousInput", text),
   // A name for a restored account until its real profile comes back; never an
   // edit, so the real profile still wins (see Login.svelte's naming step).

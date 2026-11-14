@@ -29,7 +29,7 @@ Below the verdict, **The three ways in** shows the state of each route: **Same n
 Two peers can talk only if at least one of them can accept an incoming connection. Work through these in order:
 
 1. **Same Wi-Fi.** Desktops on one home network find each other with no setup. This never works on Android, and many work and campus networks drop the packets, so do not rely on it there.
-2. **A rendezvous.** If anyone in the group runs one, paste its address into **Settings → Connection → Rendezvous server** and click **Save**; it applies to new connections at once. Joining with an invite code from someone who uses a rendezvous sets it for you. Running your own is covered in [Running a rendezvous](../RENDEZVOUS.md).
+2. **A rendezvous.** If anyone in the group runs one, paste its address into **Settings → Connection → Rendezvous server** and click **Save**; it applies to new connections at once. Joining with an invite code from someone who uses a rendezvous sets it for you. If your copy of Concord came with one built in, **Settings → Connection** says "Built in to this copy of Concord". Running your own is covered in [Running a rendezvous](../RENDEZVOUS.md).
 3. **A forwarded port.** In **Settings → Connection → Direct connection → Fixed port**, enter a number from 1024 to 65535 and click **Save**. Forward that port, TCP **and** UDP, from your router to this computer, then restart Concord. Your public IP address is then inside every invite code you hand out.
 
 If the check says you are reachable but has no fixed port, invite codes you already gave out go stale when Concord restarts, because the port changes each launch. Click **Pin a port** to fix that.

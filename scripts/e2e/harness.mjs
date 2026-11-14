@@ -193,7 +193,9 @@ export class Peer {
     if (!(await portFree(this.port))) throw new Error(`port ${this.port} is in use: pick another E2E_BASE_PORT`);
     fs.mkdirSync(this.home, { recursive: true });
     fs.appendFileSync(this.log, `\n==== start ${new Date().toISOString()}\n`);
-    this.child = spawnLogged(this.world.bin, [], {
+    // peer.bin runs this peer on another build (one stamped with a built-in
+    // rendezvous, say); every other peer keeps the world's.
+    this.child = spawnLogged(this.bin || this.world.bin, [], {
       log: this.log,
       cwd: this.home,
       env: {

@@ -131,6 +131,13 @@ the rare case where you want CI-built Windows and macOS desktop apps.</p>
 <pre data-lang="sh"><code class="language-sh">scripts/stamp-site.sh v0.9.0 &amp;&amp; git commit -am &quot;Point the site at v0.9.0&quot;
 git tag v0.9.0 &amp;&amp; git push origin main v0.9.0
 scripts/publish-release.sh v0.9.0 notes.md      # notes file is optional</code></pre>
+<p>The project's own releases build its rendezvous in. Export it before publishing
+(and pass the same value to <code>make android-app</code>):</p>
+<pre data-lang="sh"><code class="language-sh">export RENDEZVOUS=/dns4/concord-rdv-zahak.fly.dev/tcp/4001/p2p/&lt;PEER-ID&gt;</code></pre>
+<p><code>&lt;PEER-ID&gt;</code> is the <code>12D3KooW…</code> id the node prints at startup (<code>fly logs -a concord-rdv-zahak</code>, the <code>/dns/…/p2p/…</code> line); it is fixed by the node's
+<code>CONCORD_RELAY_SEED</code>. It is not written here because it has not been read off the
+node yet. The script prints the built-in rendezvous before building and again at
+the end; <code>none</code> means the release names no node.</p>
 <p>The site's download buttons name the version, because asset names carry it;
 <code>stamp-site.sh</code> rewrites them, and the publish script refuses a tag the site
 was not stamped for.</p>

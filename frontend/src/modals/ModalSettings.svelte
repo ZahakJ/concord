@@ -132,6 +132,9 @@
 
   // App version for the subtle footer ("dev" for unstamped local builds).
   let appVersion = $state("");
+  // The rendezvous built in to this copy, named on the About card: whoever
+  // built it chose a node that sees every user's address, so it is said.
+  let builtInHosts = $state([]);
   let copiedVersion = $state(false);
   function copyVersion() {
     navigator.clipboard?.writeText(`Concord ${appVersion}`);
@@ -251,6 +254,11 @@
   onMount(async () => {
     try {
       appVersion = (await api.appVersion()) || "";
+    } catch {
+      /* ignore */
+    }
+    try {
+      builtInHosts = (await api.getRendezvousSource())?.builtInHosts || [];
     } catch {
       /* ignore */
     }
@@ -472,6 +480,9 @@
       <!-- The bar is always in the layout, empty at rest: a card that grows a
            row when a download starts pushes everything under it down the page
            at the exact moment somebody is watching a number. -->
+      {#if builtInHosts.length}
+        <p class="built-rdv">Built-in rendezvous: {builtInHosts.join(", ")}</p>
+      {/if}
       <div class="upd-bar" class:live={upd.phase === "downloading" || upd.phase === "verifying"}>
         <span style="width:{upd.phase === 'downloading' || upd.phase === 'verifying' ? upd.percent : 0}%"></span>
       </div>
@@ -492,6 +503,11 @@
 </RailShell>
 
 <style>
+  .built-rdv {
+    margin: var(--sp-1) 0 0;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+  }
   /* ---- who this account is ------------------------------------------------
      The one thing on this page that is not a control. It leads because every
      other row here is about protecting or replacing exactly this. */

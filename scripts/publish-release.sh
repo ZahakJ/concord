@@ -32,15 +32,20 @@ if ! grep -q "releases/download/$VERSION/" docs/index.html; then
   exit 1
 fi
 
+# The rendezvous built in to every binary of this release (see the Makefile's
+# RENDEZVOUS). Empty means the release names no node.
+RENDEZVOUS="${RENDEZVOUS:-}"
+RDV_X="-X github.com/ZahakJ/concord/internal/version.Rendezvous=$RENDEZVOUS"
+echo "==> built-in rendezvous: ${RENDEZVOUS:-none}"
 echo "==> building web release binaries ($VERSION)"
-make release VERSION="$VERSION"
+make release VERSION="$VERSION" RENDEZVOUS="$RENDEZVOUS"
 
 # Native Linux desktop app — buildable right here when the WebView dev package
 # is present; skipped (with a note) otherwise.
 if pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
   echo "==> building native Linux desktop app"
   go build -tags "wails desktop production webkit2_41" -trimpath \
-    -ldflags "-X github.com/ZahakJ/concord/internal/version.Version=$VERSION" \
+    -ldflags "-X github.com/ZahakJ/concord/internal/version.Version=$VERSION $RDV_X" \
     -o "dist-release/concord-desktop-linux-$VERSION" .
 else
   echo "==> webkit2gtk-4.1 not found; skipping the native Linux desktop build"
@@ -55,7 +60,7 @@ go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 \
   -o resource_windows_amd64.syso build/versioninfo.json
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
   -tags "wails desktop production" \
-  -ldflags "-s -w -H windowsgui -X github.com/ZahakJ/concord/internal/version.Version=$VERSION" \
+  -ldflags "-s -w -H windowsgui -X github.com/ZahakJ/concord/internal/version.Version=$VERSION $RDV_X" \
   -o "dist-release/concord-desktop-windows-$VERSION.exe" .
 rm -f resource_windows_amd64.syso
 
@@ -97,7 +102,7 @@ if [[ -f "$APK" ]]; then
   cp "$APK" dist-release/
   echo "==> including $(basename "$APK")"
 else
-  echo "!!! NO ANDROID APK for $VERSION — run: make android-app VERSION=$VERSION MOBILE_VERSION_CODE=<n>" >&2
+  echo "!!! NO ANDROID APK for $VERSION — run: make android-app VERSION=$VERSION RENDEZVOUS=\"$RENDEZVOUS\" MOBILE_VERSION_CODE=<n>" >&2
 fi
 
 cp WINDOWS.md dist-release/
@@ -142,4 +147,4 @@ for f in dist-release/*; do
   [[ -n "$ok" ]] || { echo "error: gave up on $(basename "$f")" >&2; exit 1; }
 done
 
-echo "done: https://github.com/$RELEASE_REPO/releases/tag/$VERSION"
+echo "done: https://github.com/$RELEASE_REPO/releases/tag/$VERSION (built-in rendezvous: ${RENDEZVOUS:-none})"

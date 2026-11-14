@@ -516,6 +516,14 @@ is the kind of claim that hides a lot:
 
 Known gap: this cache is plaintext on disk. See §13.
 
+**Where the first address comes from.** Nothing is compiled into the source:
+a plain build names no node, and starts with rungs 1 and 2 only until the user
+pastes an address (Settings › Connection, or the restore screen) or redeems an
+invite code, which carries the inviter's list (§4.7). Whoever builds and hands
+out a copy can stamp a node into it (`make … RENDEZVOUS=…`, docs/dev/building.md);
+that copy then starts from it, names it in `--version`, `--help` and About, and
+treats it as a starting point the user replaces, never an override.
+
 **Rung 3, the DHT.** As described above. Your rendezvous is the bootstrap node
 (the way into the network: a DHT can only refresh a routing table that already
 has somebody in it) and, in a small deployment, the DHT server that stores the
@@ -909,7 +917,8 @@ Be specific, because "it degrades gracefully" is what everybody says.
 - **Guest links, completely.** The gateway *is* the door, and it is on that host.
 - **GIF search**, and **push wakes** on mobile.
 
-**What re-homing costs.** Paste a new rendezvous address on the login screen.
+**What re-homing costs.** Paste a new rendezvous address in Settings ›
+Connection (or, restoring an account from its phrase, on the restore screen).
 The peer cache carries your friends across; new invite codes carry the new node.
 Old invite codes embed the dead node's PeerID and are worthless, which is the
 argument for keeping `CONCORD_RELAY_SEED` stable forever: it is the node's

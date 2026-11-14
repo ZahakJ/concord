@@ -44,6 +44,7 @@ func Parse(fs *flag.FlagSet, args []string, flavour, usage string, stdout, stder
 	switch {
 	case errors.Is(err, flag.ErrHelp):
 		fmt.Fprint(stdout, usage)
+		fmt.Fprint(stdout, BuiltInRendezvousNote())
 		return true, 0
 	case err != nil:
 		fmt.Fprint(stderr, usage)
@@ -54,9 +55,23 @@ func Parse(fs *flag.FlagSet, args []string, flavour, usage string, stdout, stder
 		return true, 2
 	case *showVersion:
 		fmt.Fprintln(stdout, VersionLine(flavour))
+		if hosts := version.RendezvousHosts(); len(hosts) > 0 {
+			fmt.Fprintf(stdout, "built-in rendezvous: %s\n", strings.Join(hosts, ", "))
+		}
 		return true, 0
 	}
 	return false, 0
+}
+
+// BuiltInRendezvousNote is the --help paragraph naming the rendezvous built in
+// to this copy, or "" for a build with none. Said out loud because that node
+// sees every new user's peer id and network address, and when they are online.
+func BuiltInRendezvousNote() string {
+	hosts := version.RendezvousHosts()
+	if len(hosts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("\nBuilt-in rendezvous: %s\n  This copy of Concord meets other people through that node until you set\n  another (Settings > Connection, or CONCORD_BOOTSTRAP). The node sees your\n  peer id, your network address and when you are online; it cannot read\n  anything you send.\n", strings.Join(hosts, ", "))
 }
 
 // stripLaunchServices drops the -psn_<n>_<n> argument macOS has handed to

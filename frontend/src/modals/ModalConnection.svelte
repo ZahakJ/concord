@@ -12,6 +12,9 @@
   let { onClose, onSaved } = $props();
 
   let bootstrap = $state("");
+  // { builtIn, builtInHosts, fromBuild }: whether the address in use is the
+  // one built in to this copy rather than one somebody set.
+  let source = $state(null);
   let publicDht = $state(false);
   // A number input binds to a number, or to null when it is empty or holds
   // something that isn't one — which is exactly the "pick one for me" case.
@@ -19,6 +22,7 @@
   onMount(async () => {
     try {
       bootstrap = ((await api.getBootstrap()) || []).join("\n");
+      source = await api.getRendezvousSource().catch(() => null);
       publicDht = !!(await api.getPublicDht());
       port = (await api.getListenPort()) || null;
       storedPort = port;
@@ -78,10 +82,18 @@
       await api.setBootstrapLive(draft);
       bootstrap = draft;
       editing = false;
+      source = await api.getRendezvousSource().catch(() => null);
       onSaved?.(); // parent toasts the confirmation
     } catch (err) {
       flash(err);
     }
+  }
+
+  // Clearing the built-in address is a choice like any other: it is saved, so
+  // the build's default does not come back by itself.
+  async function clearAddr() {
+    draft = "";
+    await save();
   }
 
   // Live shape-check while editing: every non-blank line should be a
@@ -126,6 +138,12 @@
             <Icon name="edit" size={15} />
           </button>
         </div>
+        {#if source?.fromBuild}
+          <div class="built-in">
+            <span class="hint">Built in to this copy of Concord ({source.builtInHosts.join(", ")}). Replace it with the pencil, or</span>
+            <button class="ghost cancel" onclick={clearAddr}>Clear it</button>
+          </div>
+        {/if}
       {:else}
         <div class="addr-row empty">
           <span class="hint">Not set — you can only reach friends on the same Wi-Fi.</span>
@@ -215,6 +233,13 @@
 </RailShell>
 
 <style>
+  .built-in {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2);
+    margin-top: var(--sp-2);
+  }
   .conn {
     display: flex;
     flex-direction: column;

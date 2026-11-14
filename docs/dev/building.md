@@ -55,6 +55,31 @@ make release VERSION=v0.9.0
 
 A `dev` build never offers an update.
 
+### A built-in rendezvous
+
+A copy of Concord can carry the rendezvous it starts from, so a fresh install,
+and an account restored from its recovery phrase, reach other people with
+nothing typed. Set `RENDEZVOUS` to the address your node prints at startup (one,
+or several comma-separated), in its `/dns4/<host>/tcp/<port>/p2p/<peer id>` form:
+
+```sh
+make web RENDEZVOUS=/dns4/rdv.example.com/tcp/4001/p2p/12D3KooW...
+make release VERSION=v0.9.0 RENDEZVOUS=/dns4/rdv.example.com/tcp/4001/p2p/12D3KooW...
+```
+
+Every target honours it (`web`, `gui`, `release` including the Windows binary,
+`android-core`/`android-app`, `ios-core`); `scripts/publish-release.sh` reads it
+from the environment and prints it in its summary, and the CI desktop build takes
+it from the repository variable `CONCORD_RENDEZVOUS`. It is stamped into
+`internal/version.Rendezvous`, which is empty in the source: a plain clone ships
+with none and starts on the local network only. The binary names its built-in
+node in `--version`, `--help` and on Settings' About card, and Settings ›
+Connection marks the address "Built in to this copy of Concord" with a way to
+replace or clear it; whatever a user sets there, on the restore screen or
+through an invite code is saved and wins. The privacy cost, in one sentence: the
+node you build in sees each new user's peer id and network address, and when
+they are online (DESIGN §6.3).
+
 ### Cross-compiling, including Windows
 
 `make release` cross-compiles the browser-served build for Linux (amd64, arm64), macOS (arm64, Intel) and Windows (amd64) into `dist-release/`, with `CGO_ENABLED=0`. The Windows binary gets a version resource and manifest from `build/versioninfo.json` through `goversioninfo`, with the version numbers taken from `VERSION`, and keeps its symbols, since both reduce false positives from Windows Defender on an unsigned executable. Do not edit the numbers in `build/versioninfo.json` by hand; they are overridden from the tag.

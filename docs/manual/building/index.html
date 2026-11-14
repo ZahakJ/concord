@@ -33,7 +33,7 @@
   <div class="scrim" data-scrim hidden></div>
   <main class="main" id="content">
     <div class="crumb">Developers</div>
-    <details class="toc-inline"><summary>On this page</summary><a class="toc__link toc__link--2" href="#prerequisites">Prerequisites</a><a class="toc__link toc__link--2" href="#why-the-frontend-is-built-first">Why the frontend is built first</a><a class="toc__link toc__link--2" href="#desktop-and-web">Desktop and web</a><a class="toc__link toc__link--3" href="#version-stamping">Version stamping</a><a class="toc__link toc__link--3" href="#cross-compiling-including-windows">Cross-compiling, including Windows</a><a class="toc__link toc__link--2" href="#android">Android</a><a class="toc__link toc__link--2" href="#ios">iOS</a><a class="toc__link toc__link--2" href="#other-targets">Other targets</a></details>
+    <details class="toc-inline"><summary>On this page</summary><a class="toc__link toc__link--2" href="#prerequisites">Prerequisites</a><a class="toc__link toc__link--2" href="#why-the-frontend-is-built-first">Why the frontend is built first</a><a class="toc__link toc__link--2" href="#desktop-and-web">Desktop and web</a><a class="toc__link toc__link--3" href="#version-stamping">Version stamping</a><a class="toc__link toc__link--3" href="#a-built-in-rendezvous">A built-in rendezvous</a><a class="toc__link toc__link--3" href="#cross-compiling-including-windows">Cross-compiling, including Windows</a><a class="toc__link toc__link--2" href="#android">Android</a><a class="toc__link toc__link--2" href="#ios">iOS</a><a class="toc__link toc__link--2" href="#other-targets">Other targets</a></details>
     <article class="doc">
 <h1 id="building-from-source">Building from source</h1>
 <p>How to build each Concord binary from a checkout: the browser-served build, the desktop window, the headless client, the rendezvous node, the Android and iOS apps, and the Windows cross-build.</p>
@@ -63,6 +63,25 @@ make clean        # remove bin/ and frontend/dist</code></pre>
 <p>Binaries report <code>dev</code> unless built with <code>VERSION</code>, which is stamped into <code>internal/version.Version</code> and drives the in-app update check:</p>
 <pre data-lang="sh"><code class="language-sh">make release VERSION=v0.9.0</code></pre>
 <p>A <code>dev</code> build never offers an update.</p>
+<h3 id="a-built-in-rendezvous"><a class="anchor" href="#a-built-in-rendezvous" aria-hidden="true">#</a>A built-in rendezvous</h3>
+<p>A copy of Concord can carry the rendezvous it starts from, so a fresh install,
+and an account restored from its recovery phrase, reach other people with
+nothing typed. Set <code>RENDEZVOUS</code> to the address your node prints at startup (one,
+or several comma-separated), in its <code>/dns4/&lt;host&gt;/tcp/&lt;port&gt;/p2p/&lt;peer id&gt;</code> form:</p>
+<pre data-lang="sh"><code class="language-sh">make web RENDEZVOUS=/dns4/rdv.example.com/tcp/4001/p2p/12D3KooW...
+make release VERSION=v0.9.0 RENDEZVOUS=/dns4/rdv.example.com/tcp/4001/p2p/12D3KooW...</code></pre>
+<p>Every target honours it (<code>web</code>, <code>gui</code>, <code>release</code> including the Windows binary,
+<code>android-core</code>/<code>android-app</code>, <code>ios-core</code>); <code>scripts/publish-release.sh</code> reads it
+from the environment and prints it in its summary, and the CI desktop build takes
+it from the repository variable <code>CONCORD_RENDEZVOUS</code>. It is stamped into
+<code>internal/version.Rendezvous</code>, which is empty in the source: a plain clone ships
+with none and starts on the local network only. The binary names its built-in
+node in <code>--version</code>, <code>--help</code> and on Settings' About card, and Settings ›
+Connection marks the address &quot;Built in to this copy of Concord&quot; with a way to
+replace or clear it; whatever a user sets there, on the restore screen or
+through an invite code is saved and wins. The privacy cost, in one sentence: the
+node you build in sees each new user's peer id and network address, and when
+they are online (DESIGN §6.3).</p>
 <h3 id="cross-compiling-including-windows"><a class="anchor" href="#cross-compiling-including-windows" aria-hidden="true">#</a>Cross-compiling, including Windows</h3>
 <p><code>make release</code> cross-compiles the browser-served build for Linux (amd64, arm64), macOS (arm64, Intel) and Windows (amd64) into <code>dist-release/</code>, with <code>CGO_ENABLED=0</code>. The Windows binary gets a version resource and manifest from <code>build/versioninfo.json</code> through <code>goversioninfo</code>, with the version numbers taken from <code>VERSION</code>, and keeps its symbols, since both reduce false positives from Windows Defender on an unsigned executable. Do not edit the numbers in <code>build/versioninfo.json</code> by hand; they are overridden from the tag.</p>
 <p>The Windows desktop window also cross-compiles from Linux, because the Wails WebView2 backend on Windows needs no cgo. <code>scripts/publish-release.sh</code> builds it with:</p>
@@ -93,7 +112,7 @@ make ios-app    # frontend, core, cap sync, then an Xcode archive</code></pre>
     <nav class="pager" aria-label="Previous and next"><a class="pager__link pager__link--prev" href="../protocol/"><span class="pager__kicker">Previous</span><span class="pager__title">Protocol and data model</span></a><a class="pager__link pager__link--next" href="../testing/"><span class="pager__kicker">Next</span><span class="pager__title">Testing</span></a></nav>
     <footer class="foot">Concord is free software under the GNU Affero General Public License, version 3 or later. These pages are built from the Markdown in the repository.</footer>
   </main>
-  <aside class="toc" aria-label="On this page"><div class="toc__title">On this page</div><a class="toc__link toc__link--2" href="#prerequisites">Prerequisites</a><a class="toc__link toc__link--2" href="#why-the-frontend-is-built-first">Why the frontend is built first</a><a class="toc__link toc__link--2" href="#desktop-and-web">Desktop and web</a><a class="toc__link toc__link--3" href="#version-stamping">Version stamping</a><a class="toc__link toc__link--3" href="#cross-compiling-including-windows">Cross-compiling, including Windows</a><a class="toc__link toc__link--2" href="#android">Android</a><a class="toc__link toc__link--2" href="#ios">iOS</a><a class="toc__link toc__link--2" href="#other-targets">Other targets</a></aside>
+  <aside class="toc" aria-label="On this page"><div class="toc__title">On this page</div><a class="toc__link toc__link--2" href="#prerequisites">Prerequisites</a><a class="toc__link toc__link--2" href="#why-the-frontend-is-built-first">Why the frontend is built first</a><a class="toc__link toc__link--2" href="#desktop-and-web">Desktop and web</a><a class="toc__link toc__link--3" href="#version-stamping">Version stamping</a><a class="toc__link toc__link--3" href="#a-built-in-rendezvous">A built-in rendezvous</a><a class="toc__link toc__link--3" href="#cross-compiling-including-windows">Cross-compiling, including Windows</a><a class="toc__link toc__link--2" href="#android">Android</a><a class="toc__link toc__link--2" href="#ios">iOS</a><a class="toc__link toc__link--2" href="#other-targets">Other targets</a></aside>
 </div>
 <script>window.__docs={base:"../"}</script>
 <script src="../docs.js" defer></script>

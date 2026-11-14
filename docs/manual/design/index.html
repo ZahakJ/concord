@@ -456,6 +456,13 @@ yesterday's friends before any DHT lookup completes, and after that only while
 the rendezvous is unreachable.</li>
 </ul>
 <p>Known gap: this cache is plaintext on disk. See §13.</p>
+<p><strong>Where the first address comes from.</strong> Nothing is compiled into the source:
+a plain build names no node, and starts with rungs 1 and 2 only until the user
+pastes an address (Settings › Connection, or the restore screen) or redeems an
+invite code, which carries the inviter's list (§4.7). Whoever builds and hands
+out a copy can stamp a node into it (<code>make … RENDEZVOUS=…</code>, docs/dev/building.md);
+that copy then starts from it, names it in <code>--version</code>, <code>--help</code> and About, and
+treats it as a starting point the user replaces, never an override.</p>
 <p><strong>Rung 3, the DHT.</strong> As described above. Your rendezvous is the bootstrap node
 (the way into the network: a DHT can only refresh a routing table that already
 has somebody in it) and, in a small deployment, the DHT server that stores the
@@ -764,7 +771,8 @@ are both online at once. Nothing is lost; it simply is not stored anywhere.</li>
 <li><strong>Guest links, completely.</strong> The gateway <em>is</em> the door, and it is on that host.</li>
 <li><strong>GIF search</strong>, and <strong>push wakes</strong> on mobile.</li>
 </ul>
-<p><strong>What re-homing costs.</strong> Paste a new rendezvous address on the login screen.
+<p><strong>What re-homing costs.</strong> Paste a new rendezvous address in Settings ›
+Connection (or, restoring an account from its phrase, on the restore screen).
 The peer cache carries your friends across; new invite codes carry the new node.
 Old invite codes embed the dead node's PeerID and are worthless, which is the
 argument for keeping <code>CONCORD_RELAY_SEED</code> stable forever: it is the node's

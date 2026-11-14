@@ -39,7 +39,7 @@ Concord also posts a notice in the conversation when a contact's set of devices 
 
 ## What a rendezvous node sees
 
-A rendezvous is the small helper node that lets peers find each other, relays connections that cannot be made directly, holds an offline mailbox and can optionally run a call relay. Concord ships pointing at none; you or a friend configure one. See [Running a rendezvous](../RENDEZVOUS.md).
+A rendezvous is the small helper node that lets peers find each other, relays connections that cannot be made directly, holds an offline mailbox and can optionally run a call relay. A plain build of Concord points at none; you or a friend configure one. A copy someone built with a rendezvous built in starts from that one (it names it in **Settings → About** and marks it in **Settings → Connection**, where you can replace or clear it); that node sees your peer id, your network address and when you are online. See [Running a rendezvous](../RENDEZVOUS.md).
 
 It is never a member of any group and holds no message keys, so it cannot read messages, attachments, history or calls. It can observe:
 

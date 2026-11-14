@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ZahakJ/concord/internal/version"
 )
 
 // NetConfig holds non-secret connection settings, stored in plaintext (unlike
@@ -140,26 +142,18 @@ func SaveListenPort(dataDir string, port int) error {
 	return SaveNetConfig(dataDir, c)
 }
 
-// DefaultRendezvous is the rendezvous list compiled into this build, comma
-// separated, set at link time:
-//
-//	-ldflags "-X github.com/ZahakJ/concord/internal/app.DefaultRendezvous=/dns4/…/p2p/…"
-//
-// Empty unless a build sets it, and then an install that has never saved a
-// connection setting starts from it. Which node, if any, a released build names
-// is a decision about who that node gets to see (DESIGN §6.3), so it is made
-// by whoever builds the release, not here.
-var DefaultRendezvous = ""
+// BuiltInRendezvous is the rendezvous list built in to this copy of Concord
+// (version.Rendezvous, set at link time; empty in a plain clone). An install
+// that has never saved a connection setting starts from it — a fresh install
+// and one restored from its phrase alike. Anything the user saves replaces it,
+// and saving an empty list is how it is cleared.
+func BuiltInRendezvous() []string { return version.RendezvousList() }
 
-// BuiltInRendezvous is DefaultRendezvous as a list.
-func BuiltInRendezvous() []string {
-	var out []string
-	for _, a := range strings.Split(DefaultRendezvous, ",") {
-		if a = strings.TrimSpace(a); a != "" {
-			out = append(out, a)
-		}
-	}
-	return out
+// HasNetConfig reports whether this install has ever saved its connection
+// settings — after which the built-in list no longer applies by itself.
+func HasNetConfig(dataDir string) bool {
+	_, err := os.Stat(netConfigPath(dataDir))
+	return err == nil
 }
 
 // RendezvousFromInput reads what someone pasted where a rendezvous is asked

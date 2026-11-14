@@ -140,6 +140,19 @@ git tag v0.9.0 && git push origin main v0.9.0
 scripts/publish-release.sh v0.9.0 notes.md      # notes file is optional
 ```
 
+The project's own releases build its rendezvous in. Export it before publishing
+(and pass the same value to `make android-app`):
+
+```sh
+export RENDEZVOUS=/dns4/concord-rdv-zahak.fly.dev/tcp/4001/p2p/<PEER-ID>
+```
+
+`<PEER-ID>` is the `12D3KooW…` id the node prints at startup (`fly logs -a
+concord-rdv-zahak`, the `/dns/…/p2p/…` line); it is fixed by the node's
+`CONCORD_RELAY_SEED`. It is not written here because it has not been read off the
+node yet. The script prints the built-in rendezvous before building and again at
+the end; `none` means the release names no node.
+
 The site's download buttons name the version, because asset names carry it;
 `stamp-site.sh` rewrites them, and the publish script refuses a tag the site
 was not stamped for.

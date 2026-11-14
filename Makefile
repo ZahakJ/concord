@@ -11,6 +11,17 @@ N ?= 2
 # CI passes the git tag (e.g. VERSION=v0.4.9); local builds stay "dev" (no nag).
 VERSION ?= dev
 
+# The rendezvous built in to this copy of Concord: one address, or several
+# comma-separated, in the /dns4/<host>/tcp/<port>/p2p/<peer id> form a node
+# prints at startup (a DNS name survives the node moving to a new IP). Empty by
+# default, so a plain clone builds a Concord that names no node and starts on
+# the local network only. Every target below honours it:
+#   make web RENDEZVOUS=/dns4/rdv.example.com/tcp/4001/p2p/12D3KooW…
+# A user's own address (Settings, the restore screen, an invite) replaces it.
+# See docs/RENDEZVOUS.md, "Building Concord with your rendezvous built in".
+RENDEZVOUS ?=
+RDV_X := -X github.com/ZahakJ/concord/internal/version.Rendezvous=$(RENDEZVOUS)
+
 .PHONY: docs gui gui-dev web cli rendezvous frontend test race fmt clean release-keygen \
         peers rendezvous-run dev-clean help release icons banner native \
         android-core ios-core android-app ios-app e2e
@@ -26,7 +37,7 @@ VERSION ?= dev
 #    `llvm-readelf -lW libgojni.so`: every LOAD must read 0x4000, not 0x1000.
 #    Single quotes because this expands inside a double-quoted -ldflags string.
 MOBILE_PAGE_ALIGN := -extldflags '-Wl,-z,max-page-size=16384,-z,common-page-size=16384'
-MOBILE_LDFLAGS := -checklinkname=0 -s -w $(MOBILE_PAGE_ALIGN) -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)
+MOBILE_LDFLAGS := -checklinkname=0 -s -w $(MOBILE_PAGE_ALIGN) -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION) $(RDV_X)
 ANDROID_API    := 26
 # Which ABIs android-core binds. Releases need all four (`android`). CI builds
 # only `android/amd64`, which still exercises the libc overlay and gives
@@ -99,7 +110,7 @@ icons:
 # Uses a direct tagged build (verified) rather than the wails CLI so the
 # webkit2gtk-4.1 tag is always applied. Needs cgo + the system WebView.
 gui: frontend
-	go build -tags "$(GUI_TAGS)" -o bin/concord-gui .
+	go build -tags "$(GUI_TAGS)" -ldflags "$(RDV_X)" -o bin/concord-gui .
 	@echo "built bin/concord-gui — run it to open the desktop app"
 
 # native is an alias for gui, kept distinct from `release` (the zero-dependency
@@ -113,7 +124,7 @@ gui-dev:
 
 # Browser-served app: go run . then open http://127.0.0.1:8787
 web: frontend
-	go build -o bin/concord-web .
+	go build -ldflags "$(RDV_X)" -o bin/concord-web .
 	@echo "built bin/concord-web — run it, then open http://127.0.0.1:8787"
 
 # Mobile core: the whole Go backend (identity, MLS, libp2p, store, bridge)
@@ -223,19 +234,20 @@ release: frontend
 	rm -rf dist-release && mkdir -p dist-release
 	# The version is stamped into each filename so downloaded builds are visibly
 	# distinct across releases; the updater matches assets by OS keyword.
-	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-linux-amd64-$(VERSION) .
-	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-linux-arm64-$(VERSION) .
-	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-macos-arm64-$(VERSION) .
-	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-macos-intel-$(VERSION) .
+	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION) $(RDV_X)" -o dist-release/concord-linux-amd64-$(VERSION) .
+	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION) $(RDV_X)" -o dist-release/concord-linux-arm64-$(VERSION) .
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION) $(RDV_X)" -o dist-release/concord-macos-arm64-$(VERSION) .
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION) $(RDV_X)" -o dist-release/concord-macos-intel-$(VERSION) .
 	# Windows: embed version info + manifest (goversioninfo) and DON'T strip
 	# symbols — both markedly reduce Defender false positives on unsigned exes.
 	# The version is stamped from the tag rather than read out of the JSON: the
 	# committed numbers rot silently otherwise, and once did — v0.55.1 shipped an
 	# exe whose Properties pane read 0.31.0. See WIN_* above for the dev case.
 	go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 $(WIN_STAMP) -o resource_windows_amd64.syso build/versioninfo.json
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-windows-$(VERSION).exe .
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-X github.com/ZahakJ/concord/internal/version.Version=$(VERSION) $(RDV_X)" -o dist-release/concord-windows-$(VERSION).exe .
 	@rm -f resource_windows_amd64.syso
 	@echo && echo "Release binaries in dist-release/:" && ls -lh dist-release/
+	@echo "built-in rendezvous: $(if $(RENDEZVOUS),$(RENDEZVOUS),none)"
 
 cli:
 	go build -o bin/concord ./cmd/concord
