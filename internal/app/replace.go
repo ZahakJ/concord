@@ -176,8 +176,8 @@ func (e *ReplaceRefusedError) Error() string {
 }
 
 // ConfirmToken is what a yes to erasing this device is bound to: the incoming
-// account, and the keystore on the device when the user was shown what it
-// holds. The screen that asks hands it back unchanged, so a confirmation is
+// account, and the keystore and data on the device when the user was shown
+// what it holds. The screen that asks hands it back unchanged, so a confirmation is
 // for one specific replacement of one specific account: a phrase edited, a
 // new code pasted, or the device's account replaced from another window after
 // the user agreed is asked about again rather than erased on the strength of
@@ -188,15 +188,16 @@ func ConfirmToken(dataDir, incomingFingerprint string) string {
 }
 
 func confirmToken(dataDir, fp string, snap []byte) string {
-	var sum [32]byte
+	// What the user is shown, and agrees to erase, is the keystore (if any)
+	// and the data beside it, so the yes is bound to both: data replaced
+	// beside an unchanged keystore is asked about again.
+	h := sha256.New()
 	if snap != nil {
-		sum = sha256.Sum256(snap)
-	} else {
-		// No keystore: what the user is shown, and agrees to erase, is the
-		// data on the device, so the yes is bound to that data.
-		sum = sha256.Sum256([]byte("data:" + dataIdentity(dataDir)))
+		ks := sha256.Sum256(snap)
+		h.Write([]byte("keystore:" + hex.EncodeToString(ks[:]) + "\n"))
 	}
-	return fp + "@" + hex.EncodeToString(sum[:16])
+	h.Write([]byte("data:" + dataIdentity(dataDir)))
+	return fp + "@" + hex.EncodeToString(h.Sum(nil)[:16])
 }
 
 // replaceGate decides whether an account with this seed may be written over

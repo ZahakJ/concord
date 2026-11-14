@@ -123,17 +123,36 @@ func guardCreate(keystorePath string) error {
 	return nil
 }
 
-// dataIdentity names the account data on the device (the files resetDataIn
-// removes, the group-state directory's contents included) by what they are
-// on disk, without reading them: a confirmation shown for this data, or an
-// erase decided on it, is not applied to data that has since been replaced,
-// copied in or written. "" when there is none.
+// accountDataFiles are the files that are an account's data, beside the
+// group-state directory (mls/). hasAccountData, dataIdentity and resetDataIn
+// all work from this one list, so what counts as data, what a confirmation
+// is bound to, and what an erase removes cannot drift apart.
+func accountDataFiles(dataDir string) []string {
+	return []string{
+		dbPathIn(dataDir), dbPathIn(dataDir) + "-wal", dbPathIn(dataDir) + "-shm",
+		peerCachePath(dataDir), deviceMarkerPath(dataDir), deviceMarkerPath(dataDir) + ".tmp",
+	}
+}
+
+// dataIdentity names the account data on the device (accountDataFiles and
+// the group-state directory's contents) by what they are on disk, without
+// reading them: a confirmation shown for this data, or an erase decided on
+// it, is not applied to data that has since been replaced, copied in or
+// written. "" when there is none.
 func dataIdentity(dataDir string) string {
-	// The database's -wal and -shm side files are left out: merely reading
-	// the database (the account check, the name the dialog shows) creates
-	// or touches them, so they would change the identity by being looked at.
+	db := dbPathIn(dataDir)
+	_, dbErr := os.Lstat(db)
 	var parts []string
-	for _, p := range []string{dbPathIn(dataDir), peerCachePath(dataDir), deviceMarkerPath(dataDir)} {
+	for _, p := range accountDataFiles(dataDir) {
+		// Beside the database, its -wal and -shm are left out: merely reading
+		// the database (the account check, the name the dialog shows) creates
+		// or touches them, so they would change the identity by being looked
+		// at. Content written into the -wal by a process that has the database
+		// open is therefore not seen (a stated limit). Without the database
+		// nothing reads them, so a lone side file counts like any other.
+		if dbErr == nil && (p == db+"-wal" || p == db+"-shm") {
+			continue
+		}
 		if fi, err := os.Lstat(p); err == nil {
 			parts = append(parts, filepath.Base(p)+"="+identity.FileIdentity(fi))
 		}
@@ -171,10 +190,7 @@ func eraseIfUnchanged(dataDir, seen string) func() error {
 // hasAccountData reports whether any of the data resetDataIn removes is
 // present.
 func hasAccountData(dataDir string) bool {
-	for _, p := range []string{
-		dbPathIn(dataDir), dbPathIn(dataDir) + "-wal", dbPathIn(dataDir) + "-shm",
-		peerCachePath(dataDir), deviceMarkerPath(dataDir),
-	} {
+	for _, p := range accountDataFiles(dataDir) {
 		if _, err := os.Lstat(p); err == nil {
 			return true
 		}

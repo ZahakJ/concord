@@ -489,3 +489,67 @@ func TestDataAppearingBeforeTheWriteIsNotErased(t *testing.T) {
 		t.Fatal("data that appeared after the decision was erased")
 	}
 }
+
+// With a keystore present too, a yes is bound to the data beside it: one
+// given while the device held Bea's data, replayed after that data was
+// replaced by Carol's beside the same keystore, erases nothing and asks again.
+func TestConfirmationIsBoundToTheDataBesideTheKeystore(t *testing.T) {
+	dir := t.TempDir()
+	seedDevice(t, dir, "pw", "Bea", false)
+	incoming, _ := identity.Generate()
+	err := RestoreOverExisting(dir, phraseOf(t, incoming), "new", "")
+	var refused *ReplaceRefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("restore over Bea: %v", err)
+	}
+	other := t.TempDir()
+	seedDevice(t, other, "pw", "Carol", false)
+	for _, n := range []string{"concord.db", "concord.db-wal", "concord.db-shm"} {
+		_ = os.Remove(filepath.Join(dir, n))
+	}
+	carol, err := os.ReadFile(dbPathIn(other))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dbPathIn(dir), carol, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = RestoreOverExisting(dir, phraseOf(t, incoming), "new", refused.Confirm)
+	if !errors.As(err, &refused) {
+		t.Fatalf("a yes given for Bea's data was applied to Carol's: %v", err)
+	}
+	if store.PeekSetting(dbPathIn(dir), "display_name") != "Carol" {
+		t.Fatal("Carol's data was erased on a yes given for Bea's")
+	}
+}
+
+// A database side file alone counts as data everywhere: the create guard
+// refuses beside it, and a restore that saw no data erases nothing that
+// appears before its write, a lone -wal or -shm included.
+func TestALoneDatabaseSideFileIsData(t *testing.T) {
+	for _, side := range []string{"-wal", "-shm"} {
+		dir := t.TempDir()
+		if err := os.WriteFile(dbPathIn(dir)+side, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := identity.LoadOrCreate(keystorePathIn(dir), "pw"); !errors.Is(err, ErrDataWithoutKeystore) {
+			t.Fatalf("create beside a lone %s: %v, want it refused", side, err)
+		}
+
+		dir = t.TempDir()
+		incoming, _ := identity.Generate()
+		testHookRestoreBeforeWrite = func() {
+			if err := os.WriteFile(dbPathIn(dir)+side, []byte("copied in"), 0o600); err != nil {
+				t.Error(err)
+			}
+		}
+		err := RestoreIdentity(dir, phraseOf(t, incoming), "new-pass")
+		testHookRestoreBeforeWrite = nil
+		if err == nil {
+			t.Fatalf("the restore went ahead over a %s that appeared after its decision", side)
+		}
+		if got, _ := os.ReadFile(dbPathIn(dir) + side); string(got) != "copied in" {
+			t.Fatalf("a %s that appeared after the decision was erased", side)
+		}
+	}
+}
