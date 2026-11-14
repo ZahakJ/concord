@@ -1112,12 +1112,33 @@ func (b *Bridge) LinkedDevices() ([]appsvc.LinkedDeviceView, error) {
 // app/unlink.go before describing this to anyone: the leaf removal is real, the
 // self-erase is advisory, and a device in hostile hands still holds the account
 // seed.
-func (b *Bridge) UnlinkDevice(deviceKey string) error {
+func (b *Bridge) UnlinkDevice(deviceKey string) (UnlinkResult, error) {
 	svc, err := b.service()
 	if err != nil {
-		return err
+		return UnlinkResult{}, err
 	}
-	return svc.UnlinkDevice(deviceKey)
+	return unlinkResult(svc.UnlinkDevice(deviceKey))
+}
+
+// UnlinkResult is what a successful unlink left undone. Pending: guilds and
+// direct messages that still list the device until someone there who can
+// remove members does so (this device may not, and a removal it is not
+// allowed to make would cut it out of the conversation). Failed: places where
+// an allowed removal did not go through; unlinking again retries it.
+type UnlinkResult struct {
+	Pending []appsvc.UnlinkSpot `json:"pending"`
+	Failed  []appsvc.UnlinkSpot `json:"failed"`
+}
+
+func unlinkResult(err error) (UnlinkResult, error) {
+	r := UnlinkResult{Pending: []appsvc.UnlinkSpot{}, Failed: []appsvc.UnlinkSpot{}}
+	var inc *appsvc.UnlinkIncompleteError
+	if errors.As(err, &inc) {
+		r.Pending = append(r.Pending, inc.Pending...)
+		r.Failed = append(r.Failed, inc.Failed...)
+		return r, nil
+	}
+	return r, err
 }
 
 // LeaveGuild removes a guild from this peer (local delete).
@@ -4129,7 +4150,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "LinkedDevices":
 		return b.LinkedDevices()
 	case "UnlinkDevice":
-		return nil, b.UnlinkDevice(argStr(args, 0))
+		return b.UnlinkDevice(argStr(args, 0))
 	case "EditMessage":
 		return nil, b.EditMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "ToggleReaction":

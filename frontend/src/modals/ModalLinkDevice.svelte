@@ -9,6 +9,7 @@
   import { flash } from "../lib/state.svelte.js";
   import { humanError } from "../lib/errors.js";
   import { newlyLinked } from "../lib/linkwatch.js";
+  import { unlinkReport } from "../lib/unlinkresult.js";
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
 
@@ -52,14 +53,15 @@
   }
 
   let confirming = $state(null);
+  // Where the last unlink left the device listed (see unlinkresult.js).
+  let report = $state(null);
   async function unlink(dev) {
     confirming = null;
     try {
-      await api.unlinkDevice(dev.key);
-      flash(
-        `${dev.name || "That device"} unlinked — it loses access to your guilds now, and erases itself the next time it comes online`,
-        "success",
-      );
+      const r = unlinkReport(dev.name || "That device", await api.unlinkDevice(dev.key));
+      flash(r.success, "success");
+      if (r.error) flash(r.error, "error");
+      report = r.pending.length ? r : null;
     } catch (err) {
       flash(err);
     }
@@ -116,6 +118,18 @@
     </ul>
   {/if}
 
+  {#if report}
+    <div class="pending" role="status">
+      <p>{report.pendingTitle}</p>
+      <ul>
+        {#each report.pending as p (p.key)}
+          <li>{p.where}. <span class="muted">{p.who}.</span></li>
+        {/each}
+      </ul>
+      <p class="muted">Until then it can still receive new messages there.</p>
+    </div>
+  {/if}
+
   <h3 class="sub">Link a new device</h3>
   {#if linked}
     <!-- The code is spent the moment a device redeems it. Showing it on after
@@ -154,7 +168,7 @@
 {#if confirming}
   <ConfirmDialog
     title="Unlink {confirming.name || 'this device'}?"
-    body={"It stops receiving anything new from your guilds straight away — that part is immediate and cannot be undone by whoever holds it.\n\nIt erases its own copy of your messages only when it next comes online with Concord running. A device that stays off keeps what it already downloaded, and this cannot reach it. If the device is in someone else's hands, treat everything on it as already read."}
+    body={"It stops receiving anything new straight away in guilds and direct messages where you can remove members, and whoever holds it cannot undo that. Anywhere else it stays listed until someone there removes it.\n\nIt erases its own copy of your messages only when it next comes online with Concord running. A device that stays off keeps what it already downloaded, and this cannot reach it. If the device is in someone else's hands, treat everything on it as already read."}
     confirmLabel="Unlink"
     onConfirm={() => unlink(confirming)}
     onClose={() => (confirming = null)}
@@ -207,6 +221,19 @@
   }
   .unlink:hover {
     border-color: var(--danger);
+  }
+  .pending {
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-compact);
+  }
+  .pending p,
+  .pending ul {
+    margin: 0 0 var(--sp-1);
+  }
+  .pending ul {
+    padding-inline-start: var(--sp-4);
   }
   .sub {
     margin: var(--sp-3) 0 0;

@@ -77,9 +77,10 @@
 <p><strong>Settings → Connection → Stats &amp; diagnostics</strong> opens the diagnostics panel; <code>Ctrl+Shift+,</code> opens it directly. Its <strong>Your devices</strong> section lists every device signed in to the account: its name, the version it runs, whether it is online or when it was last seen, and how it is connected. The device you are using is marked <strong>this one</strong>.</p>
 <h2 id="remove-a-device"><a class="anchor" href="#remove-a-device" aria-hidden="true">#</a>Remove a device</h2>
 <p>In <strong>Your devices</strong>, select <strong>Unlink</strong> next to the device and confirm.</p>
-<p>Unlinking takes effect in two parts:</p>
+<p>Unlinking takes effect in parts:</p>
 <ul>
-<li><strong>Immediately</strong>, the device is removed from all your guilds and stops receiving anything new. Whoever holds it cannot undo that.</li>
+<li><strong>Immediately</strong>, the device stops counting as you, and it is removed from every guild and direct message where you can remove members: guilds you own or moderate, and direct messages you started. There it stops receiving anything new, and whoever holds it cannot undo that.</li>
+<li><strong>Anywhere else it stays listed</strong> until someone who can remove members there does: an owner or moderator in a guild, the person who started a direct message. The unlink still succeeds, and Concord then names each place and who can remove the device there. Until they do, it can still receive new messages in those places.</li>
 <li><strong>The next time it comes online</strong> with Concord running, the device erases its own copy of your identity, guilds and messages, and shows a notice that it was unlinked. A device that stays off keeps what it had already downloaded, and nothing can reach it to delete it. If a device was lost or stolen, treat everything on it as already read.</li>
 </ul>
 <p>You cannot unlink the device you are using. To erase the current device, use <strong>Settings → Privacy &amp; safety → Delete everything on this device</strong>, which asks you to type a confirmation phrase first. That removes the identity, guilds and history from this device only. If another of your devices is still linked, linking this one again brings everything back.</p>

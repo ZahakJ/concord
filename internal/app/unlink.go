@@ -2,12 +2,14 @@ package app
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 
@@ -193,31 +195,87 @@ func (s *Service) UnlinkDevice(deviceKeyHex string) error {
 }
 
 // UnlinkIncompleteError: the device is unlinked (revoked, told when it next
-// connects, no longer treated as this account), but some guilds still hold
-// its leaf, so it keeps receiving their traffic until the leaf goes.
+// connects, no longer treated as this account), but some guilds or direct
+// messages still hold its leaf, so it keeps receiving their new messages
+// until the leaf goes.
 //
-// Pending are guilds and DMs where this device may not remove a member: only
-// their owner or a manage-members holder can, and honest members refuse a
-// removal commit from anyone else. Committing it anyway advanced only this
-// device's own copy of the group and cut it out of the conversation, both
-// ways and silently; so it is not attempted. Failed are guilds where this
+// Pending are conversations where this device may not remove a member: only
+// their owner or a manage-members holder can (for a direct message, its
+// owner: the person who started it), and honest members refuse a removal
+// commit from anyone else. Committing it anyway advanced only this device's
+// own copy of the group and cut it out of the conversation, both ways and
+// silently; so it is not attempted. Failed are conversations where this
 // device could have committed but the removal failed.
 type UnlinkIncompleteError struct {
-	Failed  []string // guild names
-	Pending []string // guild names
+	Failed  []UnlinkSpot
+	Pending []UnlinkSpot
+}
+
+// UnlinkSpot names one guild or direct message an unlink could not finish.
+type UnlinkSpot struct {
+	Kind string `json:"kind"` // "guild" or "dm"
+	ID   string `json:"id"`
+	// Name is the guild's name, or for a direct message the other people in
+	// it, by display name.
+	Name string `json:"name"`
+	// RemovableBy is who can remove the leaf there: for a direct message the
+	// display name of the person who started it; empty for a guild (its owner
+	// or a moderator).
+	RemovableBy string `json:"removableBy,omitempty"`
+}
+
+func spotNames(spots []UnlinkSpot) string {
+	names := make([]string, len(spots))
+	for i, sp := range spots {
+		if sp.Kind == "dm" {
+			names[i] = "direct message with " + sp.Name
+		} else {
+			names[i] = sp.Name
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 func (e *UnlinkIncompleteError) Error() string {
 	var parts []string
 	if len(e.Pending) > 0 {
-		parts = append(parts, fmt.Sprintf("%s still list that device until an owner or moderator there removes it (%s)",
-			plural(len(e.Pending), "guild", "guilds"), strings.Join(e.Pending, ", ")))
+		parts = append(parts, fmt.Sprintf("that device stays listed in %s until someone there who can remove members does so (%s)",
+			plural(len(e.Pending), "conversation", "conversations"), spotNames(e.Pending)))
 	}
 	if len(e.Failed) > 0 {
 		parts = append(parts, fmt.Sprintf("removing it from %s failed (%s); unlink it again to retry",
-			plural(len(e.Failed), "guild", "guilds"), strings.Join(e.Failed, ", ")))
+			plural(len(e.Failed), "conversation", "conversations"), spotNames(e.Failed)))
 	}
 	return "app: unlinked, but " + strings.Join(parts, "; ")
+}
+
+// unlinkSpot describes a guild or direct message for an unlink report.
+func (s *Service) unlinkSpot(id, name, kind string, groupID []byte) UnlinkSpot {
+	sp := UnlinkSpot{Kind: "guild", ID: id, Name: name}
+	if kind != "dm" {
+		return sp
+	}
+	sp.Kind = "dm"
+	nameOf := func(fpr string) string {
+		if n := strings.TrimSpace(s.ProfileOf(fpr).Name); n != "" {
+			return n
+		}
+		if len(fpr) > 8 {
+			return fpr[:8]
+		}
+		return fpr
+	}
+	if others, ok := s.dmOtherAccounts(groupID); ok && len(others) > 0 {
+		names := make([]string, len(others))
+		for i, f := range others {
+			names[i] = nameOf(f)
+		}
+		sp.Name = strings.Join(names, ", ")
+	}
+	if owner := s.effectiveOwner(id); owner != "" {
+		sp.RemovableBy = nameOf(owner)
+	}
+	return sp
 }
 
 // markDeviceRevoked stamps the registry so the device stops being dialled and
@@ -245,22 +303,22 @@ func (s *Service) markDeviceRevoked(key string, at int64) {
 // then neither read nor be read by the rest. The device keeps that guild's
 // traffic until somebody who can commit removes it, which the caller must say
 // out loud rather than report success.
-func (s *Service) removeDeviceLeaves(devicePub []byte) (failed, pending []string) {
+func (s *Service) removeDeviceLeaves(devicePub []byte) (failed, pending []UnlinkSpot) {
 	s.mu.RLock()
 	type target struct {
-		id, name string
-		groupID  []byte
+		id, name, kind string
+		groupID        []byte
 	}
 	guilds := make([]target, 0, len(s.guilds))
 	for _, g := range s.guilds {
-		guilds = append(guilds, target{g.ID, g.Name, g.GroupID})
+		guilds = append(guilds, target{g.ID, g.Name, g.Kind, g.GroupID})
 	}
 	s.mu.RUnlock()
 
 	for _, g := range guilds {
 		creds, err := s.mls.Members(s.ctx, g.groupID)
 		if err != nil {
-			failed = append(failed, g.name)
+			failed = append(failed, s.unlinkSpot(g.id, g.name, g.kind, g.groupID))
 			continue
 		}
 		for _, c := range creds {
@@ -270,12 +328,12 @@ func (s *Service) removeDeviceLeaves(devicePub []byte) (failed, pending []string
 			}
 			// The same rule the other members apply to our commit.
 			if !s.authorizedCommitter(g.id, s.myCredential) {
-				pending = append(pending, g.name)
+				pending = append(pending, s.unlinkSpot(g.id, g.name, g.kind, g.groupID))
 				break
 			}
 			commit, err := s.mls.Remove(s.ctx, g.groupID, c)
 			if err != nil {
-				failed = append(failed, g.name)
+				failed = append(failed, s.unlinkSpot(g.id, g.name, g.kind, g.groupID))
 				break
 			}
 			s.logCommit(g.groupID, commit)
@@ -287,7 +345,21 @@ func (s *Service) removeDeviceLeaves(devicePub []byte) (failed, pending []string
 	if len(failed) > 0 {
 		s.emitGuildUpdate()
 	}
+	sortUnlinkSpots(failed)
+	sortUnlinkSpots(pending)
 	return failed, pending
+}
+
+// sortUnlinkSpots puts a report in the same order every time: guilds before
+// direct messages, then by name, then by id.
+func sortUnlinkSpots(spots []UnlinkSpot) {
+	slices.SortFunc(spots, func(a, b UnlinkSpot) int {
+		return cmp.Or(
+			cmp.Compare(b.Kind, a.Kind), // "guild" before "dm"
+			cmp.Compare(a.Name, b.Name),
+			cmp.Compare(a.ID, b.ID),
+		)
+	})
 }
 
 // pushRevocation hands a revocation straight to the device, by greeting it. Our

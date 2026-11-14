@@ -65,9 +65,10 @@ Some things are deliberately local:
 
 In **Your devices**, select **Unlink** next to the device and confirm.
 
-Unlinking takes effect in two parts:
+Unlinking takes effect in parts:
 
-- **Immediately**, the device is removed from all your guilds and stops receiving anything new. Whoever holds it cannot undo that.
+- **Immediately**, the device stops counting as you, and it is removed from every guild and direct message where you can remove members: guilds you own or moderate, and direct messages you started. There it stops receiving anything new, and whoever holds it cannot undo that.
+- **Anywhere else it stays listed** until someone who can remove members there does: an owner or moderator in a guild, the person who started a direct message. The unlink still succeeds, and Concord then names each place and who can remove the device there. Until they do, it can still receive new messages in those places.
 - **The next time it comes online** with Concord running, the device erases its own copy of your identity, guilds and messages, and shows a notice that it was unlinked. A device that stays off keeps what it had already downloaded, and nothing can reach it to delete it. If a device was lost or stolen, treat everything on it as already read.
 
 You cannot unlink the device you are using. To erase the current device, use **Settings → Privacy & safety → Delete everything on this device**, which asks you to type a confirmation phrase first. That removes the identity, guilds and history from this device only. If another of your devices is still linked, linking this one again brings everything back.

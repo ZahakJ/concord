@@ -2,6 +2,7 @@
   // Read-only diagnostics: this conversation's local footprint + sync health,
   // and a whole-device network/storage view. Polls every 2s while open.
   import RailShell from "./RailShell.svelte";
+  import { unlinkReport } from "../lib/unlinkresult.js";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import InfoDot from "./InfoDot.svelte";
   import { S, activeGuild, flash } from "../lib/state.svelte.js";
@@ -229,8 +230,9 @@
   // ---- unlinking ----
   //
   // The confirm text is deliberately exact about what this can and cannot do
-  // (see internal/app/unlink.go). Removing the device's leaf from your guilds
-  // is real and immediate; the self-erase only happens if that device comes back
+  // (see internal/app/unlink.go). Removing the device's leaf is real and
+  // immediate where this device may remove members, and elsewhere waits for
+  // someone who can; the self-erase only happens if that device comes back
   // online running an honest client. Promising a remote wipe would be a promise
   // no serverless design can keep, and the one place someone would rely on it is
   // the one place it matters.
@@ -238,14 +240,13 @@
   let confirming = $state(null); // the device awaiting confirmation
   async function unlink(dev) {
     confirming = null;
-    const label = dev.name || "that device";
+    const label = dev.name || "That device";
     unlinking = dev.key;
     try {
-      await api.unlinkDevice(dev.key);
-      flash(
-        `${label} unlinked — it loses access to your guilds now, and erases itself the next time it comes online`,
-        "success",
-      );
+      const r = unlinkReport(label, await api.unlinkDevice(dev.key));
+      flash(r.success, "success");
+      if (r.pendingLine) flash(r.pendingLine, "info");
+      if (r.error) flash(r.error, "error");
     } catch (err) {
       flash(err);
     }
@@ -478,7 +479,7 @@
             {:else if d.revokedAt}
               <span class="pdev">unlinked</span>
               <InfoDot
-                text="Unlinked — it loses new traffic now and erases itself when it next connects."
+                text="Unlinked. It erases itself when it next connects."
                 label="What does unlinked mean?"
               />
             {/if}
@@ -500,8 +501,9 @@
         {/each}
       </div>
       <p class="muted tiny note">
-        Every device signed in to this account. Unlinking one removes it from your
-        guilds immediately; it erases its own copy only if it comes back online.
+        Every device signed in to this account. Unlinking one removes it at once
+        wherever you can remove members; it erases its own copy only if it comes
+        back online.
       </p>
     {:else}
       <p class="muted tiny">Loading…</p>
@@ -691,7 +693,7 @@
 {#if confirming}
   <ConfirmDialog
     title="Unlink {confirming.name || 'this device'}?"
-    body={"It stops receiving anything new from your guilds straight away — that part is immediate and cannot be undone by whoever holds it.\n\nIt erases its own copy of your messages only when it next comes online with Concord running. A device that stays off keeps what it already downloaded, and this cannot reach it. If the device is in someone else's hands, treat everything on it as already read."}
+    body={"It stops receiving anything new straight away in guilds and direct messages where you can remove members, and whoever holds it cannot undo that. Anywhere else it stays listed until someone there removes it.\n\nIt erases its own copy of your messages only when it next comes online with Concord running. A device that stays off keeps what it already downloaded, and this cannot reach it. If the device is in someone else's hands, treat everything on it as already read."}
     confirmLabel="Unlink"
     onConfirm={() => unlink(confirming)}
     onClose={() => (confirming = null)}

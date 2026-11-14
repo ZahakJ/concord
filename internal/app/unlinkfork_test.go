@@ -26,6 +26,11 @@ func newUnlinkWorld(t *testing.T, ctx context.Context) *unlinkWorld {
 	w.alice = startServiceOn(t, ctx, t.TempDir(), w.boot)
 	w.carol = startServiceOn(t, ctx, t.TempDir(), w.boot)
 	w.bob = startServiceOn(t, ctx, t.TempDir(), w.boot)
+	for svc, name := range map[*Service]string{w.alice: "Alice", w.carol: "Carol", w.bob: "Bob"} {
+		if err := svc.SetDisplayName(name); err != nil {
+			t.Fatal(err)
+		}
+	}
 	code, err := w.bob.LinkOffer()
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +127,7 @@ func TestUnlinkInAGuildBobCannotCommitInKeepsHimInIt(t *testing.T) {
 		t.Errorf("Bob's desktop was cut out of a guild he cannot commit in by unlinking his phone (bob→others %v, alice→bob %v, carol→bob %v)", bobToAlice, aliceToBob, carolToBob)
 	}
 	var inc *UnlinkIncompleteError
-	if !errors.As(err, &inc) || len(inc.Pending) != 1 || inc.Pending[0] != g.Name || len(inc.Failed) != 0 {
+	if !errors.As(err, &inc) || len(inc.Pending) != 1 || inc.Pending[0] != (UnlinkSpot{Kind: "guild", ID: g.ID, Name: g.Name}) || len(inc.Failed) != 0 {
 		t.Errorf("UnlinkDevice did not report the guild as waiting for someone who can remove the phone: %v", err)
 	}
 	if n := memberCount(w.alice, g.ID); n != 4 {
@@ -184,6 +189,8 @@ func TestUnlinkInADMCarolStartedKeepsBobInIt(t *testing.T) {
 		t.Fatal("setup: Bob's desktop could not reach the DM before the unlink")
 	}
 
+	waitUntil(t, 60*time.Second, func() bool { return w.bob.ProfileOf(w.carol.Fingerprint()).Name == "Carol" },
+		"setup: Bob's desktop never learned Carol's name")
 	_ = w.phone.Close()
 	err = w.bob.UnlinkDevice(w.phoneKey)
 	t.Logf("UnlinkDevice: %v", err)
@@ -195,10 +202,38 @@ func TestUnlinkInADMCarolStartedKeepsBobInIt(t *testing.T) {
 		t.Errorf("Bob's desktop was cut out of Carol's DM by unlinking his phone (bob→carol %v, carol→bob %v)", bobToCarol, carolToBob)
 	}
 	var inc *UnlinkIncompleteError
-	if !errors.As(err, &inc) || !slices.Contains(inc.Pending, dm.Name) {
-		t.Errorf("UnlinkDevice did not report Carol's DM as waiting for her to remove the phone: %v", err)
+	// The shared guild is Alice's, so it is pending too, and listed first.
+	if !errors.As(err, &inc) || len(inc.Pending) != 2 || inc.Pending[0].Kind != "guild" ||
+		inc.Pending[1] != (UnlinkSpot{Kind: "dm", ID: dm.ID, Name: "Carol", RemovableBy: "Carol"}) {
+		t.Errorf("UnlinkDevice did not report the guild and then Carol's DM as waiting for her to remove the phone: %v", err)
 	}
 	if n := memberCount(w.carol, dm.ID); n != 3 {
 		t.Errorf("Carol sees %d leaves in the DM, want 3 (the phone's leaf stays until she removes it)", n)
+	}
+}
+
+func TestUnlinkIncompleteErrorNamesADirectMessageAsOne(t *testing.T) {
+	err := &UnlinkIncompleteError{Pending: []UnlinkSpot{
+		{Kind: "guild", ID: "g1", Name: "Book club"},
+		{Kind: "dm", ID: "g2", Name: "Carol", RemovableBy: "Carol"},
+	}}
+	const want = "app: unlinked, but that device stays listed in 2 conversations until someone there who can remove members does so (Book club, direct message with Carol)"
+	if got := err.Error(); got != want {
+		t.Errorf("got  %q\nwant %q", got, want)
+	}
+}
+
+func TestUnlinkSpotsComeInAFixedOrder(t *testing.T) {
+	want := []UnlinkSpot{
+		{Kind: "guild", ID: "g2", Name: "Book club"},
+		{Kind: "guild", ID: "g1", Name: "Games"},
+		{Kind: "guild", ID: "g3", Name: "Games"},
+		{Kind: "dm", ID: "d2", Name: "Alice"},
+		{Kind: "dm", ID: "d1", Name: "Carol"},
+	}
+	got := []UnlinkSpot{want[4], want[2], want[0], want[3], want[1]}
+	sortUnlinkSpots(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("got  %v\nwant %v", got, want)
 	}
 }
