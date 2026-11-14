@@ -14,19 +14,16 @@
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
-    "eslint": "^10.11.0",
-    "eslint-plugin-svelte": "^3.23.0",
-    "globals": "^17.12.0",
-    "svelte": "^5.57.1",
-    "svelte-eslint-parser": "^1.8.1",
+    "eslint": "^10.15.0",
+    "eslint-plugin-svelte": "^3.24.1",
+    "globals": "^17.14.0",
+    "svelte": "^5.57.3",
+    "svelte-eslint-parser": "^1.10.1",
     "vite": "^8.3.8"
   },
   "dependencies": {
     "@twemoji/svg": "^15.0.0",
     "jsqr": "^1.4.0",
     "qrcode": "^1.5.4"
-  },
-  "overrides": {
-    "minimatch": "^11.0.8"
   }
 }
