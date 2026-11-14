@@ -258,6 +258,12 @@ func finishPendingErase(path string) {
 	if !erasePending(path) {
 		return
 	}
+	if _, err := os.ReadFile(tombstonePath(path)); err != nil && !markerProvablyStale(path) {
+		// A marker that cannot be read may name the keystore that is here: an
+		// erase asked for and not finished. It is honoured, not dropped:
+		// writes refuse (saying why) until it can be read or is removed.
+		return
+	}
 	if condemned(path) {
 		if removeKeystoreFiles(path) != nil {
 			return // the tombstone stays: the erase is still asked for
@@ -269,8 +275,8 @@ func finishPendingErase(path string) {
 		// A marker that condemns nothing here and cannot be removed must not
 		// make every write stand down as if an erase had just been asked for:
 		// writes during this hold of the lock ignore exactly this marker, and
-		// only a different one (a new erase) stops them. One that cannot even
-		// be read condemns nothing identifiable, and is treated the same way.
+		// only a different one (a new erase) stops them. One that cannot be
+		// read gets here only when it is provably stale (markerProvablyStale).
 		staleMarker[path] = id
 		staleMarkerLogged.Do(func() {
 			log.Printf("concord/identity: an old erase marker beside the keystore cannot be removed; it is ignored")
@@ -281,6 +287,29 @@ func finishPendingErase(path string) {
 		_ = os.Remove(p)
 	}
 	_ = syncDir(filepath.Dir(path))
+}
+
+// markerProvablyStale reports, for a marker whose content cannot be read,
+// whether it can still be shown to condemn nothing here: there is no
+// keystore, or the keystore is newer than the marker. Every keystore write
+// is a new file renamed in, so a keystore newer than the marker was written
+// after the erase was asked for and is not the file it condemned.
+func markerProvablyStale(path string) bool {
+	m, err := os.Lstat(tombstonePath(path))
+	if err != nil {
+		return true
+	}
+	k, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return true
+	}
+	return err == nil && k.ModTime().After(m.ModTime())
+}
+
+// errEraseMarkerUnreadable is what a write says when an erase marker it must
+// honour cannot be read.
+func errEraseMarkerUnreadable(path string) error {
+	return fmt.Errorf("identity: an erase marker beside the keystore (%s) cannot be read, so Concord cannot tell whether an erase of this device is still pending, and will not write the keystore until it can; make that file readable again, or delete it if you know no erase of this device was asked for", tombstonePath(path))
 }
 
 // finishEraseOfOwnWrite is for a write, holding the lock, that renamed its

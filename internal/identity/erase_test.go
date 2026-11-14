@@ -406,8 +406,8 @@ func TestEraseThatCannotRollBackIsReportedPending(t *testing.T) {
 	}
 }
 
-// An old erase marker that can be neither read nor removed condemns nothing
-// identifiable, and must not make every write fail either.
+// An old erase marker that can be neither read nor removed, and is older than
+// the keystore (so it cannot name it), must not make every write fail.
 func TestUnreadableUnremovableMarkerDoesNotBlockWrites(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads anything")
@@ -417,6 +417,11 @@ func TestUnreadableUnremovableMarkerDoesNotBlockWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	plantTombstone(t, path, []byte("some other keystore"))
+	// Older than the keystore, so provably not the file the keystore is.
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(path+".erased", old, old); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chmod(path+".erased", 0o000); err != nil {
 		t.Fatal(err)
 	}
@@ -475,5 +480,47 @@ func TestStaleMarkerTurningReadableMidWriteKeepsTheKeystore(t *testing.T) {
 	}
 	if _, err := LoadKeystore(path, "new"); err != nil {
 		t.Fatalf("the keystore the change wrote is gone: %v", err)
+	}
+}
+
+// An erase marker that cannot be read but may name the keystore that is here
+// (it is newer than the keystore) is an erase that may still be pending: it
+// is never dropped. Writes refuse, saying which file blocks them and what to
+// do, and once it can be read the erase completes.
+func TestUnreadableMarkerThatMayNameTheKeystoreIsHonoured(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads anything")
+	}
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	if _, _, err := LoadOrCreate(path, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	marker := path + ".erased"
+	plantTombstone(t, path, mustRead(t, path)) // names the keystore here
+	future := time.Now().Add(time.Minute)
+	if err := os.Chtimes(marker, future, future); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(marker, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(marker, 0o600) })
+	err := ChangePassphrase(path, "pw", "new")
+	if err == nil || !strings.Contains(err.Error(), marker) || !strings.Contains(err.Error(), "cannot be read") {
+		t.Fatalf("a write beside an unreadable marker that may name the keystore: %v", err)
+	}
+	if _, err := os.Lstat(marker); err != nil {
+		t.Fatal("the pending erase's marker was dropped")
+	}
+	if err := os.Chmod(marker, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unlock, lerr := lockKeystore(path) // the next lock holder
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	unlock()
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatal("once readable, the pending erase did not complete")
 	}
 }

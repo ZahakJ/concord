@@ -274,6 +274,9 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte, befo
 	// before renaming, and a write that renamed as the erase was being asked
 	// for takes its own file away again.
 	if newErasePending(path) {
+		if _, err := os.ReadFile(tombstonePath(path)); err != nil && !os.IsNotExist(err) {
+			return errEraseMarkerUnreadable(path)
+		}
 		return ErrKeystoreChanged
 	}
 	for _, f := range beforeRename {
