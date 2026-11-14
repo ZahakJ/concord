@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
 	"os"
@@ -123,7 +124,12 @@ func mailboxKeyOf(cred []byte) []byte {
 // credential spoofing in the invite handshake:
 //   - a legacy bare credential must equal the dialing account key (the PeerID);
 //   - a device-cert credential must verify AND name the dialing device key as its
-//     DevicePub — so a device can only ever claim its own account-signed cert.
+//     DevicePub — so a device can only ever claim its own account-signed cert —
+//     AND be in its canonical encoding, the bytes Marshal produces. The same
+//     certificate re-encoded is a different credential to everything that
+//     compares credentials as bytes (a live-leaf check, a Remove), so a device
+//     could otherwise hold a second leaf a removal of its own misses. Honest
+//     clients only ever send Marshal's bytes (mlsIdentity).
 func credentialBoundToPeer(cred []byte, p peer.ID) bool {
 	pub, err := p.ExtractPublicKey()
 	if err != nil {
@@ -134,7 +140,7 @@ func credentialBoundToPeer(cred []byte, p peer.ID) bool {
 		return false
 	}
 	if cert, ok := identity.ParseDeviceCert(cred); ok {
-		return cert.Verify() && ed25519Equal(cert.DevicePub, raw)
+		return cert.Verify() && ed25519Equal(cert.DevicePub, raw) && bytes.Equal(cert.Marshal(), cred)
 	}
 	return ed25519Equal(cred, raw)
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ZahakJ/concord/internal/crypto/mls"
 	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // A join request carries two credentials: the one the committer binds to the
@@ -335,6 +336,71 @@ func TestNotesRefusesStrangerWithOrWithoutCredential(t *testing.T) {
 			resp, moved := askInvite(t, ctx, alice, bob, notes, req)
 			if resp.Error != "unknown guild" || moved || len(resp.Welcome) != 0 {
 				t.Errorf("a stranger asking into Notes got error %q, welcome %d bytes, roster or epoch moved %v; want \"unknown guild\" and nothing moved", resp.Error, len(resp.Welcome), moved)
+			}
+		})
+	}
+}
+
+// A device certificate is the same certificate in any JSON encoding, but a
+// different credential to everything that compares credentials as bytes: the
+// live-leaf check, the probe, the stale-leaf Remove. A device re-encoding its
+// own valid certificate, in both fields, would seat a second leaf for itself
+// that a later removal by credential misses. Only the canonical encoding,
+// the one every honest client sends, is served.
+func TestNonCanonicalDeviceCertIsRefused(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newUnlinkWorld(t, ctx)
+	g := w.guildOf(t, w.alice, w.carol)
+	canonical := w.phone.myCredential
+	cert, ok := identity.ParseDeviceCert(canonical)
+	if !ok || !cert.Verify() {
+		t.Fatal("setup: the phone's credential is not a valid device certificate")
+	}
+
+	resp, _ := askInvite(t, ctx, w.alice, w.phone, g, inviteRequest{
+		GuildID: g.ID, Credential: canonical, KeyPackage: ownKeyPackage(t, ctx, w.phone), Profile: w.phone.selfWireProfile(),
+	})
+	if resp.Error != "" || len(resp.Welcome) == 0 {
+		t.Fatalf("the phone's honest, canonical request was refused: %q", resp.Error)
+	}
+	if !w.alice.leafIsLive(g.GroupID, canonical) {
+		t.Fatal("the honest request did not seat the phone's certificate")
+	}
+
+	indented, err := json.MarshalIndent(cert, "", " ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, enc := range map[string][]byte{
+		"leading-space": append([]byte(" "), canonical...),
+		"indented":      indented,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if bytes.Equal(enc, canonical) {
+				t.Fatal("setup: the re-encoding is the canonical bytes")
+			}
+			resp, moved := askInvite(t, ctx, w.alice, w.phone, g, inviteRequest{
+				GuildID: g.ID, Credential: enc, KeyPackage: forgedKeyPackage(t, ctx, enc), Profile: w.phone.selfWireProfile(),
+			})
+			if resp.Error != "credential does not match caller" || moved || len(resp.Welcome) != 0 {
+				t.Errorf("a re-encoded copy of the phone's certificate got error %q, welcome %d bytes, roster or epoch moved %v; want \"credential does not match caller\" and nothing moved", resp.Error, len(resp.Welcome), moved)
+			}
+			creds, err := w.alice.mls.Members(ctx, g.GroupID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			n := 0
+			for _, c := range creds {
+				if bytes.Equal(mailboxKeyOf(c), cert.DevicePub) {
+					n++
+				}
+			}
+			if n != 1 {
+				t.Errorf("the committer holds %d leaves for the phone, want 1", n)
 			}
 		})
 	}
