@@ -254,26 +254,6 @@ func HasKeystore(path string) bool {
 	return err == nil && !condemned(path)
 }
 
-// RemoveKeystoreIfUnchanged erases the keystore at path only if it is still
-// expected, the snapshot on which the caller (and the user) decided that it
-// may go. A keystore that became another account's, or the same account's
-// under a newer passphrase, is not the one that was agreed to and is left
-// alone with ErrKeystoreChanged.
-func RemoveKeystoreIfUnchanged(path string, expected []byte) error {
-	unlock, err := lockKeystore(path)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	if expected == nil {
-		return ErrKeystoreChanged
-	}
-	if err := checkExpected(path, expected); err != nil {
-		return err
-	}
-	return removeKeystoreFiles(path)
-}
-
 // refuseSymlinkErase: removing a symlinked keystore removes the link and
 // leaves the sealed seeds wherever it points, which is not an erase. The
 // erase refuses and names the file, rather than reporting success.

@@ -207,24 +207,18 @@ func RestoreOverExisting(dataDir, phrase, passphrase, confirm string) error {
 	if testHookRestoreBeforeWrite != nil {
 		testHookRestoreBeforeWrite()
 	}
-	expected := snap
+	// Same account, data kept: only the keystore is replaced. Otherwise the
+	// device's data goes too, but only after the restored keystore is safely
+	// beside the old one, and in the same hold of the keystore lock: a failure
+	// anywhere before the new keystore is in place leaves the old one there,
+	// never a device with neither.
+	var eraseOld func() error
 	if !keep {
-		if err := resetIdentityIf(dataDir, snap); err != nil {
-			if errors.Is(err, identity.ErrKeystoreChanged) {
-				return errRestoreRaced
-			}
-			return err
-		}
-		expected = nil
+		eraseOld = func() error { return resetDataIn(dataDir) }
 	}
-	// The new keystore is written beside the old one and renamed over it, so
-	// the kept path is never without a keystore.
-	err = identity.RestoreKeystore(ksPath, phrase, passphrase, expected)
-	switch {
-	case errors.Is(err, identity.ErrKeystoreChanged):
+	err = identity.RestoreKeystoreWith(ksPath, phrase, passphrase, snap, eraseOld)
+	if errors.Is(err, identity.ErrKeystoreChanged) || errors.Is(err, identity.ErrKeystoreExists) {
 		return errRestoreRaced
-	case errors.Is(err, identity.ErrKeystoreExists):
-		return errors.New("the account on this device was erased as you confirmed, but another Concord window put a new one here before the restore could; nothing was restored over it")
 	}
 	return err
 }

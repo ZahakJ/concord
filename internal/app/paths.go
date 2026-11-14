@@ -76,23 +76,6 @@ func ResetIdentity(dataDir string) error {
 	return resetDataIn(dataDir)
 }
 
-// resetIdentityIf is ResetIdentity for a flow that decided to erase on what
-// the keystore held when it looked (snap, nil for none): if the keystore has
-// since changed, nothing at all is erased and the error is
-// identity.ErrKeystoreChanged. A keystore that is now another account's, or
-// the same one's under a passphrase changed since, is not what the user
-// agreed to erase.
-func resetIdentityIf(dataDir string, snap []byte) error {
-	if snap != nil {
-		if err := identity.RemoveKeystoreIfUnchanged(keystorePathIn(dataDir), snap); err != nil {
-			return err
-		}
-	} else if HasIdentity(dataDir) {
-		return identity.ErrKeystoreChanged
-	}
-	return resetDataIn(dataDir)
-}
-
 // resetDataIn removes everything ResetIdentity erases except the keystore.
 func resetDataIn(dataDir string) error {
 	for _, p := range []string{

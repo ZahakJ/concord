@@ -44,6 +44,12 @@ func SeedFromMnemonic(phrase string) ([]byte, error) {
 // The rest of the account (guilds, history, mailbox) is then recovered by
 // logging in and syncing from peers.
 func RestoreKeystore(path, phrase, passphrase string, expected []byte) error {
+	return RestoreKeystoreWith(path, phrase, passphrase, expected, nil)
+}
+
+// RestoreKeystoreWith is RestoreKeystore through ReplaceKeystoreWith: eraseOld
+// runs once the restored keystore is safely beside the old one.
+func RestoreKeystoreWith(path, phrase, passphrase string, expected []byte, eraseOld func() error) error {
 	seed, err := SeedFromMnemonic(phrase)
 	if err != nil {
 		return err
@@ -52,5 +58,5 @@ func RestoreKeystore(path, phrase, passphrase string, expected []byte) error {
 	if err != nil {
 		return err
 	}
-	return ReplaceKeystore(path, passphrase, id, expected)
+	return ReplaceKeystoreWith(path, passphrase, id, expected, eraseOld)
 }

@@ -88,3 +88,20 @@ func forgeAccountPub(t *testing.T, dir string, pub []byte) {
 		t.Fatal(err)
 	}
 }
+
+// A restore over another account erases the device's data only once the
+// restored keystore is safely written: if writing it fails, the device still
+// has its keystore and its data, never neither.
+func TestFailedRestoreLeavesTheDeviceAsItWas(t *testing.T) {
+	dir := t.TempDir()
+	bea := seedDevice(t, dir, "pw", "Bea", false)
+	incoming, _ := identity.Generate()
+	// An empty passphrase cannot be sealed under: the write fails.
+	if err := RestoreOverExisting(dir, phraseOf(t, incoming), "", incoming.Fingerprint()); err == nil {
+		t.Fatal("restore with an unsealable passphrase reported success")
+	}
+	deviceIs(t, dir, "pw", bea)
+	if store.PeekSetting(dbPathIn(dir), "display_name") != "Bea" {
+		t.Fatal("a restore that failed to write erased the device's data")
+	}
+}

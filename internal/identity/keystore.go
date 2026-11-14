@@ -161,7 +161,13 @@ func CreateKeystore(path, passphrase string, id *Identity) error {
 // lock that has checked the file is what it expected.
 // prev is the keystore being replaced, as decrypted, or nil: its Argon2 cost
 // is a floor for the new one (see sealParams).
-func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte) error {
+//
+// beforeRename, if set, runs once the new keystore is written and synced to
+// its temp file and before it is renamed into place; if it fails, nothing is
+// renamed and the old keystore stays. It is how a replacement that must
+// erase other data first does so only once the new keystore is safely on
+// disk (see ReplaceKeystoreWith).
+func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte, beforeRename ...func() error) error {
 	if passphrase == "" {
 		return errors.New("identity: passphrase must not be empty")
 	}
@@ -234,6 +240,13 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte) erro
 	// for takes its own file away again.
 	if erasePending(path) {
 		return ErrKeystoreChanged
+	}
+	for _, f := range beforeRename {
+		if f != nil {
+			if err := f(); err != nil {
+				return err
+			}
+		}
 	}
 	testHooks.rename()
 	if err := renameDurable(tmp, path); err != nil {
@@ -480,10 +493,20 @@ func ReadKeystore(path string) ([]byte, error) {
 // since become something else: a passphrase changed since, an account
 // restored or linked since, a keystore created by another window.
 func ReplaceKeystore(path, passphrase string, id *Identity, expected []byte) error {
-	return writeKeystore(path, passphrase, id, expected, resealHooks{})
+	return writeKeystore(path, passphrase, id, expected, resealHooks{}, nil)
 }
 
-func writeKeystore(path, passphrase string, id *Identity, expected []byte, hooks resealHooks) error {
+// ReplaceKeystoreWith is ReplaceKeystore for a replacement that must also
+// erase what belongs to the account being replaced: eraseOld runs under the
+// keystore lock after the check and after the new keystore is written and
+// synced beside the old one, and only then is the new one renamed into
+// place. If anything fails before the rename, the old keystore is still
+// there; the device is never left with neither.
+func ReplaceKeystoreWith(path, passphrase string, id *Identity, expected []byte, eraseOld func() error) error {
+	return writeKeystore(path, passphrase, id, expected, resealHooks{}, eraseOld)
+}
+
+func writeKeystore(path, passphrase string, id *Identity, expected []byte, hooks resealHooks, beforeRename func() error) error {
 	if passphrase == "" {
 		return errors.New("identity: passphrase must not be empty")
 	}
@@ -501,7 +524,7 @@ func writeKeystore(path, passphrase string, id *Identity, expected []byte, hooks
 		return err
 	}
 	hooks.checked()
-	return saveKeystoreLocked(path, passphrase, id, expected)
+	return saveKeystoreLocked(path, passphrase, id, expected, beforeRename)
 }
 
 // checkExpected reports, for a caller holding the keystore lock, whether the
@@ -541,7 +564,7 @@ func resealIfUnchanged(path, passphrase string, id *Identity, opened []byte, hoo
 	if len(opened) == 0 {
 		return ErrKeystoreChanged
 	}
-	return writeKeystore(path, passphrase, id, opened, hooks)
+	return writeKeystore(path, passphrase, id, opened, hooks, nil)
 }
 
 // LoadKeystore reads and decrypts the identity at path using passphrase.

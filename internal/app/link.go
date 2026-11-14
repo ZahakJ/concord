@@ -429,31 +429,21 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 	if err != nil {
 		return LinkResult{}, err
 	}
-	expected := snap
+	// With no keystore whatever else is here belongs to nobody that can open
+	// it, and its settings are readable: unless kept, they must not become
+	// the new account's. They go only once the new keystore is safely beside
+	// the old one, in the same hold of the keystore lock, so a failure before
+	// it is in place leaves the old one there.
+	var eraseOld func() error
 	if !keep {
-		// With no keystore whatever else is here belongs to nobody that can
-		// open it, and its settings are readable: they must not become the
-		// new account's.
-		if err := resetIdentityIf(dataDir, snap); err != nil {
-			if errors.Is(err, identity.ErrKeystoreChanged) {
-				return LinkResult{}, errLinkRaced
-			}
-			return LinkResult{}, err
-		}
-		expected = nil
+		eraseOld = func() error { return resetDataIn(dataDir) }
 	}
 
 	// Adopt the account: keystore = received account seed + our device seed;
 	// marker = the issuer-signed cert. Next login runs in linked mode.
-	if err := identity.ReplaceKeystore(ksPath, passphrase, linked, expected); err != nil {
-		switch {
-		case errors.Is(err, identity.ErrKeystoreChanged):
+	if err := identity.ReplaceKeystoreWith(ksPath, passphrase, linked, snap, eraseOld); err != nil {
+		if errors.Is(err, identity.ErrKeystoreChanged) || errors.Is(err, identity.ErrKeystoreExists) {
 			return LinkResult{}, errLinkRaced
-		case errors.Is(err, identity.ErrKeystoreExists):
-			// Only after an erase: the account that was here is gone, as
-			// the user confirmed, and another window put a new one in its
-			// place before this link could.
-			return LinkResult{}, errors.New("the account on this device was erased as you confirmed, but another Concord window created a new one before the link finished; the link was not applied — close the other window and link again")
 		}
 		return LinkResult{}, err
 	}

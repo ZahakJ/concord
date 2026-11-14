@@ -498,10 +498,4 @@ func TestReplaceKeystoreIsConditional(t *testing.T) {
 	if got, _ := LoadKeystore(path, "pw"); got == nil || got.Fingerprint() != b.Fingerprint() {
 		t.Fatal("a replace over the right snapshot did not land")
 	}
-	if err := RemoveKeystoreIfUnchanged(path, snap); !errors.Is(err, ErrKeystoreChanged) {
-		t.Fatalf("erase with a stale snapshot: %v", err)
-	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatal("a refused erase removed the keystore")
-	}
 }
