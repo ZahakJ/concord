@@ -141,20 +141,28 @@ func TestRestoreOverExistingSameAccountKeepsData(t *testing.T) {
 
 // A legacy keystore (no clear account key) is matched through its sealed
 // messages: the right phrase keeps the data, a wrong one is refused.
+// A keystore that names no account in the clear (written before the clear
+// key existed, or with it stripped) is a device account nothing can name
+// without an unlock: the database may show whose messages it holds, but not
+// whose keystore it is. Every restore over it asks first, the account's own
+// phrase included.
 func TestRestoreOverExistingLegacyKeystore(t *testing.T) {
 	dir := t.TempDir()
 	bea := seedDevice(t, dir, "forgotten", "Bea", true)
 	other, _ := identity.Generate()
 	var refused *ReplaceRefusedError
-	if err := RestoreOverExisting(dir, phraseOf(t, other), "new-pass", ""); !errors.As(err, &refused) || refused.Match != MatchDifferent {
+	if err := RestoreOverExisting(dir, phraseOf(t, other), "new-pass", ""); !errors.As(err, &refused) || refused.Match != MatchUnknown {
 		t.Fatalf("legacy device, other phrase: %v", err)
 	}
-	if err := RestoreOverExisting(dir, phraseOf(t, bea), "new-pass", ""); err != nil {
-		t.Fatalf("legacy device, own phrase: %v", err)
+	if err := RestoreOverExisting(dir, phraseOf(t, bea), "new-pass", ""); !errors.As(err, &refused) || refused.Match != MatchUnknown {
+		t.Fatalf("legacy device, own phrase, went ahead without asking: %v", err)
 	}
-	if !noteSurvives(t, dir, bea) {
-		t.Fatal("legacy same-account restore lost the data")
+	deviceIs(t, dir, "forgotten", bea)
+	// Confirmed, it goes ahead.
+	if err := RestoreOverExisting(dir, phraseOf(t, bea), "new-pass", refused.Confirm); err != nil {
+		t.Fatalf("confirmed restore: %v", err)
 	}
+	deviceIs(t, dir, "new-pass", bea)
 }
 
 // Nothing on the device can name its account: refuse, and say we can't tell.

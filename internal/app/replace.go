@@ -122,6 +122,13 @@ func matchDevice(dataDir string, seed []byte) (match string, contradicted bool) 
 		return MatchDifferent, false
 	}
 	claimed := lockedAccountPub(dataDir)
+	if claimed == nil {
+		// Nothing on the device even claims an account. The database may show
+		// whose messages it holds, but not whose keystore this is: replacing
+		// it without asking could replace an account that is not the
+		// database's. Only an unlock (above) can say whose keystore it is.
+		return MatchUnknown, false
+	}
 	opens, known := store.KeyOpensMessages(dbPathIn(dataDir), deriveStoreKey(incoming))
 	if !known {
 		return MatchUnknown, false
