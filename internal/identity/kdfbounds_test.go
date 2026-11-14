@@ -35,10 +35,10 @@ func TestOutOfRangeKDFSettingsFailToOpenWithoutHarm(t *testing.T) {
 		{"argon_time", "0", true},
 		{"argon_threads", "0", true},
 		{"argon_memory", "0", true},
-		{"argon_time", "17", true},
+		{"argon_time", "9", true},
 		{"argon_time", "4294967295", true},
 		{"argon_memory", "4294967295", true},
-		{"argon_memory", "1048577", true},
+		{"argon_memory", "262145", true},
 		{"argon_threads", "255", true},
 		{"argon_memory", "7", true},
 		{"salt", `"AAAA"`, true},
@@ -81,8 +81,11 @@ func TestOutOfRangeKDFSettingsFailToOpenWithoutHarm(t *testing.T) {
 			case err := <-done:
 				if err == nil {
 					t.Errorf("%s %s=%s: opened", kind, tc.field, tc.value)
-				} else if tc.corrupt && !errors.Is(err, ErrWrongPassphrase) {
-					t.Errorf("%s %s=%s: %v, want the wrong-passphrase-or-corrupted error", kind, tc.field, tc.value, err)
+				} else if tc.corrupt && (!errors.Is(err, errCorruptKeystore) || !errors.Is(err, ErrWrongPassphrase)) {
+					// Refused as out of range, before deriving: a derivation
+					// with the altered setting would also fail to open, but
+					// only after paying for it.
+					t.Errorf("%s %s=%s: %v, want it refused as out of range", kind, tc.field, tc.value, err)
 				}
 			case <-time.After(20 * time.Second):
 				t.Fatalf("%s %s=%s: still deriving after 20 s", kind, tc.field, tc.value)

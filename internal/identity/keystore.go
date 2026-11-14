@@ -64,11 +64,18 @@ var errDamagedKeystore = fmt.Errorf("%w (the keystore file is damaged)", ErrWron
 // file before anything is verified, and Argon2 panics on zero passes or
 // lanes, takes the process down asking for terabytes, or never returns on
 // billions of passes: one flipped bit in a stored value used to turn a
-// damaged keystore into a crash at every launch. The ceilings sit far above
-// anything this code writes (3 passes, 64 MiB, 4 lanes).
+// damaged keystore into a crash at every launch.
+//
+// Every release has written 3 passes, 64 MiB, 4 lanes (28 ms on the desktop
+// these were measured on). The ceilings leave room to raise that later (2.7x
+// the passes, 4x the memory) while keeping the worst a file can ask for to
+// what a phone can afford: 8 passes over 256 MiB took 0.34 s with 4 lanes
+// and 0.9 s with one, where the earlier ceiling (16 passes, 1 GiB) took
+// 8.3 s and a gigabyte, up to four times over for a wrong non-ASCII
+// passphrase and twice under the keystore lock for a passphrase change.
 const (
-	maxArgonTime    = 16
-	maxArgonMemory  = 1 << 20 // KiB => 1 GiB
+	maxArgonTime    = 8
+	maxArgonMemory  = 256 << 10 // KiB => 256 MiB
 	maxArgonThreads = 64
 )
 
