@@ -299,3 +299,45 @@ func TestEraseRefusesASymlinkedKeystore(t *testing.T) {
 		t.Fatalf("the keystore it points to changed: %v", err)
 	}
 }
+
+// A write that renames in as an erase is asked for, and then cannot remove
+// its own file (a scanner holding it, on Windows), must still lose to the
+// erase: the file it wrote is marked as erased, reads as absent, and the next
+// holder of the lock deletes it. The write reports the failure.
+func TestEraseWinsEvenWhenAWriteCannotRemoveItsOwnFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	if _, _, err := LoadOrCreate(path, "old"); err != nil {
+		t.Fatal(err)
+	}
+	orig := keystoreLockWait
+	keystoreLockWait = 100 * time.Millisecond
+	origRemove := removeFile
+	t.Cleanup(func() { finishers.Wait(); keystoreLockWait = orig; removeFile = origRemove })
+	setHooks(t, resealHooks{beforeRename: func() {
+		if err := RemoveKeystore(path); err != nil { // falls back: the change holds the lock
+			t.Errorf("erase: %v", err)
+		}
+		removeFile = func(p string) error {
+			if p == path {
+				return os.ErrPermission
+			}
+			return origRemove(p)
+		}
+	}})
+	err := ChangePassphrase(path, "old", "new")
+	removeFile = origRemove
+	if HasKeystore(path) {
+		t.Error("the file the change wrote reads as a keystore after the erase")
+	}
+	unlock, lerr := lockKeystore(path) // the next holder of the lock
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	unlock()
+	if _, serr := os.Lstat(path); !os.IsNotExist(serr) {
+		t.Error("the next holder of the lock kept the file the erase should have taken")
+	}
+	if !errors.Is(err, ErrKeystoreChanged) || err == ErrKeystoreChanged {
+		t.Errorf("the change that lost to an erase and could not undo itself: %v, want the failure reported", err)
+	}
+}

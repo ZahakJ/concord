@@ -256,7 +256,9 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte, befo
 		return fmt.Errorf("identity: finalize keystore: %w", err)
 	}
 	if erasePending(path) {
-		finishEraseOfOwnWrite(path)
+		if err := finishEraseOfOwnWrite(path); err != nil {
+			return errors.Join(ErrKeystoreChanged, err)
+		}
 		return ErrKeystoreChanged
 	}
 	// Only a rename that put this file at the path counts: one that did not

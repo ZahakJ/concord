@@ -129,7 +129,7 @@ func removeKeystoreFiles(path string) error {
 func removeKeystoreOnly(path string) error {
 	// path+".tmp" is the temp name builds before unique temp files used.
 	for _, p := range []string{path + ".tmp", path} {
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		if err := removeFile(p); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
@@ -228,13 +228,28 @@ func finishPendingErase(path string) {
 }
 
 // finishEraseOfOwnWrite is for a write, holding the lock, that renamed its
-// file in while an erase was being asked for: the erase wins.
-func finishEraseOfOwnWrite(path string) {
-	if removeKeystoreFiles(path) == nil {
+// file in while an erase was being asked for: the erase wins. If its file
+// cannot be removed now (on Windows a scanner can hold a file just written),
+// the marker is rebound to that file, so the next holder of the lock deletes
+// it instead of keeping it as a keystore nobody asked to erase, and the
+// failure is reported.
+func finishEraseOfOwnWrite(path string) error {
+	err := removeKeystoreFiles(path)
+	if err == nil {
 		_ = os.Remove(tombstonePath(path))
 		_ = syncDir(filepath.Dir(path))
+		return nil
 	}
+	if t, present, ierr := identify(path); ierr == nil && present {
+		if werr := writeTombstone(path, t); werr != nil {
+			return fmt.Errorf("identity: an erase is pending and the keystore just written could neither be removed (%v) nor marked for removal (%v)", err, werr)
+		}
+	}
+	return fmt.Errorf("identity: an erase is pending; the keystore just written could not be removed yet and will be at the next unlock: %w", err)
 }
+
+// removeFile is os.Remove, a variable so a test can make a removal fail.
+var removeFile = os.Remove
 
 // finishErase takes the keystore lock just long enough to finish a pending
 // erase, or reports that one is still pending.
