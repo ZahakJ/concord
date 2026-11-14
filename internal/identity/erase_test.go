@@ -399,3 +399,33 @@ func TestEraseThatCannotRollBackIsReportedPending(t *testing.T) {
 		t.Fatal("the pending erase never completed")
 	}
 }
+
+// An old erase marker that can be neither read nor removed condemns nothing
+// identifiable, and must not make every write fail either.
+func TestUnreadableUnremovableMarkerDoesNotBlockWrites(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads anything")
+	}
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	if _, _, err := LoadOrCreate(path, "old"); err != nil {
+		t.Fatal(err)
+	}
+	plantTombstone(t, path, []byte("some other keystore"))
+	if err := os.Chmod(path+".erased", 0o000); err != nil {
+		t.Fatal(err)
+	}
+	origRemove := removeFile
+	removeFile = func(p string) error {
+		if p == path+".erased" {
+			return os.ErrPermission
+		}
+		return origRemove(p)
+	}
+	t.Cleanup(func() { removeFile = origRemove; _ = os.Chmod(path+".erased", 0o600) })
+	if err := ChangePassphrase(path, "old", "new"); err != nil {
+		t.Fatalf("a write beside an unreadable, unremovable old marker: %v", err)
+	}
+	if _, err := LoadKeystore(path, "new"); err != nil {
+		t.Fatal(err)
+	}
+}

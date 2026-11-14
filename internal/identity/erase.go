@@ -1,7 +1,6 @@
 package identity
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -43,7 +42,7 @@ var ErrEraseDeferred = errors.New("identity: the erase could not finish now; it 
 // finishPendingErase); writes ignore exactly that marker. Guarded by
 // keystoreMu, cleared when the lock is let go.
 var (
-	staleMarker       = map[string][]byte{}
+	staleMarker       = map[string]string{} // path -> markerIdentity
 	staleMarkerLogged sync.Once
 )
 
@@ -51,12 +50,28 @@ var (
 // was asked for during this hold: a marker other than a stale one the lock
 // holder already found and could not remove.
 func newErasePending(path string) bool {
-	raw, err := os.ReadFile(tombstonePath(path))
-	if err != nil {
-		return erasePending(path) // there, but unreadable: assume a new erase
+	id, ok := markerIdentity(path)
+	if !ok {
+		return false // no marker
 	}
-	stale, ok := staleMarker[path]
-	return !ok || !bytes.Equal(stale, raw)
+	stale, known := staleMarker[path]
+	return !known || stale != id
+}
+
+// markerIdentity names the erase marker beside path so a stale one can be
+// recognised: by its content when it can be read, otherwise by size, time
+// and file identity. A new erase writes a fresh marker (new file, new
+// content), so it never matches a stale one, readable or not.
+func markerIdentity(path string) (string, bool) {
+	fi, err := os.Lstat(tombstonePath(path))
+	if err != nil {
+		return "", false
+	}
+	if raw, rerr := os.ReadFile(tombstonePath(path)); rerr == nil {
+		sum := sha256.Sum256(raw)
+		return "content:" + hex.EncodeToString(sum[:]), true
+	}
+	return fmt.Sprintf("unreadable:%d:%d:%s", fi.Size(), fi.ModTime().UnixNano(), fileID(fi)), true
 }
 
 // errErasePending: an erase of this device has not finished and could not be
@@ -253,12 +268,13 @@ func finishPendingErase(path string) {
 	} else if _, err := os.Lstat(path); err == nil {
 		log.Printf("concord/identity: an unfinished erase named a keystore that is no longer there; the keystore now there is kept")
 	}
-	if raw, rerr := os.ReadFile(tombstonePath(path)); removeFile(tombstonePath(path)) != nil && rerr == nil {
+	if id, ok := markerIdentity(path); ok && removeFile(tombstonePath(path)) != nil {
 		// A marker that condemns nothing here and cannot be removed must not
 		// make every write stand down as if an erase had just been asked for:
 		// writes during this hold of the lock ignore exactly this marker, and
-		// only a different one (a new erase) stops them.
-		staleMarker[path] = raw
+		// only a different one (a new erase) stops them. One that cannot even
+		// be read condemns nothing identifiable, and is treated the same way.
+		staleMarker[path] = id
 		staleMarkerLogged.Do(func() {
 			log.Printf("concord/identity: an old erase marker beside the keystore cannot be removed; it is ignored")
 		})
