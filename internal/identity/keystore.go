@@ -238,7 +238,7 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte, befo
 	// write held it (see RemoveKeystore). It wins: the write stands down
 	// before renaming, and a write that renamed as the erase was being asked
 	// for takes its own file away again.
-	if erasePending(path) {
+	if newErasePending(path) {
 		return ErrKeystoreChanged
 	}
 	for _, f := range beforeRename {
@@ -250,12 +250,12 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte, befo
 	}
 	testHooks.rename()
 	if err := renameDurable(tmp, path); err != nil {
-		if erasePending(path) {
+		if newErasePending(path) {
 			return ErrKeystoreChanged
 		}
 		return fmt.Errorf("identity: finalize keystore: %w", err)
 	}
-	if erasePending(path) {
+	if newErasePending(path) {
 		if err := finishEraseOfOwnWrite(path); err != nil {
 			return errors.Join(ErrKeystoreChanged, err)
 		}

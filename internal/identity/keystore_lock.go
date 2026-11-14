@@ -71,6 +71,7 @@ func lockKeystore(path string) (unlock func(), err error) {
 			// else, so no holder ever acts on a keystore that was erased.
 			finishPendingErase(path)
 			return func() {
+				delete(staleMarker, path)
 				if lerr == nil {
 					unlockFile(f)
 				}

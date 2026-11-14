@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // armTicket plants an outstanding confirmation without needing a live session,
@@ -213,5 +215,20 @@ func TestPanickingLinkDoesNotLockTheBridgeOut(t *testing.T) {
 	}
 	if _, err := b.RedeemLinkCode("code", "pw", ""); errors.Is(err, errLinkInProgress) {
 		t.Fatal("after a link panicked, the next link is refused as one still running")
+	}
+}
+
+// A wipe whose keystore removal is deferred is reported as done with one
+// file to go, under its own code, never as a failure.
+func TestDeferredEraseIsReportedAsPending(t *testing.T) {
+	err := erasePendingError(fmt.Errorf("x: %w", identity.ErrEraseDeferred))
+	if code, _ := codeOf(err); code != CodeErasePending {
+		t.Fatalf("deferred erase reported as %v", err)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "fail") {
+		t.Fatalf("a deferred erase reads as a failure: %q", err)
+	}
+	if erasePendingError(nil) != nil {
+		t.Fatal("a complete wipe reported something")
 	}
 }

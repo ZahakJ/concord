@@ -52,6 +52,13 @@
       // screen it ever shows, which is now the honest one: no identity here.
       location.reload();
     } catch (err) {
+      if (err?.code === "erase-pending") {
+        // Erased, with one file still to go: not a failure. Say so, then go
+        // to the first screen as on success.
+        flash(err.message, "info");
+        setTimeout(() => location.reload(), 6000);
+        return;
+      }
       busy = false;
       // The ticket is spent whether or not it matched, so there is nothing left
       // to retry against — close and let them start the flow again.

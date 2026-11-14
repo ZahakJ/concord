@@ -1,6 +1,7 @@
 package identity
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -30,6 +31,33 @@ import (
 // tombstone is removed and logged. And an erase that fails leaves no
 // tombstone behind: the user was told it failed, and the keystore must keep
 // working.
+
+// ErrEraseDeferred: the keystore could not be removed now, but the erase is
+// recorded and will complete: the keystore already reads as gone, and it is
+// deleted the next time Concord takes the keystore lock (at the latest, the
+// next unlock or create on this device).
+var ErrEraseDeferred = errors.New("identity: the erase could not finish now; it will complete the next time Concord opens this device's keystore")
+
+// staleMarker holds, for the current holder of the keystore lock, an erase
+// marker that names no file here and could not be removed (see
+// finishPendingErase); writes ignore exactly that marker. Guarded by
+// keystoreMu, cleared when the lock is let go.
+var (
+	staleMarker       = map[string][]byte{}
+	staleMarkerLogged sync.Once
+)
+
+// newErasePending reports, for a writer holding the lock, whether an erase
+// was asked for during this hold: a marker other than a stale one the lock
+// holder already found and could not remove.
+func newErasePending(path string) bool {
+	raw, err := os.ReadFile(tombstonePath(path))
+	if err != nil {
+		return erasePending(path) // there, but unreadable: assume a new erase
+	}
+	stale, ok := staleMarker[path]
+	return !ok || !bytes.Equal(stale, raw)
+}
 
 // errErasePending: an erase of this device has not finished and could not be
 // finished now (another process holds the keystore).
@@ -163,8 +191,14 @@ func RemoveKeystore(path string) error {
 	if err := removeKeystoreOnly(path); err != nil {
 		// Reported as failed, so it must not happen later either: an erase
 		// left pending here would delete the keystore at some later unlock
-		// the user made after being told it was still there.
-		_ = os.Remove(tombstonePath(path))
+		// the user made after being told it was still there. If the marker
+		// cannot be taken back either, the erase WILL happen (the marker
+		// names the file that is still here), and that is what is reported.
+		if rerr := removeFile(tombstonePath(path)); rerr != nil && !os.IsNotExist(rerr) {
+			_ = syncDir(filepath.Dir(path))
+			startFinisher(path)
+			return fmt.Errorf("%w (%v)", ErrEraseDeferred, err)
+		}
 		_ = syncDir(filepath.Dir(path))
 		return err
 	}
@@ -219,7 +253,16 @@ func finishPendingErase(path string) {
 	} else if _, err := os.Lstat(path); err == nil {
 		log.Printf("concord/identity: an unfinished erase named a keystore that is no longer there; the keystore now there is kept")
 	}
-	_ = os.Remove(tombstonePath(path))
+	if raw, rerr := os.ReadFile(tombstonePath(path)); removeFile(tombstonePath(path)) != nil && rerr == nil {
+		// A marker that condemns nothing here and cannot be removed must not
+		// make every write stand down as if an erase had just been asked for:
+		// writes during this hold of the lock ignore exactly this marker, and
+		// only a different one (a new erase) stops them.
+		staleMarker[path] = raw
+		staleMarkerLogged.Do(func() {
+			log.Printf("concord/identity: an old erase marker beside the keystore cannot be removed; it is ignored")
+		})
+	}
 	stale, _ := filepath.Glob(filepath.Join(filepath.Dir(path), tombstoneTempPattern(path)))
 	for _, p := range stale {
 		_ = os.Remove(p)

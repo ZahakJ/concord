@@ -341,7 +341,9 @@ func (s *Service) wipeSelf() {
 
 	s.Close()
 	_ = os.Remove(deviceMarkerPath(dir))
-	if err := ResetIdentity(dir); err != nil {
+	if err := ResetIdentity(dir); errors.Is(err, identity.ErrEraseDeferred) {
+		log.Printf("concord/app: this device was unlinked from its account; local data erased, and the keystore's removal completes at the next unlock")
+	} else if err != nil {
 		log.Printf("concord/app: this device was unlinked from its account, but erasing it failed: %v", err)
 	} else {
 		log.Printf("concord/app: this device was unlinked from its account; local data erased")

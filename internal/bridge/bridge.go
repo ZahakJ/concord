@@ -499,7 +499,12 @@ func (b *Bridge) ResetIdentity() error {
 	if err != nil {
 		return err
 	}
-	return appsvc.ResetIdentity(dir)
+	if err := appsvc.ResetIdentity(dir); errors.Is(err, identity.ErrEraseDeferred) {
+		return erasePendingError(err)
+	} else if err != nil {
+		return err
+	}
+	return nil
 }
 
 // AppVersion returns the release tag stamped into this binary ("dev" for

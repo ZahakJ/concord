@@ -341,3 +341,61 @@ func TestEraseWinsEvenWhenAWriteCannotRemoveItsOwnFile(t *testing.T) {
 		t.Errorf("the change that lost to an erase and could not undo itself: %v, want the failure reported", err)
 	}
 }
+
+// An old erase marker that names no keystore here and cannot be removed must
+// not make every write fail as if an erase had just been asked for.
+func TestUnremovableStaleMarkerDoesNotBlockWrites(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	if _, _, err := LoadOrCreate(path, "old"); err != nil {
+		t.Fatal(err)
+	}
+	plantTombstone(t, path, []byte("some other keystore"))
+	origRemove := removeFile
+	removeFile = func(p string) error {
+		if p == path+".erased" {
+			return os.ErrPermission
+		}
+		return origRemove(p)
+	}
+	t.Cleanup(func() { removeFile = origRemove })
+	if err := ChangePassphrase(path, "old", "new"); err != nil {
+		t.Fatalf("a write with an unremovable stale marker beside it: %v", err)
+	}
+	if _, err := LoadKeystore(path, "new"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An erase that could not take the lock and then could neither remove the
+// keystore nor take its marker back will still happen (the marker names the
+// keystore that is there), so it is reported as pending, not as failed, and
+// it does complete.
+func TestEraseThatCannotRollBackIsReportedPending(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	if _, _, err := LoadOrCreate(path, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	origRemove := removeFile
+	t.Cleanup(func() { removeFile = origRemove })
+	failing := true
+	removeFile = func(p string) error {
+		if failing && (p == path || p == path+".erased") {
+			return os.ErrPermission
+		}
+		return origRemove(p)
+	}
+	release := holdKeystoreInProcess(t)
+	err := RemoveKeystore(path)
+	if !errors.Is(err, ErrEraseDeferred) {
+		t.Fatalf("erase that will complete later: %v, want it reported as pending", err)
+	}
+	if HasKeystore(path) {
+		t.Fatal("a keystore whose erase is pending still reads as present")
+	}
+	failing = false
+	release()
+	finishers.Wait()
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatal("the pending erase never completed")
+	}
+}

@@ -633,7 +633,13 @@
     busy = true;
     error = "";
     try {
-      await api.resetIdentity();
+      try {
+        await api.resetIdentity();
+      } catch (err) {
+        // Erased, with the keystore file itself still to go: not a failure.
+        if (err?.code !== "erase-pending") throw err;
+        flash(err.message, "info");
+      }
       hasIdentity = false;
       confirmingReset = false;
       passphrase = "";

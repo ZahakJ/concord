@@ -70,10 +70,17 @@ func HasIdentity(dataDir string) bool {
 func ResetIdentity(dataDir string) error {
 	// Through identity, so a keystore write in flight (the re-seal behind an
 	// unlock) finishes before the file goes rather than recreating it after.
-	if err := identity.RemoveKeystore(keystorePathIn(dataDir)); err != nil {
+	err := identity.RemoveKeystore(keystorePathIn(dataDir))
+	if err != nil && !errors.Is(err, identity.ErrEraseDeferred) {
 		return err
 	}
-	return resetDataIn(dataDir)
+	// A deferred keystore erase will complete (the keystore already reads as
+	// gone), so the rest is erased now as asked, and the caller is told the
+	// keystore's own removal is still to come.
+	if derr := resetDataIn(dataDir); derr != nil {
+		return derr
+	}
+	return err
 }
 
 // resetDataIn removes everything ResetIdentity erases except the keystore.

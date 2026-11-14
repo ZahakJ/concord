@@ -28,6 +28,7 @@ const (
 	CodeLocked          = "locked"           // no unlocked session; ask SessionState why
 	CodeReplaceRefused  = "replace-refused"  // would erase the account on this device; detail says whose
 	CodeWrongPassphrase = "wrong-passphrase" // the passphrase does not open this device's keystore
+	CodeErasePending    = "erase-pending"    // erased; the keystore file itself goes at the next chance (not a failure)
 )
 
 // Why a running core has no session, for a window that had one. A fresh

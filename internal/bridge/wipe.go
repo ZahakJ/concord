@@ -9,6 +9,7 @@ import (
 	"time"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // Erasing this device.
@@ -165,7 +166,7 @@ func (b *Bridge) ConfirmWipe(ticket, typed string) error {
 	b.lockReason = LockWiped
 	err = appsvc.ResetIdentity(dir)
 	b.mu.Unlock()
-	if err != nil {
+	if err != nil && !errors.Is(err, identity.ErrEraseDeferred) {
 		return err
 	}
 	// The UI is now talking to a locked bridge over a session that no longer
@@ -174,5 +175,18 @@ func (b *Bridge) ConfirmWipe(ticket, typed string) error {
 	if b.OnPresence != nil {
 		b.OnPresence()
 	}
-	return nil
+	return erasePendingError(err)
+}
+
+// erasePendingError reports a wipe whose keystore removal had to be deferred
+// (identity.ErrEraseDeferred) as what it is: done, with one file still to go.
+// It is not a failure, and must not read as one.
+func erasePendingError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &CodedError{
+		Code: CodeErasePending,
+		Msg:  "Everything on this device was erased. One file is still held by another program; it can no longer be opened, and Concord deletes it as soon as it can — at the latest the next time this device is unlocked or set up.",
+	}
 }
