@@ -144,13 +144,14 @@ The project's own releases build its rendezvous in. Export it before publishing
 (and pass the same value to `make android-app`):
 
 ```sh
-export RENDEZVOUS=/dns4/concord-rdv-zahak.fly.dev/tcp/4001/p2p/<PEER-ID>
+export RENDEZVOUS=/dns4/concord-rdv-zahak.fly.dev/tcp/4001/p2p/12D3KooWCzonwxmETSLwgDY9JAe9WczUHssnYTrSpCqkp6UXZg1q
 ```
 
-`<PEER-ID>` is the `12D3KooW…` id the node prints at startup (`fly logs -a
-concord-rdv-zahak`, the `/dns/…/p2p/…` line); it is fixed by the node's
-`CONCORD_RELAY_SEED`. It is not written here because it has not been read off the
-node yet. The script prints the built-in rendezvous before building and again at
+The id at the end is the node's peer id. It is fixed by the node's
+`CONCORD_RELAY_SEED`, so it stays the same across deploys; the node prints it at
+startup (`fly logs -a concord-rdv-zahak`, the `/dns/…/p2p/…` line). The CI
+desktop build takes the same value from the `CONCORD_RENDEZVOUS` repository
+variable. The source itself names no node. The script prints the built-in rendezvous before building and again at
 the end; `none` means the release names no node.
 
 The site's download buttons name the version, because asset names carry it;
