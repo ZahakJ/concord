@@ -215,7 +215,9 @@ func TestLinkedDeviceRefusesKeyPackageNamingSomeoneElse(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	w := newUnlinkWorld(t, ctx)
-	g := w.guildOf(t, w.alice, w.bob, w.carol)
+	// Bob's desktop stays out: a guild it joins is handed to the phone, which
+	// would then join on its own, a beat later.
+	g := w.guildOf(t, w.alice, w.carol)
 	if bytes.Equal(w.phone.myCredential, w.bob.myCredential) {
 		t.Fatal("setup: the phone has no device credential of its own")
 	}
@@ -228,7 +230,8 @@ func TestLinkedDeviceRefusesKeyPackageNamingSomeoneElse(t *testing.T) {
 	if _, err := w.phone.JoinViaInvite(inviteCodeOf(t, w.alice, g.ID)); err != nil {
 		t.Fatalf("the phone's honest admission right after was refused: %v", err)
 	}
-	waitMemberCount(t, 60*time.Second, g.ID, 4, w.alice, w.bob, w.carol, w.phone)
+	waitUntil(t, 60*time.Second, func() bool { return w.alice.leafIsLive(g.GroupID, w.phone.myCredential) },
+		"the phone's honest admission did not seat its own certificate")
 }
 
 // DM start: Alice opens a DM by code, Bob redeems it under his own credential
@@ -273,4 +276,66 @@ func TestDMStartRefusesKeyPackageNamingSomeoneElse(t *testing.T) {
 		t.Fatalf("an honest DM join right after was refused: %v", err)
 	}
 	waitMemberCount(t, 60*time.Second, dm.ID, 2, alice, bob)
+}
+
+// askInvite sends req from requester to committer over the real invite stream
+// and returns the answer, and whether the committer's roster or epoch moved.
+func askInvite(t *testing.T, ctx context.Context, committer, requester *Service, g domain.Guild, req inviteRequest) (inviteResponse, bool) {
+	t.Helper()
+	membersBefore, epochBefore := rosterOf(t, ctx, committer, g)
+	body, _ := json.Marshal(req)
+	rctx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	defer cancel()
+	raw, err := requester.host.RequestInvite(rctx, committer.host.AddrInfo(), body)
+	if err != nil {
+		t.Fatalf("invite stream: %v", err)
+	}
+	var resp inviteResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatalf("invite response: %v", err)
+	}
+	membersAfter, epochAfter := rosterOf(t, ctx, committer, g)
+	return resp, epochAfter != epochBefore || !slices.Equal(membersAfter, membersBefore)
+}
+
+// ownKeyPackage is a requester's own genuine key package.
+func ownKeyPackage(t *testing.T, ctx context.Context, s *Service) []byte {
+	t.Helper()
+	kp, err := s.mls.KeyPackage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return kp
+}
+
+// Notes admits the account's own devices and nobody else. A stranger holding
+// the Notes guild's ID asks in with its own genuine key package, with and
+// without its credential in the request; both must be refused as if the guild
+// did not exist.
+func TestNotesRefusesStrangerWithOrWithoutCredential(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	alice, _, bob := kpWorld(t, ctx)
+	notes, err := alice.NotesDM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, withCred := range []bool{true, false} {
+		name := "credential-present"
+		req := inviteRequest{GuildID: notes.ID, KeyPackage: ownKeyPackage(t, ctx, bob), Profile: bob.selfWireProfile()}
+		if withCred {
+			req.Credential = bob.myCredential
+		} else {
+			name = "credential-empty"
+		}
+		t.Run(name, func(t *testing.T) {
+			resp, moved := askInvite(t, ctx, alice, bob, notes, req)
+			if resp.Error != "unknown guild" || moved || len(resp.Welcome) != 0 {
+				t.Errorf("a stranger asking into Notes got error %q, welcome %d bytes, roster or epoch moved %v; want \"unknown guild\" and nothing moved", resp.Error, len(resp.Welcome), moved)
+			}
+		})
+	}
 }
