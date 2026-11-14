@@ -1,9 +1,12 @@
 package identity
 
 import (
+	"bytes"
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -60,5 +63,28 @@ func TestForgedClearAccountKeyIsReportedOnceAndCorrected(t *testing.T) {
 	}
 	if !namesAccount(mustRead(t, path), id.PublicKey()) {
 		t.Fatal("the forged account key was not corrected")
+	}
+}
+
+// An unlock that finds no keystore and creates an account says so in the
+// log, so an operator of a service that unlocks itself can see it happen.
+func TestCreatingANewAccountIsLogged(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	id, created, err := LoadOrCreate(path, "pw")
+	if err != nil || !created {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logged.String(), "created a new account") || !strings.Contains(logged.String(), id.Fingerprint()) {
+		t.Fatalf("creating an account left no log line: %q", logged.String())
+	}
+	logged.Reset()
+	if _, _, err := LoadOrCreate(path, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(logged.String(), "created a new account") {
+		t.Fatal("an ordinary unlock was logged as creating an account")
 	}
 }

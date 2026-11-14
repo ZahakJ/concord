@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"sort"
 	"strings"
@@ -734,7 +735,10 @@ func (b *Bridge) Login(passphrase string) error {
 		return err
 	}
 	if ks, kerr := appsvc.KeystorePath(); kerr == nil && identity.TakeLabelAltered(ks) {
+		// Kept for the next Login through the UI, and logged now: an unlock
+		// from a headless path (a passphrase file) has nobody to return it to.
 		b.unlockNotice = labelAlteredNotice
+		log.Printf("concord: %s", labelAlteredNotice)
 	}
 	svc.OnMessage(func(m domain.Message) {
 		// A blocked sender's message is stored and synced like any other, but

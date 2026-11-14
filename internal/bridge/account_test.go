@@ -1,9 +1,11 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -259,5 +261,39 @@ func TestLoginRefusesWhenAnErasedAccountsDataCannotGo(t *testing.T) {
 	}
 	if _, err := os.Stat(ks); !os.IsNotExist(err) {
 		t.Fatal("a keystore was created although the unlock refused")
+	}
+}
+
+// An unlock from a headless path (Login called directly, as the passphrase
+// file does) has nobody to return the altered-account notice to: it is
+// logged, and still returned by the next Login through the UI.
+func TestHeadlessUnlockLogsTheNoticeAndKeepsItForTheUI(t *testing.T) {
+	b, _ := newLockedDevice(t, "pw", "Ada")
+	ks, _ := appsvc.KeystorePath()
+	raw, _ := os.ReadFile(ks)
+	var env map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &env)
+	other, _ := identity.Generate()
+	forged, _ := json.Marshal([]byte(other.PublicKey()))
+	env["account_pub"] = forged
+	out, _ := json.Marshal(env)
+	if err := os.WriteFile(ks, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	if err := b.Login("pw"); err != nil { // headless
+		t.Fatal(err)
+	}
+	if !strings.Contains(logged.String(), "had been altered") {
+		t.Fatalf("a headless unlock did not log the notice: %q", logged.String())
+	}
+	notice, err := b.Dispatch("Login", rawArgs("pw")) // the UI attaching later
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := notice.(string); !strings.Contains(s, "altered") {
+		t.Fatalf("the UI's Login did not get the pending notice: %q", notice)
 	}
 }

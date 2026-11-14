@@ -757,6 +757,10 @@ func loadOrCreate(path, passphrase string, again bool) (*Identity, bool, error) 
 	if err != nil {
 		return nil, false, err
 	}
+	// Said out loud: an unlock that finds no keystore creates an account, and
+	// a service unlocking itself from a passphrase file after a wipe would
+	// otherwise come up as a brand-new account with nothing to show for it.
+	log.Printf("concord/identity: no keystore on this device; created a new account (%s)", id.Fingerprint())
 	return id, true, nil
 }
 
