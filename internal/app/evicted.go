@@ -1,6 +1,9 @@
 package app
 
-import "strings"
+import (
+	"bytes"
+	"strings"
+)
 
 // evicted.go is what a guild looks like from the outside after moderation has
 // happened to you.
@@ -219,16 +222,22 @@ func isEvictionRefusal(refusal string) bool {
 
 // commitEvictsUs reports whether a commit we are about to fail to apply is the
 // commit that threw us out — read from its own Remove proposals against the
-// roster we still hold. Every one of our leaves counts: a linked device is a
-// leaf of its own, and a kick removes the account, not one laptop.
+// roster we still hold.
+//
+// Only THIS device's leaf counts. A commit that removes another device of our
+// account is one we can apply and must: it is how an unlinked device's leaf
+// goes (unlink.go, removalrequest.go) and how a sibling is re-added by a heal,
+// and reading it as our own removal left this device refusing the commit and
+// telling its user they were no longer a member of a guild they were still in.
+// A kick removes every leaf of the account, one commit each; each device meets
+// the commit for its own leaf, and applies the others on the way to it.
 func (s *Service) commitEvictsUs(groupID, commit []byte) bool {
 	removed, err := s.mls.RemovedBy(s.ctx, groupID, commit)
 	if err != nil || len(removed) == 0 {
 		return false
 	}
-	mine := s.id.Fingerprint()
 	for _, cred := range removed {
-		if accountFingerprintOf(cred) == mine {
+		if bytes.Equal(cred, s.myCredential) {
 			return true
 		}
 	}
