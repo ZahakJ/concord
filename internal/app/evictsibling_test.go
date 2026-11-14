@@ -107,6 +107,78 @@ func guildWith(t *testing.T, owner *Service, joiners ...*Service) domain.Guild {
 	return g
 }
 
+// A device that an earlier build left holding a wrong "removed" verdict heals
+// after upgrading. The earlier build refused the commit that removed a sibling
+// device and recorded itself as removed, so its group stayed one epoch behind
+// with the sibling's leaf still in it. Bob's tablet is put in exactly that
+// state: the verdict on disk and the removal commit never applied. When it
+// comes back it must fetch the missed commit, apply it, end with the same
+// roster as everyone else, and drop the verdict.
+func TestAVerdictLeftByTheOldSiblingCheckClearsOnCatchUp(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newUnlinkWorld(t, ctx)
+	tablet, tabletDir := linkTablet(t, ctx, w.bob, w.boot)
+	own := guildWith(t, w.bob, w.phone, tablet, w.alice)
+
+	// What the earlier build left on the tablet: the verdict, and a group that
+	// still holds the phone's leaf because the removal was never applied.
+	tablet.noteEvicted(own.ID, evictedKicked)
+	if why, n := tablet.EvictedFrom(own.ID), memberCount(tablet, own.ID); why != evictedKicked || n != 4 {
+		t.Fatalf("setup: tablet reads evicted=%q leaves=%d, want %q with 4", why, n, evictedKicked)
+	}
+	_ = tablet.Close()
+	_ = w.phone.Close()
+	if err := w.bob.UnlinkDevice(w.phoneKey); err != nil {
+		t.Fatalf("UnlinkDevice: %v", err)
+	}
+	waitMemberCount(t, 60*time.Second, own.ID, 3, w.bob, w.alice)
+
+	tablet = startServiceOn(t, ctx, tabletDir, w.boot)
+	healed := func() bool {
+		return tablet.EvictedFrom(own.ID) == "" && memberCount(tablet, own.ID) == 3 &&
+			epochOf(t, tablet, own.ID) == epochOf(t, w.bob, own.ID)
+	}
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) && !healed() {
+		time.Sleep(200 * time.Millisecond)
+	}
+	if !healed() {
+		t.Fatalf("tablet with the stale verdict after catching up: evicted=%q leaves=%d epoch=%d (Bob's desktop at %d); want a member with 3 leaves at the same epoch",
+			tablet.EvictedFrom(own.ID), memberCount(tablet, own.ID), epochOf(t, tablet, own.ID), epochOf(t, w.bob, own.ID))
+	}
+}
+
+// The same stale verdict on a device that is online when the next membership
+// commit arrives: applying it on the live path proves membership too.
+func TestAWrongRemovedVerdictClearsWhenALiveCommitApplies(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newUnlinkWorld(t, ctx)
+	tablet, _ := linkTablet(t, ctx, w.bob, w.boot)
+	own := guildWith(t, w.bob, w.phone, tablet, w.alice)
+
+	tablet.noteEvicted(own.ID, evictedKicked)
+	_ = w.phone.Close()
+	if err := w.bob.UnlinkDevice(w.phoneKey); err != nil {
+		t.Fatalf("UnlinkDevice: %v", err)
+	}
+	waitMemberCount(t, 60*time.Second, own.ID, 3, w.bob, w.alice)
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) && (memberCount(tablet, own.ID) != 3 || tablet.EvictedFrom(own.ID) != "") {
+		time.Sleep(200 * time.Millisecond)
+	}
+	if why, n := tablet.EvictedFrom(own.ID), memberCount(tablet, own.ID); why != "" || n != 3 {
+		t.Fatalf("tablet with a wrong verdict after applying the next commit: evicted=%q leaves=%d; want a member with 3", why, n)
+	}
+}
+
 // failSecondRemoval makes the second removal of one account's leaves fail, the
 // way a kick breaks part-way when the engine refuses one commit.
 type failSecondRemoval struct {
@@ -193,6 +265,36 @@ func TestAKickThatFailsPartWayStillPutsEveryDeviceOut(t *testing.T) {
 	}, "setup: the surviving device did not apply the commit that added Carol")
 	if why := survivor.EvictedFrom(hers.ID); why != evictedKicked {
 		t.Fatalf("after applying a commit, the kicked account's surviving device reads evicted=%q; want %q", why, evictedKicked)
+	}
+}
+
+// A device that was offline while its sibling was unlinked meets the removal
+// through catch-up rather than the live control topic, and must apply it and
+// stay a member.
+func TestADeviceOfflineForItsSiblingsRemovalCatchesUpAsAMember(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newUnlinkWorld(t, ctx)
+	tablet, tabletDir := linkTablet(t, ctx, w.bob, w.boot)
+	own := guildWith(t, w.bob, w.phone, tablet, w.alice)
+
+	_ = tablet.Close()
+	_ = w.phone.Close()
+	if err := w.bob.UnlinkDevice(w.phoneKey); err != nil {
+		t.Fatalf("UnlinkDevice: %v", err)
+	}
+	waitMemberCount(t, 60*time.Second, own.ID, 3, w.bob, w.alice)
+
+	tablet = startServiceOn(t, ctx, tabletDir, w.boot)
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) && memberCount(tablet, own.ID) != 3 && tablet.EvictedFrom(own.ID) == "" {
+		time.Sleep(200 * time.Millisecond)
+	}
+	if why, n := tablet.EvictedFrom(own.ID), memberCount(tablet, own.ID); why != "" || n != 3 {
+		t.Fatalf("tablet back online after its sibling was unlinked: evicted=%q leaves=%d; want a member with 3", why, n)
 	}
 }
 

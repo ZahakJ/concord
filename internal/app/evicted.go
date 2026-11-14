@@ -157,8 +157,9 @@ func (s *Service) noteEvicted(guildID, reason string) {
 	s.emitGuildUpdate()
 }
 
-// clearEvicted takes a guild back out of the terminal state. Called on the one
-// event that disproves it: a welcome we successfully joined.
+// clearEvicted takes a guild back out of the terminal state. Called on the
+// events that disprove it: a welcome we successfully joined, and a commit we
+// applied as a member (clearDisprovedEviction).
 func (s *Service) clearEvicted(guildID string) {
 	s.mu.Lock()
 	if s.evicted[guildID] == "" {
@@ -171,6 +172,44 @@ func (s *Service) clearEvicted(guildID string) {
 	_ = s.store.SetSetting(evictedSettingPrefix+guildID, "")
 	_ = s.store.SetSetting(evictedReasonPrefix+guildID, "")
 	s.emitGuildUpdate()
+}
+
+// clearDisprovedEviction lifts a "removed" verdict that a commit we just
+// applied disproves. A device whose leaf was blanked cannot apply the commit
+// that blanked it, nor any after it, so applying one from an authorized
+// committer and still finding our own leaf in the roster is proof we are in.
+//
+// This is how a device recovers from an earlier build that read a commit
+// removing a sibling device as its own removal: it recorded "removed",
+// refused that commit, and kept the verdict through every restart. Catch-up
+// now applies the commit it refused, and this takes the verdict away.
+//
+// A verdict governance stands behind stays. When the guild's log says this
+// account was removed or banned, the account is out even if one of its leaves
+// survived a kick that failed part-way, and that leaf applying commits proves
+// nothing about the decision. Bans and unseated verdicts are never lifted here.
+func (s *Service) clearDisprovedEviction(guildID string, groupID []byte) {
+	if s.EvictedFrom(guildID) != evictedKicked || s.id == nil {
+		return
+	}
+	me := s.id.Fingerprint()
+	s.mu.RLock()
+	st := s.govState[guildID]
+	decided := st.Removed[me] || st.Banned[me]
+	s.mu.RUnlock()
+	if decided {
+		return
+	}
+	creds, err := s.mls.Members(s.ctx, groupID)
+	if err != nil {
+		return
+	}
+	for _, c := range creds {
+		if bytes.Equal(c, s.myCredential) {
+			s.clearEvicted(guildID)
+			return
+		}
+	}
 }
 
 // noteGovernanceRemoval records the eviction a governance op just decided for

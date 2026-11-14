@@ -2110,6 +2110,7 @@ func (s *Service) trackGuildFromDisk(g *domain.Guild) {
 		}
 		if err := s.mls.ApplyCommit(s.ctx, groupID, data); err == nil {
 			s.logCommit(groupID, data)
+			s.clearDisprovedEviction(guildID, groupID)
 			// A commit is how a leaf appears, and a linked device's leaf carries
 			// the certificate that says which account it belongs to. Reading it
 			// only at startup (see trackGuild above) meant a device that joined
