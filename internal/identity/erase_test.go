@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -311,21 +312,25 @@ func TestEraseWinsEvenWhenAWriteCannotRemoveItsOwnFile(t *testing.T) {
 	}
 	orig := keystoreLockWait
 	keystoreLockWait = 100 * time.Millisecond
+	// The seam is installed once and switched with an atomic flag: the
+	// erase below starts a background finisher that reads it.
 	origRemove := removeFile
+	var failing atomic.Bool
+	removeFile = func(p string) error {
+		if failing.Load() && p == path {
+			return os.ErrPermission
+		}
+		return origRemove(p)
+	}
 	t.Cleanup(func() { finishers.Wait(); keystoreLockWait = orig; removeFile = origRemove })
 	setHooks(t, resealHooks{beforeRename: func() {
 		if err := RemoveKeystore(path); err != nil { // falls back: the change holds the lock
 			t.Errorf("erase: %v", err)
 		}
-		removeFile = func(p string) error {
-			if p == path {
-				return os.ErrPermission
-			}
-			return origRemove(p)
-		}
+		failing.Store(true)
 	}})
 	err := ChangePassphrase(path, "old", "new")
-	removeFile = origRemove
+	failing.Store(false)
 	if HasKeystore(path) {
 		t.Error("the file the change wrote reads as a keystore after the erase")
 	}
@@ -377,9 +382,10 @@ func TestEraseThatCannotRollBackIsReportedPending(t *testing.T) {
 	}
 	origRemove := removeFile
 	t.Cleanup(func() { removeFile = origRemove })
-	failing := true
+	var failing atomic.Bool // read by the background finisher too
+	failing.Store(true)
 	removeFile = func(p string) error {
-		if failing && (p == path || p == path+".erased") {
+		if failing.Load() && (p == path || p == path+".erased") {
 			return os.ErrPermission
 		}
 		return origRemove(p)
@@ -392,7 +398,7 @@ func TestEraseThatCannotRollBackIsReportedPending(t *testing.T) {
 	if HasKeystore(path) {
 		t.Fatal("a keystore whose erase is pending still reads as present")
 	}
-	failing = false
+	failing.Store(false)
 	release()
 	finishers.Wait()
 	if _, err := os.Lstat(path); !os.IsNotExist(err) {
