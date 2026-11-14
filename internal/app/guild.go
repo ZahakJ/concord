@@ -17,6 +17,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 
+	"github.com/ZahakJ/concord/internal/crypto/mls"
 	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/identity"
 	"github.com/ZahakJ/concord/internal/store"
@@ -1245,6 +1246,12 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 		return json.Marshal(inviteResponse{Error: "inviter is catching up; ask another member"})
 	}
 
+	// The leaf we would add keeps the credential inside the key package, not
+	// req.Credential, so the two must be the same before the binding below
+	// means anything about the leaf.
+	if refusal := bindKeyPackageCredential(&req); refusal != "" {
+		return json.Marshal(inviteResponse{Error: refusal})
+	}
 	// Bind the claimed credential to the AUTHENTICATED caller. The libp2p PeerID
 	// is the account key, so presenceFor(from) is who actually dialed us.
 	// Without this, req.Credential is attacker-supplied and drives both the ban
@@ -1312,6 +1319,37 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	return json.Marshal(inviteResponse{
 		Welcome: welcome, Guild: *g, Profiles: s.joinRoster(req.GuildID),
 	})
+}
+
+// bindKeyPackageCredential makes the credential in a join request's key package
+// the one every later check in handleInviteRequest judges, and returns a
+// refusal when they differ.
+//
+// Everything that reads a member after the add (the roster, who may commit,
+// who owns the guild, whose name a leaf shows) reads the credential stored in
+// the leaf, and the leaf's credential is the one in the key package. MLS checks
+// only that the key package is signed by its own leaf key; the credential
+// beside that key is whatever the sender wrote. Without this, a requester could
+// prove one credential to the committer and enter the group under another, the
+// owner's included.
+//
+// An honest client builds both from the same bytes (Service.myCredential is
+// the credential its MLS engine was made with), so they are always equal. A
+// request that carries no Credential takes the key package's, so the binding
+// to the caller and the ban and kick checks apply to it as well.
+func bindKeyPackageCredential(req *inviteRequest) string {
+	cred, err := mls.KeyPackageCredential(req.KeyPackage)
+	if err != nil {
+		return "invalid key package"
+	}
+	if len(req.Credential) == 0 {
+		req.Credential = cred
+		return ""
+	}
+	if !bytes.Equal(cred, req.Credential) {
+		return "key package credential does not match caller"
+	}
+	return ""
 }
 
 // ignoreProbes makes this build's committers answer a Probe the way builds

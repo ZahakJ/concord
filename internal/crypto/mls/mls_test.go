@@ -322,3 +322,43 @@ func TestEpochAdvancesAcrossCommits(t *testing.T) {
 		t.Fatalf("epochs diverged: alice=%d bob=%d carol=%d (want all %d)", e2, be, ce, e1+1)
 	}
 }
+
+// KeyPackageCredential reads back exactly the credential the engine was made
+// with, which is what Members reports for the leaf once it is added.
+func TestKeyPackageCredentialIsTheLeafsCredential(t *testing.T) {
+	ctx := context.Background()
+	alice, _ := engineForNewMember(t)
+	bob, bobCred := engineForNewMember(t)
+	gid, err := alice.CreateGroup(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kp, err := bob.KeyPackage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := KeyPackageCredential(kp)
+	if err != nil {
+		t.Fatalf("KeyPackageCredential: %v", err)
+	}
+	if !bytes.Equal(got, bobCred) {
+		t.Fatalf("got %x, want the engine's credential %x", got, bobCred)
+	}
+	if _, _, err := alice.Invite(ctx, gid, kp); err != nil {
+		t.Fatal(err)
+	}
+	members, err := alice.Members(ctx, gid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, m := range members {
+		found = found || bytes.Equal(m, got)
+	}
+	if !found {
+		t.Fatal("the added leaf's roster credential differs from KeyPackageCredential")
+	}
+	if _, err := KeyPackageCredential([]byte("not a key package")); err == nil {
+		t.Fatal("garbage parsed as a key package")
+	}
+}
