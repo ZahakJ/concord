@@ -362,3 +362,64 @@ func TestKeyPackageCredentialIsTheLeafsCredential(t *testing.T) {
 		t.Fatal("garbage parsed as a key package")
 	}
 }
+
+// KeyPackageCredential refuses every credential type but basic, an empty or
+// truncated key package, and reads the same credential the engine would add
+// from a key package with trailing bytes (both use one parser).
+func TestKeyPackageCredentialEdges(t *testing.T) {
+	ctx := context.Background()
+	alice, _ := engineForNewMember(t)
+	bob, bobCred := engineForNewMember(t)
+	gid, err := alice.CreateGroup(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kp, err := bob.KeyPackage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The credential is encoded as credential_type (uint16, 1 = basic), then
+	// the identity with a one-byte length prefix (32 bytes).
+	at := bytes.Index(kp, append([]byte{0, 1, byte(len(bobCred))}, bobCred...))
+	if at < 0 {
+		t.Fatal("the basic credential is not where the encoding puts it")
+	}
+	for _, typ := range []byte{0, 2, 3, 0xff} {
+		mut := append([]byte(nil), kp...)
+		mut[at+1] = typ
+		if c, err := KeyPackageCredential(mut); err == nil {
+			t.Errorf("credential type %d accepted, returned %x", typ, c)
+		}
+	}
+	empty := append(append([]byte(nil), kp[:at+2]...), 0)
+	empty = append(empty, kp[at+3+len(bobCred):]...)
+	if c, err := KeyPackageCredential(empty); err == nil {
+		t.Errorf("an empty basic identity was accepted, returned %x", c)
+	}
+	for _, b := range [][]byte{nil, {}, kp[:len(kp)/2], kp[:at+3]} {
+		if _, err := KeyPackageCredential(b); err == nil {
+			t.Errorf("accepted a %d-byte truncated key package", len(b))
+		}
+	}
+
+	trailing := append(append([]byte(nil), kp...), 0xde, 0xad, 0xbe, 0xef)
+	got, err := KeyPackageCredential(trailing)
+	if err != nil || !bytes.Equal(got, bobCred) {
+		t.Fatalf("trailing bytes: got %x, %v; want the engine's credential", got, err)
+	}
+	if _, _, _, err := alice.AddMembers(ctx, gid, [][]byte{trailing}); err != nil {
+		return // the engine refuses it too; nothing can disagree
+	}
+	members, err := alice.Members(ctx, gid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, m := range members {
+		found = found || bytes.Equal(m, got)
+	}
+	if !found {
+		t.Error("the engine added a leaf whose credential differs from what KeyPackageCredential read")
+	}
+}
