@@ -87,7 +87,8 @@ test("data without a keystore: another account's phrase is asked about, declinin
   const app = await alice.open({ unlock: false });
   const { page } = app;
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "Restore from a recovery phrase" }).click();
+  // The create screen's way to the phrase (linking is offered first there).
+  await page.getByRole("button", { name: /restore from my recovery phrase/i }).click();
   await fillRestore(page, bashirPhrase, "brand-new-pass");
   const ask = page.getByRole("alertdialog");
   await ask.waitFor();
