@@ -60,6 +60,23 @@ var errCorruptKeystore = fmt.Errorf("%w (its key derivation settings are out of 
 // derivation) is not damaged and keeps its own error.
 var errDamagedKeystore = fmt.Errorf("%w (the keystore file is damaged)", ErrWrongPassphrase)
 
+// errUnknownKeystoreFormat is a keystore laid out in a way this build does
+// not know. It is deliberately not ErrWrongPassphrase: that error sends the
+// user to the recovery phrase, which here could erase a keystore a newer
+// version of Concord would open.
+var errUnknownKeystoreFormat = errors.New("identity: this keystore is in a format this version of Concord does not know; a newer version may open it")
+
+// wrongPassphraseError is a failure to open that is reported as
+// ErrWrongPassphrase (errors.Is), with a message saying what it was.
+type wrongPassphraseError string
+
+func (e wrongPassphraseError) Error() string { return string(e) }
+func (wrongPassphraseError) Unwrap() error   { return ErrWrongPassphrase }
+
+// errCorruptEnvelope is errCorruptKeystore for a passphrase-sealed envelope,
+// which is not a keystore and should not be called one.
+var errCorruptEnvelope error = wrongPassphraseError("identity: wrong passphrase or damaged sealed file (its key derivation settings are out of range)")
+
 // Bounds on the Argon2id cost a file may ask for. The cost is read from the
 // file before anything is verified, and Argon2 panics on zero passes or
 // lanes, takes the process down asking for terabytes, or never returns on
@@ -605,8 +622,14 @@ func OpenKeystoreBytes(blob []byte, passphrase string) (*Identity, error) {
 	if env.KDF != "argon2id" {
 		return nil, fmt.Errorf("identity: unsupported kdf %q", env.KDF)
 	}
-	if len(env.Nonce) != nonceSize {
+	switch {
+	case len(env.Nonce) == 0:
 		return nil, errDamagedKeystore
+	case len(env.Nonce) != nonceSize:
+		// Not missing but a different size: more likely a format this build
+		// does not know than damage, and the recovery flow this would be
+		// routed to can erase a keystore that a newer build opens fine.
+		return nil, errUnknownKeystoreFormat
 	}
 	if !validKDF(env.ArgonTime, env.ArgonMemory, env.ArgonThreads, env.Salt) {
 		return nil, errCorruptKeystore

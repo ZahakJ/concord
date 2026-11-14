@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -81,7 +82,7 @@ func TestOutOfRangeKDFSettingsFailToOpenWithoutHarm(t *testing.T) {
 			case err := <-done:
 				if err == nil {
 					t.Errorf("%s %s=%s: opened", kind, tc.field, tc.value)
-				} else if tc.corrupt && (!errors.Is(err, errCorruptKeystore) || !errors.Is(err, ErrWrongPassphrase)) {
+				} else if want := map[string]error{"keystore": errCorruptKeystore, "envelope": errCorruptEnvelope}[kind]; tc.corrupt && (!errors.Is(err, want) || !errors.Is(err, ErrWrongPassphrase)) {
 					// Refused as out of range, before deriving: a derivation
 					// with the altered setting would also fail to open, but
 					// only after paying for it.
@@ -122,5 +123,37 @@ func TestDamagedKeystoreIsReportedForRecovery(t *testing.T) {
 		if !bytes.Equal(mustRead(t, path), blob) {
 			t.Errorf("%s: the unlock wrote over the damaged keystore", name)
 		}
+	}
+}
+
+// The two failures that were reported in the wrong words: a sealed envelope
+// out of range is not "a keystore", and a keystore whose nonce is a size this
+// build does not know is an unknown format, not damage — the recovery flow
+// damage is routed to could erase a keystore a newer build opens.
+func TestOpenFailuresSayWhatTheyAre(t *testing.T) {
+	sealed, _ := SealWithPassphrase("pw", []byte("x"))
+	var box map[string]json.RawMessage
+	_ = json.Unmarshal(sealed, &box)
+	box["argon_time"] = json.RawMessage("0")
+	bad, _ := json.Marshal(box)
+	_, err := OpenWithPassphrase("pw", bad)
+	if !errors.Is(err, ErrWrongPassphrase) || strings.Contains(err.Error(), "keystore") {
+		t.Errorf("out-of-range envelope: %v, want it called a sealed file", err)
+	}
+
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	id, _ := Generate()
+	if err := CreateKeystore(path, "pw", id); err != nil {
+		t.Fatal(err)
+	}
+	var env map[string]json.RawMessage
+	_ = json.Unmarshal(mustRead(t, path), &env)
+	env["nonce"] = json.RawMessage(`"AAAAAAAAAAAAAAAA"`) // 12 bytes
+	odd, _ := json.Marshal(env)
+	if err := os.WriteFile(path, odd, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadKeystore(path, "pw"); err == nil || errors.Is(err, ErrWrongPassphrase) {
+		t.Errorf("keystore with a 12-byte nonce: %v, want an unknown format, not one routed to recovery", err)
 	}
 }

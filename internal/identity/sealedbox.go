@@ -71,7 +71,7 @@ func OpenWithPassphrase(passphrase string, sealed []byte) ([]byte, error) {
 		return nil, ErrWrongPassphrase
 	}
 	if !validKDF(box.ArgonTime, box.ArgonMemory, box.ArgonThreads, box.Salt) {
-		return nil, errCorruptKeystore
+		return nil, errCorruptEnvelope
 	}
 	key := deriveKeyWithParams(passphrase, box.Salt, box.ArgonTime, box.ArgonMemory, box.ArgonThreads)
 	var nonce [nonceSize]byte
