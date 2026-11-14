@@ -4,7 +4,9 @@ package identity
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -32,3 +34,12 @@ func unlockFile(f *os.File) { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN) }
 // renameDurable is os.Rename; the directory sync after it (syncDir) is what
 // makes it survive a power cut here.
 func renameDurable(from, to string) error { return os.Rename(from, to) }
+
+// fileID identifies a file by device and inode, so a copy with the same
+// bytes is still a different file.
+func fileID(fi os.FileInfo) string {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return fmt.Sprintf("%d:%d", st.Dev, st.Ino)
+	}
+	return ""
+}

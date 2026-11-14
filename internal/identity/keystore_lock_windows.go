@@ -45,3 +45,7 @@ func renameDurable(from, to string) error {
 	}
 	return windows.MoveFileEx(f, t, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 }
+
+// fileID: os.FileInfo carries no stable file index on Windows; the hash of
+// the bytes alone identifies the condemned keystore there.
+func fileID(os.FileInfo) string { return "" }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -24,14 +25,15 @@ func TestMain(m *testing.M) {
 		if err != nil {
 			os.Exit(2)
 		}
-		// In resurrect mode the holder stands for a write that passed its
-		// check before an erase and renames its file in after it.
+		// In resurrect mode the holder stands for a re-seal that passed its
+		// check before an erase and only gets to its rename after it.
 		blob, _ := os.ReadFile(path)
+		id, _ := OpenKeystoreBytes(blob, "pw")
 		_, _ = os.Stdout.WriteString("held\n")
 		_, _ = io.Copy(io.Discard, os.Stdin)
-		if os.Getenv("CONCORD_TEST_RESURRECT") != "" {
-			_ = os.WriteFile(path+".resurrect", blob, 0o600)
-			_ = os.Rename(path+".resurrect", path)
+		if os.Getenv("CONCORD_TEST_RESURRECT") != "" && id != nil {
+			err := saveKeystoreLocked(path, "pw", id, blob)
+			_, _ = os.Stdout.WriteString(fmt.Sprintf("write: %v\n", err))
 		}
 		unlock()
 		os.Exit(0)
@@ -105,7 +107,7 @@ func TestEraseStaysFinalWhenAnotherProcessHoldsTheLock(t *testing.T) {
 	stdin, cmd := holdInAnotherProcess(t, path, true)
 	orig := keystoreLockWait
 	keystoreLockWait = 300 * time.Millisecond
-	t.Cleanup(func() { keystoreLockWait = orig })
+	t.Cleanup(func() { finishers.Wait(); keystoreLockWait = orig })
 
 	if err := RemoveKeystore(path); err != nil {
 		t.Fatalf("erase with the lock held elsewhere: %v", err)

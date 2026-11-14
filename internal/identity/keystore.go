@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"time"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/nacl/secretbox"
@@ -214,8 +213,23 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte) erro
 	if err != nil {
 		return fmt.Errorf("identity: write keystore: %w", err)
 	}
+	// An erase that could not take the lock may have been asked for while this
+	// write held it (see RemoveKeystore). It wins: the write stands down
+	// before renaming, and a write that renamed as the erase was being asked
+	// for takes its own file away again.
+	if erasePending(path) {
+		return ErrKeystoreChanged
+	}
+	testHooks.rename()
 	if err := renameDurable(tmp, path); err != nil {
+		if erasePending(path) {
+			return ErrKeystoreChanged
+		}
 		return fmt.Errorf("identity: finalize keystore: %w", err)
+	}
+	if erasePending(path) {
+		finishEraseOfOwnWrite(path)
+		return ErrKeystoreChanged
 	}
 	// Only a rename that put this file at the path counts: one that did not
 	// (two names for one file make rename a silent no-op) must not be
@@ -381,6 +395,7 @@ type resealHooks struct {
 	resealChecked func() // under the lock, the re-seal found the file unchanged
 	resealDone    func() // the re-seal has written, or declined to
 	beforeCreate  func() // first run found no keystore and is about to create one
+	beforeRename  func() // a write has checked for a pending erase and is about to rename
 }
 
 var testHooks resealHooks
@@ -400,6 +415,12 @@ func (h resealHooks) checked() {
 func (h resealHooks) create() {
 	if h.beforeCreate != nil {
 		h.beforeCreate()
+	}
+}
+
+func (h resealHooks) rename() {
+	if h.beforeRename != nil {
+		h.beforeRename()
 	}
 }
 
@@ -425,10 +446,10 @@ var errKeystoreSymlink = errors.New("identity: the keystore is a symbolic link; 
 // ReadKeystore returns the keystore file's bytes: the snapshot a caller
 // decides on (decrypts with OpenKeystoreBytes, compares accounts) and then
 // hands back to ReplaceKeystore or RemoveKeystoreIfUnchanged as expected.
-// A keystore whose erase is still pending (see RemoveKeystore) reads as
+// A keystore an unfinished erase condemned (see RemoveKeystore) reads as
 // absent.
 func ReadKeystore(path string) ([]byte, error) {
-	if erasePending(path) {
+	if condemned(path) {
 		return nil, &fs.PathError{Op: "open", Path: path, Err: fs.ErrNotExist}
 	}
 	return os.ReadFile(path)
@@ -508,107 +529,6 @@ func resealIfUnchanged(path, passphrase string, id *Identity, opened []byte, hoo
 	return writeKeystore(path, passphrase, id, opened, hooks)
 }
 
-// RemoveKeystoreIfUnchanged erases the keystore at path only if it is still
-// expected, the snapshot on which the caller (and the user) decided that it
-// may go. A keystore that became another account's, or the same account's
-// under a newer passphrase, is not the one that was agreed to and is left
-// alone with ErrKeystoreChanged.
-func RemoveKeystoreIfUnchanged(path string, expected []byte) error {
-	unlock, err := lockKeystore(path)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	if expected == nil {
-		return ErrKeystoreChanged
-	}
-	if err := checkExpected(path, expected); err != nil {
-		return err
-	}
-	return removeKeystoreFiles(path)
-}
-
-func removeKeystoreFiles(path string) error {
-	// path+".tmp" is the temp name builds before unique temp files used.
-	for _, p := range []string{path, path + ".tmp"} {
-		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-	removeStaleTemps(path)
-	return nil
-}
-
-// RemoveKeystore deletes the keystore at path, and any temp file a write left
-// beside it, under the keystore lock (see lockKeystore). An erase has to wait
-// for a re-seal that is already past its check: deleting the file in the
-// ~200 ms that re-seal spends deriving its key let its rename bring the
-// erased account back.
-//
-// When the lock cannot be had in time (another process holding it, perhaps
-// stalled mid-write) the erase does not wait and does not trust the holder
-// either: it leaves a tombstone beside the keystore, removes the files at
-// once, and leaves finishing to whoever holds the lock next, this process in
-// the background included. Until then the keystore reads as absent, so a
-// holder that renames a file back in after the erase brings nothing back
-// that anyone can open, and the next lock holder deletes it. That an erase
-// stays an erase does not depend on how long anybody waits.
-func RemoveKeystore(path string) error {
-	if unlock, err := lockKeystore(path); err == nil {
-		defer unlock()
-		return removeKeystoreFiles(path)
-	}
-	if _, err := os.Stat(filepath.Dir(path)); os.IsNotExist(err) {
-		return nil // nothing to erase, nowhere to put a tombstone
-	}
-	if err := os.WriteFile(tombstonePath(path), nil, 0o600); err != nil {
-		return err
-	}
-	if err := removeKeystoreFiles(path); err != nil {
-		return err
-	}
-	go func() {
-		// Taking the lock finishes the erase (see lockKeystore). Retried, one
-		// bounded attempt at a time so this never sits on keystoreMu, until
-		// it happens here or another holder has done it.
-		for erasePending(path) {
-			if unlock, err := lockKeystore(path); err == nil {
-				unlock()
-				return
-			}
-			time.Sleep(time.Second)
-		}
-	}()
-	return nil
-}
-
-// tombstonePath marks an erase that could not take the keystore lock.
-func tombstonePath(path string) string { return path + ".erased" }
-
-func erasePending(path string) bool {
-	_, err := os.Lstat(tombstonePath(path))
-	return err == nil
-}
-
-// finishPendingErase completes a tombstoned erase, for a caller holding the
-// keystore lock: whatever is at the keystore path now was put there by a
-// holder that started before the erase, and goes. The tombstone goes last.
-func finishPendingErase(path string) {
-	if !erasePending(path) {
-		return
-	}
-	if removeKeystoreFiles(path) == nil {
-		_ = os.Remove(tombstonePath(path))
-	}
-}
-
-// HasKeystore reports whether there is a keystore at path to unlock: one
-// that exists and is not erased.
-func HasKeystore(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil && !erasePending(path)
-}
-
 // LoadKeystore reads and decrypts the identity at path using passphrase.
 func LoadKeystore(path, passphrase string) (*Identity, error) {
 	id, _, err := openKeystore(path, passphrase)
@@ -684,6 +604,10 @@ func OpenKeystoreBytes(blob []byte, passphrase string) (*Identity, error) {
 // if the file does not exist. This is the normal app-startup entry point.
 // The bool result reports whether a new identity was created.
 func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
+	return loadOrCreate(path, passphrase, false)
+}
+
+func loadOrCreate(path, passphrase string, again bool) (*Identity, bool, error) {
 	id, opened, err := openKeystore(path, passphrase)
 	if err == nil {
 		// Transparently upgrade a legacy (v1) keystore: give it a device seed and
@@ -726,6 +650,18 @@ func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
 	}
 	if !os.IsNotExist(err) {
 		return nil, false, err
+	}
+	if _, lerr := os.Lstat(path); lerr == nil {
+		// Absent only because an unfinished erase condemned it. Finish that
+		// erase before anything is created here, and look again: nothing is
+		// ever created over a keystore that is on the disk.
+		if again {
+			return nil, false, errErasePending
+		}
+		if err := finishErase(path); err != nil {
+			return nil, false, err
+		}
+		return loadOrCreate(path, passphrase, true)
 	}
 	id, err = Generate()
 	if err != nil {
