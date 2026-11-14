@@ -1227,11 +1227,6 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	if !ok {
 		return json.Marshal(inviteResponse{Error: "unknown guild"})
 	}
-	// Notes admits this account's own devices and nobody else, whatever code
-	// they hold (one minted before ShareableInviteCode refused it, say).
-	if isNotesGuild(*g, s.PublicKey()) && len(req.Credential) > 0 && accountFingerprintOf(req.Credential) != s.id.Fingerprint() {
-		return json.Marshal(inviteResponse{Error: "unknown guild"})
-	}
 	// Serving the join advances the epoch and returns a Welcome. If WE aren't an
 	// authorized committer, honest peers drop our commit and the joiner forks onto
 	// a private epoch chain — silently. Refuse rather than fork.
@@ -1264,8 +1259,15 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	// caller's account key, a device cert to the caller's device key (and the cert
 	// must chain to an account). This works for both a legacy account-key PeerID
 	// and a linked device's device-key PeerID.
-	if len(req.Credential) > 0 && !credentialBoundToPeer(req.Credential, from) {
+	if !credentialBoundToPeer(req.Credential, from) {
 		return json.Marshal(inviteResponse{Error: "credential does not match caller"})
+	}
+	// Notes admits this account's own devices and nobody else, whatever code
+	// they hold (one minted before ShareableInviteCode refused it, say). It is
+	// judged here, on the credential the leaf would carry, so a request that
+	// leaves its own credential out is judged too.
+	if isNotesGuild(*g, s.PublicKey()) && accountFingerprintOf(req.Credential) != s.id.Fingerprint() {
+		return json.Marshal(inviteResponse{Error: "unknown guild"})
 	}
 	// Learn this joiner's device→account mapping so their PeerID resolves to the
 	// account in presence/roster (a device cert; a no-op for a bare credential).
@@ -1273,7 +1275,7 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 
 	// Enforce the banlist at the gate: a banned fingerprint cannot rejoin, even
 	// with a fresh invite code. This is what makes a ban survive rejoin.
-	if len(req.Credential) > 0 && s.isBanned(req.GuildID, accountFingerprintOf(req.Credential)) {
+	if s.isBanned(req.GuildID, accountFingerprintOf(req.Credential)) {
 		return json.Marshal(inviteResponse{Error: bannedRefusal})
 	}
 	// And the kick tombstone, on the same footing and for the same reason.
@@ -1285,7 +1287,7 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	// caller, checked here on every member's device. Until this existed the
 	// heal walked a kicked member straight back in, one beat after the toast
 	// said "Member kicked".
-	if len(req.Credential) > 0 && s.isRemoved(req.GuildID, accountFingerprintOf(req.Credential)) {
+	if s.isRemoved(req.GuildID, accountFingerprintOf(req.Credential)) {
 		return json.Marshal(inviteResponse{Error: removedRefusal})
 	}
 	// A heal from someone our tree has never seated. The way that happens is a
@@ -1297,14 +1299,14 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	// used to fold the phantom into the guild, newcomer and all, with nobody who
 	// could admit them ever having done so. A real stranded member still holds
 	// a leaf here; a first-time joiner arrives as a join, not a heal.
-	if req.Heal && len(req.Credential) > 0 && !s.guildHasMember(req.GuildID, accountFingerprintOf(req.Credential)) {
+	if req.Heal && !s.guildHasMember(req.GuildID, accountFingerprintOf(req.Credential)) {
 		return json.Marshal(inviteResponse{Error: unseatedRefusal})
 	}
 	// A probe from a device whose leaf our tree still holds, past every refusal
 	// above: it is in, and saying so is the whole answer. Serving it as a join
 	// would find the key package refused (the leaf is already there), remove
 	// the live leaf, re-add it, and have the device announce a second arrival.
-	if req.Probe && !ignoreProbes.Load() && len(req.Credential) > 0 && s.leafIsLive(g.GroupID, req.Credential) {
+	if req.Probe && !ignoreProbes.Load() && s.leafIsLive(g.GroupID, req.Credential) {
 		return json.Marshal(inviteResponse{Guild: *g, Member: true})
 	}
 

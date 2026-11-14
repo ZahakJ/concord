@@ -81,7 +81,8 @@ type admissionBatch struct {
 // admit queues a validated join request, waits for its batch to commit, and
 // returns that joiner's welcome. The caller has already decided this request is
 // one we are willing to serve (authorization, ban list, credential binding); by
-// this point the only remaining question is MLS's.
+// this point the only remaining question is MLS's. req.Credential is never
+// empty here: handleInviteRequest fills it from the key package.
 func (s *Service) admit(g *domain.Guild, req inviteRequest, from peer.ID) (welcome []byte, refusal string) {
 	t := &admissionTicket{
 		req: req, from: from,
@@ -199,7 +200,7 @@ func (s *Service) commitAdmissions(g *domain.Guild, tickets []*admissionTicket) 
 
 	var retry []*admissionTicket
 	for _, t := range tickets {
-		if served[t] || len(t.req.Credential) == 0 {
+		if served[t] {
 			continue
 		}
 		// The stale-leaf eviction. It is its own commit — a Remove cannot be
@@ -261,12 +262,10 @@ func (s *Service) admitRound(g *domain.Guild, tickets []*admissionTicket) map[*a
 		t := tickets[i]
 		t.welcome = welcome
 		served[t] = true
-		if len(t.req.Credential) > 0 {
-			// Learn the joiner's display name over this reliable stream (their
-			// gossip announce may be lost while their mesh warms up).
-			s.learnProfile(accountFingerprintOf(t.req.Credential), t.req.Profile)
-			s.clearPendingDMInvite(g.ID, accountFingerprintOf(t.req.Credential))
-		}
+		// Learn the joiner's display name over this reliable stream (their
+		// gossip announce may be lost while their mesh warms up).
+		s.learnProfile(accountFingerprintOf(t.req.Credential), t.req.Profile)
+		s.clearPendingDMInvite(g.ID, accountFingerprintOf(t.req.Credential))
 		// Keep this member reachable, especially over a relay.
 		s.host.Protect(t.from)
 	}
