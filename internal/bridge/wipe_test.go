@@ -240,3 +240,15 @@ func TestDeferredEraseWithDataLeftIsNotReportedDone(t *testing.T) {
 		t.Fatalf("reported as done with one file to go: %v", err)
 	}
 }
+
+// An erase that could not remove everything says exactly what is still here,
+// and does not promise that anything will remove it later on its own.
+func TestPartialEraseSaysWhatIsLeft(t *testing.T) {
+	err := erasePendingError(fmt.Errorf("%w: still here: concord.db, mls", appsvc.ErrDataNotErased))
+	if err == nil || !strings.Contains(err.Error(), "concord.db, mls") {
+		t.Fatalf("the partial erase does not name what is left: %v", err)
+	}
+	if strings.Contains(err.Error(), "removes it before") {
+		t.Fatalf("the message promises a later delete: %v", err)
+	}
+}

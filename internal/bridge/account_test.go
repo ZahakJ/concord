@@ -303,42 +303,6 @@ func TestServiceStartingMidCopyDeletesNothing(t *testing.T) {
 	adaIsBack(t, b, ks, saved)
 }
 
-// After an erase that recorded itself and could not remove all the data, the
-// next unlock finishes that erase before creating, so the new account does
-// not come up with the old one's profile; if it cannot, nothing is created.
-func TestUnlockFinishesARecordedEraseFirst(t *testing.T) {
-	b, ks, _ := lostKeystore(t)
-	if err := os.WriteFile(filepath.Join(filepath.Dir(ks), "data-erase-pending"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := b.Login("new"); err != nil {
-		t.Fatal(err)
-	}
-	svc, _ := b.service()
-	if svc.DisplayName() == "Ada" {
-		t.Fatal("the new account came up with the erased account's profile")
-	}
-}
-
-func TestUnlockRefusesWhenARecordedEraseCannotFinish(t *testing.T) {
-	b, ks, _ := lostKeystore(t)
-	dir := filepath.Dir(ks)
-	if err := os.WriteFile(filepath.Join(dir, "data-erase-pending"), nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	db := filepath.Join(dir, "concord.db")
-	_ = os.Remove(db)
-	if err := os.MkdirAll(filepath.Join(db, "x"), 0o700); err != nil { // cannot be removed
-		t.Fatal(err)
-	}
-	if err := b.Login("new"); err == nil {
-		t.Fatal("an account was set up beside data that could not be removed")
-	}
-	if _, err := os.Stat(ks); !os.IsNotExist(err) {
-		t.Fatal("a keystore was created although the unlock refused")
-	}
-}
-
 // An unlock from a headless path (Login called directly, as the passphrase
 // file does) has nobody to return the altered-account notice to: it is
 // logged, and still returned by the next Login through the UI.
@@ -386,6 +350,20 @@ func TestRestoreFromPhraseNeverComesUpBesideAnotherAccountsData(t *testing.T) {
 	err = b.RestoreFromMnemonic(phrase, "new", "")
 	if code, _ := codeOf(err); code != CodeReplaceRefused {
 		t.Fatalf("restore of another account over Ada's data: %v, want it asked about", err)
+	}
+	adaIsBack(t, b, ks, saved)
+}
+
+// An erase record (an interim build wrote one when a wipe began) authorises
+// nothing: the unlock still deletes nothing and creates nothing, and the
+// account opens with its data once its keystore is back.
+func TestARecordedEraseAuthorisesNothing(t *testing.T) {
+	b, ks, saved := lostKeystore(t)
+	if err := os.WriteFile(filepath.Join(filepath.Dir(ks), "data-erase-pending"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := codeOf(b.Login("new")); code != CodeDataWithoutKeystore {
+		t.Fatal("an unlock with an erase record and no keystore did not refuse")
 	}
 	adaIsBack(t, b, ks, saved)
 }

@@ -166,7 +166,7 @@ func (b *Bridge) ConfirmWipe(ticket, typed string) error {
 	b.lockReason = LockWiped
 	err = appsvc.ResetIdentity(dir)
 	b.mu.Unlock()
-	if err != nil && !errors.Is(err, identity.ErrEraseDeferred) {
+	if err != nil && !errors.Is(err, identity.ErrEraseDeferred) && !errors.Is(err, appsvc.ErrDataNotErased) {
 		return err
 	}
 	// The UI is now talking to a locked bridge over a session that no longer
@@ -186,10 +186,14 @@ func erasePendingError(err error) error {
 		return nil
 	}
 	if errors.Is(err, appsvc.ErrDataNotErased) {
-		// Not done: the account can no longer be opened and its keystore goes
-		// at the next chance, but some of its data is still here. Concord
-		// removes it before anything new is set up on this device.
-		return errors.New("This device's account can no longer be opened and its keystore will be deleted, but some of its data could not be removed yet. Concord removes it before anything new is set up here; close anything else using Concord's files and try again.")
+		// Not done, and said exactly: what is still here is named, and it
+		// stays until the user erases again. Nothing removes it on its own,
+		// and nothing new is set up beside it in the meantime.
+		left := "some of its data"
+		if _, list, ok := strings.Cut(err.Error(), "still here: "); ok {
+			left = list
+		}
+		return errors.New("The erase did not finish. Still on this device: " + left + ". Nothing new will be set up beside it. Close anything else using Concord's files, then erase again (Forgot passphrase → start over).")
 	}
 	return &CodedError{
 		Code: CodeErasePending,

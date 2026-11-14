@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ZahakJ/concord/internal/identity"
@@ -271,37 +272,8 @@ func TestDeferredEraseWithDataLeftSaysBoth(t *testing.T) {
 	if !errors.Is(err, identity.ErrEraseDeferred) || !errors.Is(err, ErrDataNotErased) {
 		t.Fatalf("deferred keystore erase with data left: %v, want both said", err)
 	}
-	if !dataErasePending(dir) {
-		t.Fatal("an unfinished erase left no record for the next create to finish it")
-	}
-}
-
-// The create guard deletes data found without a keystore only when an erase
-// of it was recorded; otherwise it refuses and deletes nothing.
-func TestCreateGuardDeletesOnlyARecordedErase(t *testing.T) {
-	dir := t.TempDir()
-	ks := keystorePathIn(dir)
-	if err := guardCreate(ks); err != nil {
-		t.Fatalf("an empty device: %v", err)
-	}
-	seedDevice(t, dir, "pw", "Bea", false)
-	if err := os.Remove(ks); err != nil {
-		t.Fatal(err)
-	}
-	if err := guardCreate(ks); !errors.Is(err, ErrDataWithoutKeystore) {
-		t.Fatalf("data, no keystore, no recorded erase: %v", err)
-	}
-	if store.PeekSetting(dbPathIn(dir), "display_name") != "Bea" {
-		t.Fatal("data was deleted on an inference")
-	}
-	if err := markDataErase(dir); err != nil {
-		t.Fatal(err)
-	}
-	if err := guardCreate(ks); err != nil {
-		t.Fatalf("data with a recorded erase: %v", err)
-	}
-	if _, err := os.Stat(dbPathIn(dir)); !os.IsNotExist(err) || dataErasePending(dir) {
-		t.Fatal("the recorded erase was not finished")
+	if !strings.Contains(err.Error(), "concord.db") {
+		t.Fatalf("the error does not say what is left: %v", err)
 	}
 }
 
@@ -345,5 +317,88 @@ func TestRestoreWithNoKeystoreAsksBeforeErasingAnotherAccountsData(t *testing.T)
 	deviceIs(t, dir, "new-pass", other)
 	if store.PeekSetting(dbPathIn(dir), "display_name") == "Bea" {
 		t.Fatal("the restored account came up beside the old account's data")
+	}
+}
+
+// No create ever deletes data it finds without a keystore, whatever else is
+// on the device, a leftover erase record included (written by an interim
+// build): it refuses and leaves everything.
+func TestCreateGuardNeverDeletes(t *testing.T) {
+	dir := t.TempDir()
+	ks := keystorePathIn(dir)
+	if err := guardCreate(ks); err != nil {
+		t.Fatalf("an empty device: %v", err)
+	}
+	seedDevice(t, dir, "pw", "Bea", false)
+	if err := os.Remove(ks); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data-erase-pending"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := guardCreate(ks); !errors.Is(err, ErrDataWithoutKeystore) {
+		t.Fatalf("data and an erase record, no keystore: %v", err)
+	}
+	if store.PeekSetting(dbPathIn(dir), "display_name") != "Bea" {
+		t.Fatal("a create deleted data")
+	}
+}
+
+// The reviewer's probe: a wipe refused (the keystore is a symlink, "nothing
+// was erased"), the link then replaced by the file, the account used, and
+// later its keystore lost. The unlock that follows deletes nothing.
+func TestARefusedWipeNeverDeletesLater(t *testing.T) {
+	dir := t.TempDir()
+	seedDevice(t, dir, "pw", "Bea", false)
+	ks := keystorePathIn(dir)
+	real := filepath.Join(t.TempDir(), "keystore.json")
+	if err := os.Rename(ks, real); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, ks); err != nil {
+		t.Skip("no symlinks here")
+	}
+	if err := ResetIdentity(dir); err == nil {
+		t.Fatal("a wipe through a symlinked keystore reported success")
+	}
+	_ = os.Remove(ks)
+	if err := os.Rename(real, ks); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := identity.LoadKeystore(ks, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(ks); err != nil { // lost, later
+		t.Fatal(err)
+	}
+	if _, _, err := identity.LoadOrCreate(ks, "new"); !errors.Is(err, ErrDataWithoutKeystore) {
+		t.Fatalf("unlock after a refused wipe and a lost keystore: %v", err)
+	}
+	if store.PeekSetting(dbPathIn(dir), "display_name") != "Bea" {
+		t.Fatal("the data was deleted on the say-so of a wipe that never happened")
+	}
+}
+
+// The reviewer's other probe: a wipe that failed, the keystore later lost,
+// and the account's own phrase restored. The data is the account's and is
+// kept, not erased without a question.
+func TestAFailedWipeNeverErasesAnOwnPhraseRestore(t *testing.T) {
+	dir := t.TempDir()
+	bea := seedDevice(t, dir, "pw", "Bea", false)
+	orig := removeKeystore
+	removeKeystore = func(string) error { return errors.New("held by another program") }
+	err := ResetIdentity(dir)
+	removeKeystore = orig
+	if err == nil {
+		t.Fatal("the failing wipe reported success")
+	}
+	if err := os.Remove(keystorePathIn(dir)); err != nil { // lost, later
+		t.Fatal(err)
+	}
+	if err := RestoreIdentity(dir, phraseOf(t, bea), "new-pass"); err != nil {
+		t.Fatalf("own-phrase restore: %v", err)
+	}
+	if !noteSurvives(t, dir, bea) {
+		t.Fatal("the restore erased the account's messages on the say-so of a failed wipe")
 	}
 }

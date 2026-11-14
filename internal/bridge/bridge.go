@@ -524,7 +524,7 @@ func (b *Bridge) ResetIdentity() error {
 	if err != nil {
 		return err
 	}
-	if err := appsvc.ResetIdentity(dir); errors.Is(err, identity.ErrEraseDeferred) {
+	if err := appsvc.ResetIdentity(dir); errors.Is(err, identity.ErrEraseDeferred) || errors.Is(err, appsvc.ErrDataNotErased) {
 		return erasePendingError(err)
 	} else if err != nil {
 		return err

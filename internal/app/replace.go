@@ -239,14 +239,13 @@ func replaceGate(dataDir string, seed []byte, confirm, incomingName string, snap
 	}
 }
 
-// noKeystoreGate is replaceGate for a device with no keystore. Nothing here,
-// or data whose erase was recorded: go ahead (the erase finishes under the
-// lock). Data that opens under the incoming seed is this account's: keep it,
+// noKeystoreGate is replaceGate for a device with no keystore. Nothing here:
+// go ahead. Data that opens under the incoming seed is this account's: keep it,
 // no question, since nothing is erased. Any other data is another account's,
 // or nobody's that Concord can prove: the standard confirmation, then it is
 // erased before the new keystore lands, never kept beside it.
 func noKeystoreGate(dataDir string, seed []byte, confirm, incomingName string, snap []byte) (bool, error) {
-	if !hasAccountData(dataDir) || dataErasePending(dataDir) {
+	if !hasAccountData(dataDir) {
 		return false, nil
 	}
 	incoming, err := identity.FromSeed(seed)

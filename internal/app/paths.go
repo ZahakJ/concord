@@ -7,9 +7,9 @@ package app
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ZahakJ/concord/internal/identity"
 )
@@ -72,11 +72,9 @@ func HasIdentity(dataDir string) bool {
 func ResetIdentity(dataDir string) error {
 	// Through identity, so a keystore write in flight (the re-seal behind an
 	// unlock) finishes before the file goes rather than recreating it after.
-	// Recorded first: if any part of this erase fails, the next create on
-	// this device knows the data it finds was meant to go.
-	if err := markDataErase(dataDir); err != nil {
-		return err
-	}
+	// Everything happens now, while the user who confirmed it is here: if
+	// any of it fails, what is left stays until they choose again. Nothing
+	// later deletes it on this erase's behalf.
 	err := removeKeystore(keystorePathIn(dataDir))
 	if err != nil && !errors.Is(err, identity.ErrEraseDeferred) {
 		return err
@@ -87,10 +85,7 @@ func ResetIdentity(dataDir string) error {
 	// are said: reporting only the data failure would read as "nothing
 	// happened" while the keystore erase still completes later.
 	if derr := resetDataIn(dataDir); derr != nil {
-		if err != nil {
-			return errors.Join(err, fmt.Errorf("%w: %v", ErrDataNotErased, derr))
-		}
-		return derr
+		return errors.Join(err, derr) // derr names what is left (ErrDataNotErased)
 	}
 	return err
 }
@@ -100,9 +95,9 @@ func ResetIdentity(dataDir string) error {
 var removeKeystore = identity.RemoveKeystore
 
 // ErrDataNotErased: some of an erased account's data (database, peer cache,
-// device marker, group state) could not be removed. Nothing new is created
-// beside it: the erase is recorded (dataErasePath) and completed by the next
-// create on this device, which refuses if it cannot.
+// device marker, group state) could not be removed; the error names what is
+// left. Nothing new is created beside it (guardCreate), and nothing removes
+// it later on its own: the user chooses again.
 var ErrDataNotErased = errors.New("app: some of this device's data could not be removed")
 
 // ErrDataWithoutKeystore refuses to set up a new account on a device that has
@@ -113,51 +108,16 @@ var ErrDataNotErased = errors.New("app: some of this device's data could not be 
 // explicit start over.
 var ErrDataWithoutKeystore = errors.New("app: this device has an account's data but no keystore to open it")
 
-// dataErasePath records that an erase of this device's data was asked for and
-// has not finished. Written, durably, before an erase removes anything, and
-// removed once all of it is gone; it is the only thing that lets a later
-// create delete data it finds without a keystore.
-func dataErasePath(dataDir string) string { return filepath.Join(dataDir, "data-erase-pending") }
-
-func dataErasePending(dataDir string) bool {
-	_, err := os.Lstat(dataErasePath(dataDir))
-	return err == nil
-}
-
-func markDataErase(dataDir string) error {
-	f, err := os.OpenFile(dataErasePath(dataDir), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	_ = syncDataDir(dataDir)
-	return nil
-}
-
 func init() { identity.CreateGuard = guardCreate }
 
 // guardCreate is identity.CreateGuard: run under the keystore lock inside a
-// first-run create, once the new keystore is safely beside where it goes.
-// No account data here: go ahead. Data and a recorded erase: finish that
-// erase first, or refuse. Data and no record: refuse, deleting nothing.
+// first-run create. No account data here: go ahead. Any account data with no
+// keystore: refuse, deleting nothing and creating nothing. Data is deleted
+// only by an erase the user confirms in that moment (start over, the wipe,
+// or a confirmed restore or link), never on anyone's inference.
 func guardCreate(keystorePath string) error {
-	dataDir := filepath.Dir(keystorePath)
-	if !hasAccountData(dataDir) {
-		_ = os.Remove(dataErasePath(dataDir))
-		return nil
-	}
-	if !dataErasePending(dataDir) {
+	if hasAccountData(filepath.Dir(keystorePath)) {
 		return ErrDataWithoutKeystore
-	}
-	log.Printf("concord/app: finishing the erase of this device's data before setting up a new account")
-	if err := resetDataIn(dataDir); err != nil {
-		return fmt.Errorf("%w (%v); nothing was set up — close anything else using Concord's files and try again", ErrDataNotErased, err)
 	}
 	return nil
 }
@@ -179,6 +139,9 @@ func hasAccountData(dataDir string) bool {
 
 // resetDataIn removes everything ResetIdentity erases except the keystore.
 func resetDataIn(dataDir string) error {
+	// Every item is tried, and what could not be removed is named: the user
+	// is told exactly what is and is not gone.
+	var left []string
 	for _, p := range []string{
 		dbPathIn(dataDir),
 		dbPathIn(dataDir) + "-wal",
@@ -200,13 +163,13 @@ func resetDataIn(dataDir string) error {
 		deviceMarkerPath(dataDir) + ".tmp",
 	} {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-			return err
+			left = append(left, filepath.Base(p))
 		}
 	}
 	// MLS state directory. A failure here must stop a restore or link before
 	// its new keystore lands beside part of the old account's group state.
 	if err := os.RemoveAll(filepath.Join(dataDir, "mls")); err != nil {
-		return err
+		left = append(left, "mls")
 	}
 	// Removals are entries in the data directory, and a power cut can undo
 	// them until it is synced. This runs before a restored or linked
@@ -216,9 +179,8 @@ func resetDataIn(dataDir string) error {
 	// it is what makes that stick. Best effort: Windows cannot sync a
 	// directory.
 	_ = syncDataDir(dataDir)
-	// All of it is gone: the erase is no longer pending.
-	if err := os.Remove(dataErasePath(dataDir)); err == nil {
-		_ = syncDataDir(dataDir)
+	if len(left) > 0 {
+		return fmt.Errorf("%w: still here: %s", ErrDataNotErased, strings.Join(left, ", "))
 	}
 	return nil
 }
