@@ -618,6 +618,8 @@
 
   async function submit(e) {
     e?.preventDefault();
+    // The erase confirmation is on screen: nothing here submits the form.
+    if (confirmingReset) return;
     if (resumeBackup && !backupPhrase) return resumeShow(e);
     if (naming) return saveName(e);
     if (!passphrase || busy || backupPhrase) return;
@@ -1054,7 +1056,14 @@
         aria-label="Type {START_OVER_WORD} to confirm"
         placeholder={START_OVER_WORD}
         disabled={busy}
-        onkeydown={(e) => e.key === "Enter" && doReset()}
+        onkeydown={(e) => {
+          // Enter here is this confirmation's, never the form's: the form's
+          // submit would try to unlock or create with the passphrase fields.
+          if (e.key === "Enter") {
+            e.preventDefault();
+            doReset();
+          }
+        }}
       />
       <div class="error slot" role="alert">{error}</div>
       <button type="button" class="danger" disabled={busy || !resetMatches} onclick={doReset}>

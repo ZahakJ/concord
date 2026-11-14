@@ -141,6 +141,7 @@ test("data without a keystore: erasing it takes the typed word and a current con
     assert.ok(await yes.isDisabled(), `the erase button is enabled with "${wrong}" typed`);
     await word.press("Enter");
   }
+  assert.ok(await word.isVisible(), "Enter with a wrong word left the confirmation (it submitted the form behind it)");
   untouched(assert, alice, dbBefore, "after wrong words");
 
   step("cancelling keeps everything");
