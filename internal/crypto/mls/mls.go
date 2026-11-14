@@ -25,6 +25,7 @@ import (
 
 	upstream "github.com/thomas-vilte/mls-go"
 	"github.com/thomas-vilte/mls-go/ciphersuite"
+	"github.com/thomas-vilte/mls-go/credentials"
 	"github.com/thomas-vilte/mls-go/framing"
 	"github.com/thomas-vilte/mls-go/group"
 	"github.com/thomas-vilte/mls-go/keypackages"
@@ -305,6 +306,27 @@ func signatureKeyOf(kp []byte) ([]byte, error) {
 		return nil, fmt.Errorf("mls: key package has no leaf signature key")
 	}
 	return parsed.LeafNode.SignatureKeyBytes, nil
+}
+
+// KeyPackageCredential returns the credential identity a key package's leaf
+// carries: the bytes Members will report for that leaf once it is added. It
+// reads the key package without verifying it. MLS only checks that a key
+// package is signed by its own leaf's signature key, and says nothing about who
+// the credential names, so the caller must compare this with a credential it
+// has authenticated some other way before adding the leaf.
+func KeyPackageCredential(kp []byte) ([]byte, error) {
+	parsed, err := keypackages.UnmarshalKeyPackage(kp)
+	if err != nil {
+		return nil, fmt.Errorf("mls: parse key package: %w", err)
+	}
+	if parsed.LeafNode == nil || parsed.LeafNode.Credential == nil {
+		return nil, fmt.Errorf("mls: key package has no leaf credential")
+	}
+	cred := parsed.LeafNode.Credential
+	if cred.CredentialType != credentials.BasicCredential || len(cred.Identity) == 0 {
+		return nil, fmt.Errorf("mls: key package credential is not a basic credential")
+	}
+	return append([]byte(nil), cred.Identity...), nil
 }
 
 // discardOrphanProposals clears anything left staged on a group before we mint
