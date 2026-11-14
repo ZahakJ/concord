@@ -174,6 +174,7 @@ func (s *Service) greet(p peer.ID) {
 		s.greeted.release(p)
 		return
 	}
+	hint := s.profileHintFor(p)
 	req, err := marshalHello(helloFrame{
 		Credential:   s.myCredential,
 		Name:         s.deviceLabel(),
@@ -183,7 +184,7 @@ func (s *Service) greet(p peer.ID) {
 		Left:         s.leftGuildsFor(p),
 		Arrived:      s.arrivalsFor(p),
 		ReadMarks:    s.readMarksFor(p),
-		ProfileAt:    s.profileHintFor(p),
+		ProfileAt:    hint,
 	})
 	if err != nil {
 		return
@@ -191,6 +192,9 @@ func (s *Service) greet(p peer.ID) {
 	ctx, cancel := context.WithTimeout(s.ctx, helloTimeout)
 	defer cancel()
 	resp, err := s.host.SayHello(ctx, p, req)
+	if err == nil && s.ownDevice(p) {
+		s.ownProfile.holds(p, hint)
+	}
 	if err != nil {
 		// Let a later connect try again — an old peer with no handler, or a
 		// connection that died mid-stream, are both worth one more attempt.
@@ -426,6 +430,11 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 			s.redeemOfferedInvites(from, f.GuildInvites, f.Arrived)
 		}()
 		go func() {
+			// A device of ours offering a stamp holds that stamp: nothing older
+			// needs telling to it.
+			if f.ProfileAt > 0 && s.ownDevice(from) {
+				s.ownProfile.offered(from, f.ProfileAt)
+			}
 			// The inline copy first: when it is there it is the same profile,
 			// and adopting it makes the stamp the hint is compared with current.
 			s.adoptOfferedProfile(from, f.Profile)

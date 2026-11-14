@@ -306,7 +306,10 @@
         const me = await api.identity();
         if (foundName(me) && foundName(me) !== provisional) foundId = me;
       } catch {}
-      if (Date.now() - began > 45000) waitedOut = true;
+      // Bounded: on the rig the profile arrived within 4 to 9 s whenever a
+      // device or guild-mate was online, so a quarter of a minute of silence
+      // means nobody is, and the screen should say that rather than spin.
+      if (Date.now() - began > 25000) waitedOut = true;
     }, 1000);
   }
   $effect(() => () => clearInterval(watchTimer));
@@ -740,10 +743,19 @@
             <span class="ls-spin" aria-hidden="true"></span>
             Your account is back. Looking for your profile on your other devices and guild-mates…
           {:else}
-            Nothing yet. It fills in by itself when one of your devices or guild-mates is online —
-            you don't have to wait here.
+            None of your devices or guild-mates have answered yet. Your profile will appear by
+            itself when one of them is online — you don't have to wait here.
           {/if}
         </p>
+        {#if waitedOut}
+          <p class="muted small">
+            {#if !rdvInput.trim()}
+              This device has no rendezvous set, so it can only look on this network.
+            {/if}
+            If this account is still open on a device you never linked, the two can't see each
+            other: close it there, or link this device from it instead.
+          </p>
+        {/if}
         <span class="field-lbl" aria-hidden="true">Your name for now (optional)</span>
         <input
           type="text"

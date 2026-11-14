@@ -328,6 +328,9 @@ func (s *Service) keepDevicesClose() {
 	for {
 		missing := s.reachOwnDevices()
 		s.devicesAway.Store(missing > 0)
+		// The present ones: anything a push or a fetch left behind on the
+		// profile is settled here, and nothing is sent while all agree.
+		s.reconcileOwnProfiles()
 		switch {
 		case missing == 0:
 			wait, wasComplete = deviceReachIdle, true

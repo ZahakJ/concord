@@ -426,10 +426,15 @@ type Service struct {
 	// once and is placed; an outsider spamming a gossip topic pays us nothing
 	// more than that one refused stream.
 	solicited greetSet
-	// profileAsked: the peers we have asked for our own profile record on their
-	// current connection (profilerecord.go). The ask is prompted by a hint the
-	// peer itself sent, so it is held to one per connection.
-	profileAsked greetSet
+	// ownProfile tracks which devices of the account hold which profile edit
+	// (profilesync.go).
+	ownProfile ownProfileSync
+	// profileMu makes a profile write — a local edit, or adopting another
+	// device's — one step with the stamp check that decides it.
+	profileMu sync.Mutex
+	// testSayProfile stands in for the profile push's hello in tests. nil in
+	// the product.
+	testSayProfile func(context.Context, peer.ID, []byte) ([]byte, error)
 	// profileSeal caches the sealed signature of the profile we announce.
 	profileSeal profileSealCache
 
@@ -1336,7 +1341,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		s.greeted.release(p)
 		s.answered.release(p)
 		s.solicited.release(p)
-		s.profileAsked.release(p)
+		s.ownProfile.forget(p)
 		s.markDeviceLeft(p)
 		s.emitPeerDown(p, s.presence(p))
 	})
@@ -1851,12 +1856,15 @@ func (s *Service) SetDisplayName(name string) error {
 	if err != nil {
 		return err
 	}
+	s.profileMu.Lock()
 	if err := s.store.SetSetting("display_name", name); err != nil {
+		s.profileMu.Unlock()
 		return err
 	}
 	s.bumpProfileStamp()
+	s.profileMu.Unlock()
 	s.announceProfileAll()
-	s.regreetOwnDevices()
+	s.tellOwnDevices()
 	return nil
 }
 
@@ -1874,6 +1882,8 @@ func (s *Service) SetProvisionalName(name string) error {
 	if err != nil {
 		return err
 	}
+	s.profileMu.Lock()
+	defer s.profileMu.Unlock()
 	if s.profileStamp() != 0 {
 		return errors.New("app: this account already has a profile; edit it instead")
 	}
@@ -2010,6 +2020,27 @@ func (s *Service) bumpProfileStamp() int64 {
 // two devices greeting each other from ping-ponging the same profile forever.
 // Reports whether anything was adopted.
 func (s *Service) AdoptLinkedProfile(p Profile) bool {
+	// The check and the writes are one step. Two hellos land together all the
+	// time (an edit's push crossing a reconnect's greeting), and while they
+	// were two steps both copies passed the check and wrote field by field
+	// over each other: the older one's games could land last under the newer
+	// one's stamp, and no later copy was ever "newer" again to repair it.
+	s.profileMu.Lock()
+	adopted := s.adoptLinkedProfileLocked(p)
+	s.profileMu.Unlock()
+	if !adopted {
+		return false
+	}
+	s.emitGuildUpdate()
+	// Our guilds' members may only be hearing from THIS device — tell them too.
+	s.announceProfileAll()
+	// And any other device of ours that is behind (a third device, or one
+	// that reconnected after the author pushed).
+	s.tellOwnDevices()
+	return true
+}
+
+func (s *Service) adoptLinkedProfileLocked(p Profile) bool {
 	if p.UpdatedAt <= s.profileStamp() {
 		return false
 	}
@@ -2063,9 +2094,6 @@ func (s *Service) AdoptLinkedProfile(p Profile) bool {
 	// Keep the AUTHOR's stamp, not a fresh one: re-stamping would make this
 	// device look like the newest editor and reflect the same profile back.
 	_ = s.store.SetSetting("profile_updated_at", strconv.FormatInt(p.UpdatedAt, 10))
-	s.emitGuildUpdate()
-	// Our guilds' members may only be hearing from THIS device — tell them too.
-	s.announceProfileAll()
 	return true
 }
 
@@ -2076,12 +2104,15 @@ func (s *Service) SetGames(games []Game) error {
 	if err != nil {
 		return err
 	}
+	s.profileMu.Lock()
 	if err := s.store.SetSetting(gamesSettingKey, string(raw)); err != nil {
+		s.profileMu.Unlock()
 		return err
 	}
 	s.bumpProfileStamp()
+	s.profileMu.Unlock()
 	s.announceProfileAll()
-	s.regreetOwnDevices()
+	s.tellOwnDevices()
 	return nil
 }
 
@@ -2112,6 +2143,7 @@ func (s *Service) SetProfile(p Profile) error {
 	}
 	p.Name = name
 	sanitizeProfileExtras(&p)
+	s.profileMu.Lock()
 	for k, v := range map[string]string{
 		"display_name": strings.TrimSpace(p.Name),
 		"status_text":  strings.TrimSpace(p.Status),
@@ -2129,15 +2161,18 @@ func (s *Service) SetProfile(p Profile) error {
 		"card_style":    encodeStyle(p.Style),
 	} {
 		if err := s.store.SetSetting(k, v); err != nil {
+			s.profileMu.Unlock()
 			return err
 		}
 	}
 	s.bumpProfileStamp()
+	s.profileMu.Unlock()
 	s.announceProfileAll()
-	// The gossip announce above reaches PEERS; our own devices adopt the raw
-	// stored profile over the device hello instead (see selfStoredProfile for
-	// why the two copies differ), so push a fresh hello at them now.
-	s.regreetOwnDevices()
+	// The gossip announce above reaches PEERS; our own devices ignore our own
+	// announce and take the stored profile over the device hello instead (see
+	// selfStoredProfile for why the two copies differ), pushed and retried
+	// until each has it (profilesync.go).
+	s.tellOwnDevices()
 	return nil
 }
 

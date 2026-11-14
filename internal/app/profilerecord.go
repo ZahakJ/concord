@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"golang.org/x/crypto/hkdf"
@@ -263,22 +264,85 @@ func (s *Service) profileHintFor(p peer.ID) int64 {
 }
 
 // fetchOwnProfile asks p for our record when its hint says it holds a newer one
-// than ours, verifies it, and adopts it. One ask per peer per connection: the
-// hint comes from the peer, and a peer that lies about it gets one stream.
+// than ours, verifies it, and adopts it. One fetch per peer at a time, each
+// hint fetched once, and at most one fetch per peer every profileAskGap: the
+// hint comes from the peer, so a peer that lies about it costs us a stream now
+// and then and nothing more. A failed fetch is retried here, and if it still
+// fails the hint stays "heard" for the own-device beat to try again.
 func (s *Service) fetchOwnProfile(p peer.ID, hint int64) {
-	if hint <= s.profileStamp() || p == s.host.PeerID() || !s.profileAsked.claim(p) {
+	if hint <= s.profileStamp() || p == s.host.PeerID() {
 		return
 	}
-	req, _ := json.Marshal(profileRequest{Have: s.profileStamp()})
-	ctx, cancel := context.WithTimeout(s.ctx, helloTimeout*4)
-	defer cancel()
-	resp, err := s.host.AskProfile(ctx, p, req)
-	if err != nil {
-		s.profileAsked.release(p) // a dead stream; the next connection may do better
+	o := &s.ownProfile
+	o.mu.Lock()
+	o.init()
+	if hint > o.heard[p] {
+		o.heard[p] = hint
+	}
+	if hint <= o.asked[p] {
+		o.mu.Unlock()
 		return
 	}
-	s.adoptProfileRecord(resp)
+	if o.fetching[p] || time.Since(o.lastAsk[p]) < profileAskGap {
+		// Busy or too soon: look again once the gap has passed, at whatever
+		// is newest by then. One such wait per peer.
+		if !o.pending[p] {
+			o.pending[p] = true
+			go func() {
+				select {
+				case <-s.ctx.Done():
+					return
+				case <-time.After(profileAskGap):
+				}
+				o.mu.Lock()
+				o.pending[p] = false
+				next := o.heard[p]
+				o.mu.Unlock()
+				s.fetchOwnProfile(p, next)
+			}()
+		}
+		o.mu.Unlock()
+		return
+	}
+	o.fetching[p], o.lastAsk[p] = true, time.Now()
+	o.mu.Unlock()
+	defer func() {
+		o.mu.Lock()
+		o.fetching[p] = false
+		o.mu.Unlock()
+	}()
+	for attempt, wait := 0, time.Second; attempt < profileTellTries; attempt, wait = attempt+1, wait*2 {
+		if attempt > 0 {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+		}
+		if hint <= s.profileStamp() {
+			return // arrived some other way meanwhile
+		}
+		req, _ := json.Marshal(profileRequest{Have: s.profileStamp()})
+		ctx, cancel := context.WithTimeout(s.ctx, helloTimeout*4)
+		resp, err := s.host.AskProfile(ctx, p, req)
+		cancel()
+		if err != nil {
+			continue
+		}
+		// Answered: adopted, or refused as not ours. Either way this hint is
+		// spent — asking again would get the same answer.
+		s.adoptProfileRecord(resp)
+		o.mu.Lock()
+		if hint > o.asked[p] {
+			o.asked[p] = hint
+		}
+		o.mu.Unlock()
+		return
+	}
 }
+
+// profileAskGap spaces fetches from one peer.
+const profileAskGap = 2 * time.Second
 
 // adoptProfileRecord applies a record served to us, if it verifies against our
 // own account key and is newer than what this device has.
