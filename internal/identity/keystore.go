@@ -292,6 +292,10 @@ func removeStaleTemps(path string) {
 // syncDir flushes a directory's entries to disk. A variable so a test can see
 // that it runs. Windows cannot sync a directory handle; there the rename is
 // made durable by renameDurable itself (write-through) instead.
+// SyncDir flushes a directory's entries to disk, best effort (see syncDir),
+// for callers outside this package that remove files beside the keystore.
+func SyncDir(dir string) error { return syncDir(dir) }
+
 var syncDir = func(dir string) error {
 	if runtime.GOOS == "windows" {
 		return nil

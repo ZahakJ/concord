@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/ZahakJ/concord/internal/identity"
@@ -131,4 +132,33 @@ func TestConfirmationOnlyErasesTheAccountTheUserWasShown(t *testing.T) {
 		t.Fatalf("the new refusal does not ask about Cy: %+v", refused)
 	}
 	deviceIs(t, dir, "cy-pass", cy)
+}
+
+// Erasing an account's data syncs the data directory once everything is
+// removed, the group-state directory included, so a power cut before the
+// new keystore lands cannot bring the old data back beside it.
+func TestResetDataSyncsTheDataDirectory(t *testing.T) {
+	dir := t.TempDir()
+	seedDevice(t, dir, "pw", "Bea", false)
+	if _, err := mlsDirIn(dir); err != nil {
+		t.Fatal(err)
+	}
+	synced := 0
+	orig := syncDataDir
+	syncDataDir = func(d string) error {
+		if d == dir {
+			if _, err := os.Stat(filepath.Join(dir, "mls")); !os.IsNotExist(err) {
+				t.Errorf("synced before the group state was removed (stat %v)", err)
+			}
+			synced++
+		}
+		return orig(d)
+	}
+	t.Cleanup(func() { syncDataDir = orig })
+	if err := resetDataIn(dir); err != nil {
+		t.Fatal(err)
+	}
+	if synced == 0 {
+		t.Fatal("erasing the data did not sync the data directory")
+	}
 }

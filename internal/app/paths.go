@@ -106,8 +106,19 @@ func resetDataIn(dataDir string) error {
 	if dir, err := mlsDirIn(dataDir); err == nil {
 		_ = os.RemoveAll(dir)
 	}
+	// Removals are entries in the data directory, and a power cut can undo
+	// them until it is synced. This runs before a restored or linked
+	// keystore is renamed into place, and without the sync the new account
+	// could come up beside the old one's database or group state. The mls
+	// directory is gone as a whole, so syncing the data directory that held
+	// it is what makes that stick. Best effort: Windows cannot sync a
+	// directory.
+	_ = syncDataDir(dataDir)
 	return nil
 }
+
+// syncDataDir is identity.SyncDir, a variable so a test can see it run.
+var syncDataDir = identity.SyncDir
 
 // RestoreIdentity writes a keystore reconstructed from a recovery phrase,
 // sealed under passphrase. Guilds/history/mailbox are recovered afterwards by
