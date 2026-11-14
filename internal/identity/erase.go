@@ -297,20 +297,17 @@ func finishPendingErase(path string) {
 }
 
 // markerProvablyStale reports, for a marker whose content cannot be read,
-// whether it can still be shown to condemn nothing here: there is no
-// keystore, or the keystore is newer than the marker. Every keystore write
-// is a new file renamed in, so a keystore newer than the marker was written
-// after the erase was asked for and is not the file it condemned.
+// whether it can still be shown to condemn nothing here: only when there is
+// no keystore at all. Comparing the keystore's and the marker's times is not
+// a proof (a clock stepped back, a touched or restored file), and a valid
+// erase must never be dropped on a clock's say-so; such a marker is honoured
+// and writes say what to do.
 func markerProvablyStale(path string) bool {
-	m, err := os.Lstat(tombstonePath(path))
-	if err != nil {
+	if _, err := os.Lstat(tombstonePath(path)); err != nil {
 		return true
 	}
-	k, err := os.Lstat(path)
-	if os.IsNotExist(err) {
-		return true
-	}
-	return err == nil && k.ModTime().After(m.ModTime())
+	_, err := os.Lstat(path)
+	return os.IsNotExist(err)
 }
 
 // errEraseMarkerUnreadable is what a write says when an erase marker it must

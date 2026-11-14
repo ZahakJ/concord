@@ -408,46 +408,42 @@ func TestEraseThatCannotRollBackIsReportedPending(t *testing.T) {
 	}
 }
 
-// An old erase marker that can be neither read nor removed, and is older than
-// the keystore (so it cannot name it), must not make every write fail.
-func TestUnreadableUnremovableMarkerDoesNotBlockWrites(t *testing.T) {
+// An unreadable erase marker that names the keystore is honoured even when
+// the keystore's time is later than the marker's (a clock stepped back, a
+// touched file): times are no proof, and a valid erase is never dropped on
+// them. Writes refuse, naming the marker.
+func TestUnreadableMarkerIsHonouredWhateverTheClocksSay(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads anything")
 	}
 	path := filepath.Join(t.TempDir(), "keystore.json")
-	if _, _, err := LoadOrCreate(path, "old"); err != nil {
+	if _, _, err := LoadOrCreate(path, "pw"); err != nil {
 		t.Fatal(err)
 	}
-	plantTombstone(t, path, []byte("some other keystore"))
-	// Older than the keystore, so provably not the file the keystore is.
-	old := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(path+".erased", old, old); err != nil {
+	marker := path + ".erased"
+	plantTombstone(t, path, mustRead(t, path)) // a valid erase of this keystore
+	past := time.Now().Add(-time.Hour)         // but timestamped before it
+	if err := os.Chtimes(marker, past, past); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(path+".erased", 0o000); err != nil {
+	if err := os.Chmod(marker, 0o000); err != nil {
 		t.Fatal(err)
 	}
-	origRemove := removeFile
-	removeFile = func(p string) error {
-		if p == path+".erased" {
-			return os.ErrPermission
-		}
-		return origRemove(p)
+	t.Cleanup(func() { _ = os.Chmod(marker, 0o600) })
+	err := ChangePassphrase(path, "pw", "new")
+	if err == nil || !strings.Contains(err.Error(), "cannot be read") {
+		t.Fatalf("a write beside a valid but unreadable marker: %v", err)
 	}
-	t.Cleanup(func() { removeFile = origRemove; _ = os.Chmod(path+".erased", 0o600) })
-	if err := ChangePassphrase(path, "old", "new"); err != nil {
-		t.Fatalf("a write beside an unreadable, unremovable old marker: %v", err)
-	}
-	if _, err := LoadKeystore(path, "new"); err != nil {
-		t.Fatal(err)
+	if _, err := os.Lstat(marker); err != nil {
+		t.Fatal("the valid erase's marker was dropped")
 	}
 }
 
-// A stale marker that cannot be read when the lock is taken and becomes
-// readable during the write (a scanner letting go of it) is still the same
-// stale marker: the write must not take it for a new erase and remove the
-// keystore it has just put in place.
-func TestStaleMarkerTurningReadableMidWriteKeepsTheKeystore(t *testing.T) {
+// A stale marker that a lock holder could not remove, and that becomes
+// unreadable during the write (a scanner taking hold of it, its permissions
+// changed), is still the same stale marker: the write must not take it for a
+// new erase and remove the keystore it has just put in place.
+func TestStaleMarkerTurningUnreadableMidWriteKeepsTheKeystore(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads anything")
 	}
@@ -456,14 +452,7 @@ func TestStaleMarkerTurningReadableMidWriteKeepsTheKeystore(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := path + ".erased"
-	plantTombstone(t, path, []byte("some other keystore"))
-	old := time.Now().Add(-time.Hour) // older than the keystore: provably stale
-	if err := os.Chtimes(marker, old, old); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(marker, 0o000); err != nil {
-		t.Fatal(err)
-	}
+	plantTombstone(t, path, []byte("some other keystore")) // stale: names nothing here
 	origRemove := removeFile
 	removeFile = func(p string) error {
 		if p == marker {
@@ -473,12 +462,12 @@ func TestStaleMarkerTurningReadableMidWriteKeepsTheKeystore(t *testing.T) {
 	}
 	t.Cleanup(func() { removeFile = origRemove; _ = os.Chmod(marker, 0o600) })
 	setHooks(t, resealHooks{beforeRename: func() {
-		if err := os.Chmod(marker, 0o600); err != nil { // readable from here on
+		if err := os.Chmod(marker, 0o000); err != nil { // unreadable from here on
 			t.Error(err)
 		}
 	}})
 	if err := ChangePassphrase(path, "old", "new"); err != nil {
-		t.Fatalf("change beside a stale marker that turned readable: %v", err)
+		t.Fatalf("change beside a stale marker that turned unreadable: %v", err)
 	}
 	if _, err := LoadKeystore(path, "new"); err != nil {
 		t.Fatalf("the keystore the change wrote is gone: %v", err)
