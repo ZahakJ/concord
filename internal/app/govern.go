@@ -238,9 +238,13 @@ func (s *Service) ingestGovOps(guildID string, ops []govOp, live bool) int {
 		return 0
 	}
 
+	removesUs := false
 	for _, a := range added {
 		raw, _ := json.Marshal(a.o)
 		_ = s.store.SaveGuildOp(guildID, a.hash, raw)
+		if s.id != nil && (a.o.Type == "remove_member" || a.o.Type == "ban") && a.o.Target == s.id.Fingerprint() {
+			removesUs = true
+		}
 		// A kick/ban targeting us carries the sentence the banner should show.
 		// The MLS commit that blanks our leaf often arrives first, so this
 		// fills the reason in if noteEvicted ran before the op was in the log.
@@ -252,6 +256,12 @@ func (s *Service) ingestGovOps(guildID string, ops []govOp, live bool) int {
 		if s.id != nil && a.o.Type == "ban" && a.o.Target == s.id.Fingerprint() && s.EvictedFrom(guildID) == evictedKicked && s.isBanned(guildID, a.o.Target) {
 			s.noteEvicted(guildID, evictedBanned)
 		}
+	}
+	// Our account was just removed or banned. Asked only when an op naming us
+	// is new, so an op we already held cannot put a rejoined device back out;
+	// and decided on the folded state, so a readmit in the same batch wins.
+	if removesUs {
+		s.noteGovernanceRemoval(guildID)
 	}
 	for _, a := range added {
 		if isChannelLayoutOp(a.o.Type) {
@@ -945,26 +955,35 @@ func (s *Service) MutedUntil(guildID, fpr string) int64 { return s.mutedUntil(gu
 // leaf per device (each a device cert), and a ban that removed only the first
 // would leave the banned account still decrypting and posting from another
 // device. Mirrors the account-scoped removal in the bridge.
+//
+// Any leaf that could not be removed is an error, even when others went: a
+// kick reported as done while one device of the account can still read the
+// guild is a kick the moderator will not think to repeat. Repeating it is
+// safe; it removes whatever leaves are left.
 func (s *Service) removeMemberByFingerprint(guildID, targetFpr string) error {
 	creds, err := s.GuildMembers(guildID)
 	if err != nil {
 		return err
 	}
 	var firstErr error
-	removed := 0
+	removed, failed := 0, 0
 	for _, cred := range creds {
-		if accountFingerprintOf(cred) == targetFpr {
-			if err := s.RemoveMember(guildID, cred); err != nil && firstErr == nil {
+		if accountFingerprintOf(cred) != targetFpr {
+			continue
+		}
+		if err := s.RemoveMember(guildID, cred); err != nil {
+			failed++
+			if firstErr == nil {
 				firstErr = err
-			} else if err == nil {
-				removed++
 			}
+		} else {
+			removed++
 		}
 	}
-	if firstErr != nil && removed == 0 {
-		return firstErr
+	if firstErr != nil && removed > 0 {
+		return fmt.Errorf("app: removed %d of this member's devices, but %d are still in the guild: %w", removed, failed, firstErr)
 	}
-	return nil
+	return firstErr
 }
 
 // govOpsFor returns the raw op log for a guild (for a sync payload).

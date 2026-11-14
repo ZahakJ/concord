@@ -146,9 +146,11 @@ func TestARepasteAfterAnUnnoticedKickIsRefused(t *testing.T) {
 	}
 	waitMembers(t, 30*time.Second, 2, owner, member)
 
-	// Keep the kick's commit from reaching the member, so the paste below is
-	// made by a device that still believes it is seated.
+	// Keep the kick from reaching the member, so the paste below is made by a
+	// device that still believes it is seated: neither its commit (control
+	// topic) nor its signed op (guild-meta topic), which is enough on its own.
 	member.ps.Unsubscribe(domain.ControlTopicID(g.GroupID))
+	member.ps.Unsubscribe(domain.GuildMetaTopicID(g.GroupID))
 	if err := owner.KickMember(g.ID, member.Fingerprint(), ""); err != nil {
 		t.Fatalf("KickMember: %v", err)
 	}
