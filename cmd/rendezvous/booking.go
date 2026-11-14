@@ -5,9 +5,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
-	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -113,21 +111,6 @@ func (l *bookLimiter) allow(ip, kind string) bool {
 		l.buckets[ip] = b
 	}
 	return b.take(kind, now)
-}
-
-// clientIP prefers the first X-Forwarded-For hop (fly.io terminates TLS in
-// front of this node) and falls back to the socket address for local runs.
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i > 0 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
-	}
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return host
-	}
-	return r.RemoteAddr
 }
 
 // bookingAPIRequest is what the page posts. The gateway re-marshals a typed

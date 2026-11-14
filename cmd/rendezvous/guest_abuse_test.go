@@ -38,7 +38,7 @@ func somePeerID(t *testing.T) string {
 func attempt(t *testing.T, gate *guestGate, hostID, ip string) int {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodGet, "/guest/ws?h="+hostID, nil)
-	r.Header.Set("X-Forwarded-For", ip)
+	r.RemoteAddr = ip + ":40000"
 	w := httptest.NewRecorder()
 	relayGuest(context.Background(), nil, gate, w, r)
 	return w.Code

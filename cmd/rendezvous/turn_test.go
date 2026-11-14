@@ -55,7 +55,7 @@ func TestTURNCredsRateLimit(t *testing.T) {
 
 	ask := func(ip string) int {
 		r := httptest.NewRequest(http.MethodGet, "/turn", nil)
-		r.Header.Set("X-Forwarded-For", ip)
+		r.RemoteAddr = ip + ":40000"
 		w := httptest.NewRecorder()
 		ts.handleTURNCreds(w, r)
 		return w.Code
