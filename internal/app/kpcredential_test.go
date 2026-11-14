@@ -280,13 +280,24 @@ func TestDMStartRefusesKeyPackageNamingSomeoneElse(t *testing.T) {
 
 // askInvite sends req from requester to committer over the real invite stream
 // and returns the answer, and whether the committer's roster or epoch moved.
+// A stream that fails in transit is retried; the roster is read before the
+// first attempt, so anything a failed attempt changed still shows as moved.
 func askInvite(t *testing.T, ctx context.Context, committer, requester *Service, g domain.Guild, req inviteRequest) (inviteResponse, bool) {
 	t.Helper()
 	membersBefore, epochBefore := rosterOf(t, ctx, committer, g)
 	body, _ := json.Marshal(req)
-	rctx, cancel := context.WithTimeout(ctx, 40*time.Second)
-	defer cancel()
-	raw, err := requester.host.RequestInvite(rctx, committer.host.AddrInfo(), body)
+	var raw []byte
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		rctx, cancel := context.WithTimeout(ctx, 40*time.Second)
+		raw, err = requester.host.RequestInvite(rctx, committer.host.AddrInfo(), body)
+		cancel()
+		if err == nil {
+			break
+		}
+		t.Logf("invite stream attempt %d: %v", attempt+1, err)
+		time.Sleep(500 * time.Millisecond)
+	}
 	if err != nil {
 		t.Fatalf("invite stream: %v", err)
 	}
