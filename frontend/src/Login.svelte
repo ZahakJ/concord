@@ -120,6 +120,9 @@
     await enter();
   }
   let confirmingReset = $state(false);
+  // dataNoKeystore: the core refused to create because this device holds an
+  // account's data without its keystore; the choices are worded for that.
+  let dataNoKeystore = $state(false);
   let forgot = $state(false); // forgot-passphrase menu (recover vs start over)
   let restoring = $state(false);
   let restorePhrase = $state("");
@@ -450,7 +453,10 @@
           confirm = replaceAsk.confirm;
         } else {
           const chk = await api.checkRecoveryPhrase(phrase);
-          if (!chk.keepsData) {
+          // "none": the keystore has gone since this page looked. The core
+          // decides there (keeps the phrase's own data, asks otherwise), and
+          // its answer says which; asking here would name the wrong case.
+          if (!chk.keepsData && chk.match !== "none") {
             askReplace("restore", chk);
             return;
           }
@@ -641,7 +647,10 @@
       fail(err);
       // An account's data but no keystore: nothing was created. Offer the
       // ways forward (recovery phrase, re-link, start over) right away.
-      if (err?.code === "data-without-keystore") forgot = true;
+      if (err?.code === "data-without-keystore") {
+        dataNoKeystore = true;
+        forgot = true;
+      }
     } finally {
       busy = false;
     }
@@ -660,6 +669,7 @@
       }
       hasIdentity = false;
       confirmingReset = false;
+      dataNoKeystore = false;
       passphrase = "";
       confirmPass = "";
     } catch (err) {
@@ -1152,13 +1162,23 @@
         Back
       </button>
     {:else if forgot}
-      <p class="muted">
-        Your passphrase can't be looked up — it's never stored anywhere. If this
-        account is also on <strong>another device</strong>, re-linking from it is
-        the best fix: everything comes back — profile, guilds, and history. The
-        <strong>24-word recovery phrase</strong> restores your identity, but
-        guilds and history only return by re-linking or re-invites.
-      </p>
+      {#if dataNoKeystore}
+        <p class="muted">
+          This device holds data from an account it can't open: its keystore is
+          missing. Restoring with <strong>that account's recovery phrase</strong>
+          keeps everything here. Re-linking from another of its devices works too.
+          A different account's phrase, or erasing, deletes this data — you'll be
+          asked first.
+        </p>
+      {:else}
+        <p class="muted">
+          Your passphrase can't be looked up — it's never stored anywhere. If this
+          account is also on <strong>another device</strong>, re-linking from it is
+          the best fix: everything comes back — profile, guilds, and history. The
+          <strong>24-word recovery phrase</strong> restores your identity, but
+          guilds and history only return by re-linking or re-invites.
+        </p>
+      {/if}
       <div class="error slot" role="alert">{error}</div>
       <button class="primary" type="button" onclick={() => ((linking = true), (forgot = false), (error = ""))}>
         Re-link from my other device
@@ -1169,7 +1189,7 @@
       </button>
       <p class="muted small">If no other device of yours has the account any more.</p>
       <button type="button" class="link warn-link" onclick={() => ((confirmingReset = true), (forgot = false), (error = ""))}>
-        I have neither — start over (deletes everything)
+        {dataNoKeystore ? "Erase this data and start over" : "I have neither — start over (deletes everything)"}
       </button>
       <button type="button" class="link" onclick={() => (forgot = false)}>Back</button>
     {:else if hasIdentity}

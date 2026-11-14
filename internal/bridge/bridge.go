@@ -734,7 +734,7 @@ func (b *Bridge) Login(passphrase string) error {
 			// Nothing was created and nothing deleted (see the create guard in
 			// internal/app). Logged too: a headless unlock has nobody to show.
 			log.Printf("concord: this device has an account's data but no keystore; not creating a new account beside it")
-			return &CodedError{Code: CodeDataWithoutKeystore, Msg: "This device has an account's messages and settings, but not the keystore that opens them, so a new account wasn't created beside them. If it's your account, restore it from its recovery phrase — that keeps everything here. To start over instead, choose Forgot passphrase → start over, which erases it."}
+			return &CodedError{Code: CodeDataWithoutKeystore, Msg: "This device holds an account's data, but not the keystore that opens it. Nothing was deleted, and no new account was created beside it. Choose below: restore with that account's recovery phrase (which keeps everything here), re-link it from another device, or erase it and start over."}
 		}
 		return err
 	}

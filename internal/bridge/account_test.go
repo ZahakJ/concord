@@ -266,6 +266,11 @@ func TestUnlockWithTheKeystoreLostDeletesNothing(t *testing.T) {
 	if code, _ := codeOf(err); code != CodeDataWithoutKeystore {
 		t.Fatalf("unlock with the keystore lost: %v", err)
 	}
+	// The words match the screen, which offers its choices below and has no
+	// "Forgot passphrase" link to follow on the create form.
+	if msg := err.Error(); !strings.Contains(msg, "Nothing was deleted") || strings.Contains(msg, "Forgot passphrase") {
+		t.Fatalf("the message does not say what happened in the screen's terms: %q", msg)
+	}
 	if _, err := os.Stat(ks); !os.IsNotExist(err) {
 		t.Fatal("an account was created beside the data")
 	}
