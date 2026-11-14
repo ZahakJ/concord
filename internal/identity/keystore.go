@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/nacl/secretbox"
@@ -787,7 +788,10 @@ func loadOrCreate(path, passphrase string, again bool) (*Identity, bool, error) 
 	// Said out loud: an unlock that finds no keystore creates an account, and
 	// a service unlocking itself from a passphrase file after a wipe would
 	// otherwise come up as a brand-new account with nothing to show for it.
-	log.Printf("concord/identity: no keystore on this device; created a new account (%s)", id.Fingerprint())
+	// Only the fingerprint's first group: enough to tell accounts apart in an
+	// operator's log, which other users may be able to read, without writing
+	// down which account this machine holds.
+	log.Printf("concord/identity: no keystore on this device; created a new account (%s…)", strings.Fields(id.Fingerprint())[0])
 	return id, true, nil
 }
 

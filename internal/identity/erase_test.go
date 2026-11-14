@@ -381,7 +381,9 @@ func TestEraseThatCannotRollBackIsReportedPending(t *testing.T) {
 		t.Fatal(err)
 	}
 	origRemove := removeFile
-	t.Cleanup(func() { removeFile = origRemove })
+	// Waits for the finisher first, on a failing path too (a t.Fatal before
+	// the wait at the end), so the seam is never restored under it.
+	t.Cleanup(func() { finishers.Wait(); removeFile = origRemove })
 	var failing atomic.Bool // read by the background finisher too
 	failing.Store(true)
 	removeFile = func(p string) error {

@@ -77,8 +77,11 @@ func TestCreatingANewAccountIsLogged(t *testing.T) {
 	if err != nil || !created {
 		t.Fatal(err)
 	}
-	if !strings.Contains(logged.String(), "created a new account") || !strings.Contains(logged.String(), id.Fingerprint()) {
+	if !strings.Contains(logged.String(), "created a new account") || !strings.Contains(logged.String(), strings.Fields(id.Fingerprint())[0]) {
 		t.Fatalf("creating an account left no log line: %q", logged.String())
+	}
+	if strings.Contains(logged.String(), id.Fingerprint()) {
+		t.Fatalf("the log names the whole account: %q", logged.String())
 	}
 	logged.Reset()
 	if _, _, err := LoadOrCreate(path, "pw"); err != nil {
