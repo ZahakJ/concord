@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -367,9 +366,11 @@ func (s *Service) selfRevoked() bool {
 
 // wipeSelf erases everything this install holds and stops it.
 //
-// It removes the device marker along with the keystore and database: without
-// that, a revoked device restarted before the erase completed would come back
-// presenting the certificate it was just told to stop using. The network config
+// It removes the device marker along with the keystore and database, and the
+// marker last (resetDataIn): an erase that stops part-way leaves an install
+// that still reads as linked, so the next start finds the revocation still
+// applies (selfRevoked, before anything is served) and finishes the erase,
+// instead of opening a revoked device as an ordinary install. The network config
 // is deliberately KEPT — it is not account data, and leaving it means the person
 // holding the device can re-link it (a fresh, freshly-authorized device) without
 // having to find their rendezvous address again.
@@ -380,7 +381,6 @@ func (s *Service) wipeSelf() {
 	s.mu.RUnlock()
 
 	s.Close()
-	_ = os.Remove(deviceMarkerPath(dir))
 	if err := ResetIdentity(dir); errors.Is(err, identity.ErrEraseDeferred) {
 		log.Printf("concord/app: this device was unlinked from its account; local data erased, and the keystore's removal completes at the next unlock")
 	} else if err != nil {

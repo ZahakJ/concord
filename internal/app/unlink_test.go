@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -303,5 +305,60 @@ func TestRecertifyingADeviceDropsItsOldRevocation(t *testing.T) {
 		if r.Key == hex.EncodeToString(dev) && r.Revoked != 0 {
 			t.Fatal("the registry still marks the re-linked device revoked")
 		}
+	}
+}
+
+// A revoke wipe that cannot remove the keystore leaves the install looking
+// like what it is, a revoked linked device: the marker goes last, so the next
+// start sees the revocation still applies and finishes the erase.
+func TestInterruptedRevokeWipeFinishesAtTheNextStart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	s := startServiceInDir(t, ctx, dir)
+	dev := s.id.DevicePublicKey()
+	if err := saveDeviceMarker(dir, s.id.IssueDeviceCertFor(dev, "phone", time.Now().Add(-time.Hour).Unix())); err != nil {
+		t.Fatal(err)
+	}
+	s.saveRevocations([]*identity.DeviceRevocation{s.id.RevokeDevice(dev, time.Now().Unix())})
+
+	orig := removeKeystore
+	removeKeystore = func(string) error { return errors.New("held by another program") }
+	s.wipeSelf()
+	removeKeystore = orig
+	if _, err := os.Stat(deviceMarkerPath(dir)); err != nil {
+		t.Fatalf("the interrupted revoke wipe removed the device marker first: %v", err)
+	}
+
+	_, err := Start(ctx, Config{DataDir: dir, Passphrase: "test-pass", DisableMDNS: true})
+	if !errors.Is(err, ErrDeviceUnlinked) {
+		t.Fatalf("the next start did not finish the revoke wipe: %v", err)
+	}
+	if hasAccountData(dir) || HasIdentity(dir) {
+		t.Fatal("the revoke wipe at the next start left data behind")
+	}
+}
+
+// When part of the data cannot be removed, the device marker stays with it
+// and is named: what is left still reads as a linked install, so a restore
+// over it asks instead of keeping a linked device's group state.
+func TestPartialEraseKeepsTheDeviceMarker(t *testing.T) {
+	dir := t.TempDir()
+	bea := seedDevice(t, dir, "pw", "Bea", false)
+	if err := saveDeviceMarker(dir, bea.IssueDeviceCertFor(make([]byte, 32), "phone", time.Now().Unix())); err != nil {
+		t.Fatal(err)
+	}
+	// a peer cache that cannot be removed: a directory with something in it
+	pc := peerCachePath(dir)
+	_ = os.Remove(pc)
+	if err := os.MkdirAll(filepath.Join(pc, "held"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err := resetDataIn(dir)
+	if !errors.Is(err, ErrDataNotErased) || !strings.Contains(err.Error(), "device.json") {
+		t.Fatalf("partial erase: %v, want it to name the device marker as left", err)
+	}
+	if _, err := os.Stat(deviceMarkerPath(dir)); err != nil {
+		t.Fatalf("the device marker went while other data stayed: %v", err)
 	}
 }

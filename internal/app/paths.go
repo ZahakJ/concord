@@ -198,15 +198,6 @@ func resetDataIn(dataDir string) error {
 		// every one of those peers that the two identities are the same person.
 		// That is the one thing starting over is for.
 		peerCachePath(dataDir),
-		// The linked-device marker is the certificate saying "the account key
-		// signed FOR this device key". The device key does not survive here —
-		// the next unlock finds no device seed and mints a fresh one — so a
-		// marker left behind describes a key this install no longer has. It
-		// would come back in linked mode, offer that certificate as its MLS
-		// credential, and be refused by every peer that binds a credential to
-		// the connection it arrived on, with nothing on either side saying why.
-		deviceMarkerPath(dataDir),
-		deviceMarkerPath(dataDir) + ".tmp",
 	} {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			left = append(left, filepath.Base(p))
@@ -216,6 +207,28 @@ func resetDataIn(dataDir string) error {
 	// its new keystore lands beside part of the old account's group state.
 	if err := os.RemoveAll(filepath.Join(dataDir, "mls")); err != nil {
 		left = append(left, "mls")
+	}
+	// The linked-device marker goes last, and only once everything else is
+	// gone. It is the certificate saying "the account key signed FOR this
+	// device key". The device key does not survive here — the next unlock
+	// finds no device seed and mints a fresh one — so a marker left behind
+	// after a complete erase describes a key this install no longer has: it
+	// would come back in linked mode, offer that certificate as its MLS
+	// credential, and be refused by every peer that binds a credential to the
+	// connection it arrived on. But while any other data stays, so does the
+	// marker: what is left must still read as a linked install, so a revoke
+	// wipe that stopped half-way is finished at the next start, and a restore
+	// over the remains asks rather than keeping a linked device's group state.
+	for _, p := range []string{deviceMarkerPath(dataDir), deviceMarkerPath(dataDir) + ".tmp"} {
+		if len(left) > 0 {
+			if _, err := os.Lstat(p); err == nil {
+				left = append(left, filepath.Base(p))
+			}
+			continue
+		}
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			left = append(left, filepath.Base(p))
+		}
 	}
 	// Removals are entries in the data directory, and a power cut can undo
 	// them until it is synced. This runs before a restored or linked
