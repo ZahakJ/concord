@@ -100,30 +100,6 @@ func (s *Service) CancelLinkOffer() {
 	s.linkMu.Unlock()
 }
 
-// certifyDevice issues a certificate for one of this account's device keys
-// and keeps a copy: we are the only peer that can state this mapping from
-// authority rather than hearsay, and without it the new device is only
-// recognisable through the group rosters it manages to join. See
-// ownDevicesKey.
-func (s *Service) certifyDevice(devicePub []byte, name string) *identity.DeviceCert {
-	// A key revoked earlier and now being linked again keeps its revocation
-	// for now: the joiner may still cancel, or its answer be lost, and a
-	// cancelled re-link must not undo the unlink. The revocation goes when the
-	// device shows this certificate (stillRevoked), so the certificate is
-	// stamped after the revocation, whatever this clock says, and is not
-	// recorded as the device's until then.
-	issuedAt := time.Now().Unix()
-	at, revoked := s.revokedAt(devicePub)
-	if revoked && issuedAt <= at {
-		issuedAt = at + 1
-	}
-	cert := s.id.IssueDeviceCertFor(devicePub, name, issuedAt)
-	if !revoked {
-		s.rememberOwnDevice(cert)
-	}
-	return cert
-}
-
 // handleLinkRequest is the issuer-side stream responder: verify the joiner's
 // proof, then return the account material with a freshly-issued device cert.
 func (s *Service) handleLinkRequest(_ context.Context, _ peer.ID, reqBytes []byte) ([]byte, error) {
@@ -145,7 +121,12 @@ func (s *Service) handleLinkRequest(_ context.Context, _ peer.ID, reqBytes []byt
 	if err != nil {
 		return nil, err
 	}
-	cert := s.certifyDevice(req.DevicePub, req.DeviceName)
+	cert := s.id.IssueDeviceCertFor(req.DevicePub, req.DeviceName, time.Now().Unix())
+	// Keep a copy: we are the only peer that can state this mapping from
+	// authority rather than hearsay, and without it the new device is only
+	// recognisable through the group rosters it manages to join. See
+	// ownDevicesKey.
+	s.rememberOwnDevice(cert)
 
 	// Notes is created lazily, the first time anything asks for it — which for
 	// most accounts is AFTER the second device exists. A device linked before

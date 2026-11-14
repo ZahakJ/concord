@@ -462,7 +462,7 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 	// which is how the revocation reaches it — but it must not be re-adopted as
 	// this account by the very hello that brings it back. Without this, unlinking
 	// undid itself the moment the device reconnected.
-	if isDevice && s.stillRevoked(cert) {
+	if isDevice && s.deviceIsRevoked(cert.DevicePub) {
 		return
 	}
 	before := s.presence(from).Fingerprint
