@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -154,15 +155,24 @@ func TestRestoreOverExistingLegacyKeystore(t *testing.T) {
 	if err := RestoreOverExisting(dir, phraseOf(t, other), "new-pass", ""); !errors.As(err, &refused) || refused.Match != MatchUnknown {
 		t.Fatalf("legacy device, other phrase: %v", err)
 	}
+	before, _ := os.ReadFile(keystorePathIn(dir))
 	if err := RestoreOverExisting(dir, phraseOf(t, bea), "new-pass", ""); !errors.As(err, &refused) || refused.Match != MatchUnknown {
 		t.Fatalf("legacy device, own phrase, went ahead without asking: %v", err)
 	}
-	deviceIs(t, dir, "forgotten", bea)
-	// Confirmed, it goes ahead.
+	// Compared by bytes, not by unlocking: an unlock in this process would
+	// itself prove the account and skip the question this test is about.
+	if after, _ := os.ReadFile(keystorePathIn(dir)); !bytes.Equal(before, after) {
+		t.Fatal("the refused restore touched the keystore")
+	}
+	// Confirmed, the keystore is replaced, and the data, which the database
+	// proves is this account's, is kept.
 	if err := RestoreOverExisting(dir, phraseOf(t, bea), "new-pass", refused.Confirm); err != nil {
 		t.Fatalf("confirmed restore: %v", err)
 	}
 	deviceIs(t, dir, "new-pass", bea)
+	if !noteSurvives(t, dir, bea) {
+		t.Fatal("the confirmed own-phrase restore erased data the database proves is this account's")
+	}
 }
 
 // Nothing on the device can name its account: refuse, and say we can't tell.

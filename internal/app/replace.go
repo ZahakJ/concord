@@ -214,7 +214,14 @@ func replaceGate(dataDir string, seed []byte, confirm, incomingName string, snap
 	fp := incoming.Fingerprint()
 	token := confirmToken(fp, snap)
 	if confirm != "" && confirm == token {
-		return false, nil
+		// Agreed to replace the keystore. Whether the data goes is a separate
+		// question: if it opens under the incoming seed it is this account's,
+		// and on a never-linked install every key it is bound to comes from
+		// that seed, so it is kept. Asking was for the keystore, which
+		// nothing could name; the data was never in doubt.
+		opens, known := store.KeyOpensMessages(dbPathIn(dataDir), deriveStoreKey(incoming))
+		_, linked := readMarker(dataDir)
+		return known && opens && !linked, nil
 	}
 	match, contradicted := matchDevice(dataDir, seed)
 	device := LockedAccount(dataDir)
