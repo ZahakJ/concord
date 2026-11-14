@@ -412,6 +412,9 @@ func (b *Bridge) HasIdentity() (bool, error) {
 	return appsvc.HasIdentity(dir), nil
 }
 
+// redeemLink is appsvc.RedeemLink, a variable so a test can make it fail.
+var redeemLink = appsvc.RedeemLink
+
 // errLinkInProgress refuses an identity-changing call while another window
 // is linking this device.
 var errLinkInProgress = errors.New("this device is being linked to an account in another window; wait for that to finish")
@@ -2798,10 +2801,17 @@ func (b *Bridge) RedeemLinkCode(code, passphrase, confirm string) (string, error
 	if busy {
 		return "", errLinkInProgress
 	}
-	res, err := appsvc.RedeemLink(b.ctx, dataDir, code, passphrase, confirm)
-	b.mu.Lock()
-	b.linking = false
-	b.mu.Unlock()
+	res, err := func() (appsvc.LinkResult, error) {
+		// Deferred, so a panic in the link (recovered by the HTTP server,
+		// which keeps the process alive) cannot leave every later unlock,
+		// restore and link refused until the app restarts.
+		defer func() {
+			b.mu.Lock()
+			b.linking = false
+			b.mu.Unlock()
+		}()
+		return redeemLink(b.ctx, dataDir, code, passphrase, confirm)
+	}()
 	if err != nil {
 		return "", codeReplace(err)
 	}

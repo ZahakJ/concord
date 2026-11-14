@@ -1,12 +1,15 @@
 package bridge
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	appsvc "github.com/ZahakJ/concord/internal/app"
 )
 
 // armTicket plants an outstanding confirmation without needing a live session,
@@ -187,5 +190,28 @@ func TestConfirmWipeIsOrderedAgainstTheSessionState(t *testing.T) {
 	}
 	if got := b.SessionState(); got.Reason != LockWiped || got.HasIdentity {
 		t.Fatalf("after the wipe: %+v", got)
+	}
+}
+
+// A link that panics (the HTTP server recovers it and keeps the process
+// alive) must not leave the bridge believing a link is still running, which
+// would refuse every unlock, restore and link until a restart.
+func TestPanickingLinkDoesNotLockTheBridgeOut(t *testing.T) {
+	t.Setenv("CONCORD_HOME", t.TempDir())
+	orig := redeemLink
+	t.Cleanup(func() { redeemLink = orig })
+	redeemLink = func(context.Context, string, string, string, string) (appsvc.LinkResult, error) {
+		panic("link exploded")
+	}
+	b := &Bridge{}
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = b.RedeemLinkCode("code", "pw", "")
+	}()
+	redeemLink = func(context.Context, string, string, string, string) (appsvc.LinkResult, error) {
+		return appsvc.LinkResult{}, errors.New("no issuer")
+	}
+	if _, err := b.RedeemLinkCode("code", "pw", ""); errors.Is(err, errLinkInProgress) {
+		t.Fatal("after a link panicked, the next link is refused as one still running")
 	}
 }
