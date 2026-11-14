@@ -49,7 +49,8 @@ const (
 	bookBookBurst   = 3
 
 	// Bound the bucket table so a botnet scanning with fresh IPs can't grow it
-	// forever; entries idle past bookBucketIdle are reaped opportunistically.
+	// forever. When it's full, idle and then least-recent entries make room
+	// (makeRoom); a new visitor is never refused for lack of space.
 	maxBookBuckets = 8192
 	bookBucketIdle = time.Hour
 )
@@ -93,20 +94,10 @@ func (l *bookLimiter) allow(ip, kind string) bool {
 	if l.buckets == nil {
 		l.buckets = map[string]*bookBucket{}
 	}
-	// Reap idle entries before refusing to grow: a full table must not become
-	// a denial of service against every NEW visitor.
-	if len(l.buckets) >= maxBookBuckets {
-		for k, b := range l.buckets {
-			if now.Sub(b.last) > bookBucketIdle {
-				delete(l.buckets, k)
-			}
-		}
-		if len(l.buckets) >= maxBookBuckets {
-			return false
-		}
-	}
+	ip = limitKeyOf(ip)
 	b := l.buckets[ip]
 	if b == nil {
+		makeRoom(l.buckets, maxBookBuckets, bookBucketIdle, now, func(b *bookBucket) time.Time { return b.last })
 		b = &bookBucket{slots: bookSlotsBurst, book: bookBookBurst, last: now}
 		l.buckets[ip] = b
 	}

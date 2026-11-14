@@ -85,20 +85,10 @@ func (l *ipLimiter) allow(ip string, rate, burst float64) bool {
 	if l.buckets == nil {
 		l.buckets = map[string]*ipBucket{}
 	}
-	// Reap before refusing to grow: a full table must not become a denial of
-	// service against every NEW visitor.
-	if len(l.buckets) >= maxBookBuckets {
-		for k, b := range l.buckets {
-			if now.Sub(b.last) > bookBucketIdle {
-				delete(l.buckets, k)
-			}
-		}
-		if len(l.buckets) >= maxBookBuckets {
-			return false
-		}
-	}
+	ip = limitKeyOf(ip)
 	b := l.buckets[ip]
 	if b == nil {
+		makeRoom(l.buckets, maxBookBuckets, bookBucketIdle, now, func(b *ipBucket) time.Time { return b.last })
 		b = &ipBucket{tokens: burst, last: now}
 		l.buckets[ip] = b
 	}
@@ -246,11 +236,7 @@ func serveGuestGateway(ctx context.Context, h host.Host, ts *turnServer) {
 		mux.HandleFunc("/turn", ts.handleTURNCreds)
 	}
 
-	srv := &http.Server{
-		Addr:              ":" + port,
-		Handler:           mux,
-		ReadHeaderTimeout: 10 * time.Second,
-	}
+	srv := guestServer(":"+port, mux)
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()
@@ -261,6 +247,36 @@ func serveGuestGateway(ctx context.Context, h host.Host, ts *turnServer) {
 			fmt.Fprintln(os.Stderr, "guest gateway:", err)
 		}
 	}()
+}
+
+// guestServer is the gateway's HTTP server with its limits.
+func guestServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:    addr,
+		Handler: capBodies(h),
+		// Slow clients can't hold a connection open for free. A guest's WebSocket
+		// isn't cut by these: gorilla clears the server's deadlines on upgrade, and
+		// the relay keeps its own (guestIdleTimeout).
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 << 10,
+	}
+}
+
+// routeBodyCap is the largest request body each route takes. Every other route
+// is a GET and gets none.
+var routeBodyCap = map[string]int64{
+	"/book/api": maxBookingBody,
+}
+
+// capBodies bounds every request body by its route's cap, so a handler that
+// forgets its own MaxBytesReader still can't be fed an unbounded body.
+func capBodies(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, routeBodyCap[r.URL.Path])
+		h.ServeHTTP(w, r)
+	})
 }
 
 // relayGuest pipes one browser WebSocket to one libp2p stream on the host.
