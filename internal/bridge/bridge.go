@@ -55,10 +55,7 @@ type Bridge struct {
 	// startOver is the outstanding lock-screen erase confirmation (see
 	// BeginStartOver): its ticket, the device state it was opened on, and
 	// when. Guarded by mu.
-	startOver struct {
-		ticket, token string
-		issued        time.Time
-	}
+	startOver startOverTicket
 	// The visibility vote. See visibility.go: shellBackground is the native
 	// mobile lifecycle's answer, clientVisible is what each attached UI says
 	// about itself, and the two are ANDed. All three are remembered across a
@@ -476,7 +473,7 @@ func (b *Bridge) RestoreFromMnemonic(phrase, passphrase, confirm string) error {
 	// Data already on the device (a lost keystore, an unfinished erase) goes
 	// through the replace gate: kept if it is the phrase's account's, else
 	// asked about with the same confirmation as a restore over an account.
-	return codeReplace(appsvc.RestoreOverExisting(dir, phrase, passphrase, confirm))
+	return b.afterRestore(appsvc.RestoreOverExisting(dir, phrase, passphrase, confirm))
 }
 
 // RestoreOverExisting is the forgot-passphrase recovery path: a (locked,
@@ -512,7 +509,17 @@ func (b *Bridge) RestoreOverExisting(phrase, passphrase, confirm string) error {
 	if err != nil {
 		return err
 	}
-	return codeReplace(appsvc.RestoreOverExisting(dir, phrase, passphrase, confirm))
+	return b.afterRestore(appsvc.RestoreOverExisting(dir, phrase, passphrase, confirm))
+}
+
+// afterRestore maps a restore's result for the UI. A restore that went
+// through also ends any start-over confirmation opened before it: it was for
+// the device as it was. Called with b.mu held.
+func (b *Bridge) afterRestore(err error) error {
+	if err == nil {
+		b.startOver = startOverTicket{}
+	}
+	return codeReplace(err)
 }
 
 // StartOverView is what the lock screen's erase confirmation is built from.
@@ -522,6 +529,12 @@ type StartOverView struct {
 	Ticket string `json:"ticket"`
 	// Word is what the user must type (StartOverWord).
 	Word string `json:"word"`
+}
+
+// startOverTicket is an outstanding start-over confirmation.
+type startOverTicket struct {
+	ticket, token string
+	issued        time.Time
 }
 
 // startOverTTL bounds how long a start-over confirmation stays valid.
@@ -913,6 +926,9 @@ func (b *Bridge) Login(passphrase string) error {
 		}
 	})
 	b.svc = svc
+	// A start-over confirmation was opened on the lock screen as it was before
+	// this unlock; it is for nothing now.
+	b.startOver = startOverTicket{}
 	b.lockReason = ""
 	// The shell may have declared the app backgrounded before the unlock
 	// happened; a service born after that call must not start on the eager

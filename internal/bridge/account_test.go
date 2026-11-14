@@ -472,3 +472,79 @@ func TestStartOverIsBoundToWhatTheScreenShowed(t *testing.T) {
 		t.Fatal("start over removed the keystore of an open account")
 	}
 }
+
+// A start-over ticket is spent by the attempt that uses it: an erase that
+// failed (here the keystore cannot be removed, so nothing changed) cannot
+// be retried on the same ticket.
+func TestAStartOverTicketIsSpentOnUse(t *testing.T) {
+	b, _ := newLockedDevice(t, "pw", "Ada")
+	ks, _ := appsvc.KeystorePath()
+	_ = os.Remove(ks)
+	if err := os.MkdirAll(filepath.Join(ks, "held"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	view, err := b.BeginStartOver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ResetIdentity(view.Ticket, "ERASE"); err == nil {
+		t.Fatal("the erase went through over a keystore that cannot be removed; the case under test did not arise")
+	} else if code, _ := codeOf(err); code == CodeConfirmStale {
+		t.Fatalf("the first use was refused as stale: %v", err)
+	}
+	if code, _ := codeOf(b.ResetIdentity(view.Ticket, "ERASE")); code != CodeConfirmStale {
+		t.Fatal("a ticket was used twice")
+	}
+}
+
+// A start-over ticket expires, and is bound to the keystore as well as the
+// data: either refuses the erase and deletes nothing.
+func TestAStartOverTicketExpiresAndCoversTheKeystore(t *testing.T) {
+	b, _ := newLockedDevice(t, "pw", "Ada")
+	ks, _ := appsvc.KeystorePath()
+	dir, _ := appsvc.DataDir()
+	db := filepath.Join(dir, "concord.db")
+
+	view, _ := b.BeginStartOver()
+	b.mu.Lock()
+	b.startOver.issued = time.Now().Add(-startOverTTL - time.Minute)
+	b.mu.Unlock()
+	if code, _ := codeOf(b.ResetIdentity(view.Ticket, "ERASE")); code != CodeConfirmStale {
+		t.Fatal("an expired start-over ticket was accepted")
+	}
+
+	view, _ = b.BeginStartOver()
+	if err := identity.ChangePassphrase(ks, "pw", "changed"); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := codeOf(b.ResetIdentity(view.Ticket, "ERASE")); code != CodeConfirmStale {
+		t.Fatal("a start-over ticket was accepted after the keystore changed")
+	}
+	if _, err := os.Stat(db); err != nil {
+		t.Fatal("a refused start over erased the data")
+	}
+	if !appsvc.HasIdentity(dir) {
+		t.Fatal("a refused start over erased the keystore")
+	}
+}
+
+// The start-over confirmation is the lock screen's: it cannot be opened
+// while an account is open, and an unlock ends one opened before it.
+func TestStartOverBelongsToTheLockScreen(t *testing.T) {
+	b, _ := newLockedDevice(t, "pw", "Ada")
+	if _, err := b.BeginStartOver(); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Login("pw"); err != nil {
+		t.Fatal(err)
+	}
+	b.mu.Lock()
+	left := b.startOver.ticket
+	b.mu.Unlock()
+	if left != "" {
+		t.Fatal("an unlock left the lock screen's start-over ticket outstanding")
+	}
+	if _, err := b.BeginStartOver(); err == nil {
+		t.Fatal("a start-over confirmation opened while an account is open")
+	}
+}

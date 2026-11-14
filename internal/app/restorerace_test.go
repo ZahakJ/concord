@@ -611,3 +611,43 @@ func TestALeftoverEraseRecordIsRemovedOnceAKeystoreOpens(t *testing.T) {
 		}
 	}
 }
+
+// A device marker's temporary file left by a crash is account data like the
+// marker: the create guard refuses beside it, and it is part of the data a
+// confirmation is bound to.
+func TestALeftoverMarkerTempFileIsData(t *testing.T) {
+	dir := t.TempDir()
+	tmp := deviceMarkerPath(dir) + ".tmp"
+	if err := os.WriteFile(tmp, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := guardCreate(keystorePathIn(dir)); !errors.Is(err, ErrDataWithoutKeystore) {
+		t.Fatalf("create beside a lone %s: %v, want it refused", filepath.Base(tmp), err)
+	}
+	if dataIdentity(dir) == "" {
+		t.Fatal("a confirmation would not cover the marker's temporary file")
+	}
+}
+
+// What counts as data and what an erase removes are one list: every item
+// of it is gone after resetDataIn.
+func TestResetRemovesEveryKindOfData(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range accountDataFiles(dir) {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "mls"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mls", "g"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := resetDataIn(dir); err != nil {
+		t.Fatal(err)
+	}
+	if hasAccountData(dir) {
+		t.Fatal("resetDataIn left something hasAccountData counts")
+	}
+}
