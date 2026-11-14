@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -586,6 +587,27 @@ func TestNoKeystoreConfirmationCoversEveryKindOfData(t *testing.T) {
 		}
 		if got, _ := os.ReadFile(p); string(got) != "changed after the yes" {
 			t.Fatalf("%s was erased on a yes given before it changed", name)
+		}
+	}
+}
+
+// A leftover erase record from an interim build authorises nothing either
+// way; it is removed once a keystore opens or is created successfully.
+func TestALeftoverEraseRecordIsRemovedOnceAKeystoreOpens(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for _, existing := range []bool{true, false} {
+		dir := t.TempDir()
+		if existing {
+			startServiceInDir(t, ctx, dir).Close()
+		}
+		record := filepath.Join(dir, "data-erase-pending")
+		if err := os.WriteFile(record, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		startServiceInDir(t, ctx, dir)
+		if _, err := os.Lstat(record); !os.IsNotExist(err) {
+			t.Fatalf("existing keystore %v: the leftover erase record is still there (%v)", existing, err)
 		}
 	}
 }

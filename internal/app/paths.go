@@ -91,6 +91,13 @@ func ResetIdentity(dataDir string) error {
 	return err
 }
 
+// removeLeftoverEraseRecord removes the erase record an interim build wrote
+// when a wipe began. It authorises nothing either way (nothing reads it);
+// once a keystore has opened or been created it is only litter.
+func removeLeftoverEraseRecord(dataDir string) {
+	_ = os.Remove(filepath.Join(dataDir, "data-erase-pending"))
+}
+
 // removeKeystore is identity.RemoveKeystore, a variable so a test can make
 // the keystore erase defer.
 var removeKeystore = identity.RemoveKeystore

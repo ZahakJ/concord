@@ -1037,6 +1037,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("app: open identity: %w", err)
 	}
+	removeLeftoverEraseRecord(cfg.DataDir)
 
 	st, err := store.Open(dbPathIn(cfg.DataDir), deriveStoreKey(id))
 	if err != nil {

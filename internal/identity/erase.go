@@ -354,8 +354,14 @@ func finishErase(path string) error {
 // HasKeystore reports whether there is a keystore at path to unlock: one
 // that exists and is not condemned by an unfinished erase.
 func HasKeystore(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil && !condemned(path)
+	// As loadOrCreate: "no keystore" means exactly that the path does not
+	// exist. A symlink to somewhere unreadable, or an error looking, is a
+	// keystore that cannot be reached, not absence, so the screens offer the
+	// unlock (which says why) rather than a create form.
+	if _, err := os.Lstat(path); os.IsNotExist(err) {
+		return false
+	}
+	return !condemned(path)
 }
 
 // refuseSymlinkErase: removing a symlinked keystore removes the link and

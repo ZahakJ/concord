@@ -136,4 +136,10 @@ func TestDanglingKeystoreLinkIsNamedNotTakenForAbsence(t *testing.T) {
 	if !strings.Contains(err.Error(), "symbolic link") || !strings.Contains(err.Error(), target) {
 		t.Fatalf("the error does not say the keystore is a link to %s: %v", target, err)
 	}
+	// The screens ask the same question the unlock does: a keystore is there,
+	// just unreachable, so they offer the unlock (which says why) rather than
+	// a create form.
+	if !HasKeystore(path) {
+		t.Fatal("HasKeystore took a dangling keystore link for no keystore")
+	}
 }
