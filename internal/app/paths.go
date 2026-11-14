@@ -211,17 +211,21 @@ func resetDataIn(dataDir string) error {
 	// Every item is tried, and what could not be removed is named: the user
 	// is told exactly what is and is not gone.
 	var left []string
-	for _, p := range []string{
-		dbPathIn(dataDir),
-		dbPathIn(dataDir) + "-wal",
-		dbPathIn(dataDir) + "-shm",
-		// The remembered-peer cache is plaintext and outlives the keystore, so
-		// leaving it would hand the new identity the old one's contact list —
-		// and the first launch dials it, from the same address, announcing to
-		// every one of those peers that the two identities are the same person.
-		// That is the one thing starting over is for.
-		peerCachePath(dataDir),
-	} {
+	// From the one list (accountDataFiles), the device marker and its
+	// temporary file held back for last (below).
+	//
+	// The remembered-peer cache in it is plaintext and outlives the keystore,
+	// so leaving it would hand the new identity the old one's contact list —
+	// and the first launch dials it, from the same address, announcing to
+	// every one of those peers that the two identities are the same person.
+	// That is the one thing starting over is for.
+	marker := deviceMarkerPath(dataDir)
+	var markers []string
+	for _, p := range accountDataFiles(dataDir) {
+		if p == marker || p == marker+".tmp" {
+			markers = append(markers, p)
+			continue
+		}
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			left = append(left, filepath.Base(p))
 		}
@@ -242,7 +246,7 @@ func resetDataIn(dataDir string) error {
 	// marker: what is left must still read as a linked install, so a revoke
 	// wipe that stopped half-way is finished at the next start, and a restore
 	// over the remains asks rather than keeping a linked device's group state.
-	for _, p := range []string{deviceMarkerPath(dataDir), deviceMarkerPath(dataDir) + ".tmp"} {
+	for _, p := range markers {
 		if len(left) > 0 {
 			if _, err := os.Lstat(p); err == nil {
 				left = append(left, filepath.Base(p))
