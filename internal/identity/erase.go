@@ -58,6 +58,13 @@ func newErasePending(path string) bool {
 	return !known || stale != id
 }
 
+// FileIdentity names a file by size, modification time and, where the
+// platform has one, its device and inode: what changes when the file is
+// replaced or written, without reading it.
+func FileIdentity(fi os.FileInfo) string {
+	return fmt.Sprintf("%d:%d:%s", fi.Size(), fi.ModTime().UnixNano(), fileID(fi))
+}
+
 // markerIdentity names the erase marker beside path so a stale one can be
 // recognised: always by size, time and file identity, never by content, so
 // that the same file has one identity whether or not it can be read at the
@@ -68,7 +75,7 @@ func markerIdentity(path string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return fmt.Sprintf("%d:%d:%s", fi.Size(), fi.ModTime().UnixNano(), fileID(fi)), true
+	return FileIdentity(fi), true
 }
 
 // errErasePending: an erase of this device has not finished and could not be

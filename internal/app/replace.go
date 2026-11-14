@@ -184,16 +184,19 @@ func (e *ReplaceRefusedError) Error() string {
 // a yes given for something else.
 func ConfirmToken(dataDir, incomingFingerprint string) string {
 	snap, _ := identity.ReadKeystore(keystorePathIn(dataDir))
-	return confirmToken(incomingFingerprint, snap)
+	return confirmToken(dataDir, incomingFingerprint, snap)
 }
 
-func confirmToken(fp string, snap []byte) string {
-	held := "none"
+func confirmToken(dataDir, fp string, snap []byte) string {
+	var sum [32]byte
 	if snap != nil {
-		sum := sha256.Sum256(snap)
-		held = hex.EncodeToString(sum[:16])
+		sum = sha256.Sum256(snap)
+	} else {
+		// No keystore: what the user is shown, and agrees to erase, is the
+		// data on the device, so the yes is bound to that data.
+		sum = sha256.Sum256([]byte("data:" + dataIdentity(dataDir)))
 	}
-	return fp + "@" + held
+	return fp + "@" + hex.EncodeToString(sum[:16])
 }
 
 // replaceGate decides whether an account with this seed may be written over
@@ -212,7 +215,7 @@ func replaceGate(dataDir string, seed []byte, confirm, incomingName string, snap
 		return false, ierr
 	}
 	fp := incoming.Fingerprint()
-	token := confirmToken(fp, snap)
+	token := confirmToken(dataDir, fp, snap)
 	if confirm != "" && confirm == token {
 		// Agreed to replace the keystore. Whether the data goes is a separate
 		// question: if it opens under the incoming seed it is this account's,
@@ -263,7 +266,7 @@ func noKeystoreGate(dataDir string, seed []byte, confirm, incomingName string, s
 		return true, nil
 	}
 	fp := incoming.Fingerprint()
-	token := confirmToken(fp, snap)
+	token := confirmToken(dataDir, fp, snap)
 	if confirm != "" && confirm == token {
 		return false, nil
 	}
@@ -300,6 +303,7 @@ func RestoreOverExisting(dataDir, phrase, passphrase, confirm string) error {
 	// what it leaves is not what the user agreed to replace.
 	ksPath := keystorePathIn(dataDir)
 	snap, err := identity.ReadKeystore(ksPath)
+	seen := dataIdentity(dataDir)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -317,7 +321,7 @@ func RestoreOverExisting(dataDir, phrase, passphrase, confirm string) error {
 	// never a device with neither.
 	var eraseOld func() error
 	if !keep {
-		eraseOld = func() error { return resetDataIn(dataDir) }
+		eraseOld = eraseIfUnchanged(dataDir, seen)
 	}
 	err = identity.RestoreKeystoreWith(ksPath, phrase, passphrase, snap, eraseOld)
 	if errors.Is(err, identity.ErrKeystoreChanged) || errors.Is(err, identity.ErrKeystoreExists) {

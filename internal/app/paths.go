@@ -7,6 +7,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,6 +121,51 @@ func guardCreate(keystorePath string) error {
 		return ErrDataWithoutKeystore
 	}
 	return nil
+}
+
+// dataIdentity names the account data on the device (the files resetDataIn
+// removes, the group-state directory's contents included) by what they are
+// on disk, without reading them: a confirmation shown for this data, or an
+// erase decided on it, is not applied to data that has since been replaced,
+// copied in or written. "" when there is none.
+func dataIdentity(dataDir string) string {
+	// The database's -wal and -shm side files are left out: merely reading
+	// the database (the account check, the name the dialog shows) creates
+	// or touches them, so they would change the identity by being looked at.
+	var parts []string
+	for _, p := range []string{dbPathIn(dataDir), peerCachePath(dataDir), deviceMarkerPath(dataDir)} {
+		if fi, err := os.Lstat(p); err == nil {
+			parts = append(parts, filepath.Base(p)+"="+identity.FileIdentity(fi))
+		}
+	}
+	_ = filepath.WalkDir(filepath.Join(dataDir, "mls"), func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if fi, ierr := d.Info(); ierr == nil {
+			rel, _ := filepath.Rel(dataDir, p)
+			parts = append(parts, rel+"="+identity.FileIdentity(fi))
+		}
+		return nil
+	})
+	return strings.Join(parts, ";")
+}
+
+// errDataChanged: the account data on the device is not what a restore or
+// link decided on (it changed, or appeared, in between). Nothing was erased.
+var errDataChanged = fmt.Errorf("%w (the data on this device changed)", identity.ErrKeystoreChanged)
+
+// eraseIfUnchanged is the eraseOld of a restore or link that decided, on
+// seen, to erase the device's data: under the keystore lock, at the write,
+// it erases only if the data is still exactly seen. Data that appeared or
+// changed meanwhile was never confirmed for erasing, and is left.
+func eraseIfUnchanged(dataDir, seen string) func() error {
+	return func() error {
+		if dataIdentity(dataDir) != seen {
+			return errDataChanged
+		}
+		return resetDataIn(dataDir)
+	}
 }
 
 // hasAccountData reports whether any of the data resetDataIn removes is

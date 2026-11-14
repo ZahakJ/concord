@@ -436,3 +436,56 @@ func TestNoKeystoreLinkedInstallAsksAndLeavesNoDeadMarker(t *testing.T) {
 		t.Fatal("a linked install's data was kept")
 	}
 }
+
+// With no keystore, a yes is bound to the data it was given for: one given
+// for Bea's data, replayed after the data was replaced by Carol's, erases
+// nothing and asks again.
+func TestNoKeystoreConfirmationIsBoundToTheData(t *testing.T) {
+	dir := t.TempDir()
+	seedDevice(t, dir, "pw", "Bea", false)
+	if err := os.Remove(keystorePathIn(dir)); err != nil {
+		t.Fatal(err)
+	}
+	incoming, _ := identity.Generate()
+	err := RestoreIdentity(dir, phraseOf(t, incoming), "new-pass")
+	var refused *ReplaceRefusedError
+	if !errors.As(err, &refused) {
+		t.Fatalf("restore over Bea's data: %v", err)
+	}
+	forBea := refused.Confirm
+	// Bea's data is replaced by Carol's.
+	for _, p := range []string{dbPathIn(dir), dbPathIn(dir) + "-wal", dbPathIn(dir) + "-shm"} {
+		_ = os.Remove(p)
+	}
+	seedDevice(t, dir, "carol", "Carol", false)
+	if err := os.Remove(keystorePathIn(dir)); err != nil {
+		t.Fatal(err)
+	}
+	err = RestoreOverExisting(dir, phraseOf(t, incoming), "new-pass", forBea)
+	if !errors.As(err, &refused) {
+		t.Fatalf("a yes for Bea's data was applied to Carol's: %v", err)
+	}
+	if store.PeekSetting(dbPathIn(dir), "display_name") != "Carol" {
+		t.Fatal("Carol's data was erased on a yes given for Bea's")
+	}
+}
+
+// A restore onto a device with no data erases nothing that appears between
+// its decision and its write (a data directory being copied in): the erase
+// is checked under the lock, at the write, against what was decided on.
+func TestDataAppearingBeforeTheWriteIsNotErased(t *testing.T) {
+	dir := t.TempDir()
+	incoming, _ := identity.Generate()
+	testHookRestoreBeforeWrite = func() {
+		if err := os.WriteFile(dbPathIn(dir), []byte("copied in"), 0o600); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { testHookRestoreBeforeWrite = nil })
+	if err := RestoreIdentity(dir, phraseOf(t, incoming), "new-pass"); err == nil {
+		t.Fatal("the restore went ahead over data that appeared after its decision")
+	}
+	if got, _ := os.ReadFile(dbPathIn(dir)); string(got) != "copied in" {
+		t.Fatal("data that appeared after the decision was erased")
+	}
+}

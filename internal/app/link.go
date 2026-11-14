@@ -356,6 +356,7 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 	// not be sealed back to this one.
 	ksPath := keystorePathIn(dataDir)
 	snap, serr := identity.ReadKeystore(ksPath)
+	seen := dataIdentity(dataDir)
 	if serr != nil && !os.IsNotExist(serr) {
 		return LinkResult{}, serr
 	}
@@ -436,7 +437,7 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 	// it is in place leaves the old one there.
 	var eraseOld func() error
 	if !keep {
-		eraseOld = func() error { return resetDataIn(dataDir) }
+		eraseOld = eraseIfUnchanged(dataDir, seen)
 	}
 
 	// Adopt the account: keystore = received account seed + our device seed;
