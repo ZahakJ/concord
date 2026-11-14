@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
+	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/identity"
 )
 
@@ -168,5 +172,49 @@ func TestBridgeChangePassphrase(t *testing.T) {
 	}
 	if p, err := b.Dispatch("RevealMnemonic", rawArgs("new-pass")); err != nil || p.(string) == "" {
 		t.Fatalf("reveal with the passphrase: %v", err)
+	}
+}
+
+// An unlock that finds the keystore's clear fields altered tells the user
+// once, through the Login result; the next unlock, after the correction, is
+// quiet.
+func TestLoginSaysOnceThatTheKeystoreLabelWasAltered(t *testing.T) {
+	b, _ := newLockedDevice(t, "pw", "Ada")
+	ks, err := appsvc.KeystorePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Someone with the device's files changes a clear field.
+	raw, _ := os.ReadFile(ks)
+	var env map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &env)
+	env["version"] = json.RawMessage("1")
+	out, _ := json.Marshal(env)
+	if err := os.WriteFile(ks, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notice, err := b.Dispatch("Login", rawArgs("pw"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := notice.(string); !strings.Contains(s, "altered") {
+		t.Fatalf("the unlock said nothing about the altered keystore: %q", notice)
+	}
+	// Wait for the correction behind the unlock.
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		raw, _ = os.ReadFile(ks)
+		_ = json.Unmarshal(raw, &env)
+		if string(env["version"]) == "2" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the altered field was never corrected")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	_ = b.Logout()
+	if notice, err := b.Dispatch("Login", rawArgs("pw")); err != nil || notice != "" {
+		t.Fatalf("second unlock: %q, %v; want no notice", notice, err)
 	}
 }

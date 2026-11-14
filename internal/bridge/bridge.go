@@ -40,6 +40,9 @@ type Bridge struct {
 	// Lock* value; "" = nothing in this process ended a session, so the core
 	// must have started since). See SessionState.
 	lockReason string
+	// unlockNotice is something the user must be told once after an unlock
+	// (see takeUnlockNotice); guarded by mu.
+	unlockNotice string
 	// linking is set while RedeemLinkCode runs. The link spends up to a
 	// minute and a half on the network without b.mu, and then erases or
 	// replaces the identity on this device; an unlock, restore or reset from
@@ -412,6 +415,21 @@ func (b *Bridge) HasIdentity() (bool, error) {
 	return appsvc.HasIdentity(dir), nil
 }
 
+// labelAlteredNotice is said once when an unlock found that the part of the
+// keystore readable without the passphrase (the account it names) had been
+// changed, and corrected it. It means someone, or something, wrote to this
+// device's files; the account itself was never at risk from it.
+const labelAlteredNotice = "This device's keystore had been altered: the account it showed before unlocking didn't match the account inside. Concord has corrected it. If you didn't do this, someone may have had access to this device's files."
+
+// takeUnlockNotice returns the notice the last unlock left, once.
+func (b *Bridge) takeUnlockNotice() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := b.unlockNotice
+	b.unlockNotice = ""
+	return n
+}
+
 // redeemLink is appsvc.RedeemLink, a variable so a test can make it fail.
 var redeemLink = appsvc.RedeemLink
 
@@ -706,6 +724,9 @@ func (b *Bridge) Login(passphrase string) error {
 			return wrongPassphrase()
 		}
 		return err
+	}
+	if ks, kerr := appsvc.KeystorePath(); kerr == nil && identity.TakeLabelAltered(ks) {
+		b.unlockNotice = labelAlteredNotice
 	}
 	svc.OnMessage(func(m domain.Message) {
 		// A blocked sender's message is stored and synced like any other, but
@@ -3630,7 +3651,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "RestoreOverExisting":
 		return nil, b.RestoreOverExisting(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "Login":
-		return nil, b.Login(argStr(args, 0))
+		// The result is a notice for the user after a successful unlock, ""
+		// for none (see takeUnlockNotice).
+		if err := b.Login(argStr(args, 0)); err != nil {
+			return nil, err
+		}
+		return b.takeUnlockNotice(), nil
 	case "Identity":
 		return b.Identity()
 	case "Guilds":

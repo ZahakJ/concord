@@ -133,6 +133,9 @@ type keystoreFile struct {
 	// to the database where that can answer. Absent in files written before
 	// it existed; LoadOrCreate adds it, or corrects it, on the next unlock.
 	AccountPub []byte `json:"account_pub,omitempty"`
+	// ClearTag authenticates the clear fields above (see cleartag.go).
+	// Absent in files written before it existed; added at the next re-seal.
+	ClearTag []byte `json:"clear_tag,omitempty"`
 }
 
 // NormalizePassphrase is the form a passphrase is sealed under. The same
@@ -222,6 +225,7 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte, befo
 		env.DeviceNonce = dnonce[:]
 		env.DeviceCiphertext = secretbox.Seal(nil, ds, &dnonce, &key)
 	}
+	env.ClearTag = clearTag(&key, &env)
 	blob, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
 		return fmt.Errorf("identity: marshal keystore: %w", err)
@@ -284,6 +288,7 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte, befo
 	if now, err := os.Lstat(path); err != nil || !os.SameFile(now, written) {
 		return errors.New("identity: the keystore was not replaced")
 	}
+	noteVerified(path, blob, id.PublicKey())
 	// The rename is an entry in the directory, and until the directory is
 	// synced a power cut can still undo it: a passphrase change reported done
 	// would come back as the old file. Best effort, because the new keystore
@@ -607,6 +612,7 @@ func openKeystore(path, passphrase string) (*Identity, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	noteVerified(path, blob, id.PublicKey())
 	return id, blob, nil
 }
 
@@ -664,6 +670,7 @@ func OpenKeystoreBytes(blob []byte, passphrase string) (*Identity, error) {
 			id.deviceSeed = ds
 		}
 	}
+	id.label = checkClearTag(&key, &env)
 	return id, nil
 }
 
@@ -694,13 +701,18 @@ func loadOrCreate(path, passphrase string, again bool) (*Identity, bool, error) 
 				id.deviceSeed = nil
 			}
 			hooks.done()
-		case !namesAccount(opened, id.PublicKey()):
-			if pub, _ := accountPubOf(opened); pub != nil {
+		case !namesAccount(opened, id.PublicKey()) || id.label != labelVerified:
+			if pub, _ := accountPubOf(opened); pub != nil && !namesAccount(opened, id.PublicKey()) {
 				// Present but not this seed's: written by a bug, or by hand.
 				log.Printf("concord/identity: the keystore's clear account key did not match its seed; correcting it")
+				noteAltered(path)
+			} else if id.label == labelAltered {
+				log.Printf("concord/identity: the keystore's clear fields did not match their tag; correcting them")
+				noteAltered(path)
 			}
 			// Also re-sealed when the file does not yet name its account in the
-			// clear (see keystoreFile.AccountPub), or names another, so a device
+			// clear (see keystoreFile.AccountPub), names another, or has no valid
+			// tag over its clear fields (cleartag.go), so a device
 			// that has been unlocked once by this build can say whose it is
 			// while locked. That is a second key derivation (about 200 ms) the
 			// unlock does not need to wait for, so it happens behind it; it only

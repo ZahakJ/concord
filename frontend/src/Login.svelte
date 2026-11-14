@@ -90,7 +90,8 @@
     try {
       const pass = await unlockWithBiometric();
       if (!pass) return; // cancelled or failed — fall back to the passphrase field
-      await api.login(pass);
+      const notice = await api.login(pass);
+      if (notice) flash(notice, "info"); // e.g. the keystore's label had been altered
       await enter();
     } catch (err) {
       fail(err);
@@ -467,7 +468,8 @@
       } else {
         await api.restoreFromMnemonic(phrase, passphrase);
       }
-      await api.login(passphrase);
+      const notice = await api.login(passphrase);
+      if (notice) flash(notice, "info"); // e.g. the keystore's label had been altered
       if (await isNameless()) {
         naming = true;
         restoring = false;
@@ -588,7 +590,8 @@
     error = "";
     try {
       const creating = !hasIdentity;
-      await api.login(passphrase);
+      const notice = await api.login(passphrase);
+      if (notice) flash(notice, "info"); // e.g. the keystore's label had been altered
       if (creating) {
         // Give the fresh account the name they chose, so they never appear as a
         // fingerprint stub. Best-effort — a failure here shouldn't block entry.
