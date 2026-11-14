@@ -452,3 +452,40 @@ func TestARelinkWithTheSameKeyAfterAMissedUnlinkIsErasedOnce(t *testing.T) {
 		t.Fatal("the phone linked again was erased")
 	}
 }
+
+// While the app is open, a revoke wipe tells the shell how it went: nil
+// when the device was erased, ErrDeviceUnlinkedNotErased when it was not,
+// so the lock screen never says "erased" over a device that still holds
+// everything.
+func TestALiveRevokeWipeTellsTheShellWhetherItErased(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	for _, stuck := range []bool{true, false} {
+		dir := t.TempDir()
+		s := startServiceInDir(t, ctx, dir)
+		dev := s.id.DevicePublicKey()
+		if err := saveDeviceMarker(dir, s.id.IssueDeviceCertFor(dev, "phone", time.Now().Add(-time.Hour).Unix())); err != nil {
+			t.Fatal(err)
+		}
+		orig := removeKeystore
+		if stuck {
+			removeKeystore = func(string) error { return errors.New("held by another program") }
+		}
+		done := make(chan error, 1)
+		s.OnUnlinked(func(err error) { done <- err })
+		s.applyRevocation(s.id.RevokeDevice(dev, time.Now().Unix()))
+		var got error
+		select {
+		case got = <-done:
+		case <-time.After(30 * time.Second):
+			t.Fatal("the unlink callback never fired")
+		}
+		removeKeystore = orig
+		if stuck && (!errors.Is(got, ErrDeviceUnlinkedNotErased) || !HasIdentity(dir)) {
+			t.Fatalf("keystore stuck: the shell was told %v", got)
+		}
+		if !stuck && (got != nil || HasIdentity(dir)) {
+			t.Fatalf("erased: the shell was told %v (keystore there: %v)", got, HasIdentity(dir))
+		}
+	}
+}

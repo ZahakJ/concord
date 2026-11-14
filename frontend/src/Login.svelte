@@ -785,6 +785,12 @@
           your guilds and your messages has been erased here — nothing was deleted
           from anyone else. Link it again from one of your other devices to get
           them back.
+        {:else if endedReason === "unlinked-not-erased"}
+          This device was unlinked from its account, but erasing its copy here
+          did not finish: something on this device was holding Concord's files,
+          so your identity and data may still be on it. Close anything else
+          using Concord's files and open it again to finish the erase. Nothing
+          was deleted from anyone else.
         {:else if endedReason === "wiped"}
           Everything on this device was deleted from another Concord window.
         {:else if endedReason === "signed-out"}

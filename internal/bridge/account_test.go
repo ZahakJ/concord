@@ -548,3 +548,13 @@ func TestStartOverBelongsToTheLockScreen(t *testing.T) {
 		t.Fatal("a start-over confirmation opened while an account is open")
 	}
 }
+
+// The lock reason after an unlink says whether the device was erased.
+func TestTheLockReasonAfterAnUnlinkSaysWhetherItErased(t *testing.T) {
+	if got := unlinkedReason(nil); got != LockUnlinked {
+		t.Fatalf("erased: %q", got)
+	}
+	if got := unlinkedReason(appsvc.ErrDeviceUnlinkedNotErased); got != LockUnlinkedNotErased {
+		t.Fatalf("not erased: %q", got)
+	}
+}

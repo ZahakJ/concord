@@ -855,11 +855,11 @@ func (b *Bridge) Login(passphrase string) error {
 	// the session rather than leaving the UI talking to a closed store, and poke
 	// the presence feed so the shell notices it needs to go back to the lock
 	// screen — where HasIdentity is now false, which is the truth.
-	svc.OnUnlinked(func() {
+	svc.OnUnlinked(func(erased error) {
 		b.mu.Lock()
 		if b.svc == svc {
 			b.svc = nil
-			b.lockReason = LockUnlinked
+			b.lockReason = unlinkedReason(erased)
 		}
 		b.mu.Unlock()
 		if b.OnPresence != nil {

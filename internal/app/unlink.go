@@ -267,10 +267,13 @@ func (s *Service) pushRevocation(p peer.ID, rev *identity.DeviceRevocation) {
 }
 
 // OnUnlinked registers a callback fired when THIS device is told it has been
-// unlinked and has erased itself. The shell uses it to drop the session and say
-// so — without it the app keeps a closed service around and every action fails
-// with a database error, which is a confusing way to learn you were unlinked.
-func (s *Service) OnUnlinked(fn func()) {
+// unlinked and has tried to erase itself. The shell uses it to drop the session
+// and say so — without it the app keeps a closed service around and every
+// action fails with a database error, which is a confusing way to learn you
+// were unlinked. err is nil when the erase completed, and otherwise
+// ErrDeviceUnlinkedNotErased naming what is still here: the shell must not say
+// the device was erased when it was not.
+func (s *Service) OnUnlinked(fn func(err error)) {
 	s.mu.Lock()
 	s.onUnlinked = append(s.onUnlinked, fn)
 	s.mu.Unlock()
@@ -337,7 +340,7 @@ func (s *Service) selfRevoked() bool {
 func (s *Service) wipeSelf() error {
 	dir := s.dataDir
 	s.mu.RLock()
-	cbs := append([]func(){}, s.onUnlinked...)
+	cbs := append([]func(error){}, s.onUnlinked...)
 	s.mu.RUnlock()
 
 	s.Close()
@@ -360,7 +363,7 @@ func (s *Service) wipeSelf() error {
 		log.Printf("concord/app: %v", err)
 	}
 	for _, cb := range cbs {
-		cb()
+		cb(err)
 	}
 	return err
 }

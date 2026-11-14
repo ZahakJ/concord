@@ -460,9 +460,10 @@ type Service struct {
 	presenceShown map[peer.ID]bool
 
 	// onUnlinked fires once this device has been told it is unlinked and has
-	// erased itself, so the shell can drop the session instead of leaving the UI
-	// talking to a closed store. Guarded by mu.
-	onUnlinked []func()
+	// tried to erase itself (with the erase's outcome), so the shell can drop
+	// the session instead of leaving the UI talking to a closed store. Guarded
+	// by mu.
+	onUnlinked []func(error)
 }
 
 // Profile is a member's self-asserted presentation: display name, a short
