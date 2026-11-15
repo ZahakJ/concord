@@ -323,6 +323,36 @@ async function phaseOnline() {
     return { status: outcome.kind === "request" ? "WARN" : "PASS", evidence: ev };
   });
 
+  // --- R1: receipts against a peer that has none ---------------------------
+  await lane("R1", "NEW's delivered acks and read receipts do not stop OLD applying the DM", async () => {
+    // OLD (0.60) has no receipts and drops the "delivered" and "read_receipt"
+    // meta frames NEW sends. The DM must carry on both ways after them, and
+    // NEW must show no tick OLD never sent.
+    const oldChan = st.dmChanOld;
+    const newChan = st.dmChanNew;
+    if (!oldChan || !newChan) throw new Error("no DM from L8b to run on");
+    await rpc(NEW, "SetReadReceiptsEnabled", [true]);
+    await rpc(OLD, "SendMessage", [oldChan, "R1-FROM-OLD", ""]);
+    const got = await waitFor("NEW receives OLD's message", () => findMessage(NEW, newChan, "R1-FROM-OLD"));
+    await rpc(NEW, "MarkRead", [newChan, Date.now()]);
+    await sleep(3000); // past the ack beat, so NEW has sent its ack and read receipt
+    await rpc(NEW, "SendMessage", [newChan, "R1-AFTER-ACKS", ""]);
+    const sent = await waitFor("NEW stores its own message", () => findMessage(NEW, newChan, "R1-AFTER-ACKS"));
+    const onOld = await waitFor("OLD receives NEW's message after the acks", () => findMessage(OLD, oldChan, "R1-AFTER-ACKS"));
+    await rpc(OLD, "SendMessage", [oldChan, "R1-REPLY", ""]);
+    await waitFor("NEW receives OLD's reply", () => findMessage(NEW, newChan, "R1-REPLY"));
+    const ticks = (await rpc(NEW, "Receipts", [newChan])) || {};
+    const t = ticks[sent.id] || {};
+    if (t.delivered || t.read) throw new Error(`NEW shows a tick OLD never sent: ${JSON.stringify(t)}`);
+    return {
+      evidence: [
+        `NEW received ${got.content}, marked the DM read with receipts on`,
+        `OLD then received ${onOld.content}; NEW received R1-REPLY`,
+        `NEW's tick for its own message: ${JSON.stringify(t)} (OLD sends no acks)`,
+      ],
+    };
+  });
+
   // --- L2: messages both directions, content intact --------------------------
   await lane("L2", "messages flow both ways with content intact", async () => {
     const ev = [];
