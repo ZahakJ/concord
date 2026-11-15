@@ -58,7 +58,13 @@ async function installProbes(page) {
         );
         if (row && f.contains(row)) hit++;
       }
-      return { hit, n, st: Math.round(f.scrollTop), sh: f.scrollHeight, nodes: document.getElementsByTagName("*").length };
+      // `start` is read in the same evaluation as `st`. Read in a second
+      // round-trip, the last older page could land in between: it brings the
+      // start marker and moves scrollTop down by its own height, so a stale
+      // "at the top" paired with a fresh "marker present" passed for the
+      // beginning while the reader sat a hundred rows below it.
+      const start = !!f.querySelector(".feed-start");
+      return { hit, n, st: Math.round(f.scrollTop), start, sh: f.scrollHeight, nodes: document.getElementsByTagName("*").length };
     };
     window.__older = [];
     window.__pending = 0;
@@ -83,6 +89,21 @@ async function installProbes(page) {
 }
 
 const cover = (page) => page.evaluate(() => window.__cover());
+
+// Flings the feed upward until a reading of the screen says the reader is at
+// the very top with the start-of-channel marker rendered. `read` takes that
+// reading; `afterRead`, if given, runs between the reading and the decision
+// (the race test uses it to land a page at exactly that moment).
+async function flingToBeginning(page, read, { afterRead } = {}) {
+  for (let i = 0; i < 2000; i++) {
+    await page.mouse.wheel(0, -600);
+    await sleep(40);
+    const c = await read();
+    if (afterRead) await afterRead(c);
+    if (c.st < 5 && c.start) return true;
+  }
+  return false;
+}
 
 test(
   "a 2,100-message channel scrolls to its first message without a blank screen or a jump",
@@ -134,13 +155,7 @@ test(
     assert.equal(seen, 3, "three older pages did not load");
 
     step("fling up to the beginning, checking the screen at every step");
-    let reached = false;
-    for (let i = 0; i < 2000 && !reached; i++) {
-      await b.page.mouse.wheel(0, -600);
-      await sleep(40);
-      const c = await checkScreen();
-      reached = c.st < 5 && (await b.page.locator(".feed-start").count()) > 0;
-    }
+    const reached = await flingToBeginning(b.page, checkScreen);
     seen = await b.page.evaluate(() => window.__older.length);
     const lt = await b.page.evaluate(() => window.__lt);
     log(`older pages: ${seen}, max DOM nodes: ${maxNodes}, long tasks: ${lt.length} (max ${Math.round(Math.max(0, ...lt))} ms)`);
@@ -164,6 +179,54 @@ test(
   },
   { timeout: 900000 },
 );
+
+// The last older page is short, so it is the one that renders the start
+// marker, and it lands while the reader is pinned at scrollTop 0 above the
+// rows already loaded. Held position means it lands a page's height ABOVE the
+// reader: the marker exists, but the reader is not at it. Here that page is
+// held back until the screen has been read at the top, and let through before
+// the decision — the moment a busy machine hit by chance.
+test("the last older page landing mid-fling is not taken for the beginning", async ({ world, assert, step, waitFor, shot }) => {
+  const [alice, bashir] = await world.peers(2);
+  const g = await world.guild({ name: "Long", members: [alice, bashir], channels: ["history"] });
+  const ch = g.channels.history;
+  // 200 rows open the channel; the 100 older ones are the last, short page.
+  await seed(alice, bashir, ch, 300, { waitFor });
+  const b = await bashir.open();
+  await b.openChannel("history", "Long");
+  await b.waitForMessage("hist 0300");
+  // The hold sits inside the probes' fetch wrapper, so __pending covers it.
+  await b.page.evaluate(() => {
+    const inner = window.fetch;
+    let release;
+    window.__gate = new Promise((r) => (release = r));
+    window.__release = () => release();
+    window.fetch = async (...a) => {
+      const res = await inner(...a);
+      if (String(a[1]?.body || "").includes('"MessagesBefore"')) await window.__gate;
+      return res;
+    };
+  });
+  await installProbes(b.page);
+  const box = await b.page.locator(".feed").boundingBox();
+  await b.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+
+  step("fling to the top; the last page lands right after a reading taken at the top");
+  let landed = false;
+  const reached = await flingToBeginning(b.page, () => cover(b.page), {
+    afterRead: async (c) => {
+      if (landed || c.st >= 5 || !(await b.page.evaluate(() => window.__pending))) return;
+      await b.page.evaluate(() => window.__release());
+      await waitFor(async () => !(await b.page.evaluate(() => window.__pending)), { timeout: 15000 });
+      await sleep(300);
+      landed = true;
+    },
+  });
+  assert.ok(landed, "the last page was never held at the top");
+  assert.ok(reached, "never reached the beginning of the channel");
+  await shot(b, "the beginning");
+  await b.waitForMessage("hist 0001", { timeout: 5000 });
+});
 
 test("a channel ending in very tall messages still fills the screen", async ({ world, assert, step, waitFor, shot }) => {
   const [alice, bashir] = await world.peers(2);
