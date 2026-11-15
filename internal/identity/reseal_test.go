@@ -197,7 +197,7 @@ func TestResealDoesNotRecreateAnErasedKeystore(t *testing.T) {
 	erased := make(chan error, 1)
 	unlockWithReseal(t, path, "pw", nil, resealHooks{
 		resealChecked: func() {
-			go func() { erased <- RemoveKeystore(path) }()
+			go func() { erased <- removeKeystore(path) }()
 			// Give an erase that does not wait for the re-seal the chance
 			// to finish first; one that waits stays blocked here.
 			select {

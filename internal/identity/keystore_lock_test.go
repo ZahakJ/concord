@@ -109,7 +109,7 @@ func TestEraseStaysFinalWhenAnotherProcessHoldsTheLock(t *testing.T) {
 	keystoreLockWait = 300 * time.Millisecond
 	t.Cleanup(func() { finishers.Wait(); keystoreLockWait = orig })
 
-	if err := RemoveKeystore(path); err != nil {
+	if err := removeKeystore(path); err != nil {
 		t.Fatalf("erase with the lock held elsewhere: %v", err)
 	}
 	if HasKeystore(path) {

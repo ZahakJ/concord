@@ -271,7 +271,7 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte, befo
 		return fmt.Errorf("identity: write keystore: %w", err)
 	}
 	// An erase that could not take the lock may have been asked for while this
-	// write held it (see RemoveKeystore). It wins: the write stands down
+	// write held it (see removeKeystore). It wins: the write stands down
 	// before renaming, and a write that renamed as the erase was being asked
 	// for takes its own file away again.
 	if newErasePending(path) {
@@ -520,7 +520,7 @@ var errKeystoreSymlink = errors.New("identity: the keystore is a symbolic link; 
 // ReadKeystore returns the keystore file's bytes: the snapshot a caller
 // decides on (decrypts with OpenKeystoreBytes, compares accounts) and then
 // hands back to ReplaceKeystore as expected.
-// A keystore an unfinished erase condemned (see RemoveKeystore) reads as
+// A keystore an unfinished erase condemned (see removeKeystore) reads as
 // absent.
 func ReadKeystore(path string) ([]byte, error) {
 	if condemned(path) {
@@ -603,7 +603,7 @@ func checkExpected(path string, expected []byte) error {
 // the path. A second read can already be another passphrase's file, and
 // re-sealing that under this passphrase would revert the change. Anything
 // that does not match — a changed passphrase, a restored or re-linked
-// account, a device erased through RemoveKeystore — is left as it is, and
+// account, a device erased through removeKeystore — is left as it is, and
 // so is a failed write: the rename never happened, and the next unlock
 // tries again.
 func resealIfUnchanged(path, passphrase string, id *Identity, opened []byte, hooks resealHooks) error {

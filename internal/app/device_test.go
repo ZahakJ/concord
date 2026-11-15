@@ -95,7 +95,7 @@ func TestResetIdentityForgetsTheDeviceMarker(t *testing.T) {
 	if err := saveDeviceMarker(dir, cert); err != nil {
 		t.Fatal(err)
 	}
-	if err := ResetIdentity(dir); err != nil {
+	if err := resetIdentity(dir); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := loadDeviceMarker(dir, id.PublicKey(), id.DevicePublicKey()); ok {

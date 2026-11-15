@@ -108,7 +108,7 @@ func TestFailedEraseLeavesNothingPending(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := holdKeystoreInProcess(t)
-	if err := RemoveKeystore(path); err == nil {
+	if err := removeKeystore(path); err == nil {
 		t.Fatal("the erase reported success")
 	}
 	release()
@@ -136,7 +136,7 @@ func TestWriteRenamingDuringAnEraseTakesItsFileBack(t *testing.T) {
 	t.Cleanup(func() { finishers.Wait(); keystoreLockWait = orig })
 	var eraseErr error
 	setHooks(t, resealHooks{beforeRename: func() {
-		eraseErr = RemoveKeystore(path) // the change holds the lock: this falls back
+		eraseErr = removeKeystore(path) // the change holds the lock: this falls back
 	}})
 	if err := ChangePassphrase(path, "old", "new"); !errors.Is(err, ErrKeystoreChanged) {
 		t.Fatalf("the change that lost to an erase: %v", err)
@@ -191,7 +191,7 @@ func TestEraseMarkerNeverFollowsASymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	holdKeystoreInProcess(t)
-	_ = RemoveKeystore(path)
+	_ = removeKeystore(path)
 	if got, _ := os.ReadFile(victim); string(got) != "keep me" {
 		t.Fatalf("the erase wrote through a planted symlink: %q", got)
 	}
@@ -218,7 +218,7 @@ func TestEraseSyncsTheDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := count()
-	if err := RemoveKeystore(path); err != nil {
+	if err := removeKeystore(path); err != nil {
 		t.Fatal(err)
 	}
 	if *n < 1 {
@@ -230,7 +230,7 @@ func TestEraseSyncsTheDirectory(t *testing.T) {
 	}
 	*n = 0
 	holdKeystoreInProcess(t)
-	if err := RemoveKeystore(path); err != nil {
+	if err := removeKeystore(path); err != nil {
 		t.Fatal(err)
 	}
 	if *n < 2 {
@@ -256,7 +256,7 @@ func TestEraseFinisherIsSingleAndBounded(t *testing.T) {
 		if err := os.WriteFile(path, blob, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := RemoveKeystore(path); err != nil {
+		if err := removeKeystore(path); err != nil {
 			t.Fatalf("erase %d: %v", i, err)
 		}
 	}
@@ -289,7 +289,7 @@ func TestEraseRefusesASymlinkedKeystore(t *testing.T) {
 	if err := os.Symlink(real, path); err != nil {
 		t.Fatal(err)
 	}
-	err := RemoveKeystore(path)
+	err := removeKeystore(path)
 	if err == nil || !strings.Contains(err.Error(), real) {
 		t.Fatalf("erase of a symlinked keystore: %v, want a refusal naming %s", err, real)
 	}
@@ -324,7 +324,7 @@ func TestEraseWinsEvenWhenAWriteCannotRemoveItsOwnFile(t *testing.T) {
 	}
 	t.Cleanup(func() { finishers.Wait(); keystoreLockWait = orig; removeFile = origRemove })
 	setHooks(t, resealHooks{beforeRename: func() {
-		if err := RemoveKeystore(path); err != nil { // falls back: the change holds the lock
+		if err := removeKeystore(path); err != nil { // falls back: the change holds the lock
 			t.Errorf("erase: %v", err)
 		}
 		failing.Store(true)
@@ -393,7 +393,7 @@ func TestEraseThatCannotRollBackIsReportedPending(t *testing.T) {
 		return origRemove(p)
 	}
 	release := holdKeystoreInProcess(t)
-	err := RemoveKeystore(path)
+	err := removeKeystore(path)
 	if !errors.Is(err, ErrEraseDeferred) {
 		t.Fatalf("erase that will complete later: %v, want it reported as pending", err)
 	}

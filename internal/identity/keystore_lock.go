@@ -69,7 +69,7 @@ func lockKeystore(path string) (unlock func(), err error) {
 		}
 		if ok {
 			// An erase that could not wait for the lock left this to whoever
-			// holds it next (see RemoveKeystore). Finish it before anything
+			// holds it next (see removeKeystore). Finish it before anything
 			// else, so no holder ever acts on a keystore that was erased.
 			finishPendingErase(path)
 			return func() {

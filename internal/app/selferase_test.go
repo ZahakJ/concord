@@ -98,3 +98,16 @@ func TestARevokeWipeLeavesADeviceLinkedAgain(t *testing.T) {
 		t.Fatalf("the new device marker went: %v", err)
 	}
 }
+
+// An erase is checked: without a check it erases nothing, rather than
+// erasing whatever is there.
+func TestResetIdentityIfRefusesWithoutACheck(t *testing.T) {
+	dir := t.TempDir()
+	seedDevice(t, dir, "pw", "Bea", false)
+	if err := ResetIdentityIf(dir, nil, nil); err == nil {
+		t.Fatal("an erase with no check went through")
+	}
+	if !HasIdentity(dir) || !hasAccountData(dir) {
+		t.Fatal("an erase with no check deleted something")
+	}
+}

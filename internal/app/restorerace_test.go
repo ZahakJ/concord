@@ -121,7 +121,7 @@ func TestConfirmationOnlyErasesTheAccountTheUserWasShown(t *testing.T) {
 	shown := ConfirmToken(dir, incoming.Fingerprint()) // the screen, showing Bea
 
 	// Another window replaces Bea with Cy.
-	if err := ResetIdentity(dir); err != nil {
+	if err := resetIdentity(dir); err != nil {
 		t.Fatal(err)
 	}
 	cy := seedDevice(t, dir, "cy-pass", "Cy", false)
@@ -270,7 +270,7 @@ func TestDeferredEraseWithDataLeftSaysBoth(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dbPathIn(dir), "x"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	err := ResetIdentity(dir)
+	err := resetIdentity(dir)
 	if !errors.Is(err, identity.ErrEraseDeferred) || !errors.Is(err, ErrDataNotErased) {
 		t.Fatalf("deferred keystore erase with data left: %v, want both said", err)
 	}
@@ -360,7 +360,7 @@ func TestARefusedWipeNeverDeletesLater(t *testing.T) {
 	if err := os.Symlink(real, ks); err != nil {
 		t.Skip("no symlinks here")
 	}
-	if err := ResetIdentity(dir); err == nil {
+	if err := resetIdentity(dir); err == nil {
 		t.Fatal("a wipe through a symlinked keystore reported success")
 	}
 	_ = os.Remove(ks)
@@ -389,7 +389,7 @@ func TestAFailedWipeNeverErasesAnOwnPhraseRestore(t *testing.T) {
 	bea := seedDevice(t, dir, "pw", "Bea", false)
 	orig := removeKeystore
 	removeKeystore = func(string, func() bool, func()) error { return errors.New("held by another program") }
-	err := ResetIdentity(dir)
+	err := resetIdentity(dir)
 	removeKeystore = orig
 	if err == nil {
 		t.Fatal("the failing wipe reported success")

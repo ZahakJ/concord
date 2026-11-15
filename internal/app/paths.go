@@ -80,31 +80,8 @@ func HasIdentity(dataDir string) bool {
 	return identity.HasKeystore(keystorePathIn(dataDir))
 }
 
-// ResetIdentity wipes the identity and all data tied to it (keystore, database,
-// MLS group state) so a fresh identity can be created — for a forgotten
-// passphrase or a corrupted keystore. Irreversible.
-func ResetIdentity(dataDir string) error {
-	// Through identity, so a keystore write in flight (the re-seal behind an
-	// unlock) finishes before the file goes rather than recreating it after.
-	// Everything happens now, while the user who confirmed it is here: if
-	// any of it fails, what is left stays until they choose again. Nothing
-	// later deletes it on this erase's behalf.
-	err := removeKeystore(keystorePathIn(dataDir), nil, nil)
-	if err != nil && !errors.Is(err, identity.ErrEraseDeferred) {
-		return err
-	}
-	// A deferred keystore erase will complete (the keystore already reads as
-	// gone), so the rest is erased now as asked, and the caller is told the
-	// keystore's own removal is still to come. If the rest fails too, both
-	// are said: reporting only the data failure would read as "nothing
-	// happened" while the keystore erase still completes later.
-	if derr := resetDataIn(dataDir); derr != nil {
-		return errors.Join(err, derr) // derr names what is left (ErrDataNotErased)
-	}
-	return err
-}
-
-// ResetIdentityIf is ResetIdentity for an erase confirmed for what still
+// ResetIdentityIf wipes the identity and all data tied to it (keystore,
+// database, MLS group state), for an erase confirmed for what still
 // recognises: the device as a screen showed it, or the account and device a
 // revocation named. Taking the keystore lock, asking still, removing the
 // keystore and then the data are one hold of the lock, so a restore or link
@@ -118,6 +95,9 @@ func ResetIdentity(dataDir string) error {
 // cannot be asked about what the erase would remove. A failure to remove the
 // keystore leaves the data; one removing the data is ErrDataNotErased.
 func ResetIdentityIf(dataDir string, still func() bool, first func()) error {
+	if still == nil {
+		return errNoEraseCheck
+	}
 	var derr error
 	err := removeKeystore(keystorePathIn(dataDir), func() bool {
 		if !still() {
@@ -135,6 +115,10 @@ func ResetIdentityIf(dataDir string, still func() bool, first func()) error {
 	}
 	return derr
 }
+
+// errNoEraseCheck: ResetIdentityIf was called without a check. Nothing was
+// erased.
+var errNoEraseCheck = errors.New("app: an erase was asked for with nothing to check it against; nothing was erased")
 
 // removeLeftoverEraseRecord removes the erase record an interim build wrote
 // when a wipe began. It authorises nothing either way (nothing reads it);
@@ -251,7 +235,7 @@ func hasAccountData(dataDir string) bool {
 	return err == nil && len(entries) > 0
 }
 
-// resetDataIn removes everything ResetIdentity erases except the keystore.
+// resetDataIn removes everything ResetIdentityIf erases except the keystore.
 func resetDataIn(dataDir string) error {
 	// Every item is tried, and what could not be removed is named: the user
 	// is told exactly what is and is not gone.

@@ -100,3 +100,17 @@ func TestAConfirmedEraseLeavesAKeystoreWrittenAfterItsCheck(t *testing.T) {
 		t.Fatalf("an erase is pending over Bob's keystore: %v", serr)
 	}
 }
+
+// A confirmed erase needs its check: with none, it erases nothing.
+func TestAConfirmedEraseWithoutACheckErasesNothing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keystore.json")
+	if _, _, err := LoadOrCreate(path, "pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveKeystoreIf(path, nil, nil); err == nil {
+		t.Fatal("an erase with no check went through")
+	}
+	if !HasKeystore(path) {
+		t.Fatal("an erase with no check removed the keystore")
+	}
+}

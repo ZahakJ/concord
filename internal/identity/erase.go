@@ -18,7 +18,7 @@ import (
 // An erase normally takes the keystore lock, so no write can be half-way
 // through when the file goes. When the lock cannot be had in time (another
 // process holding it, possibly stalled in the middle of a write), an
-// unconditional erase (RemoveKeystore) goes ahead anyway and leaves a
+// unconditional erase (removeKeystore) goes ahead anyway and leaves a
 // tombstone; a conditional one (RemoveKeystoreIf) erases nothing and reports
 // the keystore busy, since its condition can only be checked under the lock.
 // The tombstone is there so that the holder cannot bring the keystore back
@@ -187,11 +187,16 @@ func removeKeystoreOnly(path string) error {
 	return nil
 }
 
-// RemoveKeystore erases the keystore at path. See the top of this file for
-// what happens when the keystore lock cannot be had in time.
-func RemoveKeystore(path string) error { return RemoveKeystoreIf(path, nil, nil) }
+// removeKeystore erases the keystore at path, whatever it holds. See the top
+// of this file for what happens when the keystore lock cannot be had in
+// time. Unexported: every erase a user or a revocation asks for is checked
+// (RemoveKeystoreIf); this one is kept for the machinery and its tests.
+func removeKeystore(path string) error { return removeKeystoreIf(path, nil, nil) }
 
-// RemoveKeystoreIf is RemoveKeystore for an erase confirmed for something
+// errNoEraseCheck: RemoveKeystoreIf was called without a check.
+var errNoEraseCheck = errors.New("identity: an erase was asked for with nothing to check it against; nothing was erased")
+
+// RemoveKeystoreIf is removeKeystore for an erase confirmed for something
 // still can recognise: the device as a screen showed it, or the account and
 // device a revocation named. Taking the keystore lock, asking still, removing
 // the keystore and running then all happen in one hold of the lock, with
@@ -208,9 +213,17 @@ func RemoveKeystore(path string) error { return RemoveKeystoreIf(path, nil, nil)
 // ErrKeystoreBusy. Asked without the lock, still would only describe the
 // keystore at that moment, and the holder can rename another one in right
 // after; erasing on that answer is what the check is there to prevent. The
-// caller tries again later. RemoveKeystore (still nil) is the erase that
-// goes ahead without the lock (see the top of this file).
+// caller tries again later. Without a still, nothing is erased.
 func RemoveKeystoreIf(path string, still func() bool, then func()) error {
+	if still == nil {
+		return errNoEraseCheck
+	}
+	return removeKeystoreIf(path, still, then)
+}
+
+// removeKeystoreIf is RemoveKeystoreIf, and with still nil the unconditional
+// erase (removeKeystore), which goes ahead without the lock.
+func removeKeystoreIf(path string, still func() bool, then func()) error {
 	if err := refuseSymlinkErase(path); err != nil {
 		return err
 	}
