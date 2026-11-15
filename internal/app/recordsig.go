@@ -334,12 +334,18 @@ type refusalLog struct {
 var (
 	refusedMessages refusalLog
 	refusedPacks    refusalLog
+	refusedUnsigned refusalLog
 )
 
 const refusalLogInterval = time.Minute
 
 // note records n refusals and writes at most one line per refusalLogInterval.
 func (r *refusalLog) note(n int, what, from string) {
+	r.noteBecause(n, what, from, "whose author signature did not verify")
+}
+
+// noteBecause is note with the reason spelled out.
+func (r *refusalLog) noteBecause(n int, what, from, because string) {
 	if n <= 0 {
 		return
 	}
@@ -352,8 +358,8 @@ func (r *refusalLog) note(n int, what, from string) {
 	if !r.last.CompareAndSwap(prev, now) {
 		return
 	}
-	log.Printf("concord/app: refused %d %s from %s whose author signature did not verify (%d total this session)",
-		n, what, from, total)
+	log.Printf("concord/app: refused %d %s from %s %s (%d total this session)",
+		n, what, from, because, total)
 }
 
 // count exposes the running total, for tests that need to prove a refusal

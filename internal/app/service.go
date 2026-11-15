@@ -68,6 +68,12 @@ type Service struct {
 	// them directly instead of depending on the rendezvous being alive.
 	peers *PeerCache
 
+	// What this device can say about who holds each leaf (seatcheck.go).
+	seatOnce    sync.Once
+	seats       *seatState
+	seatKeyOnce sync.Once
+	seatOwnKey  []byte
+
 	mu             sync.RWMutex
 	guilds         map[string]*domain.Guild // by guild ID
 	channelToGuild map[string]string        // channel ID -> guild ID

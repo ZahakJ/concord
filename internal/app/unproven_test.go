@@ -100,10 +100,11 @@ func TestLinkedDeviceSignsAsTheAccount(t *testing.T) {
 
 // TestLiveDeliveryProvesACatchUpMarkedRow drives the race over real peers. B
 // holds A's message marked, because a catch-up from somebody else delivered an
-// unsigned copy before the live frame; then A's frame arrives — exactly as a
-// pre-signature build publishes it, no signature in it. MLS authenticated A as
-// its sender, so the mark has to go. Before, SaveMessage's ON CONFLICT DO
-// NOTHING dropped the frame as a duplicate and the mark stayed for good.
+// unsigned copy before the live frame; then A's own frame arrives, signed as
+// every live message is. The signature proves A wrote it, so the mark has to
+// go. Before, SaveMessage's ON CONFLICT DO NOTHING dropped the frame as a
+// duplicate and the mark stayed for good. (An unsigned live frame no longer
+// proves authorship on its own: see deliverMessage.)
 func TestLiveDeliveryProvesACatchUpMarkedRow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("network integration test")
@@ -133,7 +134,8 @@ func TestLiveDeliveryProvesACatchUpMarkedRow(t *testing.T) {
 	a.mu.RLock()
 	groupID := a.guilds[g.ID].GroupID
 	a.mu.RUnlock()
-	publishAsOldBuild := func(m domain.Message) {
+	publishLive := func(m domain.Message) {
+		m.Sig = a.signMessage(m)
 		payload, _ := json.Marshal(m)
 		ct, err := a.mls.Encrypt(a.ctx, groupID, payload)
 		if err != nil {
@@ -168,8 +170,8 @@ func TestLiveDeliveryProvesACatchUpMarkedRow(t *testing.T) {
 	}
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) && !(settled(same) && settled(bent)) {
-		publishAsOldBuild(same)
-		publishAsOldBuild(bent)
+		publishLive(same)
+		publishLive(bent)
 		time.Sleep(time.Second)
 	}
 	if !settled(same) {

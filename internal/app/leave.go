@@ -1,10 +1,13 @@
 package app
 
 import (
+	"errors"
 	"sort"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+
+	"github.com/ZahakJ/concord/internal/crypto/mls"
 )
 
 // leave.go tells the rest of a guild that somebody walked out.
@@ -33,7 +36,7 @@ func (s *Service) announceLeave(guildID string, groupID []byte, firstChannel str
 // group (DESIGN §7.5). The guild's owner does it if they are here; otherwise
 // the online committer whose fingerprint sorts first, a choice every peer that
 // sees the same peers makes the same way.
-func (s *Service) handleMemberLeft(guildID string, senderCred []byte) {
+func (s *Service) handleMemberLeft(guildID string, senderCred []byte, leaf uint32, key []byte) {
 	actor := accountFingerprintOf(senderCred)
 	if actor == "" || actor == s.id.Fingerprint() || !s.canManageMembers(guildID) {
 		return
@@ -42,9 +45,35 @@ func (s *Service) handleMemberLeft(guildID string, senderCred []byte) {
 		return
 	}
 	go func() {
-		_ = s.RemoveMember(guildID, senderCred)
+		_ = s.removeLeaver(guildID, senderCred, leaf, key)
 		s.emitGuildUpdate()
 	}()
+}
+
+// removeLeaver takes out the leaf that announced its own leave, by its index
+// and key: the credential alone could name another leaf that carries the
+// same bytes. The guards are RemoveMember's.
+func (s *Service) removeLeaver(guildID string, senderCred []byte, leaf uint32, key []byte) error {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	s.mu.RUnlock()
+	if !ok || len(key) == 0 {
+		return nil
+	}
+	if !s.canManageMembers(guildID) {
+		return nil
+	}
+	if err := s.mintBarred(guildID); err != nil {
+		return err
+	}
+	if accountFingerprintOf(senderCred) == s.effectiveOwner(guildID) {
+		return nil
+	}
+	err := s.publishLeafRemoval(g.GroupID, leaf, key)
+	if errors.Is(err, mls.ErrLeafChanged) {
+		return nil
+	}
+	return err
 }
 
 // leaveRemoverIsMe decides whether this device is the one that removes a leaver.

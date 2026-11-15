@@ -88,7 +88,7 @@ func TestDeleteIsJudgedAgainstTheCurrentRoster(t *testing.T) {
 		return reader.isRemoved(g.ID, mod.Fingerprint()) && !reader.guildHasMember(g.ID, mod.Fingerprint())
 	}, "the reader never saw the removal")
 
-	reader.deliverMessage(g.ID, held, modLeaf)
+	reader.deliverMessage(g.ID, held, modLeaf, false)
 	if row, ok, err := reader.store.MessageByID(first.ID); err != nil || !ok || row.Deleted {
 		t.Fatalf("a delete from a removed member applied: err=%v found=%v deleted=%v", err, ok, row.Deleted)
 	}
@@ -319,7 +319,7 @@ func TestAnActionFromAReadmittedMemberWaitsForTheReadmit(t *testing.T) {
 		Kind: "delete", ReplyTo: msg.ID, Content: "deleted", Sent: time.Now().UTC(),
 	}
 	del.Sig = member.signMessage(del)
-	reader.deliverMessage(g.ID, del, member.myCredential)
+	reader.deliverMessage(g.ID, del, member.myCredential, false)
 	if row, _, _ := reader.store.MessageByID(msg.ID); row.Deleted {
 		t.Fatal("a delete from a member held as removed applied before their readmit")
 	}

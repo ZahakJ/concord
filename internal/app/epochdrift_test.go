@@ -161,6 +161,7 @@ func TestMessageRacingItsCommitNeedsNoReAdd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	msg.Sig = desk.signMessage(msg) // as every live message is signed
 	payload, _ := json.Marshal(msg)
 	ct, err := desk.mls.Encrypt(ctx, groupID, payload)
 	if err != nil {

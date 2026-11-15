@@ -282,28 +282,41 @@ func isEvictionRefusal(refusal string) bool {
 	return r == bannedRefusal || r == removedRefusal
 }
 
-// commitEvictsUs reports whether a commit we are about to fail to apply is the
-// commit that threw us out — read from its own Remove proposals against the
-// roster we still hold.
-//
-// Only THIS device's leaf counts. A commit that removes another device of our
-// account is one we can apply and must: it is how an unlinked device's leaf
-// goes (unlink.go, removalrequest.go) and how a sibling is re-added by a heal,
-// and reading it as our own removal left this device refusing the commit and
-// telling its user they were no longer a member of a guild they were still in.
-// A kick removes every leaf of the account, one commit each; each device meets
-// the commit for its own leaf, and applies the others on the way to it.
-func (s *Service) commitEvictsUs(groupID, commit []byte) bool {
-	removed, err := s.mls.RemovedBy(s.ctx, groupID, commit)
-	if err != nil || len(removed) == 0 {
-		return false
-	}
-	for _, cred := range removed {
-		if bytes.Equal(cred, s.myCredential) {
-			return true
+// What screenCommit says about a commit we are about to apply.
+const (
+	commitProceed = iota
+	// commitRemovesThisDevice: the commit takes this device's own leaf out.
+	// We cannot apply it (the key schedule needs the leaf it blanks), so it
+	// has to be read for what it is first; otherwise being removed and
+	// missing an epoch look the same.
+	commitRemovesThisDevice
+	// commitRefused: seatcheck.go refuses it (never, in this release).
+	commitRefused
+)
+
+// screenCommit reads a commit before it is applied. Removal is judged by this
+// device's own leaf index at the commit's epoch, not by credential: another
+// leaf carrying the same credential is not this device. A removal that leaves
+// a leaf under this account that is not ours in the group is reported, and
+// does not settle as an eviction (see commitRemovesUs).
+func (s *Service) screenCommit(guildID string, groupID, commit []byte) int {
+	removed, replaced := s.commitRemovesUs(groupID, commit)
+	refuse := s.checkSeats(guildID, groupID, commit)
+	if replaced {
+		adder := ""
+		if sender, err := s.mls.CommitSender(s.ctx, groupID, commit); err == nil {
+			adder = accountFingerprintOf(sender)
 		}
+		s.noteSeatReplaced(guildID, adder)
+		return commitProceed
 	}
-	return false
+	if removed {
+		return commitRemovesThisDevice
+	}
+	if refuse {
+		return commitRefused
+	}
+	return commitProceed
 }
 
 // evictedGuildIDs snapshots the guilds we are out of, so the heal loop can skip

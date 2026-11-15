@@ -215,12 +215,15 @@ func (s *Service) holdForReadmit(carrier, guildID, fpr string, m domain.Message,
 }
 
 // releaseForTarget delivers again the actions waiting for a row that arrived.
+// Only signed actions are ever held (deliverMessage refuses an unsigned one
+// first), and a seat flag bears only on unsigned frames, so they are delivered
+// again as unflagged.
 func (s *Service) releaseForTarget(targetID string) {
 	if targetID == "" {
 		return
 	}
 	for _, a := range s.held.take(func(a heldAction) bool { return a.reason == heldForTarget && a.target == targetID }) {
-		s.deliverMessage(a.carrier, a.m, a.senderID)
+		s.deliverMessage(a.carrier, a.m, a.senderID, false)
 	}
 }
 
@@ -232,7 +235,7 @@ func (s *Service) releaseSyncedTarget(targetID string) {
 	}
 	for _, a := range s.held.take(func(a heldAction) bool { return a.reason == heldForTarget && a.target == targetID }) {
 		if a.m.Kind == "delete" {
-			s.deliverMessage(a.carrier, a.m, a.senderID)
+			s.deliverMessage(a.carrier, a.m, a.senderID, false)
 		}
 	}
 }
@@ -245,6 +248,6 @@ func (s *Service) releaseForReadmit(guildID, fpr string) {
 	for _, a := range s.held.take(func(a heldAction) bool {
 		return a.reason == heldForReadmit && a.guild == guildID && a.fpr == fpr
 	}) {
-		s.deliverMessage(a.carrier, a.m, a.senderID)
+		s.deliverMessage(a.carrier, a.m, a.senderID, false)
 	}
 }

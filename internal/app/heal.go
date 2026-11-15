@@ -287,13 +287,19 @@ func (s *Service) onlyPossibleCommitter(guildID string) bool {
 	if err != nil || len(creds) == 0 {
 		return false // an unreadable roster proves nothing
 	}
+	// Another device of this account could repair this copy. "Another
+	// device" is ownAccountLeaf's verdict, not a matching fingerprint: a leaf
+	// that only carries this account's credential is not one.
+	others, err := s.otherOwnDevices(groupID)
+	if err != nil {
+		return false
+	}
+	if others > 0 {
+		return false
+	}
 	inGroup := map[string]bool{}
 	for _, c := range creds {
-		f := accountFingerprintOf(c)
-		if f == mine && !bytes.Equal(c, s.myCredential) {
-			return false // another device of this account
-		}
-		inGroup[f] = true
+		inGroup[accountFingerprintOf(c)] = true
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -734,6 +740,7 @@ func (s *Service) healAsk(guildID string, pid peer.ID) (bool, string) {
 	// flag, or the verdict that routed us here would keep the flag up forever.
 	s.clearForkEvidence(guildID)
 	s.setOutOfSync(guildID, false)
+	s.markCaughtUp(guildID)
 	for fpr, p := range resp.Profiles {
 		s.learnProfile(fpr, p)
 	}
@@ -743,6 +750,9 @@ func (s *Service) healAsk(guildID string, pid peer.ID) (bool, string) {
 	s.pendingCTMu.Lock()
 	delete(s.pendingCT, string(want))
 	s.pendingCTMu.Unlock()
+	// The Welcome carried a whole tree we have not read: audit it, flag
+	// only (seatcheck.go).
+	s.auditSeats(guildID, want)
 	go s.syncGuildFromPeer(guildID, pid) // pull any channel history we missed
 	// Forced: the re-add re-keyed the group and replaced our leaf, so what the
 	// other members last heard from us is not something we can reason about.

@@ -881,6 +881,7 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 		// own key can have produced (see noteBehind). The epoch numbers in this
 		// response are only the peer's word.
 		proven := false
+		refusedSeat := false
 		for _, c := range resp.Commits {
 			// Same governance gate as the live control topic: a peer serving us
 			// backfill cannot slip in an unauthorized membership change. The
@@ -894,9 +895,15 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 			// be read for what it is before ApplyCommit fails on it — otherwise
 			// coming back from a weekend away is indistinguishable from a gap
 			// nobody can bridge.
-			if s.commitEvictsUs(guild.GroupID, c) {
+			switch s.screenCommit(guildID, guild.GroupID, c) {
+			case commitRemovesThisDevice:
 				s.noteEvicted(guildID, evictedKicked)
 				return nil
+			case commitRefused:
+				refusedSeat = true
+			}
+			if refusedSeat {
+				break
 			}
 			if err := s.mls.ApplyCommit(s.ctx, guild.GroupID, c); err != nil {
 				proven = s.ownLostCommit(guild.GroupID, c)
@@ -961,6 +968,7 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 			if len(resp.Payload) > 0 {
 				s.dropBehindClaim(guildID)
 			}
+			s.markCaughtUp(guildID)
 			if !s.clearForkedPeer(guildID, p) && !s.CannotRepairHere(guildID) {
 				s.setOutOfSync(guildID, false)
 			}
@@ -1230,6 +1238,10 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 	// leaf, and accountKeyOf folds a linked device onto its account exactly as
 	// the live lane does for a frame.
 	servedBy := accountKeyOf(dec.SenderID)
+	if s.frameFlagged(guildID, dec) {
+		// A flagged leaf vouches for nobody's unsigned rows (seatcheck.go).
+		servedBy = nil
+	}
 	self := s.id.Fingerprint()
 	anyNew := false
 	refused := 0

@@ -1284,18 +1284,11 @@ func (s *Service) claimJoin(guildID string) func() {
 // accountLeafCount returns how many MLS leaves in a group belong to THIS account
 // (>1 means this install's account already has another device in the group).
 func (s *Service) accountLeafCount(groupID []byte) int {
-	creds, err := s.mls.Members(s.ctx, groupID)
+	own, _, err := s.ownDeviceLeaves(groupID)
 	if err != nil {
 		return 0
 	}
-	mine := s.id.Fingerprint()
-	n := 0
-	for _, c := range creds {
-		if accountFingerprintOf(c) == mine {
-			n++
-		}
-	}
-	return n
+	return len(own)
 }
 
 // handleInviteRequest is the owner side of the join handshake: it adds the
@@ -1597,6 +1590,10 @@ func (s *Service) logCommit(groupID, commit []byte) {
 		return
 	}
 	_ = s.store.SaveCommit(groupID, epoch, commit)
+	// And so the one place that re-reads who holds each leaf (seatcheck.go).
+	if guildID := s.guildIDForGroup(groupID); guildID != "" {
+		s.auditSeats(guildID, groupID)
+	}
 }
 
 // SendMessage encrypts and publishes a normal chat message to a channel.
@@ -2279,6 +2276,8 @@ func (s *Service) RevealDeleted(channelID, messageID string) (string, error) {
 func (s *Service) trackGuild(g *domain.Guild) {
 	s.noteGuildArrival(g)
 	s.trackGuildFromDisk(g)
+	// Arriving is being level: a create, or a Welcome at the group's epoch.
+	s.markCaughtUp(g.ID)
 }
 
 // trackGuildFromDisk is trackGuild without the arrival stamp: the guild was
@@ -2299,6 +2298,9 @@ func (s *Service) trackGuildFromDisk(g *domain.Guild) {
 	// Recover which leaves are linked devices before anyone can ask us about
 	// them; without this a restart makes every quiet second device a stranger.
 	s.relearnDevices(g.GroupID)
+	// Read who holds each leaf before any frame from them is judged
+	// (seatcheck.go). Flag-only: it changes nothing in the group.
+	s.auditSeats(g.ID, g.GroupID)
 
 	groupID := g.GroupID
 	guildID := g.ID
@@ -2333,8 +2335,11 @@ func (s *Service) trackGuildFromDisk(g *domain.Guild) {
 		// epoch. Asking is what turns "something is wrong" into "you were
 		// removed", and it is safe to ask because the commit is MLS-signed by a
 		// member we just confirmed holds manage-members.
-		if s.commitEvictsUs(groupID, data) {
+		switch s.screenCommit(guildID, groupID, data) {
+		case commitRemovesThisDevice:
 			s.noteEvicted(guildID, evictedKicked)
+			return
+		case commitRefused:
 			return
 		}
 		if err := s.mls.ApplyCommit(s.ctx, groupID, data); err == nil {
@@ -3625,6 +3630,13 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	// profile) must re-check the sender's permission on the receive side, or a
 	// patched client could rewrite the guild on every honest peer.
 	actor := accountFingerprintOf(msg.SenderID)
+	// A leaf that seatcheck.go flags carries no authority here: everything
+	// below rests on the MLS sender alone, except a governance op, which
+	// carries its author's own signature and is checked on that.
+	flagged := s.frameFlagged(guildID, msg)
+	if flagged && m.Type != "gov_op" {
+		return
+	}
 	switch m.Type {
 	case "member_left":
 		// A member left a group DM and said so on the way out. MLS
@@ -3641,7 +3653,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 			// Another device of this account left: MLS authenticated the leaf,
 			// and it is not ours. Leaving is the account's decision; see
 			// leave.go.
-			if !bytes.Equal(msg.SenderID, s.myCredential) {
+			if !bytes.Equal(msg.SenderID, s.myCredential) && s.ownAccountLeaf(mls.Leaf{Index: msg.SenderLeaf, Credential: msg.SenderLeafID, Key: msg.SenderKey}) {
 				go s.leaveWithSibling(guildID)
 			}
 			return
@@ -3654,7 +3666,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if isGuild {
 			// A guild has many committers, and two commits at one epoch fork
 			// it, so exactly one of them takes the leaf out (leave.go).
-			s.handleMemberLeft(guildID, msg.SenderID)
+			s.handleMemberLeft(guildID, msg.SenderID, msg.SenderLeaf, msg.SenderKey)
 			return
 		}
 		if !isDM {
@@ -3697,7 +3709,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		// Read markers only ever travel the Notes self-group, and only OUR OWN
 		// account's devices may move our read cursor — a marker authored by
 		// anyone else is dropped (MLS authenticates the sender, so this holds).
-		if actor != s.id.Fingerprint() {
+		if actor != s.id.Fingerprint() || !s.ownAccountLeaf(mls.Leaf{Index: msg.SenderLeaf, Credential: msg.SenderLeafID, Key: msg.SenderKey}) {
 			return
 		}
 		if notes, ok := s.findNotesDM(); !ok || notes.ID != guildID {
@@ -3752,7 +3764,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		// Same lane, same checks as a live message from the same authenticated
 		// sender; only an ordinary message for this very channel is taken.
 		if o := m.Opener; o != nil && o.ChannelID == m.Channel.ID && o.Kind == "" {
-			s.deliverMessage(guildID, *o, msg.SenderID)
+			s.deliverMessage(guildID, *o, msg.SenderID, flagged)
 		}
 	case "channel_updated":
 		if m.Channel.ID == "" || !sanitizeChannelRefs(&m.Channel) {
@@ -4193,7 +4205,7 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 		}
 	}
 	s.mu.RUnlock()
-	s.deliverMessage(carrier, m, msg.SenderID)
+	s.deliverMessage(carrier, m, msg.SenderID, s.frameFlagged(carrier, msg))
 	return true
 }
 
@@ -4201,8 +4213,9 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 // authenticated as senderID's, under the group of carrierGuild. Everything here
 // filters, attributes and stores; nothing in it depends on which kind of frame
 // carried the message, which is what lets a post's opener ride its
-// channel_added announcement (CreateThread).
-func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID []byte) {
+// channel_added announcement (CreateThread). flagged says seatcheck.go flags
+// the sending leaf.
+func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID []byte, flagged bool) {
 	if drop := s.dropLive.Load(); drop != nil && (*drop)(m) {
 		return
 	}
@@ -4241,10 +4254,28 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 		refusedMessages.note(1, "live messages", accountFingerprintOf(m.Sender))
 		return
 	}
-	// The mark is ours to make, never the sender's to assert. Nothing on this
-	// lane earns it — MLS proved who sent the frame — so it is cleared rather
-	// than adopted, exactly as the sync lane recomputes it.
+	// Unsigned. Every build since 0.58 signs every live message, so an
+	// unsigned one comes from an older peer, and the MLS sender alone
+	// vouches for it. That is not enough to change state
+	// (delete, edit, react, pin), to speak for an account that has signed
+	// before, or to come from a leaf seatcheck.go flags. A plain message that
+	// passes all three is shown, marked unverified. The mark is ours to make,
+	// never the sender's to assert.
 	m.Unverified = false
+	if len(m.Sig) == 0 {
+		fpr := accountFingerprintOf(m.Sender)
+		switch {
+		case flagged, m.Kind == "delete", m.Kind == "reaction", m.Kind == "edit", m.Kind == "pin":
+			refusedUnsigned.noteBecause(1, "live messages", fpr, "that carried no author signature")
+			return
+		case s.seenSigning(fpr):
+			refusedUnsigned.noteBecause(1, "live messages", fpr, "that carried no author signature, from an account seen signing")
+			return
+		}
+		m.Unverified = true
+	} else {
+		s.noteSigner(accountFingerprintOf(m.Sender))
+	}
 	s.mu.RLock()
 	guildID := s.channelToGuild[m.ChannelID]
 	s.mu.RUnlock()

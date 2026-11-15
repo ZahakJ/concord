@@ -326,6 +326,11 @@ type GuildView struct {
 	// state of the ratchet: OutOfSync is the recoverable case and must never be
 	// dressed up as this one.
 	Evicted string `json:"evicted,omitempty"`
+	// SeatFlags lists leaves of this guild that carry a credential which does
+	// not match their key (app/seatcheck.go); SeatNotices what was already
+	// done about such leaves. Both drive one banner.
+	SeatFlags   []appsvc.SeatFlag   `json:"seatFlags,omitempty"`
+	SeatNotices []appsvc.SeatNotice `json:"seatNotices,omitempty"`
 	// EvictedReason is the optional note from the signed kick or ban, shown
 	// on the terminal banner. Empty when the moderator wrote nothing.
 	EvictedReason string `json:"evictedReason,omitempty"`
@@ -3053,6 +3058,29 @@ func (b *Bridge) ResolveSync(guildID string) error {
 	return svc.ResolveStranding(guildID)
 }
 
+// RemoveSeatDevice removes a flagged leaf this device can prove is not the
+// account it claims to be (app.Service.RemoveSeatLeaf).
+func (b *Bridge) RemoveSeatDevice(guildID string, index int, key string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	if index < 0 {
+		return fmt.Errorf("bridge: bad device index")
+	}
+	return svc.RemoveSeatLeaf(guildID, uint32(index), key)
+}
+
+// DismissSeatNotices clears what a guild's banner had to report.
+func (b *Bridge) DismissSeatNotices(guildID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	svc.DismissSeatNotices(guildID)
+	return nil
+}
+
 // seenAs is how someone else's presence is SHOWN. "Invisible" is a promise to
 // appear offline to everyone else, so a member who chose it is reported
 // exactly as a disconnected one: online false, no presence word, no
@@ -3584,6 +3612,7 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 		Icon:             g.Icon, Banner: g.Banner, Description: g.Description,
 		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID) || svc.CannotRepairHere(g.ID),
 		Evicted: svc.EvictedFrom(g.ID), EvictedReason: svc.EvictedReason(g.ID),
+		SeatFlags: svc.SeatFlags(g.ID), SeatNotices: svc.SeatNotices(g.ID),
 		Alone:           svc.AloneInGuild(g.ID),
 		CannotRepair:    svc.CannotRepairHere(g.ID),
 		OwnerUnverified: svc.OwnerUnverified(g.ID),
@@ -4236,6 +4265,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.RemovedMembers(argStr(args, 0))
 	case "ResolveSync":
 		return nil, b.ResolveSync(argStr(args, 0))
+	case "RemoveSeatDevice":
+		return nil, b.RemoveSeatDevice(argStr(args, 0), argInt(args, 1), argStr(args, 2))
+	case "DismissSeatNotices":
+		return nil, b.DismissSeatNotices(argStr(args, 0))
 	case "SetNickname":
 		return nil, b.SetNickname(argStr(args, 0), argStr(args, 1))
 	case "CallIceServers":

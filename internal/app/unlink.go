@@ -320,14 +320,16 @@ func (s *Service) removeDeviceLeaves(devicePub []byte) (failed, pending []Unlink
 	s.mu.RUnlock()
 
 	for _, g := range guilds {
-		creds, err := s.mls.Members(s.ctx, g.groupID)
+		leaves, err := s.mls.Leaves(s.ctx, g.groupID)
 		if err != nil {
 			failed = append(failed, s.unlinkSpot(g.id, g.name, g.kind, g.groupID))
 			continue
 		}
-		for _, c := range creds {
-			cert, ok := identity.ParseDeviceCert(c)
-			if !ok || !bytes.Equal(cert.DevicePub, devicePub) {
+		for _, l := range leaves {
+			// The device's own leaf: its certificate, on the key it names. A
+			// leaf that only carries the certificate is not the device.
+			cert, ok := identity.ParseDeviceCert(l.Credential)
+			if !ok || !bytes.Equal(cert.DevicePub, devicePub) || !bytes.Equal(l.Key, devicePub) {
 				continue
 			}
 			// The same rule the other members apply to our commit.
@@ -335,7 +337,7 @@ func (s *Service) removeDeviceLeaves(devicePub []byte) (failed, pending []Unlink
 				pending = append(pending, s.unlinkSpot(g.id, g.name, g.kind, g.groupID))
 				break
 			}
-			commit, err := s.mls.Remove(s.ctx, g.groupID, c)
+			commit, err := s.mls.RemoveLeaf(s.ctx, g.groupID, l.Index, l.Key)
 			if err != nil {
 				failed = append(failed, s.unlinkSpot(g.id, g.name, g.kind, g.groupID))
 				break
