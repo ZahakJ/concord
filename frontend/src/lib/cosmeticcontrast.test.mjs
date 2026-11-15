@@ -2,8 +2,8 @@
 //
 // The ring and window-effect libraries were written against #16181c, and it
 // shows: they are palettes of white snow, neon cyan and pastel confetti. Nobody
-// ever measured them against a bright ground, and on the seven daylight
-// surfaces the app ships — the plain light theme plus the six bright packs —
+// ever measured them against a bright ground, and on the daylight
+// surfaces the app ships — the plain light theme plus every light pack —
 // 19 of the 47 rings had NOT ONE colour above 2.2:1 against the page. Not
 // "hard to see". Not there.
 //
@@ -27,6 +27,7 @@
 // 3:1 is the WCAG floor for non-text, which is what a drifting speck is.
 import { readFileSync } from "node:fs";
 import { contrast, colorsIn, daylightGrounds, over, DAYLIGHT } from "./contrast.mjs";
+import { groundOf } from "./packs.js";
 import { RINGS, PALETTES } from "./rings.js";
 import { THEME_FX } from "./themefx.js";
 
@@ -112,7 +113,7 @@ assert(DIM > 0 && DIM <= 1, `--fx-dim brightness(${DIM}) is not a darkening`);
 const dim = ([r, g, b]) => [r * DIM, g * DIM, b * DIM];
 
 const GROUNDS = daylightGrounds(css);
-assert(GROUNDS.length === 7, `expected 7 daylight grounds, read ${GROUNDS.length}`);
+assert(GROUNDS.length === DAYLIGHT.length, `expected ${DAYLIGHT.length} daylight grounds, read ${GROUNDS.length}`);
 
 let measured = 0;
 let deferredCount = 0;
@@ -182,7 +183,9 @@ for (const e of ALL) {
 // the palest thing it can sit on (white), must clear the non-text floor.
 // And it must be read: a token nothing applies is not a fix.
 {
-  const block = css.match(/:root\[data-theme="light"\]:not\(\[data-theme-pack\]\),[\s\S]*?\n\}/);
+  // Keyed on the ground, not on a list of names: lib/packs.js stamps
+  // [data-ground="light"] for the light theme and for every light pack.
+  const block = css.match(/:root:root\[data-ground="light"\] \{[\s\S]*?\n\}/);
   assert(!!block, "app.css: the grouped daylight block is gone — --emoji-edge has nowhere to live");
   const decl = block && block[0].match(/--emoji-edge:\s*([^;]+);/);
   assert(!!decl, "the daylight block declares no --emoji-edge — pale emoji on light pills lose their edge");
@@ -197,7 +200,8 @@ for (const e of ALL) {
       );
     }
     for (const g of DAYLIGHT) {
-      assert(block[0].includes(g.sel), `the daylight block no longer covers ${g.name}`);
+      const ground = g.name === "light" ? groundOf("light", "") : groundOf("dark", g.name);
+      assert(ground === "light", `the daylight block no longer covers ${g.name} (its ground is ${ground})`);
     }
   }
   const msg = readFileSync(new URL("../Message.svelte", import.meta.url), "utf8");

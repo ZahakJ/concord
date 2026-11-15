@@ -1037,8 +1037,7 @@
   /* Under an animated pack, let the backdrop show through: the outer shell goes
      transparent so only the inner panels (translucent bg-*) tint it — no
      double-dark stacking. */
-  :global(:root[data-anim-bg]) .mshell,
-  :global(:root[data-textured]) .mshell {
+  :global(:root[data-anim-bg]) .mshell {
     background: transparent;
   }
 
@@ -1070,8 +1069,7 @@
       -1px 0 4px rgba(0, 0, 0, 0.28),
       -12px 0 40px rgba(0, 0, 0, 0.45);
   }
-  :global(:root[data-anim-bg]) .page,
-  :global(:root[data-textured]) .page {
+  :global(:root[data-anim-bg]) .page {
     background: transparent;
   }
   /* A page at rest off screen and a Home at rest covered are gone, not

@@ -79,6 +79,12 @@ import {
 } from "./notifs.js";
 import { reducedMotion, motionMode, onOsMotionChange } from "./motion.js";
 import { customEmojiTable } from "./customemoji.js";
+import { ANIMATED_PACKS, groundOf, migratePrefs } from "./packs.js";
+
+// The saved prefs, brought up to this build before anything reads them: a
+// removed theme pack becomes the kept one closest to it, and so on (see
+// lib/packs.js). Saved back below, once S exists, if anything changed.
+const BOOT_PREFS = migratePrefs(loadJSON("concord.prefs", {}));
 
 export const S = $state({
   ready: false,
@@ -284,11 +290,6 @@ export const S = $state({
     // sends an open session back through Login to finish it.
     backupGate: false,
     // Set the one time this install is told that its Web Audio reaches nothing
-    // Set while the signup's "save your recovery phrase" step is on screen and
-    // cleared when it is finished. The core is already unlocked by then, so a
-    // reload used to skip the step for good; while this is set App.svelte
-    // sends an open session back through Login to finish it.
-    backupGate: false,
     // (WebKitGTK with no GStreamer audio plugins: a context that reports
     // "running" and never renders a sample). One notice, ever — the fix is a
     // package to install, and repeating it every launch would be nagging about
@@ -322,11 +323,11 @@ export const S = $state({
     // CRT roll, a heat wave, ice glinting). It is the part of a live backdrop
     // that travels OVER your text rather than sitting behind it, and it is the
     // one part some people want gone while keeping the pack's colour and its
-    // scenery moving. On by default: it is what the packs were drawn and
-    // contrast-measured with, and turning it off silently would change the
-    // appearance of every install that never asked. See applyAppearance for
-    // the stamp and the "shine off" block in app.css for what each pack drops.
-    themeShine: true,
+    // scenery moving. Off by default: an effect that crosses what you are
+    // reading is something you ask for (lib/packs.js migratePrefs turns the
+    // old default off once). See applyAppearance for the stamp and the "shine
+    // off" block in app.css for what it drops.
+    themeShine: false,
     // Shape/typeface overrides. "" = follow the active theme pack, which now
     // carries a corner radius and a UI face of its own, not just colors.
     shape: "",
@@ -365,16 +366,11 @@ export const S = $state({
     echoCancel: true,
     noiseSuppress: true,
     autoGain: true,
-    // Desktop side-column widths, px (drag the column edges in App.svelte).
-    // At the default value the CSS var stays unset, so the stylesheet's
-    // responsive defaults (narrower under 900px) keep deciding.
-    colChannels: 220,
-    colMembers: 260,
     // The composer's formatting bar (Aa, + › Formatting, Ctrl+Shift+F). Off:
     // the box stays one quiet line until someone asks for every mark in view,
     // and then it stays that way on this device.
     formatBar: false,
-    ...loadJSON("concord.prefs", {}),
+    ...BOOT_PREFS.prefs,
   },
 
   typingList: [], // [{ from, label, timer }]
@@ -494,6 +490,10 @@ export const S = $state({
   // link (OS camera scanned the QR). The Login screen consumes it.
   pendingLinkCode: "",
 });
+
+// Persist the migration, so the next build and any older one read the same
+// thing this one does.
+if (BOOT_PREFS.changed) saveJSON("concord.prefs", S.prefs);
 
 // The guild on screen. Asked by every row of the feed, several times each,
 // so the answer is kept until the guild list or the selection changes rather
@@ -2652,38 +2652,9 @@ const DENSITIES = new Set(["compact", "cozy", "comfortable"]);
 
 const sysDark = window.matchMedia?.("(prefers-color-scheme: dark)");
 
-// Packs whose backdrop animates (see app.css .theme-bg + [data-anim-bg]).
-export const ANIMATED_PACKS = new Set([
-  "aurora",
-  "synthwave",
-  "cosmos",
-  "molten",
-  "prism",
-  "monsoon",
-  "fathom",
-  "skyline",
-  "eclipse",
-  "daybreak",
-  "dunes",
-  "canopy",
-  "datastream",
-  "sonar",
-  "lantern",
-  "glacier",
-  "vinyl",
-  "storm",
-  "bloom",
-  "blossom",
-  "meridian",
-  "orbit",
-  "radiant",
-  "silicon",
-  "uptime",
-  "zellige",
-  "atrium",
-]);
-// Packs with a STATIC coloured mesh behind translucent surfaces ([data-textured]).
-export const TEXTURED_PACKS = new Set(["frost", "dusk", "grape"]);
+// Which packs exist, which of them are light grounds and which animate is
+// lib/packs.js, the one table the stylesheets and the tests read as well.
+export { ANIMATED_PACKS };
 
 // The pack palettes are a fifth of the stylesheet and match nothing at all
 // unless somebody chose one, so they travel in their own file. The pack is not
@@ -2739,21 +2710,21 @@ export function applyAppearance() {
   }
   if (pack && packsLoaded) el.dataset.themePack = pack;
   else delete el.dataset.themePack;
+  // Light or dark ground, decided once here from the pack table: the one
+  // attribute every "is this a light ground?" rule in the stylesheets keys
+  // off, so none of them has to list the light packs (lib/packs.js).
+  el.dataset.ground = groundOf(el.dataset.theme, el.dataset.themePack || "");
   // Animated packs render a live backdrop (.theme-bg) and need translucent
   // surfaces so it shows through; a single flag drives both regardless of pack.
   if (packsLoaded && ANIMATED_PACKS.has(pack)) el.dataset.animBg = "1";
   else delete el.dataset.animBg;
-  // Textured packs use the same translucent-surface trick over a STATIC mesh.
-  if (packsLoaded && TEXTURED_PACKS.has(pack)) el.dataset.textured = "1";
-  else delete el.dataset.textured;
   // The shine pref, stamped as ONE attribute the pack CSS keys off, so a pack
   // that has a specular pass needs a single extra rule and every pack that
-  // doesn't needs none. Only the literal `false` turns it off — a value from a
-  // newer build or a hand-edited prefs file can never stamp an attribute no
-  // stylesheet matches, so an unrecognised pref reads as the default look
-  // rather than as some half-painted third state (same contract as validFx).
-  if (S.prefs.themeShine === false) el.dataset.themeShine = "off";
-  else delete el.dataset.themeShine;
+  // doesn't needs none. Only the literal `true` turns it on — a value from a
+  // newer build or a hand-edited prefs file reads as the default (off) rather
+  // than as some half-painted third state (same contract as validFx).
+  if (S.prefs.themeShine === true) delete el.dataset.themeShine;
+  else el.dataset.themeShine = "off";
   // Shape and typeface: stamped ONLY when explicitly chosen, so the empty
   // value means "whatever this pack asked for" rather than "override it with
   // the base look" (app.css puts these last so they win when present).

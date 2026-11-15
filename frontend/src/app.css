@@ -70,8 +70,8 @@
   --ok-text: color-mix(in srgb, var(--ok) 66%, var(--text));
 
   /* Shape and type are theme tokens too, not just color. Every pack retunes
-     them (Gruvbox squares its corners and goes monospaced, Sakura rounds over
-     and goes soft-sans), and the Appearance dialog can override either
+     them (Gruvbox squares its corners and goes monospaced, Rosé rounds over
+     into cards), and the Appearance dialog can override either
      independently — see the [data-shape] / [data-font] blocks near the end. */
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -429,23 +429,19 @@
    both themes. Lifted surfaces are white; so are fields, which are wells with
    a strong edge rather than a grey fill.
 
-   Scoped to no pack or a Daylight pack. A dark pack is a whole dark palette
-   that sets only the tokens it has an opinion on, so under the light theme
-   everything it leaves alone used to fall through to THIS block: white
-   fields with the pack's near-white ink typed into them at 1.1:1. A dark pack
-   under Light now draws exactly what it draws under Dark — its own grounds,
-   its own fields. :where() keeps the specificity this block always had, so a
-   Daylight pack's own palette still wins over it as before.
-   themepacks.test.mjs measures every field in every pack under both themes. */
-:root[data-theme="light"]:where(
-    :not([data-theme-pack]),
-    [data-theme-pack="paper"],
-    [data-theme-pack="solarized"],
-    [data-theme-pack="meadow"],
-    [data-theme-pack="porcelain"],
-    [data-theme-pack="daybreak"],
-    [data-theme-pack="atrium"]
-  ) {
+   Scoped to a light GROUND: no pack, or a light pack. A dark pack is a whole
+   dark palette that sets only the tokens it has an opinion on, so under the
+   light theme everything it leaves alone used to fall through to THIS block:
+   white fields with the pack's near-white ink typed into them at 1.1:1. A
+   dark pack under Light now draws exactly what it draws under Dark — its own
+   grounds, its own fields.
+
+   [data-ground] is stamped by applyAppearance from lib/packs.js, the one
+   place that says which packs are light; no stylesheet lists them. :where()
+   keeps the specificity this block always had, so a light pack's own palette
+   still wins over it as before. themepacks.test.mjs measures every field in
+   every pack under both themes. */
+:root[data-theme="light"]:where([data-ground="light"]) {
   --bg-0: #e4e6e1;
   --bg-1: #eaece6;
   --bg-2: #fcfcfb;
@@ -491,15 +487,13 @@
   color-scheme: light;
 }
 
-/* The backdrop element is inert until an animated OR textured pack turns it on.
-   Animated packs drift the .tb-* layers; textured packs paint a STATIC mesh on
-   .theme-bg itself (no animation → composited once, effectively free). Both let
-   the mesh/glow show through translucent surfaces app-wide. */
+/* The backdrop element is inert until an animated pack turns it on: the pack
+   drifts the .tb-* layers, and they show through translucent surfaces
+   app-wide. */
 .theme-bg {
   display: none;
 }
-:root[data-anim-bg] .theme-bg,
-:root[data-textured] .theme-bg {
+:root[data-anim-bg] .theme-bg {
   display: block;
   position: fixed;
   inset: 0;
@@ -524,14 +518,12 @@
    is that missing surface. The query is the same condition detectMobile() uses
    in state.svelte.js, so it appears exactly when the shell does. */
 @media (pointer: coarse), (max-width: 768px) {
-  :root[data-anim-bg] .theme-bg::after,
-  :root[data-textured] .theme-bg::after {
+  :root[data-anim-bg] .theme-bg::after {
     content: "";
     position: absolute;
     inset: 0;
-    /* A black sheet is right for every dark pack; the two packs with a BRIGHT
-       backdrop (daybreak and atrium) override the token with a white one,
-       because the black version turns a morning sky into a bruise. */
+    /* A black sheet over the live backdrop; a pack with a BRIGHT backdrop
+       may override the token with a white one. */
     background: var(--tb-scrim, rgba(0, 0, 0, 0.62));
   }
 }
@@ -543,7 +535,7 @@
    aim at. Those four keep the pack's own --bg-1 colour, made 96% opaque:
    the tint survives, the motion does not reach them. The first declaration
    is the fallback for an engine without relative colour syntax. */
-:root:is([data-anim-bg], [data-textured]) :is(nav.cols, nav.rail, aside.insp, .voice-panel.on-stage) {
+:root:is([data-anim-bg]) :is(nav.cols, nav.rail, aside.insp, .voice-panel.on-stage) {
   background-color: var(--bg-elevated);
   background-color: rgb(from var(--bg-1) r g b / 0.96);
 }
@@ -565,14 +557,7 @@
    translate parks the band completely off-screen at both ends and the loop
    restarts unseen: no alternate, no visible snap back.
 
-   TWO packs use this, and only two: aurora's curtain and prism's iridescent
-   bar, both of which are named for it. It used to be the headline layer of
-   almost every animated pack, which is what made a gallery of supposedly
-   different skins read as one skin in different colours — you learned the
-   motion once and then saw it everywhere. Everything else now moves in a way
-   that belongs to it: clouds drift by a tile, nebulae swell in place, ice
-   shears along its own facets, rain gusts, petals fall. If you are adding a
-   pack, this keyframe is not the shortcut it looks like. */
+   Aurora's curtain, the one animated pack, is named for it. */
 @keyframes sheen-sweep {
   0% {
     transform: translate3d(-58%, -20%, 0);
@@ -591,333 +576,12 @@
     transform: translate3d(-52%, -18%, 0);
   }
 }
-@keyframes sw-grid {
-  from {
-    transform: perspective(900px) rotateX(72deg) translate3d(0, 0, 0);
-  }
-  to {
-    transform: perspective(900px) rotateX(72deg) translate3d(0, 52px, 0);
-  }
-}
 @keyframes crt-roll {
   from {
     transform: translate3d(0, -56%, 0);
   }
   to {
     transform: translate3d(0, 56%, 0);
-  }
-}
-/* On the phone layout the window is narrower than the sun, so a disc sized for
-   a desktop sidebar ends up behind the messages — the exact problem that got it
-   moved off centre. Shrink it and push it further out; measured, this is what
-   takes synthwave's dimmest ink from 2.75:1 to over 3:1 at 390px. */
-@media (max-width: 768px) {
-  :root[data-theme-pack="synthwave"] .tb-a {
-    top: 9%;
-    left: -16%;
-    width: min(30vh, 210px);
-    height: min(30vh, 210px);
-  }
-}
-/* Scale + opacity only. The old version animated filter: brightness(), which
-   is a filter animation on a full-size layer — the exact class of thing this
-   file is not allowed to do. */
-@keyframes sun-pulse {
-  0% {
-    transform: scale(1);
-    opacity: 0.86;
-  }
-  100% {
-    transform: scale(1.05);
-    opacity: 1;
-  }
-}
-/* A nebula is a cloud, not a searchlight: it swells and dims in place. Scale
-   and opacity, so it is still one composited layer. */
-@keyframes nebula-breathe {
-  from {
-    transform: scale(1);
-    opacity: 0.6;
-  }
-  to {
-    transform: scale(1.14);
-    opacity: 1;
-  }
-}
-@keyframes shooting-star {
-  0% {
-    transform: translate3d(-46%, -30%, 0);
-    opacity: 0;
-  }
-  6% {
-    opacity: 0.9;
-  }
-  26% {
-    opacity: 0.9;
-  }
-  34% {
-    transform: translate3d(46%, 30%, 0);
-    opacity: 0;
-  }
-  100% {
-    transform: translate3d(46%, 30%, 0);
-    opacity: 0;
-  }
-}
-@keyframes stars-drift {
-  to {
-    transform: translateY(-320px);
-  }
-}
-@keyframes heat-rise {
-  0% {
-    transform: translate3d(0, 52%, 0);
-  }
-  100% {
-    transform: translate3d(0, -52%, 0);
-  }
-}
-@keyframes ember-rise {
-  to {
-    transform: translateY(-300px);
-  }
-}
-/* Rain arrives in squalls: the sheet gets heavier and lighter where it is,
-   rather than a bright bar travelling across the window. */
-@keyframes gust {
-  from {
-    opacity: 0.3;
-  }
-  to {
-    opacity: 1;
-  }
-}
-/* 26px / 17px is the tile height along the gradient normal; translating the
-   layer by one whole tile lands on an identical pattern. */
-@keyframes rain-near {
-  to {
-    transform: translate3d(-6.5px, 26px, 0);
-  }
-}
-@keyframes rain-far {
-  to {
-    transform: translate3d(-3.3px, 17px, 0);
-  }
-}
-@keyframes fathom-rays {
-  to {
-    transform: translate3d(-198.9px, -20.9px, 0);
-  }
-}
-/* The second, wider set of shafts, going the other way and half as fast: two
-   families of light crossing is what makes water read as deep. */
-@keyframes fathom-rays-b {
-  to {
-    transform: translate3d(277.3px, 39px, 0);
-  }
-}
-@keyframes skyline-far {
-  to {
-    transform: translate3d(-120px, 0, 0);
-  }
-}
-@keyframes skyline-near {
-  to {
-    transform: translate3d(-170px, 0, 0);
-  }
-}
-@keyframes cloud-near {
-  to {
-    transform: translate3d(-780px, 0, 0);
-  }
-}
-@keyframes cloud-far {
-  to {
-    transform: translate3d(-530px, 0, 0);
-  }
-}
-@keyframes dune-dust {
-  to {
-    transform: translate3d(-260px, 0, 0);
-  }
-}
-@keyframes dapple-near {
-  to {
-    transform: translate3d(-430px, 78px, 0);
-  }
-}
-@keyframes dapple-far {
-  to {
-    transform: translate3d(-310px, 54px, 0);
-  }
-}
-@keyframes code-fall-a {
-  to {
-    transform: translate3d(0, 421px, 0);
-  }
-}
-@keyframes code-fall-b {
-  to {
-    transform: translate3d(0, 379px, 0);
-  }
-}
-@keyframes glacier-facet-a {
-  to {
-    transform: translate3d(-134.8px, 65.8px, 0);
-  }
-}
-@keyframes glacier-facet-b {
-  to {
-    transform: translate3d(67.7px, 86.7px, 0);
-  }
-}
-@keyframes storm-near {
-  to {
-    transform: translate3d(-660px, 0, 0);
-  }
-}
-@keyframes storm-far {
-  to {
-    transform: translate3d(-890px, 0, 0);
-  }
-}
-@keyframes storm-flash {
-  0%,
-  1.2% {
-    opacity: 0;
-  }
-  1.6% {
-    opacity: 0.34;
-  }
-  2.4% {
-    opacity: 0.04;
-  }
-  3% {
-    opacity: 0.26;
-  }
-  5.5%,
-  100% {
-    opacity: 0;
-  }
-}
-@keyframes blossom-c {
-  to {
-    transform: translate3d(-397px, 431px, 0);
-  }
-}
-@keyframes blossom-a {
-  to {
-    transform: translate3d(-283px, 359px, 0);
-  }
-}
-@keyframes blossom-b {
-  to {
-    transform: translate3d(-211px, 293px, 0);
-  }
-}
-@keyframes meridian-swell {
-  to {
-    transform: translate3d(-470px, 0, 0);
-  }
-}
-@keyframes meridian-path {
-  to {
-    transform: translate3d(0, 11px, 0);
-  }
-}
-@keyframes bloom-wander {
-  from {
-    transform: translate3d(-16%, 14%, 0);
-  }
-  to {
-    transform: translate3d(16%, -14%, 0);
-  }
-}
-@keyframes airglow {
-  from {
-    opacity: 0.66;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes orbit-stars {
-  to {
-    transform: translate3d(340px, 0, 0);
-  }
-}
-@keyframes radiant-fly {
-  0% {
-    transform: scale(0.55);
-    opacity: 0;
-  }
-  22% {
-    opacity: 0.9;
-  }
-  72% {
-    opacity: 0.85;
-  }
-  100% {
-    transform: scale(3.1);
-    opacity: 0;
-  }
-}
-@keyframes si-bus-x {
-  to {
-    transform: translate3d(368px, 0, 0);
-  }
-}
-@keyframes si-bus-y {
-  to {
-    transform: translate3d(0, 322px, 0);
-  }
-}
-@keyframes si-tilt {
-  from {
-    transform: translate3d(-22%, -8%, 0);
-  }
-  to {
-    transform: translate3d(22%, 8%, 0);
-  }
-}
-@keyframes rack-blink-a {
-  0%,
-  48% {
-    opacity: 1;
-  }
-  49%,
-  100% {
-    opacity: 0.74;
-  }
-}
-@keyframes rack-blink-b {
-  0%,
-  28% {
-    opacity: 0.95;
-  }
-  29%,
-  63% {
-    opacity: 0.3;
-  }
-  64%,
-  100% {
-    opacity: 0.68;
-  }
-}
-@keyframes zel-swing {
-  0% {
-    transform: translate3d(-15%, 2.4%, 0);
-  }
-  50% {
-    transform: translate3d(0, 0, 0);
-  }
-  100% {
-    transform: translate3d(15%, 2.4%, 0);
-  }
-}
-@keyframes atrium-sun {
-  to {
-    transform: translate3d(-75.7px, 18.9px, 0);
   }
 }
 
@@ -1187,7 +851,7 @@
      the same snowfall in slate rather than a different effect wearing its
      name. The factor is derived, not chosen — see lib/cosmeticcontrast.test.mjs,
      which reads it back out of this file and proves every colour in both
-     libraries clears 3:1 on all seven bright grounds with it applied. 0.5
+     libraries clears 3:1 on every bright ground with it applied. 0.5
      leaves the worst case (pure white on `paper`) at 3.32:1; anything above
      about 0.53 stops clearing the bar. */
   --fx-dim: none;
@@ -1204,13 +868,7 @@
      because a dark line on bright stock is doing more work per unit alpha. */
   --fx-scan: 0.05;
 }
-:root[data-theme="light"]:not([data-theme-pack]),
-:root[data-theme-pack="paper"],
-:root[data-theme-pack="solarized"],
-:root[data-theme-pack="meadow"],
-:root[data-theme-pack="porcelain"],
-:root[data-theme-pack="daybreak"],
-:root[data-theme-pack="atrium"] {
+:root:root[data-ground="light"] {
   --fx-ink: 26, 32, 44;
   --fx-scan: 0.055;
   --fx-ember-hot: #a5620b;
@@ -1225,7 +883,7 @@
      cosmeticcontrast.test.mjs reads this colour and holds it at 3:1 against
      a white glyph. */
   --emoji-edge: drop-shadow(0 0 0.5px rgba(26, 32, 44, 0.85)) drop-shadow(0 0 0.5px rgba(26, 32, 44, 0.85));
-  /* Six of the fifty packs are LIGHT grounds worn in nominally-dark mode, and
+  /* A light pack is a LIGHT ground even in nominally-dark mode, and
      the scrim is the one token where that matters most: 0.7 of black over a
      near-white app does not read as "behind glass", it reads as switched off.
      Same value the light theme uses, for the same reason. */
@@ -1343,7 +1001,7 @@
 }
 
 /* ---- Rain: separate drops, not stripes. The obvious construction — an angled
-   repeating-linear-gradient, which is what the monsoon BACKDROP uses — draws
+   repeating-linear-gradient — draws
    unbroken lines from one corner of the window to the other. Behind
    translucent surfaces that reads as weather; over the top of the app it reads
    as a screen full of diagonal rules, and it buried the feed.
@@ -1563,8 +1221,7 @@
     transparent 1px 3px
   );
 }
-/* The refresh bar rolling down the tube. Same keyframe the synthwave backdrop
-   uses — it is the same physical thing, one band travelling top to bottom.
+/* The refresh bar rolling down the tube: one band travelling top to bottom.
    Peak 0.04, because for the half-second the band is over a given grille row
    the two veils add: 0.05 + 0.04 takes that 3.30:1 ink to 2.97:1, and any
    brighter band puts the app's faintest text meaningfully under the floor. */
@@ -1634,7 +1291,8 @@
 }
 /* .fx-overlay.fxo-leaves, not .fxo-leaves: the engine's own `.fx-fall .fxp`
    rule sits further down this file and would otherwise win on source order. */
-.fx-overlay.fxo-leaves .fxp {
+.fx-overlay.fxo-leaves .fxp,
+.fx-overlay.fxo-petals .fxp {
   /* Spin around the glyph itself. .fxp is a zero-width, full-height track, so
      the default centre origin would swing each leaf through a half-screen arc. */
   transform-origin: 0 0;
@@ -1668,7 +1326,8 @@
 :root[data-motion="reduced"] .fxo-rain,
 :root[data-motion="reduced"] .fxo-stars,
 :root[data-motion="reduced"] .fxo-embers,
-:root[data-motion="reduced"] .fxo-leaves {
+:root[data-motion="reduced"] .fxo-leaves,
+:root[data-motion="reduced"] .fxo-petals {
   display: none;
 }
 :root[data-motion="reduced"] .fxo-crt .fo-0,
@@ -1878,7 +1537,7 @@ button.iconbtn {
   scale: var(--press-scale-wide);
 }
 /* Same scope as the light palette: a dark pack under Light presses like dark. */
-:root[data-theme="light"]:where(:not([data-theme-pack]), [data-theme-pack="paper"], [data-theme-pack="solarized"], [data-theme-pack="meadow"], [data-theme-pack="porcelain"], [data-theme-pack="daybreak"], [data-theme-pack="atrium"])
+:root[data-theme="light"]:where([data-ground="light"])
   :is(button.primary, button.quiet, button.ghost, button.danger, button.iconbtn):active:not(:disabled) {
   filter: brightness(0.94);
 }
@@ -2048,7 +1707,7 @@ textarea {
   color: var(--text);
   border: 1px solid var(--border-strong);
   /* The token, not a literal: a theme pack that squares its corners (Gruvbox)
-     or rounds them right over (Sakura) has to reach the fields too, or the
+     or rounds them right over (Rosé) has to reach the fields too, or the
      phone layout — which is mostly stacked full-width inputs — repeats the
      mismatched corner down the whole screen. */
   border-radius: var(--radius-md);
@@ -2480,7 +2139,7 @@ textarea[aria-invalid="true"] {
 }
 
 /* Selected text was the one surface still painted by the operating system: an
-   OS blue highlight landing in the middle of all fifty packs. --accent is
+   OS blue highlight landing in the middle of every pack. --accent is
    retinted at runtime per guild and per profile, and --accent-fg is recomputed
    from its luminance for exactly this job — ink that survives ON the fill — so
    one rule tracks whatever accent is live rather than picking a colour that is

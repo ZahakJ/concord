@@ -1,7 +1,7 @@
 // The theme-pack stylesheet split, checked (`npm test` runs it).
 //
-// The fifty pack palettes live in src/themepacks.css and are fetched only when
-// somebody has chosen one. That saves a fifth of the boot stylesheet, and it
+// The pack palettes live in src/themepacks.css and are fetched only when
+// somebody has chosen one. That keeps them out of the boot stylesheet, and it
 // costs one invariant: themepacks.css now loads AFTER app.css, so any rule in
 // app.css that used to beat a pack rule by sitting later in the same file no
 // longer does.
@@ -10,11 +10,12 @@
 // and they are now written `:root:root[...]` so they win on specificity
 // instead. This test is what stops the next one being written the old way and
 // only being discovered by somebody whose "Sharp corners" quietly stopped
-// working on one pack out of fifty.
+// working on one pack.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { contrast, colorsIn, over } from "./contrast.mjs";
+import { ANIMATED_PACKS, PACKS, groundOf } from "./packs.js";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const app = fs.readFileSync(path.join(SRC, "app.css"), "utf8");
@@ -115,7 +116,8 @@ const tail = (sel) => sel.replace(/^:root(:root)?(\[[^\]]*\])*/, "").trim();
           if (isPack(as)) continue;
           if (!as.startsWith(":root")) continue;
           const attrs = as.match(/\[([\w-]+)/g) || [];
-          if (attrs.every((a2) => a2 === "[data-theme")) continue;
+          // The base palettes: the theme, and the ground it resolves to.
+          if (attrs.every((a2) => a2 === "[data-theme" || a2 === "[data-ground")) continue;
           if (spec(ps) !== spec(as)) continue;
           if (tail(ps) !== tail(as)) continue;
           clashes.push(`${as.slice(0, 48)} vs ${ps.slice(0, 48)} over ${shared.slice(0, 3).join(", ")}`);
@@ -131,10 +133,11 @@ const tail = (sel) => sel.replace(/^:root(:root)?(\[[^\]]*\])*/, "").trim();
   }
 }
 
-// 3. The split is worth having.
+// 3. The split holds: no named pack's rule has wandered back into app.css,
+// where it would cost every install that never picks it.
 {
-  const share = packs.length / (app.length + packs.length);
-  if (share < 0.2) fail(`themepacks.css is only ${(share * 100).toFixed(1)}% of the stylesheet — has it been merged back?`);
+  const named = app.replace(/\/\*[\s\S]*?\*\//g, "").match(/data-theme-pack="[\w-]+"/g) || [];
+  if (named.length) fail(`app.css names ${named.length} pack(s) (${named[0]}) — pack rules belong in themepacks.css`);
 }
 
 
@@ -193,14 +196,6 @@ const tail = (sel) => sel.replace(/^:root(:root)?(\[[^\]]*\])*/, "").trim();
 // what a field actually shows: typed text (--text) and its placeholder
 // (--text-muted) on --bg-input, composited over the dialog surface it sits on.
 {
-  const STATE = fs.readFileSync(path.join(SRC, "lib/state.svelte.js"), "utf8");
-  const setOf = (name) => {
-    const m = STATE.match(new RegExp(`${name} = new Set\\(\\[([\\s\\S]*?)\\]\\)`));
-    if (!m) throw new Error(`themepacks: cannot read ${name} from state.svelte.js`);
-    return new Set([...m[1].matchAll(/"([\w-]+)"/g)].map((x) => x[1]));
-  };
-  const ANIMATED = setOf("ANIMATED_PACKS");
-  const TEXTURED = setOf("TEXTURED_PACKS");
 
   // Split at top-level commas.
   const commaSplit = (s) => {
@@ -310,11 +305,11 @@ const tail = (sel) => sel.replace(/^:root(:root)?(\[[^\]]*\])*/, "").trim();
   let measured = 0;
   for (const pack of ["", ...packNames]) {
     for (const theme of ["dark", "light"]) {
-      const attrs = { "data-theme": theme };
+      // The attributes applyAppearance stamps, from the same table it uses.
+      const attrs = { "data-theme": theme, "data-ground": groundOf(theme, pack) };
       if (pack) {
         attrs["data-theme-pack"] = pack;
-        if (ANIMATED.has(pack)) attrs["data-anim-bg"] = "1";
-        if (TEXTURED.has(pack)) attrs["data-textured"] = "1";
+        if (ANIMATED_PACKS.has(pack)) attrs["data-anim-bg"] = "1";
       }
       const tok = tokensFor(attrs);
       const get = (n) => colour(tok.get(n), tok);
@@ -335,7 +330,8 @@ const tail = (sel) => sel.replace(/^:root(:root)?(\[[^\]]*\])*/, "").trim();
       if (p < 4.5) fail(`fields: placeholder (--text-muted on --bg-input) is ${p.toFixed(2)}:1 for ${where}`);
     }
   }
-  if (measured < 80) fail(`fields: only ${measured} pack/theme pairs measured — the selectors have changed shape`);
+  if (measured < 2 * (PACKS.length + 1))
+    fail(`fields: only ${measured} pack/theme pairs measured — the selectors have changed shape`);
 }
 
 if (failures) {

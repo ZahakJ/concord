@@ -17,6 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { contrast, colorsIn, over } from "./contrast.mjs";
+import { PACKS as PACKS_TABLE } from "./packs.js";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -377,7 +378,7 @@ const value = (name, block) => {
 //
 // Rule 8 measured the two default themes, and the inbox's chips went out to
 // the phone reading dark-on-grey in a pack it never measured. A pack retints
-// --bg-3 and --text-muted together, and thirty-one of them give --bg-3 an
+// --bg-3 and --text-muted together, and the animated ones give --bg-3 an
 // alpha so the backdrop shows through — so the chip's real ground is --bg-3
 // composited over the surface the dialog sits on (--bg-elevated, opaque in
 // every pack by rule 9). The selected chip's ink is not in any stylesheet:
@@ -440,7 +441,8 @@ const value = (name, block) => {
       fail(`an accent-filled chip's label: neither ink reaches 4.5 on --accent in the "${pack}" pack (${best.toFixed(2)}:1)`);
     }
   }
-  if (packs < 40) fail(`tokens gate: only ${packs} theme packs were measured — the pack selector has changed`);
+  if (packs < PACKS_TABLE.length)
+    fail(`tokens gate: only ${packs} of ${PACKS_TABLE.length} theme packs were measured — the pack selector has changed`);
 }
 
 // ---- 8c. a surface that clears the status bar keeps clearing it ------------

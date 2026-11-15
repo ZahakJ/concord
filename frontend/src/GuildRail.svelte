@@ -66,7 +66,6 @@
   import { longpress } from "./lib/touch.js";
   import { MOM } from "./lib/momentsunseen.svelte.js";
   import { tooltip } from "./lib/tooltip.js";
-  import FxLayer from "./FxLayer.svelte";
   import { tick } from "svelte";
   import { RADAR, guildLiveSet } from "./lib/radar.svelte.js";
   import { failedInGuild } from "./lib/outbox.svelte.js";
@@ -75,21 +74,6 @@
   const strip = $derived(layout === "strip");
   const phone = $derived(S.isMobile);
 
-  // Seasonal touches over the classic rail. Opt-in now (Appearance, A-17): a
-  // drift of petals across a navigation column is a celebration, and
-  // celebrations are something you ask for. Local clock only, no network.
-  function seasonFx() {
-    const m = new Date().getMonth();
-    if (m === 11 || m === 0)
-      return { kind: "fall", n: 8, glyphs: ["❄"], colors: ["#e8f1ff", "#ffffff"], size: [3, 5], dur: [8, 14], opacity: [0.3, 0.6], drift: 6 };
-    if (m === 2 || m === 3)
-      return { kind: "fall", tumble: true, n: 6, glyphs: ["🌸"], colors: ["#f9a8d4"], size: [3, 5], dur: [9, 15], opacity: [0.3, 0.55], drift: 8 };
-    if (m === 9 || m === 10)
-      return { kind: "fall", tumble: true, n: 6, glyphs: ["🍂"], colors: ["#d97706"], size: [3, 5], dur: [9, 15], opacity: [0.3, 0.55], drift: 8 };
-    return null;
-  }
-  const season = seasonFx();
-  const seasonOn = $derived(!strip && !!season && S.prefs.seasonal === true);
 
   const railTip = { side: "right", delay: 80 };
 
@@ -802,9 +786,6 @@
   </nav>
 {:else}
 <nav class="rail" aria-label="Guilds">
-  {#if seasonOn}
-    <div class="season" aria-hidden="true"><FxLayer fx={season} seed="season" scale={0.6} /></div>
-  {/if}
   <!-- The list scrolls; the inbox, calendar and add buttons below do not. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="rail-scroll" ondragover={overRail} ondrop={dropOnRail} class:dragging={!!drag}>
@@ -1438,17 +1419,6 @@
     flex-direction: column;
     min-height: 0;
     position: relative;
-  }
-  .season {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-    z-index: 0;
-  }
-  .season :global(.fxfield) {
-    position: absolute;
-    inset: 0;
   }
   /* `0 1 auto`: a rail that fits keeps its footer right under the last guild;
      only a rail that outgrows the column scrolls with the footer pinned. */

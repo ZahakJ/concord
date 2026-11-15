@@ -17,17 +17,19 @@
   // `s` shrinks every periodic length, so a card runs the actual effect at
   // ~40% scale rather than a hand-drawn impression of it.
   import FxLayer from "./FxLayer.svelte";
-  import { fxSpec } from "./lib/themefx.js";
+  import { fxSpec, resolveFx } from "./lib/themefx.js";
 
   let { fx = "", mini = false, s = 1, scale = 1 } = $props();
 
-  const spec = $derived(fxSpec(fx));
+  // Seasonal is drawn as whichever effect this month is (lib/themefx.js).
+  const shown = $derived(fx === "petals" ? fx : resolveFx(fx));
+  const spec = $derived(fxSpec(shown));
   const sheets = $derived(Array.from({ length: spec.sheets }, (_, i) => i));
 </script>
 
-{#if fx}
+{#if shown}
   <div
-    class="fx-overlay fxo-{fx}"
+    class="fx-overlay fxo-{shown}"
     class:mini
     style={s === 1 ? null : `--fx-s:${s}`}
     aria-hidden="true"
@@ -42,7 +44,7 @@
     {#if spec.particle}
       <!-- Seeded by the effect id, so the field is the same on every reload
            and does not reshuffle when an unrelated re-render happens. -->
-      <FxLayer fx={spec.particle} seed={fx} {scale} />
+      <FxLayer fx={spec.particle} seed={shown} {scale} />
     {/if}
   </div>
 {/if}

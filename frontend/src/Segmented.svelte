@@ -96,7 +96,7 @@
     font-weight: 600;
     box-shadow: inset 0 0 0 1px var(--border-strong);
   }
-  :global(:root[data-theme="light"]:not([data-theme-pack])) button.on {
+  :global(:root[data-theme="light"][data-ground="light"]) button.on {
     background: #fff;
   }
   button:focus-visible {

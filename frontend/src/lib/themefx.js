@@ -88,14 +88,29 @@ const PARTICLE = {
     drift: 40,
     glow: 0,
   },
+  // Spring's half of Seasonal: the leaves' engine and fall, pink and fewer.
+  petals: {
+    kind: "fall",
+    n: 16,
+    glyphs: ["🌸"],
+    colors: ["#f9a8d4"],
+    size: [6, 11],
+    dur: [12, 21],
+    opacity: [0.35, 0.65],
+    drift: 50,
+    glow: 0,
+  },
 };
 
 // Six, not sixteen. Each one is a different KIND of motion — falling,
 // sheeting, twinkling, rising, rolling, tumbling — so no two of them read as
-// the same idea in a different colour. The Appearance gallery has a pack built
-// for each (Tundra, Harbor, Observatory, Hearth, Phosphor, Harvest), but that
-// is a design pairing and not a coupling: picking an effect never changes your
+// the same idea in a different colour. Picking an effect never changes your
 // pack, and picking a pack never changes your effect.
+//
+// Seasonal is the seventh choice and not an effect of its own: it is one of
+// the others, chosen by this device's clock (resolveFx). It used to be a
+// separate switch that drew only on the Rail layout's guild column, so on the
+// default layout and on every phone it did nothing at all.
 export const THEME_FX = [
   { id: "", label: "None", note: "No overlay", sheets: 0 },
   { id: "snow", label: "Snow", note: "Drifting flakes", sheets: 3, particle: PARTICLE.snow },
@@ -106,16 +121,38 @@ export const THEME_FX = [
   // No sheets: a tiled gradient has no per-speck rotation, and a leaf that
   // does not turn over is confetti.
   { id: "leaves", label: "Leaves", note: "Tumbling, autumn", sheets: 0, particle: PARTICLE.leaves },
+  { id: "seasonal", label: "Seasonal", note: "Snow, petals or leaves, by month", sheets: 0 },
 ];
 
-const BY_ID = new Map(THEME_FX.map((f) => [f.id, f]));
+// Not offered on its own: Seasonal's spring.
+const PETALS = { id: "petals", label: "Petals", note: "", sheets: 0, particle: PARTICLE.petals };
+
+const BY_ID = new Map([...THEME_FX, PETALS].map((f) => [f.id, f]));
 
 // A pref saved by a newer build (or hand-edited) must not paint an unstyled
 // layer, so anything unrecognised reads as off.
 export function validFx(id) {
-  return BY_ID.has(id) ? id : "";
+  return BY_ID.has(id) && id !== "petals" ? id : "";
 }
 
+// What Seasonal is this month, by this device's clock. The same months the
+// rail drift used: snow in December and January, petals in March and April,
+// leaves in October and November, and nothing in between.
+export function seasonFx(date = new Date()) {
+  const m = date.getMonth();
+  if (m === 11 || m === 0) return "snow";
+  if (m === 2 || m === 3) return "petals";
+  if (m === 9 || m === 10) return "leaves";
+  return "";
+}
+
+// The effect actually drawn for a pref: Seasonal resolved, the rest as is.
+export function resolveFx(id, date = new Date()) {
+  const v = validFx(id);
+  return v === "seasonal" ? seasonFx(date) : v;
+}
+
+// The spec for a pref OR for an already-resolved id ("petals" included).
 export function fxSpec(id) {
-  return BY_ID.get(validFx(id)) || BY_ID.get("");
+  return BY_ID.get(id === "petals" ? id : resolveFx(id)) || BY_ID.get("");
 }

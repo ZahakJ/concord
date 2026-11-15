@@ -10,6 +10,8 @@
 
 // --- WCAG relative luminance and contrast --------------------------------
 
+import { LIGHT_PACKS } from "./packs.js";
+
 const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 export const lum = ([r, g, b]) =>
   0.2126 * lin(r / 255) + 0.7152 * lin(g / 255) + 0.0722 * lin(b / 255);
@@ -108,22 +110,18 @@ export const over = ([r, g, b, a = 1], bg) =>
 
 // --- the daylight grounds -------------------------------------------------
 
-// The packs a cosmetic has to survive: the six bright theme packs plus the
-// plain light theme. Their --bg-1 is read out of the stylesheet rather than copied
-// here, so retuning a pack retunes the gate with it.
+// The grounds a cosmetic has to survive: every light pack plus the plain light
+// theme. Which packs are light comes from lib/packs.js, the one list; their
+// --bg-1 is read out of the stylesheet rather than copied here, so retuning a
+// pack retunes the gate with it.
 //
-// Three of them declare --bg-1 as translucent white over a pastel mesh. The
-// brightest that composite can be is plain white, and brighter is strictly
-// harder for the pale colours these libraries are full of — so white is the
-// honest worst case and the one used.
+// A pack may declare --bg-1 as translucent white over a mesh. The brightest
+// that composite can be is plain white, and brighter is strictly harder for
+// the pale colours these libraries are full of — so white is the honest worst
+// case and the one used.
 export const DAYLIGHT = [
   { name: "light", sel: ':root[data-theme="light"]' },
-  { name: "paper", sel: ':root[data-theme-pack="paper"]' },
-  { name: "solarized", sel: ':root[data-theme-pack="solarized"]' },
-  { name: "meadow", sel: ':root[data-theme-pack="meadow"]' },
-  { name: "porcelain", sel: ':root[data-theme-pack="porcelain"]' },
-  { name: "daybreak", sel: ':root[data-theme-pack="daybreak"]' },
-  { name: "atrium", sel: ':root[data-theme-pack="atrium"]' },
+  ...[...LIGHT_PACKS].map((id) => ({ name: id, sel: `:root[data-theme-pack="${id}"]` })),
 ];
 
 // daylightGrounds reads each pack's --bg-1 out of the stylesheet and returns
