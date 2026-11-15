@@ -540,6 +540,13 @@ export function playMention() {
   play([[880, 0, 0.16, 0.1]]);
 }
 
+// A message in another channel, one that names nobody: one soft note, quieter
+// than the mention ping and lower, so the three received sounds (message,
+// mention, DM) can be told apart without looking.
+export function playMessage() {
+  play([[659.25, 0, 0.14, 0.07]]);
+}
+
 // Warm two-note bloop for an incoming direct message — distinct from the
 // single @mention ping so a DM is recognizable without looking.
 export function playDM() {

@@ -59,7 +59,7 @@ Alert words are stored on this device only. They are never sent anywhere, never 
 | **Call ringtone** | Classic | The ringtone for incoming calls: Classic, Digital, Chime, Marimba or Pulse. Picking one plays it. |
 | **Test the speakers** | — | Plays a chime and checks that it reached your speakers. |
 
-Direct messages play their own chime, and mentions play a ping.
+A message that would notify you (see the levels above) makes a sound when it arrives in another channel or direct message, or while Concord is in the background: direct messages play their own chime, mentions and alert words a ping, and other messages a soft note. The channel on screen stays silent unless **Blip on every message** is on. Several messages at once play one sound. On Android in the background, the sound is the notification's own, set in the **Messages** notification channel. Sending a message makes no sound.
 
 ## Desktop notifications
 

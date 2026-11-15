@@ -12,6 +12,7 @@ import {
   levelLabel,
   shouldNotify,
   notificationTitle,
+  chimeFor,
 } from "./notifs.js";
 
 let failures = 0;
@@ -120,6 +121,24 @@ assert(
   notificationTitle({ sender: "Ada", kind: "dm" }) !== notificationTitle({ sender: "Ada", channel: "general", place: "G" }),
   "a DM and a guild message are told apart",
 );
+
+// ---- the received-message sound ----
+// Another channel or DM, or the app in the background: a sound. The channel on
+// screen: none. A plain message in an "All messages" channel used to make none.
+const here = { alert: true, onScreen: true };
+const away = { alert: true, onScreen: false };
+eq(chimeFor({ ...away }), "message", "a plain message in another channel sounds");
+eq(chimeFor({ ...away, mention: true }), "mention", "a mention elsewhere pings");
+eq(chimeFor({ ...away, dm: true }), "dm", "a DM elsewhere chimes");
+eq(chimeFor({ ...away, dm: true, mention: true }), "dm", "a DM keeps its own chime when it also names you");
+eq(chimeFor({ ...here }), null, "the channel on screen stays silent");
+eq(chimeFor({ ...here, dm: true }), null, "the DM on screen stays silent");
+eq(chimeFor({ ...here, mention: true }), null, "a mention on screen stays silent: you are reading it");
+eq(chimeFor({ ...here, background: true }), "message", "the open channel sounds once the app is in the background");
+eq(chimeFor({ ...away, alert: false }), null, "nothing a level silenced makes a sound");
+eq(chimeFor({ ...here, alert: false, background: true }), null, "nor in the background");
+eq(chimeFor({ ...away, background: true, trayCarries: true }), null, "the Android tray's own sound is not doubled");
+eq(chimeFor({ ...away, background: false, trayCarries: true }), "message", "a tray in the foreground does not silence the app");
 
 if (failures) {
   console.error(`\n${failures} notifs test(s) failed`);

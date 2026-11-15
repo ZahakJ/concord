@@ -120,6 +120,32 @@ export function shouldNotify({ hidden, focused, mobile = false, direct = false }
   return !!direct;
 }
 
+// ---- which sound a received message makes ----
+
+// chimeFor names the in-app sound for a message wantsAlert has already allowed,
+// or returns null for none:
+//
+//   in another channel or DM, or while the app is in the background: a sound,
+//     "dm" for a direct message, "mention" for a mention or alert word,
+//     "message" for anything else;
+//   in the channel on screen: none. "Blip on every message" is a separate,
+//     opt-in sound for that case.
+//
+// A plain message used to make no sound anywhere, even in a channel set to
+// "All messages", so on a phone a busy guild stayed silent unless you were named.
+//
+// `background`: the window is hidden, or on a desktop not focused. A phone
+// reports hasFocus() false while you look at it, so a phone caller passes
+// document.hidden alone. `trayCarries`: an Android tray notification is being
+// posted for this message, and the tray's channel plays the system's sound, so
+// a sound from the app as well would be the same news twice.
+export function chimeFor({ alert, dm = false, mention = false, onScreen = false, background = false, trayCarries = false }) {
+  if (!alert) return null;
+  if (onScreen && !background) return null;
+  if (background && trayCarries) return null;
+  return dm ? "dm" : mention ? "mention" : "message";
+}
+
 // notificationTitle says who AND where, because the OS shows nothing else:
 // "Ada" alone was the same for a DM and for chatter in a guild.
 //   DM:        "Ada (direct message)"

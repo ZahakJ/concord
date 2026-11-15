@@ -5,7 +5,7 @@ import { tick } from "svelte";
 import { closeGuildSwitcher } from "./guildswitch.svelte.js";
 import { MOM } from "./momentsunseen.svelte.js";
 import { api, on, onTransportHealth, probeCore } from "./api.js";
-import { notify, wantsPermissionPrompt } from "./notify.js";
+import { notify, wantsPermissionPrompt, trayPosts } from "./notify.js";
 import { draftIn, noteDraft } from "./drafts.svelte.js";
 import { containsMention } from "./markdown.js";
 import { clampAccent, resolveAccent } from "./guildaccent.js";
@@ -16,6 +16,7 @@ import {
   playVoiceLeave,
   playMention,
   playDM,
+  playMessage,
   playSfxTrigger,
   playNope,
   playDone,
@@ -31,6 +32,9 @@ import {
 // Per-sender soundboard rate limit (last accepted press, ms). Module-local:
 // nothing else needs to react to it.
 const sfxLast = {};
+// The last received-message sound (ms), so a burst plays one.
+let lastChimeAt = 0;
+const CHIME_GAP_MS = 1500;
 import { micReason } from "./devices.js";
 import { PERM, has } from "./perms.js";
 import { plur } from "./plural.js";
@@ -69,6 +73,7 @@ import {
   setChannel as setChannelNotif,
   setGuild as setGuildNotif,
   wantsAlert,
+  chimeFor,
   showsBadge,
 } from "./notifs.js";
 import { reducedMotion, motionMode, onOsMotionChange } from "./motion.js";
@@ -4145,14 +4150,24 @@ function initEvents() {
         mention: isMention || addressedToYou(isDMChannel(m.channelId), notifLevel(m.channelId)),
         dnd: S.identity.presence === "dnd",
       });
+    // The sound: in another channel or DM, or with the app in the background,
+    // and never for the channel on screen (lib/notifs.js chimeFor has the rule).
+    const chime = chimeFor({
+      alert,
+      dm: isDMChannel(m.channelId),
+      mention: isMention,
+      onScreen: m.channelId === S.activeChannelId,
+      background: document.hidden || (!S.isMobile && !document.hasFocus()),
+      trayCarries: document.hidden && trayPosts(),
+    });
+    // A burst (a sync catching up, a lively channel) is one sound, not ten.
+    if (chime && Date.now() - lastChimeAt > CHIME_GAP_MS) {
+      lastChimeAt = Date.now();
+      if (chime === "dm") playDM();
+      else if (chime === "mention") playMention();
+      else playMessage();
+    }
     if (alert) {
-      // A direct message gets its own chime (unless you're already looking at
-      // it); an @mention elsewhere gets the mention ping.
-      if (isDMChannel(m.channelId) && (m.channelId !== S.activeChannelId || !document.hasFocus())) {
-        playDM();
-      } else if (isMention) {
-        playMention();
-      }
       const direct = isMention || addressedToYou(isDMChannel(m.channelId), notifLevel(m.channelId));
       const where =
         owner?.kind === "dm"

@@ -90,6 +90,7 @@ export async function notificationStatus() {
   if (native?.notificationStatus) {
     try {
       const r = await native.notificationStatus();
+      trayGranted = !!r?.enabled;
       return { enabled: !!r?.enabled, canRequest: !!r?.canRequest };
     } catch {
       return { enabled: false, canRequest: false };
@@ -100,6 +101,22 @@ export async function notificationStatus() {
     enabled: Notification.permission === "granted",
     canRequest: Notification.permission === "default",
   };
+}
+
+// trayPosts: will a message notification raised now reach the Android tray?
+// The tray's Messages channel plays the system's notification sound, which is
+// the sound a phone in the background should make (lib/notifs.js chimeFor).
+// The grant is read whenever the app goes to the background, so revoking it in
+// system settings is noticed before the next message; until the first reading
+// it is assumed, the state of a phone where notifications work.
+let trayGranted = null;
+export function trayPosts() {
+  return !!nativeNotifier() && trayGranted !== false;
+}
+if (typeof document !== "undefined" && nativeNotifier()) {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) notificationStatus().catch(() => {});
+  });
 }
 
 // openSystemSettings takes the user to this app's OS settings page — the only
