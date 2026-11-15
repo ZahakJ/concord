@@ -357,8 +357,29 @@ func (s *Service) adoptOfferedProfile(from peer.ID, p *Profile) {
 // acted on when they came from a device of our own account; anything else is
 // ignored outright rather than merely deprioritised.
 func (s *Service) redeemOfferedInvites(from peer.ID, codes []string, arrived map[string]int64) {
-	if len(codes) == 0 || !s.ownDevice(from) {
+	if !s.ownDevice(from) {
 		return
+	}
+	// Only once every code here has been looked at (and any Notes among them
+	// joined): a sibling has told us what the account holds, so a linked
+	// device that still has no Notes may mint one (notesGroup). A sibling
+	// holding no groups at all says so too, with no codes.
+	defer func() {
+		s.joiningMu.Lock()
+		s.siblingOffered = true
+		s.joiningMu.Unlock()
+	}()
+	if len(codes) == 0 {
+		return
+	}
+	// Note every Notes offer before any join, and join it first: one guild
+	// whose owner is unreachable costs a dial timeout, and Notes is the group
+	// this device would otherwise start a copy of.
+	codes = NotesFirst(codes)
+	for _, code := range codes {
+		if ic, err := decodeInviteCode(strings.TrimSpace(code)); err == nil {
+			s.noteNotesOffer(code, ic)
+		}
 	}
 	have := map[string]bool{}
 	for _, g := range s.Guilds() {
@@ -380,11 +401,7 @@ func (s *Service) redeemOfferedInvites(from peer.ID, codes []string, arrived map
 		// anything newer. That was the reported "sometimes instant, sometimes
 		// nothing arrives for minutes".
 		ic, err := decodeInviteCode(strings.TrimSpace(code))
-		if err != nil {
-			continue
-		}
-		s.noteNotesOffer(code, ic)
-		if have[ic.GuildID] {
+		if err != nil || have[ic.GuildID] {
 			continue
 		}
 		// We left this guild, but the device offering it arrived in it after
@@ -400,12 +417,6 @@ func (s *Service) redeemOfferedInvites(from peer.ID, codes []string, arrived map
 		// landed.
 		s.joinOfferedInvite(code)
 	}
-	// Only now, after any Notes among these codes has been noted (and joined):
-	// a sibling has told us what the account holds, so a linked device that
-	// still has no Notes may mint one (NotesDM).
-	s.joiningMu.Lock()
-	s.siblingOffered = true
-	s.joiningMu.Unlock()
 }
 
 // regreetOwnDevices re-greets every connected device of this account, so that

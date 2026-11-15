@@ -33,6 +33,7 @@ const (
 	CodeConfirmWord         = "confirm-word"          // start over needs StartOverWord typed; nothing was deleted
 	CodeConfirmStale        = "confirm-stale"         // the start-over confirmation is spent, expired, or for what the device held before; nothing was deleted
 	CodeKeystoreBusy        = "keystore-busy"         // another window or process holds the keystore; nothing was deleted; try again
+	CodeNotesArriving       = "notes-arriving"        // no Notes on this device yet; the account's is expected from another device for a few seconds more
 )
 
 // Why a running core has no session, for a window that had one. A fresh

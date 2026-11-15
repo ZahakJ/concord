@@ -258,9 +258,11 @@ type GuildView struct {
 	DMFaces []DMFace `json:"dmFaces,omitempty"`
 	DMNamed bool     `json:"dmNamed,omitempty"` // group DM has a user-set custom name
 	DMNotes bool     `json:"dmNotes,omitempty"` // the self-notes DM (stored name, immune to a peer named "Notes")
-	// DMNotesCopy is a second Notes group of this account that holds notes:
-	// listed under its own name so they stay readable, never as Notes.
-	DMNotesCopy bool `json:"dmNotesCopy,omitempty"`
+	// DMNotesCopy is another Notes group of this account, not the one it uses
+	// as Notes: shown under its own name and never as a conversation with a
+	// person. DMNotesCopyEmpty says it holds nothing, so it is not listed.
+	DMNotesCopy      bool `json:"dmNotesCopy,omitempty"`
+	DMNotesCopyEmpty bool `json:"dmNotesCopyEmpty,omitempty"`
 	// The last thing said in this conversation, for the DM list's second line.
 	// DM guilds only: it costs one row read and one open per conversation, which
 	// is affordable for a handful of DMs and would not be for every channel of
@@ -3051,7 +3053,9 @@ func (b *Bridge) RedeemLinkCode(code, passphrase, confirm string) (string, error
 	// and it must honour a leave-tombstone on THIS device (a re-link handing
 	// over a guild the user deleted here must not resurrect it), where
 	// JoinViaInvite is the human's own paste and clears that tombstone.
-	for _, ic := range res.GuildInvites {
+	// Notes first: each join is a round trip that can cost a dial timeout,
+	// and Notes is the one a device would otherwise start a copy of.
+	for _, ic := range appsvc.NotesFirst(res.GuildInvites) {
 		svc.JoinLinkedInvite(ic)
 	}
 	// Guilds the issuer belongs to but does not administer can't be handed over
@@ -3072,6 +3076,31 @@ func (b *Bridge) RedeemLinkCode(code, passphrase, confirm string) (string, error
 }
 
 // ---- mapping helpers ----
+
+// notesCopyName is what another copy of Notes is called in the list.
+const notesCopyName = "Notes (other copy)"
+
+// notesView is how a guild reads as Notes in the views.
+type notesView struct {
+	notes     bool // the Notes (pinned, opened by NotesDM)
+	copy      bool // another Notes group of this account
+	copyEmpty bool // a copy holding no message, so not listed
+}
+
+// notesViewOf decides it. An account can hold more than one Notes group
+// (see appsvc.NotesCopy); only the one the core uses is Notes. A copy that
+// holds notes is listed under its own name so nothing in it is out of reach.
+// The stored name test is kept for the Notes itself: it is what tells a
+// self-DM from a peer's DM whatever the peer is called.
+func notesViewOf(g domain.Guild, isCopy, hasMessages bool) notesView {
+	if g.Kind != "dm" {
+		return notesView{}
+	}
+	if isCopy {
+		return notesView{copy: true, copyEmpty: !hasMessages}
+	}
+	return notesView{notes: g.Name == "Notes"}
+}
 
 // isCustomDMName reports whether a DM guild's stored name is a user-chosen group
 // name (vs. the auto-defaults), so guildView keeps it instead of recomputing the
@@ -3279,13 +3308,9 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 	if g.Kind == "dm" && len(g.Channels) > 0 {
 		dmPreview, dmPreviewMine, dmPreviewAt = svc.LastSaid(g.Channels[0].ID)
 	}
-	// An account can hold more than one Notes group; only the canonical one is
-	// Notes. Another that holds notes is listed as itself so nothing in it is
-	// out of reach; an empty one is left out of the list (one member, so the
-	// DM list's filter drops it).
-	notesCopy := g.Kind == "dm" && svc.NotesCopy(g.ID)
-	if notesCopy {
-		name = "Notes (other copy)"
+	nv := notesViewOf(g, g.Kind == "dm" && svc.NotesCopy(g.ID), dmPreviewAt > 0)
+	if nv.copy {
+		name = notesCopyName
 	}
 
 	return GuildView{
@@ -3294,15 +3319,16 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 		Heir:             svc.GuildHeir(g.ID),
 		DMPeerPresence:   dmPeerPresence, DMPeerOnline: dmPeerOnline,
 		DMPeerAvatar: dmPeerAvatar, DMMembers: dmMembers, DMFaces: dmFaces,
-		DMNamed:       g.Kind == "dm" && isCustomDMName(g.Name),
-		DMNotes:       g.Kind == "dm" && g.Name == "Notes" && !notesCopy,
-		DMNotesCopy:   notesCopy && dmPreviewAt > 0,
-		DMPreview:     dmPreview,
-		DMPreviewMine: dmPreviewMine,
-		DMPreviewAt:   dmPreviewAt,
-		CanManage:     svc.CanManageMembers(g.ID),
-		MyPerms:       uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
-		Icon:          g.Icon, Banner: g.Banner, Description: g.Description,
+		DMNamed:          g.Kind == "dm" && isCustomDMName(g.Name),
+		DMNotes:          nv.notes,
+		DMNotesCopy:      nv.copy,
+		DMNotesCopyEmpty: nv.copyEmpty,
+		DMPreview:        dmPreview,
+		DMPreviewMine:    dmPreviewMine,
+		DMPreviewAt:      dmPreviewAt,
+		CanManage:        svc.CanManageMembers(g.ID),
+		MyPerms:          uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
+		Icon:             g.Icon, Banner: g.Banner, Description: g.Description,
 		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
 		Evicted: svc.EvictedFrom(g.ID), EvictedReason: svc.EvictedReason(g.ID),
 		Alone:        svc.AloneInGuild(g.ID),
@@ -3548,6 +3574,9 @@ func (b *Bridge) NotesDM() (GuildView, error) {
 		return GuildView{}, err
 	}
 	g, err := svc.NotesDM()
+	if errors.Is(err, appsvc.ErrNotesArriving) {
+		return GuildView{}, &CodedError{Code: CodeNotesArriving, Msg: err.Error()}
+	}
 	if err != nil {
 		return GuildView{}, err
 	}

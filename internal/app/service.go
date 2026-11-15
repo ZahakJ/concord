@@ -301,8 +301,10 @@ type Service struct {
 	offeredRetrying atomic.Bool
 
 	// linkedDevice: this install runs on a device certificate, so the account
-	// existed before it and already has a Notes somewhere (see NotesDM).
+	// existed before it and already has a Notes somewhere (see notesGroup).
 	linkedDevice bool
+	// started is when Start ran; notesGrace counts from it.
+	started time.Time
 	// notesOffer is the latest code one of our own devices offered us for a
 	// Notes group, and siblingOffered whether any of our devices has offered
 	// us its groups since Start. Both guarded by joiningMu; in-memory, because
@@ -1134,6 +1136,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 
 	s := &Service{
 		linkedDevice:     linked,
+		started:          time.Now(),
 		ctx:              ctx,
 		cancel:           cancel,
 		dataDir:          cfg.DataDir,
@@ -1445,7 +1448,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// handing it over, so the one it lacks is on its way: one that joined some
 	// groups and was restarted (Android kills apps freely) before Notes arrived
 	// used to mint a rival here, and the next hello gave it the account's as
-	// well. It adopts the account's from its siblings' hello instead; NotesDM
+	// well. It adopts the account's from its siblings' hello instead; notesGroup
 	// says when it may mint. A restored ORIGINAL device can still mint one here
 	// that the account already has elsewhere, because nothing on it says so;
 	// notesBefore is what makes that harmless.

@@ -363,8 +363,11 @@ func (s *Service) CancelBooking(eventID string) error {
 	}
 	// Best effort from here: the record is gone (the slot is free again), so a
 	// half-cleaned room or event must not resurrect it.
-	if notes, err := s.NotesDM(); err == nil {
-		_ = s.DeleteEvent(notes.ID, rec.EventID)
+	// From every Notes this device holds: the event was put in whichever was
+	// the Notes when the booking came in, and that can have changed since
+	// (notesBefore).
+	for _, id := range s.notesGuildIDs() {
+		_ = s.DeleteEvent(id, rec.EventID)
 	}
 	if rec.MeetingGuildID != "" {
 		_ = s.deleteGuildLocal(rec.MeetingGuildID)
@@ -609,7 +612,9 @@ func (s *Service) bookSlot(r bookingRequest) bookingResponse {
 		return fail()
 	}
 
-	notes, err := s.NotesDM()
+	// Never the user's wait for the account's Notes (notesGroup): a guest's
+	// booking is not refused because a sibling has not greeted us yet.
+	notes, err := s.notesGroup(false)
 	if err != nil {
 		return fail()
 	}

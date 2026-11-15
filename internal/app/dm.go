@@ -249,14 +249,27 @@ func (s *Service) ensureNotesDM() (domain.Guild, error) {
 	return g, nil
 }
 
-// ErrNotesArriving: this device holds no Notes yet and the account's is on its
-// way from another of its devices. Minting one here would give the account a
-// second.
-var ErrNotesArriving = errors.New("your notes have not arrived from your other device yet; open Notes again in a moment")
+// ErrNotesArriving: this device holds no Notes yet, and for a few seconds
+// after it starts it waits for its other devices to hand it the account's
+// rather than starting a second. Only the user's own "open Notes" sees it.
+var ErrNotesArriving = errors.New("Your notes have not come from your other device yet. If they have not come by fifteen seconds after unlocking, this device starts a Notes of its own, and the two are shown side by side once the other device is online")
+
+// notesGrace is how long after Start a linked device that holds no Notes, and
+// has heard nothing from its siblings, waits before it starts a Notes of its
+// own when the user opens Notes. A sibling that is online greets within a few
+// seconds of Start (the hello is the first thing exchanged; measured at about
+// four seconds even across a network change), and the handover's own joins
+// run before the app is shown at all. Past that, waiting longer cannot help:
+// the sibling is a closed laptop, lost, or unlinked. A Notes started here is
+// harmless if the account's turns up later: that one is older, so it becomes
+// the Notes and this one the other copy, with nothing hidden (notesBefore).
+// A variable so a test can shorten it.
+var notesGrace = 15 * time.Second
 
 // NotesDM returns your personal self-DM, and is what OPENING Notes calls: it
 // surfaces the conversation if it had been closed, which is what asking for it
-// means.
+// means. It also lists again any other copy of Notes that holds notes, so no
+// note can be closed out of reach.
 //
 // It no longer creates one in the ordinary case, because by the time anything
 // can call this the group already exists — Start mints it. Creating on first
@@ -268,44 +281,146 @@ var ErrNotesArriving = errors.New("your notes have not arrived from your other d
 // neither could decrypt and stopped converging at all. The mint stays here as
 // the fallback for a service whose startup mint failed (a locked MLS store,
 // a full disk) rather than as the normal path.
-//
-// A device that holds no Notes mints one only when it cannot adopt the
-// account's. One of our devices has offered us a Notes: join that. A linked
-// device that has not yet heard any of its siblings' offers: wait for them
-// (ErrNotesArriving). The Messages tab lands on Notes when there is no other
-// conversation, so a phone opened right after being linked asked for Notes
-// before the handover had joined it, minted its own, and the account had two.
 func (s *Service) NotesDM() (domain.Guild, error) {
-	if _, ok := s.findNotesDM(); !ok {
-		s.joiningMu.Lock()
-		code, offered := s.notesOffer, s.siblingOffered
-		s.joiningMu.Unlock()
-		if code != "" {
-			s.joinOfferedInvite(code)
-			if _, ok := s.findNotesDM(); !ok {
-				return domain.Guild{}, ErrNotesArriving
-			}
-		} else if s.linkedDevice && !offered {
-			return domain.Guild{}, ErrNotesArriving
-		}
-	}
-	g, err := s.ensureNotesDM()
+	g, err := s.notesGroup(true)
 	if err != nil {
 		return domain.Guild{}, err
 	}
 	s.unhideDM(g.ID) // opening Notes always surfaces it
+	s.unhideNotesCopies()
 	return g, nil
 }
 
-// noteNotesOffer remembers a code one of our devices offered us, if it is for
-// a Notes group, so NotesDM can adopt it instead of minting a rival.
+// notesGroup returns this account's Notes, adopting one a sibling offered
+// before minting one.
+//
+// A device that holds no Notes joins the Notes one of its devices offered it.
+// If that join fails, or the group turns out not to be a Notes, it mints at
+// once: a second copy is harmless now, and a device must never be left
+// without Notes. With nothing offered, a linked device waits only while wait
+// is set (the user opening Notes), for notesGrace after Start, and until a
+// sibling has offered its groups. Callers that are writing into Notes on the
+// user's behalf (a booking, an archive import) never wait.
+//
+// The Messages tab lands on Notes when there is no other conversation, so a
+// phone opened right after being linked asked for Notes before the handover
+// had joined it, minted its own, and the account had two. The short wait is
+// what keeps that case to one.
+func (s *Service) notesGroup(wait bool) (domain.Guild, error) {
+	if g, ok := s.findNotesDM(); ok {
+		return g, nil
+	}
+	s.joiningMu.Lock()
+	code, offered := s.notesOffer, s.siblingOffered
+	s.joiningMu.Unlock()
+	if code != "" {
+		s.joinOfferedInvite(code)
+		if g, ok := s.findNotesDM(); ok {
+			return g, nil
+		}
+		// The join failed, or the group was only named Notes: this offer
+		// will not give us one.
+		s.joiningMu.Lock()
+		if s.notesOffer == code {
+			s.notesOffer = ""
+		}
+		s.joiningMu.Unlock()
+	} else if wait && s.linkedDevice && !offered && time.Since(s.started) < notesGrace {
+		return domain.Guild{}, ErrNotesArriving
+	}
+	return s.ensureNotesDM()
+}
+
+// unhideNotesCopies lists again every other copy of Notes that holds notes.
+// The copy is shown as a conversation of its own, and one closed by mistake
+// has no other way back: no device on this build writes into it.
+func (s *Service) unhideNotesCopies() {
+	s.mu.RLock()
+	var hidden []domain.Guild
+	for id, g := range s.guilds {
+		if s.hiddenDMs[id] && isNotesGuild(*g, s.PublicKey()) {
+			hidden = append(hidden, g.Clone())
+		}
+	}
+	s.mu.RUnlock()
+	for _, g := range hidden {
+		if len(g.Channels) == 0 {
+			continue
+		}
+		if _, ok, err := s.store.NewestMessage(g.Channels[0].ID); err == nil && ok {
+			s.unhideDM(g.ID)
+		}
+	}
+}
+
+// noteNotesOffer remembers a code one of our devices offered us for a group
+// named Notes, so notesGroup can adopt it instead of minting a rival. The
+// code does not say what kind of group it is for, so the name is only a
+// guess: a group already held here that is not a Notes is never noted, and a
+// noted code that fails to give us a Notes is dropped (notesGroup). An offer
+// still waiting to be joined is not replaced by a later one.
 func (s *Service) noteNotesOffer(code string, ic inviteCode) {
 	if ic.GuildName != notesGuildName || s.store.GuildIsLeft(ic.GuildID) {
 		return
 	}
+	if held, notes := s.holdsNotes(ic.GuildID); held && !notes {
+		return
+	}
+	s.joiningMu.Lock()
+	prev := s.notesOffer
+	s.joiningMu.Unlock()
+	if prev != "" && prev != code {
+		if pic, err := decodeInviteCode(prev); err == nil {
+			if held, _ := s.holdsNotes(pic.GuildID); !held {
+				return
+			}
+		}
+	}
 	s.joiningMu.Lock()
 	s.notesOffer = code
 	s.joiningMu.Unlock()
+}
+
+// notesGuildIDs is every Notes group this device holds, the copies included.
+func (s *Service) notesGuildIDs() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var ids []string
+	for id, g := range s.guilds {
+		if isNotesGuild(*g, s.PublicKey()) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// holdsNotes reports whether this device holds a guild, and whether it is a
+// Notes group.
+func (s *Service) holdsNotes(guildID string) (held, notes bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.guilds[guildID]
+	if !ok {
+		return false, false
+	}
+	return true, isNotesGuild(*g, s.PublicKey())
+}
+
+// NotesFirst puts the codes for groups named Notes ahead of the rest. A join
+// whose owner is unreachable costs up to its dial timeout, and joins run one
+// at a time; Notes is the group a device needs first, and the one it would
+// otherwise start a copy of.
+func NotesFirst(codes []string) []string {
+	out := make([]string, 0, len(codes))
+	var rest []string
+	for _, c := range codes {
+		if ic, err := decodeInviteCode(strings.TrimSpace(c)); err == nil && ic.GuildName == notesGuildName {
+			out = append(out, c)
+		} else {
+			rest = append(rest, c)
+		}
+	}
+	return append(out, rest...)
 }
 
 type dmInvite struct {

@@ -203,7 +203,10 @@ func (s *Service) ImportArchive(sealed []byte, passphrase string) (ArchiveStats,
 		if ag.Kind != "dm" || len(ag.Channels) != 1 || ag.Channels[0].Name != "notes" {
 			continue
 		}
-		notes, err := s.NotesDM() // creates it only because the archive proves there is something to put in it
+		// Creates it only because the archive proves there is something to put
+		// in it, and never waits for a sibling's: an import that skipped these
+		// rows would lose the only copy of them.
+		notes, err := s.notesGroup(false)
 		if err != nil {
 			break
 		}
