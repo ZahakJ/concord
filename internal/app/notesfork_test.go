@@ -406,12 +406,25 @@ func TestDesktopRestoredFromBackupWithNotesKeepsOne(t *testing.T) {
 	time.Sleep(10 * time.Second)
 	writeNote(t, desk, "desk after restore")
 	writeNote(t, phone, "phone after restore")
-	time.Sleep(5 * time.Second)
+	// The restored desktop's tree holds its own leaf only, and its own lost
+	// commit added the phone, so it cannot follow the phone's log. It must
+	// meet the phone, see it ahead, and be re-added by it: both devices end at
+	// one epoch, and every note reaches both.
+	waitUntil(t, 240*time.Second, func() bool {
+		return notesOn(desk, "phone at S2") && notesOn(desk, "phone after restore") &&
+			notesOn(phone, "desk after restore")
+	}, "the restored desktop and the phone never exchanged their notes")
+	waitUntil(t, 60*time.Second, func() bool {
+		de, err1 := desk.mls.Epoch(desk.ctx, rhGroup(desk, n1.ID))
+		pe, err2 := phone.mls.Epoch(phone.ctx, rhGroup(phone, n1.ID))
+		return err1 == nil && err2 == nil && de == pe
+	}, "the restored desktop is not at the phone's epoch")
+	if desk.OutOfSync(n1.ID) || desk.behindLatched(n1.ID) {
+		t.Error("the desktop caught up but still flies the banner or holds the latch")
+	}
 	if len(notesIDs(desk)) != 1 || len(notesIDs(phone)) != 1 {
 		t.Errorf("more than one Notes: desk %v phone %v", notesIDs(desk), notesIDs(phone))
 	}
-	// Nothing written is lost on the device that wrote it. Whether the two
-	// reach each other is the rolled-back group state's problem, not Notes'.
 	for c, svc := range map[string]*Service{"desk at S1": desk, "phone at S2": phone, "desk after restore": desk, "phone after restore": phone} {
 		if !notesOn(svc, c) {
 			t.Errorf("the note %q is gone from the device that wrote it", c)

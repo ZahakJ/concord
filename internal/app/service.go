@@ -95,6 +95,10 @@ type Service struct {
 	// requestSync is the transport a catch-up asks over; nil means the host's
 	// sync protocol. Tests put a hand on it to hold a request open.
 	requestSync func(ctx context.Context, to peer.ID, request []byte) ([]byte, error)
+	// requestInvite is the transport a heal asks over; nil means the host's
+	// invite protocol. Tests put a hand on it to see what a heal does with a
+	// Welcome for the wrong group.
+	requestInvite func(ctx context.Context, to peer.AddrInfo, request []byte) ([]byte, error)
 	// dropLive, when set, discards a live message before it is stored: a test's
 	// stand-in for gossip losing one. Never set outside tests.
 	dropLive atomic.Pointer[func(domain.Message) bool]
@@ -272,6 +276,13 @@ type Service struct {
 	// it does not lapse when that member goes offline, and it is persisted: it
 	// is what CannotRepairHere reads. Guarded by mu. See heal.go.
 	behindSeen map[string]uint64
+	// seenAhead names, per guild, the peers this device itself saw standing
+	// strictly ahead of it there (an EpochGap from them, or a payload from
+	// them it could not read at a higher epoch). A device of this account is
+	// asked for a heal only if it is named here: after a restore this device
+	// may no longer know that a sibling was unlinked, and a sibling that is
+	// not ahead has nothing to give it anyway. Guarded by mu. See heal.go.
+	seenAhead map[string]map[peer.ID]bool
 	// lastReciprocal throttles the catch-up we start when a member tells us, in
 	// its own sync request, that it stands ahead of us (see handleSyncRequest),
 	// keyed guildID|peerID.
@@ -1196,6 +1207,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		evictedReason:    map[string]string{},
 		forkedPeers:      map[string]map[peer.ID]bool{},
 		behindSeen:       map[string]uint64{},
+		seenAhead:        map[string]map[peer.ID]bool{},
 		lastReciprocal:   map[string]time.Time{},
 		lastHealed:       map[string]time.Time{},
 		blocked:          map[string]bool{},

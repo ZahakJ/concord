@@ -572,6 +572,17 @@ func (s *Service) pruneForkEvidence(guildID string) {
 	if len(m) == 0 {
 		delete(s.forkedPeers, guildID)
 	}
+	// The same for what we saw of a peer's epoch: a peer that went away is
+	// looked at afresh when it comes back, by the sync that precedes a heal.
+	a := s.seenAhead[guildID]
+	for p := range a {
+		if !live[p] {
+			delete(a, p)
+		}
+	}
+	if len(a) == 0 {
+		delete(s.seenAhead, guildID)
+	}
 	s.mu.Unlock()
 }
 
@@ -635,7 +646,10 @@ const memberSetTTL = 2 * time.Second
 type memberSet struct {
 	fprs map[string]bool
 	list []string
-	at   time.Time
+	// creds is every leaf's credential, one per leaf: two devices of one
+	// account are one member above and two leaves here (aloneInGuild).
+	creds [][]byte
+	at    time.Time
 }
 
 // guildMemberSet resolves a guild's account fingerprints, from cache when it
@@ -669,9 +683,10 @@ func (s *Service) guildMemberSet(guildID string) *memberSet {
 		return nil
 	}
 	c := &memberSet{
-		fprs: make(map[string]bool, len(creds)),
-		list: make([]string, 0, len(creds)),
-		at:   time.Now(),
+		fprs:  make(map[string]bool, len(creds)),
+		list:  make([]string, 0, len(creds)),
+		creds: creds,
+		at:    time.Now(),
 	}
 	for _, cred := range creds {
 		fpr := accountFingerprintOf(cred)
@@ -883,6 +898,7 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 			// messages silently. A later successful sync clears the flag.
 			if cur, err := s.mls.Epoch(s.ctx, guild.GroupID); err == nil && resp.Epoch > cur {
 				s.noteBehind(guildID, resp.Epoch)
+				s.noteAhead(guildID, p)
 			}
 			s.setOutOfSync(guildID, true)
 			return nil
@@ -935,6 +951,7 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 				// case stays the transient flag it has always been, and the next
 				// commit on either branch breaks the tie.
 				s.noteBehind(guildID, resp.Epoch)
+				s.noteAhead(guildID, p)
 				s.noteForkedPeer(guildID, p)
 			} else {
 				s.setOutOfSync(guildID, true)

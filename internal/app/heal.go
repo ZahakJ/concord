@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
+
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // heal.go recovers a member stranded at an old MLS epoch (the "out of sync"
@@ -108,16 +110,6 @@ func (s *Service) recoverOutOfSync(guildID string) {
 	if s.EvictedFrom(guildID) != "" {
 		return
 	}
-	// Nobody left to wait for. A guild whose only other members have been
-	// removed has no holder for the updates we are missing and never will have
-	// one, so "waiting for someone with the missing updates to come online" is
-	// not a status, it is a promise the guild cannot keep — the owner of a guild
-	// they had just emptied watched that bar for forty-five minutes. Whatever is
-	// still in the stash was written on a branch this guild has left behind.
-	if s.aloneInGuild(guildID) {
-		s.resolveStranding(guildID)
-		return
-	}
 	// Evidence first: a fork verdict against a peer that has since gone offline
 	// is not something this pass can act on, and left standing it would keep the
 	// guild flagged for as long as the peer stayed away.
@@ -140,6 +132,26 @@ func (s *Service) recoverOutOfSync(guildID string) {
 			return
 		}
 	}
+	// Nobody left to wait for. A guild whose only other members have been
+	// removed has no holder for the updates we are missing and never will have
+	// one, so "waiting for someone with the missing updates to come online" is
+	// not a status, it is a promise the guild cannot keep — the owner of a guild
+	// they had just emptied watched that bar for forty-five minutes. Whatever is
+	// still in the stash was written on a branch this guild has left behind.
+	//
+	// Decided only AFTER the sync above, and never while the latch stands.
+	// "Alone" is read from this device's own tree, and a tree restored from a
+	// backup can predate the leaf of the very device that holds what it is
+	// missing: a desktop restored to before its phone was linked holds a Notes
+	// tree of one leaf. The sync is what meets that phone and latches; resolving
+	// first threw the evidence away before it could be gathered, and resolving
+	// after a latch would throw it away once gathered. The manual
+	// ResolveStranding stays open in that state (CannotRepairHere is false for
+	// a device alone in its tree), for when the phone is gone for good.
+	if s.aloneInGuild(guildID) && !s.behindLatched(guildID) {
+		s.resolveStranding(guildID)
+		return
+	}
 	// Escalate to the re-add only on EVIDENCE that our group state is beyond
 	// bridging — syncGuildFromPeer flags the guild when a peer reports an epoch
 	// gap, or when a current member's payload is unreadable at an epoch we
@@ -160,26 +172,49 @@ func (s *Service) recoverOutOfSync(guildID string) {
 	}
 }
 
-// aloneInGuild reports whether this account is the only one left in a guild's
+// aloneInGuild reports whether this device's leaf is the only one in a guild's
 // MLS group. It reads the ROSTER, not who happens to be online: members who are
 // merely away can still turn up with what we are missing, and the banner is
 // right to wait for them.
+//
+// It counts LEAVES, not accounts. Every leaf of Notes belongs to the owner's
+// account, so by accounts a Notes group was always "alone", and a restored
+// desktop resolved its stranding instead of asking the phone that holds what
+// it lost. The same holds in any guild: a second device of this account can be
+// the one ahead. One exception: a leaf of this account's own device that this
+// device holds a revocation for. Such a leaf can stay in a tree indefinitely
+// where nobody could commit its removal, it will never serve anything, and
+// counting it would keep the guild from ever resolving on its own.
 func (s *Service) aloneInGuild(guildID string) bool {
-	fprs := s.guildMemberFingerprints(guildID)
-	if len(fprs) == 0 {
+	c := s.guildMemberSet(guildID)
+	if c == nil || len(c.creds) == 0 {
 		return false // an unknown roster is not evidence of an empty one
 	}
-	mine := s.id.Fingerprint()
-	for _, f := range fprs {
-		if f != mine {
-			return false
+	for _, cred := range c.creds {
+		if bytes.Equal(cred, s.myCredential) || s.leafRevokedHere(cred) {
+			continue
 		}
+		return false
 	}
 	return true
 }
 
-// AloneInGuild is the exported read, for the view layer.
-func (s *Service) AloneInGuild(guildID string) bool { return s.aloneInGuild(guildID) }
+// leafRevokedHere reports whether a leaf credential is a device certificate of
+// this account whose device this device has unlinked.
+func (s *Service) leafRevokedHere(cred []byte) bool {
+	cert, ok := identity.ParseDeviceCert(cred)
+	if !ok || !cert.Verify() || !ed25519Equal(cert.AccountPub, s.id.PublicKey()) {
+		return false
+	}
+	return s.deviceIsRevoked(cert.DevicePub)
+}
+
+// AloneInGuild is the exported read, for the view layer. A copy that is alone
+// by its own tree but has seen a member ahead of it is not alone: its tree is
+// what is stale, and the banner must not say that nobody else is here.
+func (s *Service) AloneInGuild(guildID string) bool {
+	return s.aloneInGuild(guildID) && !s.behindLatched(guildID)
+}
 
 // ResolveStranding ends a stranding that nothing can repair: it drops the
 // undecryptable stash, withdraws the fork evidence that routed us here, and
@@ -298,6 +333,26 @@ func (s *Service) noteBehind(guildID string, epoch uint64) {
 	s.emitGuildUpdate()
 }
 
+// noteAhead records that this device itself saw p standing strictly ahead of
+// it in a guild, where it could not follow. It is set beside noteBehind, and
+// unlike a fork verdict it is kept through the re-add cooldown: it routes
+// nothing, it only says who may be asked (healCandidates).
+func (s *Service) noteAhead(guildID string, p peer.ID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.seenAhead[guildID] == nil {
+		s.seenAhead[guildID] = map[peer.ID]bool{}
+	}
+	s.seenAhead[guildID][p] = true
+}
+
+// sawAhead reports whether noteAhead holds p for a guild.
+func (s *Service) sawAhead(guildID string, p peer.ID) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.seenAhead[guildID][p]
+}
+
 // behindLatched reports whether the "seen behind" latch stands for a guild.
 func (s *Service) behindLatched(guildID string) bool {
 	s.mu.RLock()
@@ -323,9 +378,11 @@ func (s *Service) clearBehindIfLevel(guildID string, groupID []byte) {
 	s.clearBehind(guildID)
 }
 
-// clearBehind drops the latch and its persisted copy.
+// clearBehind drops the latch and its persisted copy, and with them what this
+// device saw of which peers stood ahead of it.
 func (s *Service) clearBehind(guildID string) {
 	s.mu.Lock()
+	delete(s.seenAhead, guildID)
 	if s.behindSeen[guildID] == 0 {
 		s.mu.Unlock()
 		return
@@ -500,8 +557,24 @@ func (s *Service) healedRecently(guildID string) bool {
 // half — and repeated on the heal beat that is the re-add storm this module
 // exists to avoid, not a cure. The peer whose payload we could not read is, by
 // construction, standing on the branch we need to be moved to.
+//
+// A device of this device's OWN account is a candidate only if this device saw
+// it strictly ahead in this guild. What this device knows of its account's
+// devices can be older than the account: restored from a backup, it no longer
+// holds the revocation of a device unlinked since, so presence places that
+// device under the account again, and its stale tree may still seat it. Asked
+// for a heal, such a device would draw this one onto its own copy. A sibling
+// that really holds what this device is missing stands ahead of it, and the
+// sync that precedes every heal is what sees that.
 func (s *Service) healCandidates(guildID string) []peer.ID {
-	all := s.authorizedCommittersOnline(guildID)
+	mine := s.id.Fingerprint()
+	var all []peer.ID
+	for _, p := range s.authorizedCommittersOnline(guildID) {
+		if s.presence(p).Fingerprint == mine && !s.sawAhead(guildID, p) {
+			continue
+		}
+		all = append(all, p)
+	}
 	forked := s.forkedWith(guildID)
 	if len(forked) == 0 || len(all) < 2 {
 		return all
@@ -546,7 +619,11 @@ func (s *Service) healAsk(guildID string, pid peer.ID) (bool, string) {
 	})
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
-	respBytes, err := s.host.RequestInvite(ctx, peer.AddrInfo{ID: pid}, req)
+	ask := s.host.RequestInvite
+	if s.requestInvite != nil {
+		ask = s.requestInvite
+	}
+	respBytes, err := ask(ctx, peer.AddrInfo{ID: pid}, req)
 	if err != nil {
 		return false, ""
 	}
@@ -566,9 +643,23 @@ func (s *Service) healAsk(guildID string, pid peer.ID) (bool, string) {
 	if len(resp.Welcome) == 0 {
 		return false, ""
 	}
+	s.mu.RLock()
+	var want []byte
+	if g, ok := s.guilds[guildID]; ok {
+		want = g.GroupID
+	}
+	s.mu.RUnlock()
 	// JoinGroup overwrites our local group entry with the fresh membership at the
 	// current epoch — the ratchet is repaired.
-	if _, err := s.mls.Join(s.ctx, resp.Welcome); err != nil {
+	joined, err := s.mls.Join(s.ctx, resp.Welcome)
+	if err != nil {
+		return false, ""
+	}
+	// Only if the Welcome is for THIS guild's group. A Welcome carries its own
+	// group id, and a committer that answered with another group's (by mistake,
+	// or to move us) has repaired nothing here: the guild is still stranded,
+	// and nothing below may clear its flag or its latch.
+	if len(want) == 0 || !bytes.Equal(joined, want) {
 		return false, ""
 	}
 	// A welcome we could join disproves the terminal state: somebody with
@@ -584,20 +675,12 @@ func (s *Service) healAsk(guildID string, pid peer.ID) (bool, string) {
 	for fpr, p := range resp.Profiles {
 		s.learnProfile(fpr, p)
 	}
-	s.mu.RLock()
-	var groupID []byte
-	if g, ok := s.guilds[guildID]; ok {
-		groupID = g.GroupID
-	}
-	s.mu.RUnlock()
-	if groupID != nil {
-		// The join reset the group to the committer's current epoch; whatever
-		// stranded us can never decrypt now, but its content comes back with the
-		// history pull below. Drop the stash so it can't re-flag the guild.
-		s.pendingCTMu.Lock()
-		delete(s.pendingCT, string(groupID))
-		s.pendingCTMu.Unlock()
-	}
+	// The join reset the group to the committer's current epoch; whatever
+	// stranded us can never decrypt now, but its content comes back with the
+	// history pull below. Drop the stash so it can't re-flag the guild.
+	s.pendingCTMu.Lock()
+	delete(s.pendingCT, string(want))
+	s.pendingCTMu.Unlock()
 	go s.syncGuildFromPeer(guildID, pid) // pull any channel history we missed
 	// Forced: the re-add re-keyed the group and replaced our leaf, so what the
 	// other members last heard from us is not something we can reason about.
