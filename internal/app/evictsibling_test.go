@@ -39,7 +39,7 @@ func TestRemovingOneDeviceLeafDoesNotEvictItsSiblings(t *testing.T) {
 	rt := &recorder{}
 	tablet.OnMessage(rt.add)
 
-	own := w.guildOf(t, w.bob, w.phone, tablet, w.alice)
+	own := guildWith(t, w.bob, w.phone, tablet, w.alice)
 	if !delivered(w.alice, own.Channels[0].ID, "before", 60*time.Second, rt, w.rb) {
 		t.Fatal("setup: Alice's message did not reach Bob's devices")
 	}
@@ -61,7 +61,7 @@ func TestRemovingOneDeviceLeafDoesNotEvictItsSiblings(t *testing.T) {
 	}
 
 	// Alice kicks Bob from her guild: both of his devices are out, and know.
-	hers := w.guildOf(t, w.alice, w.bob, tablet)
+	hers := guildWith(t, w.alice, w.bob, tablet)
 	if err := w.alice.KickMember(hers.ID, w.bob.Fingerprint(), ""); err != nil {
 		t.Fatalf("KickMember: %v", err)
 	}
