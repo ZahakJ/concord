@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weak"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/identity"
@@ -17,7 +18,7 @@ import (
 // dropWipeTicket leaves no confirmation outstanding for the next test.
 func dropWipeTicket() {
 	wipeMu.Lock()
-	wipeTicket, wipePhrase, wipeSvc, wipeKeystore = "", "", nil, nil
+	wipeTicket, wipePhrase, wipeSvc, wipeKeystore = "", "", weak.Pointer[appsvc.Service]{}, nil
 	wipeMu.Unlock()
 }
 

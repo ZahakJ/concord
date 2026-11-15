@@ -3,8 +3,11 @@ package bridge
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
+	"weak"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/identity"
@@ -190,4 +193,27 @@ func TestAWipeAfterAPassphraseChangeKeepsTheSession(t *testing.T) {
 	if _, err := os.Stat(ks); !os.IsNotExist(err) {
 		t.Fatalf("the keystore is still here: %v", err)
 	}
+}
+
+// A wipe dialog left open is no reason to keep the session it was opened in
+// once the user has signed out: the closed service, and the identity it holds
+// in memory, are not held for the confirmation.
+func TestAnOpenWipeDialogDoesNotKeepASignedOutSessionInMemory(t *testing.T) {
+	b, _, _ := adaWithAWipeOpen(t)
+	svc, err := b.service()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone := weak.Make(svc)
+	svc = nil
+	if err := b.Logout(); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		runtime.GC()
+		if gone.Value() == nil {
+			return
+		}
+	}
+	t.Fatal("the signed-out session is still in memory while its wipe dialog is open")
 }

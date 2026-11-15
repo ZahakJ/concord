@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"weak"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/identity"
@@ -59,8 +60,11 @@ var (
 	// What the confirmation was opened for: the session that showed the
 	// dialog and the keystore on the device then. ConfirmWipe erases only for
 	// that session, still running, over that same keystore; a ticket armed
-	// without them (zero values) confirms nothing.
-	wipeSvc      *appsvc.Service
+	// without them (zero values) confirms nothing. The session is held
+	// weakly: a dialog left open does not keep a signed-out session, and the
+	// identity it holds in memory, alive; once it is gone the ticket matches
+	// no session.
+	wipeSvc      weak.Pointer[appsvc.Service]
 	wipeKeystore []byte
 )
 
@@ -123,7 +127,7 @@ func (b *Bridge) BeginWipe() (WipeView, error) {
 
 	wipeMu.Lock()
 	wipeTicket, wipePhrase, wipeIssued = ticket, phrase, time.Now()
-	wipeSvc, wipeKeystore = svc, keystore
+	wipeSvc, wipeKeystore = weak.Make(svc), keystore
 	wipeMu.Unlock()
 
 	return WipeView{
@@ -149,8 +153,8 @@ func takeWipe(ticket string) (phrase string, svc *appsvc.Service, keystore []byt
 	if wipeTicket == "" || ticket == "" || ticket != wipeTicket {
 		return "", nil, nil, false
 	}
-	phrase, svc, keystore, ok = wipePhrase, wipeSvc, wipeKeystore, time.Since(wipeIssued) <= wipeTicketTTL
-	wipeTicket, wipePhrase, wipeSvc, wipeKeystore = "", "", nil, nil
+	phrase, svc, keystore, ok = wipePhrase, wipeSvc.Value(), wipeKeystore, time.Since(wipeIssued) <= wipeTicketTTL
+	wipeTicket, wipePhrase, wipeSvc, wipeKeystore = "", "", weak.Pointer[appsvc.Service]{}, nil
 	return phrase, svc, keystore, ok
 }
 
