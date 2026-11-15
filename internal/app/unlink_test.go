@@ -254,7 +254,7 @@ func TestInterruptedRevokeWipeFinishesAtTheNextStart(t *testing.T) {
 	s.saveRevocations([]*identity.DeviceRevocation{s.id.RevokeDevice(dev, time.Now().Unix())})
 
 	orig := removeKeystore
-	removeKeystore = func(string) error { return errors.New("held by another program") }
+	removeKeystore = func(string, func() bool, func()) error { return errors.New("held by another program") }
 	s.wipeSelf()
 	removeKeystore = orig
 	if _, err := os.Stat(deviceMarkerPath(dir)); err != nil {
@@ -311,7 +311,7 @@ func TestAStuckRevokeWipeSaysWhatIsStillHere(t *testing.T) {
 
 		orig := removeKeystore
 		if stuck == "keystore" {
-			removeKeystore = func(string) error { return errors.New("held by another program") }
+			removeKeystore = func(string, func() bool, func()) error { return errors.New("held by another program") }
 		} else {
 			pc := peerCachePath(dir)
 			_ = os.Remove(pc)
@@ -469,7 +469,7 @@ func TestALiveRevokeWipeTellsTheShellWhetherItErased(t *testing.T) {
 		}
 		orig := removeKeystore
 		if stuck {
-			removeKeystore = func(string) error { return errors.New("held by another program") }
+			removeKeystore = func(string, func() bool, func()) error { return errors.New("held by another program") }
 		}
 		done := make(chan error, 1)
 		s.OnUnlinked(func(err error) { done <- err })

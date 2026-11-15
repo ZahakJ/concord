@@ -32,6 +32,7 @@ const (
 	CodeDataWithoutKeystore = "data-without-keystore" // an account's data but no keystore: restore or start over; nothing was created
 	CodeConfirmWord         = "confirm-word"          // start over needs StartOverWord typed; nothing was deleted
 	CodeConfirmStale        = "confirm-stale"         // the start-over confirmation is spent, expired, or for what the device held before; nothing was deleted
+	CodeKeystoreBusy        = "keystore-busy"         // another window or process holds the keystore; nothing was deleted; try again
 )
 
 // Why a running core has no session, for a window that had one. A fresh

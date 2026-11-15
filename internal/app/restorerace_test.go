@@ -261,7 +261,7 @@ func TestDeferredEraseWithDataLeftSaysBoth(t *testing.T) {
 	dir := t.TempDir()
 	seedDevice(t, dir, "pw", "Bea", false)
 	orig := removeKeystore
-	removeKeystore = func(string) error { return identity.ErrEraseDeferred }
+	removeKeystore = func(string, func() bool, func()) error { return identity.ErrEraseDeferred }
 	t.Cleanup(func() { removeKeystore = orig })
 	// Something the data erase cannot take.
 	if err := os.Remove(dbPathIn(dir)); err != nil {
@@ -388,7 +388,7 @@ func TestAFailedWipeNeverErasesAnOwnPhraseRestore(t *testing.T) {
 	dir := t.TempDir()
 	bea := seedDevice(t, dir, "pw", "Bea", false)
 	orig := removeKeystore
-	removeKeystore = func(string) error { return errors.New("held by another program") }
+	removeKeystore = func(string, func() bool, func()) error { return errors.New("held by another program") }
 	err := ResetIdentity(dir)
 	removeKeystore = orig
 	if err == nil {

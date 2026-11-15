@@ -581,7 +581,9 @@ func (b *Bridge) BeginStartOver() (StartOverView, error) {
 // zero-width characters once made the in-app wipe impossible to confirm).
 // The ticket is spent on any attempt that gets that far, and is refused when
 // it expired or the keystore or data changed since it was issued: a page left
-// open while another window changed the device erases nothing.
+// open while another window changed the device erases nothing. The one
+// attempt that does not spend it is one that could not take the keystore
+// lock: nothing was checked or deleted, and the user is asked to try again.
 func (b *Bridge) ResetIdentity(ticket, typed string) error {
 	if !strings.EqualFold(strings.TrimSpace(typed), StartOverWord) {
 		return &CodedError{Code: CodeConfirmWord, Msg: "Nothing was deleted. To erase this device, type " + StartOverWord + " to confirm."}
@@ -612,10 +614,15 @@ func (b *Bridge) ResetIdentity(ticket, typed string) error {
 	// Checked again where it counts: under the keystore lock, with the erase.
 	// Waiting for that lock can take seconds, and what another window or
 	// process wrote meanwhile was never shown to this confirmation.
-	err = appsvc.ResetIdentityIf(dir, func() bool { return appsvc.StartOverToken(dir) == want })
+	err = appsvc.ResetIdentityIf(dir, func() bool { return appsvc.StartOverToken(dir) == want }, nil)
 	switch {
 	case errors.Is(err, identity.ErrKeystoreChanged):
 		return &CodedError{Code: CodeConfirmStale, Msg: "What is on this device changed since this confirmation opened. Nothing was deleted. Look again before erasing."}
+	case errors.Is(err, identity.ErrKeystoreBusy):
+		// Nothing was looked at or deleted: the confirmation still stands
+		// for the device as it was shown, and trying again uses it.
+		b.startOver.ticket, b.startOver.token = ticket, want
+		return &CodedError{Code: CodeKeystoreBusy, Msg: "Another Concord window or process is using the keystore. Nothing was deleted. Try again."}
 	case errors.Is(err, identity.ErrEraseDeferred) || errors.Is(err, appsvc.ErrDataNotErased):
 		return erasePendingError(err)
 	}

@@ -89,7 +89,7 @@ func ResetIdentity(dataDir string) error {
 	// Everything happens now, while the user who confirmed it is here: if
 	// any of it fails, what is left stays until they choose again. Nothing
 	// later deletes it on this erase's behalf.
-	err := removeKeystore(keystorePathIn(dataDir))
+	err := removeKeystore(keystorePathIn(dataDir), nil, nil)
 	if err != nil && !errors.Is(err, identity.ErrEraseDeferred) {
 		return err
 	}
@@ -104,33 +104,36 @@ func ResetIdentity(dataDir string) error {
 	return err
 }
 
-// ResetIdentityIf is ResetIdentity for an erase confirmed on a screen: still
-// reports whether the device is what that screen showed. It is asked under
-// the keystore lock, and both the keystore and the data are erased under it,
-// so a restore or link that finished in another window in between is not
-// erased on a yes that was given for something else. ErrKeystoreChanged:
-// nothing was removed.
-func ResetIdentityIf(dataDir string, still func() bool) error {
+// ResetIdentityIf is ResetIdentity for an erase confirmed for what still
+// recognises: the device as a screen showed it, or the account and device a
+// revocation named. Taking the keystore lock, asking still, removing the
+// keystore and then the data are one hold of the lock, so a restore or link
+// that another window or process finished in between is not erased on a yes
+// that was given for something else. first, when set, runs in that hold
+// after still has said yes and before anything is removed (the Settings wipe
+// closes its session there, so a refusal leaves the session running).
+//
+// Nothing is removed when still says no (identity.ErrKeystoreChanged) or the
+// lock cannot be had (identity.ErrKeystoreBusy): without the lock, still
+// cannot be asked about what the erase would remove. A failure to remove the
+// keystore leaves the data; one removing the data is ErrDataNotErased.
+func ResetIdentityIf(dataDir string, still func() bool, first func()) error {
 	var derr error
-	erased := false
-	err := identity.RemoveKeystoreIf(keystorePathIn(dataDir), still, func() {
-		erased, derr = true, resetDataIn(dataDir)
-	})
-	if errors.Is(err, identity.ErrKeystoreChanged) {
-		return err
-	}
-	if err != nil && !errors.Is(err, identity.ErrEraseDeferred) {
-		return err
-	}
-	if !erased {
-		// The keystore erase could not take the lock and was recorded
-		// instead (it already reads as gone): the rest goes now, as asked.
+	err := removeKeystore(keystorePathIn(dataDir), func() bool {
+		if !still() {
+			return false
+		}
+		if first != nil {
+			first()
+		}
+		return true
+	}, func() {
 		derr = resetDataIn(dataDir)
+	})
+	if err != nil {
+		return err
 	}
-	if derr != nil {
-		return errors.Join(err, derr)
-	}
-	return err
+	return derr
 }
 
 // removeLeftoverEraseRecord removes the erase record an interim build wrote
@@ -140,9 +143,9 @@ func removeLeftoverEraseRecord(dataDir string) {
 	_ = os.Remove(filepath.Join(dataDir, "data-erase-pending"))
 }
 
-// removeKeystore is identity.RemoveKeystore, a variable so a test can make
-// the keystore erase defer.
-var removeKeystore = identity.RemoveKeystore
+// removeKeystore is identity.RemoveKeystoreIf, a variable so a test can make
+// the keystore erase defer or fail.
+var removeKeystore = identity.RemoveKeystoreIf
 
 // ErrDataNotErased: some of an erased account's data (database, peer cache,
 // device marker, group state) could not be removed; the error names what is

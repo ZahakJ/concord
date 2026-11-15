@@ -3,6 +3,7 @@ package bridge
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
@@ -121,4 +122,72 @@ func TestAWipeLeavesAKeystoreAnotherProcessWrote(t *testing.T) {
 		t.Fatalf("ConfirmWipe over a keystore written since: %v, want it refused as stale", err)
 	}
 	mustStillHold(t, ks, bob.PublicKey(), "after a wipe over a keystore another process wrote")
+}
+
+// The same account unlocked again is a new session: the old session's
+// confirmation erases nothing in it, and it keeps running.
+func TestAWipeConfirmationIsNotForTheSameAccountUnlockedAgain(t *testing.T) {
+	b, view, ks := adaWithAWipeOpen(t)
+	ada, err := identity.ReadAccountPub(ks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Logout(); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Login("ada-pass-1"); err != nil {
+		t.Fatal(err)
+	}
+	err = b.ConfirmWipe(view.Ticket, "Ada")
+	if code, _ := codeOf(err); code != CodeConfirmStale {
+		t.Fatalf("ConfirmWipe in a new session of the same account: %v, want CodeConfirmStale", err)
+	}
+	mustStillHold(t, ks, ada, "after the old session's confirmation was used in a new one")
+	if _, err := b.service(); err != nil {
+		t.Fatalf("the new session did not survive: %v", err)
+	}
+}
+
+// A passphrase changed in the same session after the dialog opened rewrites
+// the keystore, so the confirmation no longer matches it and nothing is
+// erased. The refusal says why, and the user is still signed in: nothing
+// happened to the session, and they can open the dialog again.
+func TestAWipeAfterAPassphraseChangeKeepsTheSession(t *testing.T) {
+	b, view, ks := adaWithAWipeOpen(t)
+	ada, err := identity.ReadAccountPub(ks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pokes := 0
+	b.OnPresence = func() { pokes++ }
+	if err := b.ChangePassphrase("ada-pass-1", "ada-pass-2"); err != nil {
+		t.Fatal(err)
+	}
+	err = b.ConfirmWipe(view.Ticket, "Ada")
+	if code, _ := codeOf(err); code != CodeConfirmStale {
+		t.Fatalf("ConfirmWipe after a passphrase change: %v, want CodeConfirmStale", err)
+	}
+	for _, says := range []string{"passphrase", "Nothing was deleted", "still signed in"} {
+		if !strings.Contains(err.Error(), says) {
+			t.Errorf("the refusal %q does not say %q", err, says)
+		}
+	}
+	mustStillHold(t, ks, ada, "after a refused wipe")
+	if _, err := b.service(); err != nil {
+		t.Fatalf("a refused wipe signed the user out: %v", err)
+	}
+	if pokes != 0 {
+		t.Fatalf("a refused wipe told the shell the session changed (%d)", pokes)
+	}
+
+	view, err = b.BeginWipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ConfirmWipe(view.Ticket, "Ada"); err != nil {
+		t.Fatalf("the wipe opened again after the passphrase change: %v", err)
+	}
+	if _, err := os.Stat(ks); !os.IsNotExist(err) {
+		t.Fatalf("the keystore is still here: %v", err)
+	}
 }

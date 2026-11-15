@@ -180,35 +180,43 @@ func (b *Bridge) ConfirmWipe(ticket, typed string) error {
 		return err
 	}
 
-	// Close the session BEFORE touching the files. The store is open, the node
-	// is connected and the reconcile beat is still running; deleting the
-	// database out from under all of that is how a wipe turns into a crash
-	// report instead of a login screen.
-	//
-	// The erase happens under the same lock: an unlock from another window
-	// in between would otherwise open the keystore that is being deleted, or
+	// The erase holds b.mu throughout: an unlock from another window in
+	// between would otherwise open the keystore that is being deleted, or
 	// find it gone and create a fresh account under whatever it was typed.
 	b.mu.Lock()
 	if svc == nil || b.svc != svc {
 		b.mu.Unlock()
 		return stale
 	}
-	_ = b.svc.Close()
-	b.svc = nil
-	// And only over the keystore that session opened, checked under the
-	// keystore lock with the erase: one another process has since written
-	// (a restore, a link, a new passphrase) was never shown to this dialog.
+	// Only over the keystore that session opened, checked under the keystore
+	// lock with the erase: one another process has since written (a restore,
+	// a link) or this session re-sealed (a new passphrase) was never shown to
+	// this dialog.
+	//
+	// The session is closed in that same hold, once the check has passed and
+	// before any file goes. The store is open, the node is connected and the
+	// reconcile beat is still running; deleting the database out from under
+	// all of that is how a wipe turns into a crash report instead of a login
+	// screen. A wipe refused at the check, or one that cannot take the lock,
+	// deletes nothing and leaves the session as it was.
+	closed := false
 	err = appsvc.ResetIdentityIf(dir, func() bool {
 		now, rerr := identity.ReadKeystore(ksPath)
 		return rerr == nil && bytes.Equal(now, keystore)
+	}, func() {
+		_ = b.svc.Close()
+		b.svc = nil
+		closed = true
 	})
-	if errors.Is(err, identity.ErrKeystoreChanged) {
-		b.lockReason = LockSignedOut
+	if !closed {
 		b.mu.Unlock()
-		if b.OnPresence != nil {
-			b.OnPresence()
+		switch {
+		case errors.Is(err, identity.ErrKeystoreChanged):
+			return &CodedError{Code: CodeConfirmStale, Msg: "The keystore on this device changed since this confirmation opened: its passphrase was changed, or another Concord window or process wrote it. Nothing was deleted, and you are still signed in. Open it again to erase this device."}
+		case errors.Is(err, identity.ErrKeystoreBusy):
+			return &CodedError{Code: CodeKeystoreBusy, Msg: "Another Concord window or process is using the keystore. Nothing was deleted, and you are still signed in. Try again."}
 		}
-		return &CodedError{Code: CodeConfirmStale, Msg: "The keystore on this device changed since this confirmation opened. Nothing was deleted, and you have been signed out. Unlock and look again before erasing."}
+		return err
 	}
 	b.lockReason = LockWiped
 	b.mu.Unlock()
