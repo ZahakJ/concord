@@ -12,6 +12,8 @@
 // Only the leading package token: NOT everything up to the last colon, which
 // would throw away a helpful multi-clause message and leave just the innermost
 // transport error.
+import { cannotRepairText } from "./syncbanner.js";
+
 const GO_PREFIX = /^(?:(?:app|net|store|mls|bridge|identity|link|chronimport|rpc\s+\w+):\s*)+/;
 // The browser's own words for "nothing answered". They are true and useless.
 const RAW_NETWORK = /^(failed to fetch|networkerror when attempting to fetch resource\.?|load failed|the network connection was lost\.?)$/i;
@@ -121,9 +123,18 @@ export function errorField(msg) {
   return "";
 }
 
-export function humanError(msg) {
+// What the core says when it refuses a send, a governance act or "Continue
+// from here" on a copy that fell behind and that nothing can repair
+// (internal/app ErrBehindOnlyCommitter). It is read as the banner's own
+// sentence, so the red row under a message and the banner say the same thing.
+const CANNOT_REPAIR = /fell behind and cannot be repaired from here/i;
+
+// kind is the kind of the guild the action was in ("dm" for a conversation),
+// where the caller knows it; it only changes the noun of that one sentence.
+export function humanError(msg, kind = "") {
   if (msg?.code && BY_CODE[msg.code]) return BY_CODE[msg.code];
   const text = String(msg?.message ?? msg ?? "").replace(GO_PREFIX, "");
+  if (CANNOT_REPAIR.test(text)) return cannotRepairText(kind);
   for (const [re, , human] of KNOWN) if (re.test(text.trim())) return human;
   // The core refuses a moderation action the caller's role no longer allows,
   // in its own lowercase words. The usual way to get here is a role taken

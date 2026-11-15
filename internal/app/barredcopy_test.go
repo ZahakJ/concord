@@ -83,3 +83,60 @@ func TestBarredCopyIssuesNoGovernanceOp(t *testing.T) {
 	waitUntil(t, 30*time.Second, func() bool { return p.IsGuildOwner(gid, pf) },
 		"the healthy copy's transfer never reached P")
 }
+
+// SG-20. A copy that CannotRepairHere sends nothing: it encrypts to the tree it
+// was restored to, which can still seat a member removed since. Edits and
+// reactions ride the same path and are refused with it. The error is the one
+// the frontend reads as the banner's sentence (lib/errors.js).
+func TestBarredCopySendsNothing(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	boot := testRendezvous(t, ctx)
+	u, p, gid, ch := guardedPair(t, ctx, boot)
+
+	if _, err := u.SendMessage(ch, "before the latch", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 30*time.Second, func() bool { return hasMessage(p, ch, "before the latch") },
+		"setup: P never received U's message")
+	target := firstMessageID(t, u, ch)
+
+	latch(t, u, gid)
+	if _, err := u.SendMessage(ch, "from the dead copy", "", ""); !errors.Is(err, ErrBehindOnlyCommitter) {
+		t.Errorf("SendMessage on a barred copy: err=%v, want ErrBehindOnlyCommitter", err)
+	}
+	if err := u.ToggleReaction(ch, target, "👍"); !errors.Is(err, ErrBehindOnlyCommitter) {
+		t.Errorf("a reaction from a barred copy: err=%v, want ErrBehindOnlyCommitter", err)
+	}
+	if err := u.EditMessage(ch, target, "edited on the dead copy", ""); !errors.Is(err, ErrBehindOnlyCommitter) {
+		t.Errorf("an edit from a barred copy: err=%v, want ErrBehindOnlyCommitter", err)
+	}
+	time.Sleep(3 * time.Second)
+	for name, s := range map[string]*Service{"U": u, "P": p} {
+		if hasMessage(s, ch, "from the dead copy") || hasMessage(s, ch, "edited on the dead copy") {
+			t.Errorf("%s holds what the barred copy tried to send", name)
+		}
+	}
+
+	u.clearBehind(gid)
+	if _, err := u.SendMessage(ch, "from the healthy copy", "", ""); err != nil {
+		t.Fatalf("SendMessage on a healthy copy: %v", err)
+	}
+	waitUntil(t, 30*time.Second, func() bool { return hasMessage(p, ch, "from the healthy copy") },
+		"a healthy copy's message never reached P")
+}
+
+func firstMessageID(t *testing.T, s *Service, ch string) string {
+	t.Helper()
+	msgs, _ := s.Messages(ch, 500)
+	for _, m := range msgs {
+		if m.Kind == "" {
+			return m.ID
+		}
+	}
+	t.Fatal("no message to react to")
+	return ""
+}

@@ -1643,6 +1643,12 @@ func (s *Service) sendAsWith(channelID, content, kind, replyTo, guestName, dir s
 	if !ok {
 		return domain.Message{}, fmt.Errorf("app: unknown channel %s", channelID)
 	}
+	// A copy that fell behind and that nothing can repair encrypts to the tree
+	// it was restored to, and a member removed since still holds that epoch's
+	// keys. It sends nothing: edits, reactions and deletes included.
+	if err := s.mintBarred(guildID); err != nil {
+		return domain.Message{}, err
+	}
 	// A muted member can't post new messages (moderation actions like delete are
 	// still allowed).
 	if kind == "" && s.isMuted(guildID, s.id.Fingerprint()) {

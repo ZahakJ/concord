@@ -20,6 +20,22 @@ const eq = (got, want, what) => {
 eq(humanError("app: they're already in this guild"), "they're already in this guild", "strips app:");
 eq(humanError("store: net: nope"), "nope", "strips a stack of prefixes");
 
+// A copy that fell behind and that nothing can repair refuses to send. The red
+// row says the banner's sentence, not the core's lowercase one and not the
+// generic failure.
+const behind = "app: this copy fell behind and cannot be repaired from here; start a new guild with the same people";
+eq(
+  humanError(behind),
+  "This copy fell behind and cannot be repaired from here. Start a new guild with the same people.",
+  "a refused send on a dead copy reads as the banner",
+);
+eq(
+  humanError(new Error(behind), "dm"),
+  "This copy fell behind and cannot be repaired from here. Start a new conversation with the same people.",
+  "in a conversation it says conversation",
+);
+eq(humanError(behind) === UNKNOWN, false, "never the generic failure");
+
 // What was left over after the strip.
 eq(humanError("rpc SendMessage: HTTP 500"), "Concord's core rejected it — try again", "HTTP 500");
 eq(

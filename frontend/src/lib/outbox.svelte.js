@@ -260,9 +260,12 @@ async function run(entry) {
     // long. Keeping the moment rather than the number is what lets the row tick
     // instead of freezing at "wait 28s" for the next half minute.
     const wait = slowModeWait(err);
+    // The guild's kind only picks a noun ("guild" or "conversation") for the
+    // one refusal that names it: a copy that cannot be repaired from here.
+    const kind = S.guilds.find((g) => g.channels?.some((c) => c.id === entry.channelId))?.kind;
     patch(entry.id, {
       state: "failed",
-      error: humanError(err) || "Couldn't send",
+      error: humanError(err, kind) || "Couldn't send",
       retryAt: wait ? Date.now() + wait * 1000 : 0,
       // The core never heard it — see toFlush.
       offline: unheard(err),
