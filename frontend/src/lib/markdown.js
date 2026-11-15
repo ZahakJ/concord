@@ -8,6 +8,7 @@
 // @mentions.
 
 import { own } from "./lookup.js";
+import { deceptiveText, sameAsURL, linkDomain } from "./regdomain.js";
 
 // Named colors for {name|text}, mapped to fixed hex values so nothing but a
 // vetted color string ever reaches an inline style. Chosen to read on both the
@@ -109,6 +110,23 @@ function splitTrail(url) {
     else break;
   }
   return [url.slice(0, end), url.slice(end)];
+}
+
+// unescapeHtml undoes escapeHtml, for reading a value back out of escaped text.
+function unescapeHtml(s) {
+  return s.replace(/&(amp|lt|gt|quot|#39);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" })[e]);
+}
+
+// plainOf: the words a reader sees in a fragment of renderInline's working
+// string — backslash-escaped literals restored, our own tags dropped (an emoji
+// image reads as its alt text), entities decoded.
+function plainOf(html, literals) {
+  return unescapeHtml(
+    html
+      .replace(/\x03(\d+)\x03/g, (_, i) => literals[+i] ?? "")
+      .replace(/<img[^>]*\salt="([^"]*)"[^>]*>/g, "$1")
+      .replace(/<[^>]*>/g, ""),
+  );
 }
 
 // Inline rules applied to already-escaped text (code spans are cut out first
@@ -242,11 +260,37 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
     );
   });
   // Masked links first, then bare URLs.
-  s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text, url) =>
-    stash(`<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`),
-  );
+  //
+  // A masked link's words can say anything, so where they are not simply the
+  // address itself, the address's real registrable domain is printed beside
+  // them (lib/regdomain.js — computed from the URL, never from the words). And
+  // words that name a DIFFERENT site — "[paypal.com](https://evil.example)" —
+  // are not allowed to be the link's face at all: they print as plain text and
+  // the real address is the link.
+  s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text, url) => {
+    const plain = plainOf(text, literals);
+    const dest = unescapeHtml(url);
+    const a = (face) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${face}</a>`;
+    if (sameAsURL(plain, dest)) return stash(a(text));
+    if (deceptiveText(plain, dest)) return `${text} ${stash(a(url))}`;
+    const dom = linkDomain(dest);
+    return stash(`${a(text)}${dom ? `<span class="link-dom" dir="ltr">${escapeHtml(dom)}</span>` : ""}`);
+  });
   s = s.replace(URL_RE, (whole) => {
     const [url, after] = splitTrail(whole);
+    // The link a card under these words already stands for (opts.cardUrl):
+    // printed short, as its registrable domain, instead of a URL that wraps
+    // over two lines of a phone. The address is still the link's target, and
+    // Copy and the menu still give the whole thing.
+    if (opts?.cardUrl && unescapeHtml(url) === opts.cardUrl) {
+      const dom = linkDomain(opts.cardUrl);
+      if (dom)
+        return (
+          stash(
+            `<a href="${url}" class="link-short" dir="ltr" target="_blank" rel="noopener noreferrer">${escapeHtml(dom)}</a>`,
+          ) + after
+        );
+    }
     return stash(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`) + after;
   });
   // A bare www. address is a link everyone means; it gets the https scheme

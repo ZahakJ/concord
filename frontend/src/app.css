@@ -2924,6 +2924,29 @@ html[data-modal]:has([data-modal-overlay])::before {
    their alignment would move the label away from the icon it belongs to.
    Message bodies and drafts are pinned left below, for the same reason: the
    furniture does not move, so neither should the text inside it. */
+/* Where a masked link really goes (lib/markdown.js): the destination's
+   registrable domain, printed after any link whose words are not simply its
+   address. Every surface that renders markdown gets it, so it lives here. */
+/* A link a card under the words already stands for, printed as its domain
+   (lib/linkcard.js restForDisplay, lib/markdown.js cardUrl). */
+.link-short {
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+.link-dom {
+  display: inline-block;
+  margin-inline-start: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--bg-2);
+  color: var(--text-muted);
+  font-size: 0.82em;
+  line-height: 1.5;
+  vertical-align: 1px;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
 .sender,
 .reply-author,
 .reply-snippet,

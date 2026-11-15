@@ -284,6 +284,41 @@ assert(renderMarkdown("concord://msg/aaaa1111/bbbb2222").includes("linked messag
 assert(!renderMarkdown('concord://msg/x"><img src=x onerror=1>/y').includes("msg-link"), "nothing outside the id alphabet becomes a chip");
 assert(!unsafe(renderMarkdown('concord://msg/abcd1234/ef567890"onclick="alert(1)')), "a chip stays inert");
 
+// ---- masked links say where they go -----------------------------------------
+// Hand-typed "[paypal.com](https://evil.example)" used to render as a link whose
+// whole face was "paypal.com". Words that name another site are not a link's
+// face; any other words get the real registrable domain beside them.
+out = renderMarkdown("[paypal.com](https://evil.example/login)");
+assert(!/<a [^>]*>paypal\.com<\/a>/.test(out), `a phish's words are not the link: ${out}`);
+assert(out.startsWith("paypal.com ") && out.includes('<a href="https://evil.example/login"') && out.includes(">https://evil.example/login</a>"), `the real address is the link: ${out}`);
+out = renderMarkdown("[Docs](https://youtube.com.evil.example/x)");
+assert(out.includes(">Docs</a>") && out.includes('<span class="link-dom" dir="ltr">evil.example</span>'), `the domain chip is the real one: ${out}`);
+out = renderMarkdown("[youtube.com](https://www.youtube.com/watch?v=x)");
+assert(out.includes(">youtube.com</a>") && out.includes(">youtube.com</span>"), `same-site words keep their link: ${out}`);
+out = renderMarkdown("[https://example.org](https://example.org)");
+assert(!out.includes("link-dom"), `a link that is its own address needs no chip: ${out}`);
+out = renderMarkdown("[\\*paypal.com\\*](https://evil.example)");
+assert(!/<a [^>]*>[^<]*paypal/.test(out), `escapes do not smuggle a phish past the rule: ${out}`);
+out = renderMarkdown("[**paypal.com**](https://evil.example)");
+assert(!/<a [^>]*><strong>paypal/.test(out), `emphasis does not smuggle a phish past the rule: ${out}`);
+assert(!unsafe(renderMarkdown('[x"><img src=x onerror=1>](https://evil.example)')), "the chip path stays inert");
+assert(!/<a [^>]*"\s+on/.test(renderMarkdown('[a](https://e.example/"onmouseover="alert(1))')), "a quote in the URL cannot open an attribute");
+
+// Invisible and look-alike characters do not get another site's name past the
+// rule (link-cards review LC-03).
+for (const t of ["paypal.com\u200b", "pay\u00adpal.com", "paypal\u2060.com", "paypal\u3002com", "ｐａｙｐａｌ．ｃｏｍ", "www\u200b.paypal.com"]) {
+  out = renderMarkdown(`[${t}](https://evil.example/login)`);
+  assert(!/<a [^>]*>[^<]*pay/.test(out) && out.includes(">https://evil.example/login</a>"), `${JSON.stringify(t)} is not the link's face: ${out}`);
+}
+
+// A card's own link inside the words above it is printed short, as its domain
+// (review LC-13); other links are untouched.
+const YTU = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+out = renderMarkdown(`this one ${YTU} honestly, and https://example.org`, [], null, null, { cardUrl: YTU });
+assert(out.includes(`<a href="${YTU}" class="link-short" dir="ltr" target="_blank" rel="noopener noreferrer">youtube.com</a> honestly`), `card link short: ${out}`);
+assert(out.includes(">https://example.org</a>"), `other links stay whole: ${out}`);
+assert(renderMarkdown(`this one ${YTU} honestly`).includes(`>${YTU}</a>`), "without a card the URL is whole");
+
 if (failures) {
   console.error(`${failures} failure(s)`);
   process.exit(1);
