@@ -49,6 +49,7 @@
   import { PERM, has } from "./lib/perms.js";
   import { evictedCopy } from "./lib/evicted.js";
   import { syncBannerActions, cannotRepairText } from "./lib/syncbanner.js";
+  import { seatBannerLines } from "./lib/seatbanner.js";
   import { plainSnippet } from "./lib/snippet.js";
   import { recordText } from "./lib/callflow.js";
   import { gameAt, isGameToken } from "./lib/games.js";
@@ -255,6 +256,47 @@
     retries += 1;
     await nudge();
   }
+  // Leaves that carry somebody's identity under a key that is not theirs
+  // (lib/seatbanner.js for the wording, app/seatcheck.go for the check).
+  const seatLines = $derived(
+    seatBannerLines({
+      flags: activeGuild()?.seatFlags || [],
+      notices: activeGuild()?.seatNotices || [],
+      canManage: !!activeGuild()?.canManage,
+      guildName: activeGuild()?.name || "this guild",
+      name: (f) => nameFor(f),
+    }),
+  );
+  function confirmSeatRemoval(action) {
+    const id = S.activeGuildId;
+    if (!id) return;
+    S.modal = {
+      kind: "confirm",
+      title: action.title,
+      body: action.body,
+      confirmLabel: action.confirmLabel,
+      onConfirm: async () => {
+        try {
+          await api.removeSeatDevice(id, action.index, action.deviceKey);
+          await refreshGuilds();
+        } catch (err) {
+          flash(err);
+        }
+        S.modal = null;
+      },
+    };
+  }
+  async function dismissSeatNotices() {
+    const id = S.activeGuildId;
+    if (!id) return;
+    try {
+      await api.dismissSeatNotices(id);
+    } catch {
+      /* the banner simply stays */
+    }
+    await refreshGuilds();
+  }
+
   async function continueFromHere() {
     const id = S.activeGuildId;
     if (!id) return;
@@ -1475,6 +1517,24 @@
   </div>
 {/if}
 
+{#if seatLines.length && !activeGuild()?.evicted}
+  <div class="oos-banner seat-banner" role="status">
+    <span class="oos-text">
+      {#each seatLines as line (line.key)}
+        <span class="seat-line">
+          {line.text}
+          {#if line.action}
+            <button class="oos-act" onclick={() => confirmSeatRemoval(line.action)}>{line.action.label}</button>
+          {/if}
+        </span>
+      {/each}
+    </span>
+    {#if activeGuild()?.seatNotices?.length}
+      <button class="oos-act" onclick={dismissSeatNotices}>Dismiss</button>
+    {/if}
+  </div>
+{/if}
+
 {#snippet pinRows()}
   {#each pinned as m (m.id)}
     {@const mem = memberByFpr(m.sender)}
@@ -1959,6 +2019,16 @@
     color: var(--text);
     padding: 6px var(--sp-edge);
     font-size: var(--fs-compact);
+  }
+  /* A warning, not progress: something was done to this guild by a member. */
+  .seat-banner {
+    background: var(--warn-soft);
+  }
+  .seat-line {
+    display: block;
+  }
+  .seat-line + .seat-line {
+    margin-top: var(--sp-1);
   }
   .oos-banner.waiting {
     background: color-mix(in srgb, var(--warn) 16%, transparent);
