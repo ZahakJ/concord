@@ -163,8 +163,10 @@ func TestOwnDeviceRemovesLeafUnderItsCredential(t *testing.T) {
 }
 
 // A commit from the second leaf that removes the owner's own leaf is read as
-// a replacement, not as the owner leaving; members holding the owner's key
-// still flag the leaf that stays.
+// a replacement, not as the owner leaving. A member cannot tell the owner's
+// two leaves apart (its record of the owner's key proves nothing), so it flags
+// both and withdraws authority from both; once one is left, it flags that one
+// as unlike its record, and only flags it.
 func TestRemovalWithSameCredentialLeftBehindIsNotEviction(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -178,15 +180,16 @@ func TestRemovalWithSameCredentialLeftBehindIsNotEviction(t *testing.T) {
 	}, "the add was not applied")
 	waitUntil(t, 10*time.Second, func() bool {
 		f, ok := flagFor(s.member, s.g.ID, pub)
-		return ok && f.Provable
-	}, "member does not flag the leaf it can disprove")
+		return ok && f.Kind == seatAmbiguous && !f.Provable
+	}, "member does not flag the second leaf as one it cannot decide")
 	waitUntil(t, 10*time.Second, func() bool {
 		f, ok := flagFor(s.owner, s.g.ID, pub)
 		return ok && f.Own && f.Provable
 	}, "owner does not flag the leaf under its credential")
-	// The genuine leaf of the same credential is not flagged.
-	if f := s.member.SeatFlags(s.g.ID); len(f) != 1 {
-		t.Fatalf("member flags %+v, want only the added leaf", f)
+	// The genuine leaf of the same credential is flagged the same way: the
+	// member has nothing that proves which of the two is the owner's.
+	if f := s.member.SeatFlags(s.g.ID); len(f) != 2 || f[0].Provable || f[1].Provable {
+		t.Fatalf("member flags %+v, want both leaves, neither provable", f)
 	}
 
 	ownIdx, err := s.owner.mls.OwnLeaf(ctx, s.gid)
@@ -214,9 +217,10 @@ func TestRemovalWithSameCredentialLeftBehindIsNotEviction(t *testing.T) {
 	if r := s.owner.EvictedFrom(s.g.ID); r != "" {
 		t.Fatalf("owner settled as evicted (%q)", r)
 	}
-	if f, ok := flagFor(s.member, s.g.ID, pub); !ok || !f.Provable {
-		t.Fatalf("member stopped flagging the leaf that stayed: %+v %v", f, ok)
-	}
+	waitUntil(t, 10*time.Second, func() bool {
+		f, ok := flagFor(s.member, s.g.ID, pub)
+		return ok && f.Kind == seatKeyDiffers && !f.Provable
+	}, "member does not flag the leaf that stayed as unlike its record")
 }
 
 // A leaf carrying a genuine certificate of one of the owner's devices, under
@@ -290,9 +294,12 @@ func TestCertificateLeafOnAnotherKeyIsNotASibling(t *testing.T) {
 }
 
 // Removing a leaf that carries a member's credential under another key, by
-// index, does not make that member read itself as removed. An admin who is
-// not the owner may remove such a leaf even when it carries the owner's
-// credential; two leaves nobody can tell apart are not offered for removal.
+// index, does not make that member read itself as removed. A third party
+// cannot prove such a bare-key leaf is not the member's, so it is not offered
+// for removal; the removal here is committed directly. An admin who is not the
+// owner may remove a leaf that provably is not the owner's (a certificate of
+// the owner on another key); two leaves nobody can tell apart are not offered
+// for removal.
 func TestLeafRemovalByIndexKeepsMemberWithSameCredential(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -306,11 +313,14 @@ func TestLeafRemovalByIndexKeepsMemberWithSameCredential(t *testing.T) {
 	waitUntil(t, 20*time.Second, func() bool {
 		f, ok := flagFor(s.owner, s.g.ID, pub)
 		idx = f.Index
-		_, onMember := flagFor(s.member, s.g.ID, pub)
-		return ok && f.Provable && onMember
+		m, onMember := flagFor(s.member, s.g.ID, pub)
+		return ok && !f.Provable && onMember && m.Provable && m.Own
 	}, "leaf under the member's credential not flagged")
-	if err := s.owner.RemoveSeatLeaf(s.g.ID, idx, hex.EncodeToString(pub)); err != nil {
-		t.Fatalf("RemoveSeatLeaf: %v", err)
+	if err := s.owner.RemoveSeatLeaf(s.g.ID, idx, hex.EncodeToString(pub)); !errors.Is(err, ErrSeatNotProvable) {
+		t.Fatalf("RemoveSeatLeaf on a leaf the owner cannot disprove: %v", err)
+	}
+	if err := s.owner.publishLeafRemoval(s.gid, idx, pub); err != nil {
+		t.Fatalf("publishLeafRemoval: %v", err)
 	}
 	waitUntil(t, 20*time.Second, func() bool {
 		return len(leavesWith(s.member, s.gid, s.member.myCredential)) == 1
@@ -320,10 +330,13 @@ func TestLeafRemovalByIndexKeepsMemberWithSameCredential(t *testing.T) {
 		t.Fatalf("member read itself as removed (%q)", r)
 	}
 
-	// The owner's credential under another key, removed by the mod.
+	// A certificate of the owner's under another key, removed by the mod
+	// past the owner guard: it is provably not the owner's device.
+	devPub, _, _ := ed25519.GenerateKey(rand.Reader)
+	ownerCert := s.owner.id.IssueDeviceCertFor(devPub, "phone", time.Now().Unix()).Marshal()
 	key2 := freshKey(t)
 	pub2 := key2.Public().(ed25519.PublicKey)
-	addLeafWithCredential(t, s.mod, s.gid, s.owner.myCredential, key2)
+	addLeafWithCredential(t, s.mod, s.gid, ownerCert, key2)
 	var idx2 uint32
 	waitUntil(t, 20*time.Second, func() bool {
 		f, ok := flagFor(s.mod, s.g.ID, pub2)
@@ -334,7 +347,7 @@ func TestLeafRemovalByIndexKeepsMemberWithSameCredential(t *testing.T) {
 		t.Fatalf("mod RemoveSeatLeaf: %v", err)
 	}
 	waitUntil(t, 20*time.Second, func() bool {
-		return len(leavesWith(s.member, s.gid, s.owner.myCredential)) == 1
+		return len(leavesWith(s.member, s.gid, ownerCert)) == 0
 	}, "removal by the mod not applied")
 
 	// One account key nobody has seen, on two leaves in one commit.
@@ -587,5 +600,84 @@ func TestRewrittenLeafIsFlagged(t *testing.T) {
 	owner.auditSeats(g.ID, gid)
 	if f, ok := flagFor(owner, g.ID, ml[0].Key); !ok || f.Kind != seatChanged {
 		t.Fatalf("audit does not flag a leaf whose credential changed: %+v %v", f, ok)
+	}
+}
+
+// SCC-01. The key a device records beside another account's key is learned on
+// first sight, in any group, so a leaf somebody else seated can set it. Here
+// the member seats a leaf carrying the owner's account key, under a key of its
+// own, in a guild of its own that the mod joins first: the mod's record of the
+// owner's key is that leaf's. In the owner's own guild the mod then flags the
+// owner's genuine leaf as unlike its record, and nothing more: the leaf is
+// not provable, its removal is not offered, and its frames still count.
+func TestAKeyRecordFromOneGuildDecidesNothingInAnother(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if testing.Short() {
+		t.Skip("networked")
+	}
+	holdSeatDefence(t)
+	owner, mod, member := startService(t, ctx), startService(t, ctx), startService(t, ctx)
+
+	// The member's guild, with a leaf under the owner's account key.
+	other, err := member.CreateGuild("elsewhere")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := member.InviteCode(other.ID)
+	if _, err := mod.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitMemberCount(t, 30*time.Second, other.ID, 2, member, mod)
+	otherGid := rhGroup(member, other.ID)
+	key := freshKey(t)
+	seated := key.Public().(ed25519.PublicKey)
+	addLeafWithCredential(t, member, otherGid, owner.myCredential, key)
+	waitUntil(t, 20*time.Second, func() bool {
+		return bytes.Equal(mod.recordedAccountKey(owner.myCredential), seated)
+	}, "setup: the mod never recorded the seated leaf's key for the owner")
+
+	// The owner's guild, where the mod may manage members.
+	g, err := owner.CreateGuild("home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ = owner.InviteCode(g.ID)
+	if _, err := mod.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitMemberCount(t, 30*time.Second, g.ID, 2, owner, mod)
+	roleID, err := owner.UpsertRole(g.ID, "", "Mod", "#5865f2", PermManageMembers, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.AssignRole(g.ID, mod.Fingerprint(), roleID, true); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 20*time.Second, func() bool { return mod.canManageMembers(g.ID) }, "setup: the grant never arrived")
+	gid := rhGroup(owner, g.ID)
+	genuine := owner.ownAccountSigningKey()
+	var f SeatFlag
+	waitUntil(t, 20*time.Second, func() bool {
+		var ok bool
+		f, ok = flagFor(mod, g.ID, genuine)
+		return ok && f.Kind == seatKeyDiffers
+	}, "the mod does not flag the owner's leaf as unlike its record")
+	if f.Provable {
+		t.Fatalf("a record from another guild made the owner's genuine leaf provable: %+v", f)
+	}
+	if err := mod.RemoveSeatLeaf(g.ID, f.Index, f.Key); !errors.Is(err, ErrSeatNotProvable) {
+		t.Fatalf("removal of the owner's genuine leaf: err=%v, want ErrSeatNotProvable", err)
+	}
+	if mod.keyFlagged(g.ID, genuine) {
+		t.Fatal("frames from the owner's genuine leaf would be dropped")
+	}
+	if err := owner.SetNickname(g.ID, "still counts"); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 20*time.Second, func() bool { return mod.NickOf(g.ID, owner.Fingerprint()) == "still counts" },
+		"the mod dropped a frame from the owner's genuine leaf")
+	if n := len(leavesWith(mod, gid, owner.myCredential)); n != 1 {
+		t.Fatalf("the owner's leaf count in its own guild is %d", n)
 	}
 }

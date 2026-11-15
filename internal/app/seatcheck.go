@@ -13,7 +13,10 @@ package app
 //   - An account key's signing key derives from the seed, which every device of
 //     that account holds, so the account's own devices can check it exactly.
 //     Every other member records the key it first saw beside each account key
-//     and checks later leaves against that record.
+//     and flags a later leaf whose key differs from that record. The record is
+//     learned on first sight, in any group, so it is evidence and not proof:
+//     a mismatch against it only flags (seatKeyDiffers). It never drops a
+//     frame, never offers a removal and never passes over the owner guard.
 //
 // In this release nothing here refuses a commit: a member that refused what
 // older members accepted would fall behind the group. A leaf that fails the
@@ -69,6 +72,9 @@ const (
 	seatReplaced  = "replaced"   // added under the credential of a leaf the same commit removed, with another key
 	seatRepeated  = "repeated"   // two adds of one credential in one commit
 	seatChanged   = "changed"    // a commit rewrote this leaf's credential or key
+	// seatKeyDiffers: an account key on a key other than the one this device
+	// first saw beside it. Shown only: the record proves nothing (see top).
+	seatKeyDiffers = "key_differs"
 )
 
 // SeatFlag is one flagged leaf, as the UI sees it.
@@ -174,13 +180,10 @@ func (s *Service) ownAccountSigningKey() []byte {
 	return s.seatOwnKey
 }
 
-// expectedAccountKey is the signing key an account-key credential must sign
-// with: known exactly for this account, recorded on first sight for others,
-// nil when this device has never seen it.
-func (s *Service) expectedAccountKey(cred []byte) []byte {
-	if bytes.Equal(cred, s.PublicKey()) {
-		return s.ownAccountSigningKey()
-	}
+// recordedAccountKey is the signing key this device first saw beside another
+// account's key, or nil. It is never consulted for this account's own key,
+// which the seed gives exactly.
+func (s *Service) recordedAccountKey(cred []byte) []byte {
 	st := s.seatsState()
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -188,9 +191,11 @@ func (s *Service) expectedAccountKey(cred []byte) []byte {
 }
 
 // leafNotTheirs reports whether this device can prove a leaf is not a device
-// of the account its credential names: the leaf's key is not the key that
-// credential pairs with. A certificate that does not verify names no account
-// (accountKeyOf leaves it as it is), so it is not judged here.
+// of the account its credential names: a certificate that verifies and names
+// another key, or this account's own key on a key its seed does not give. Only
+// this verdict sets Provable, drops the leaf's frames, offers its removal and
+// passes over the owner guard. A certificate that does not verify names no
+// account (accountKeyOf leaves it as it is), so it is not judged here.
 func (s *Service) leafNotTheirs(l mls.Leaf) bool {
 	if len(l.Key) == 0 {
 		return false
@@ -198,11 +203,21 @@ func (s *Service) leafNotTheirs(l mls.Leaf) bool {
 	if cert, ok := identity.ParseDeviceCert(l.Credential); ok {
 		return cert.Verify() && !bytes.Equal(cert.DevicePub, l.Key)
 	}
-	if isAccountKeyCredential(l.Credential) {
-		want := s.expectedAccountKey(l.Credential)
-		return want != nil && !bytes.Equal(want, l.Key)
+	if isAccountKeyCredential(l.Credential) && bytes.Equal(l.Credential, s.PublicKey()) {
+		return !bytes.Equal(l.Key, s.ownAccountSigningKey())
 	}
 	return false
+}
+
+// leafUnlikeRecord reports whether another account's key sits on a key other
+// than the one this device recorded for it. A flag, never a proof: the record
+// may have been learned from a leaf somebody else seated (see top).
+func (s *Service) leafUnlikeRecord(l mls.Leaf) bool {
+	if len(l.Key) == 0 || !isAccountKeyCredential(l.Credential) || bytes.Equal(l.Credential, s.PublicKey()) {
+		return false
+	}
+	want := s.recordedAccountKey(l.Credential)
+	return want != nil && !bytes.Equal(want, l.Key)
 }
 
 // ownAccountLeaf is THE test for "this leaf is a device of my account": the
@@ -272,18 +287,21 @@ func (s *Service) frameFlagged(guildID string, m *mls.Message) bool {
 	return s.keyFlagged(guildID, m.SenderKey)
 }
 
+// keyFlagged: an audit or a commit flagged this key in this group, for a
+// reason that withdraws its authority. seatKeyDiffers rests on the record
+// alone and does not.
 func (s *Service) keyFlagged(guildID string, key []byte) bool {
 	hk := hex.EncodeToString(key)
 	st := s.seatsState()
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	for _, f := range st.flags[guildID] {
-		if f.Key == hk {
+		if f.Key == hk && f.Kind != seatKeyDiffers {
 			return true
 		}
 	}
-	_, ok := st.committed[guildID][hk]
-	return ok
+	c, ok := st.committed[guildID][hk]
+	return ok && c.Kind != seatKeyDiffers
 }
 
 // checkSeats reads a commit before it is applied and flags what it does to
@@ -332,6 +350,8 @@ func (s *Service) checkSeats(guildID string, groupID, commit []byte) bool {
 		switch {
 		case s.leafNotTheirs(a):
 			flag(a, seatNotTheirs)
+		case s.leafUnlikeRecord(a):
+			flag(a, seatKeyDiffers)
 		case seenAdd[k]:
 			flag(a, seatRepeated)
 		default:
@@ -438,11 +458,14 @@ func (s *Service) auditSeats(guildID string, groupID []byte) {
 			f.Kind = seatNotTheirs
 		case members[l.Index] != nil && !bytes.Equal(members[l.Index], l.Credential):
 			f.Kind = seatChanged
-		case isAccountKeyCredential(l.Credential) && count[string(l.Credential)] > 1 && s.expectedAccountKey(l.Credential) == nil:
-			// One account key on two leaves and no key to tell them apart.
-			// With a key, the leaf that matches it is the account's and the
-			// other is caught above.
+		case isAccountKeyCredential(l.Credential) && count[string(l.Credential)] > 1 && !bytes.Equal(l.Credential, s.PublicKey()):
+			// Another account's key on two leaves. This device cannot tell
+			// which is genuine: its record of that account's key may itself
+			// come from a leaf somebody else seated, so it does not decide.
+			// (Under this account's own key the seed decides, above.)
 			f.Kind = seatAmbiguous
+		case s.leafUnlikeRecord(l):
+			f.Kind = seatKeyDiffers
 		}
 		if c, ok := committed[hk]; ok {
 			if f.Kind == "" {
