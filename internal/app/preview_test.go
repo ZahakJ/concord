@@ -19,7 +19,31 @@ func TestForbiddenIPRanges(t *testing.T) {
 			t.Errorf("%s should be forbidden", s)
 		}
 	}
-	allowed := []string{"93.184.216.34", "1.1.1.1", "2606:4700::1111"}
+	// The IANA special-purpose blocks the first version let through
+	// (link-cards review LC-06), and the ones that hide an IPv4 address inside
+	// an IPv6 one.
+	forbidden = []string{
+		"100.64.0.1", "100.100.100.100", "100.127.255.254", // CGNAT / Tailscale
+		"0.1.2.3", "192.0.0.8", "192.0.0.170", "192.0.2.1", "192.88.99.1",
+		"198.18.0.1", "198.19.255.1", "198.51.100.1", "203.0.113.1",
+		"240.0.0.1", "255.255.255.255",
+		"::ffff:10.0.0.1", "::ffff:100.64.0.1", // IPv4-mapped
+		"64:ff9b::a00:1", "64:ff9b::6440:1", "64:ff9b::7f00:1", // NAT64 wrapping 10/8, 100.64/10, 127/8
+		"2002:a00:1::1", "2002:c0a8:101::1", "2002:6440:1::", // 6to4 wrapping private and CGNAT
+		"64:ff9b:1::1", "100::1", "2001::1", "2001:db8::1", "3fff::1", "5f00::1",
+		"fec0::1", "::ffff:0:a00:1", "::a00:1",
+	}
+	for _, s := range forbidden {
+		if !isForbiddenIP(net.ParseIP(s)) {
+			t.Errorf("%s should be forbidden", s)
+		}
+	}
+	allowed := []string{
+		"93.184.216.34", "1.1.1.1", "2606:4700::1111", "100.128.0.1", "100.63.255.255", "198.20.0.1",
+		// A public IPv4 address through NAT64 or 6to4 is still that address:
+		// an IPv6-only network's DNS64 answers every IPv4-only site this way.
+		"64:ff9b::5db8:d822", "2002:5db8:d822::1",
+	}
 	for _, s := range allowed {
 		if isForbiddenIP(net.ParseIP(s)) {
 			t.Errorf("%s should be allowed", s)
