@@ -120,6 +120,14 @@ type helloFrame struct {
 	// the same rule as ReadMarks: only to and from a proven device of our own
 	// account. Older builds neither send nor read it.
 	ChatPrefs map[string]store.ChatPref `json:"chatPrefs,omitempty"`
+	// TypingOn and TypingAt are the account's typing-indicator choice and its
+	// stamp (typingsync.go), ONLY to and from a proven device of our own
+	// account. The live publish on Notes has no catch-up, so a device that was
+	// offline when the switch was turned off would otherwise keep sending.
+	// Merged newest-wins, capped by readSkew, never re-broadcast. Older builds
+	// neither send nor read it.
+	TypingOn *bool `json:"typingOn,omitempty"`
+	TypingAt int64 `json:"typingAt,omitempty"`
 	// ProfileAt is the edit stamp of the profile record we could hand this
 	// peer's account over the profile stream (profilerecord.go): our own stamp
 	// to a device of our account, and to a member the stamp of the record they
@@ -193,6 +201,7 @@ func (s *Service) greet(p peer.ID) {
 		return
 	}
 	hint := s.profileHintFor(p)
+	var typingAt int64
 	req, err := marshalHello(helloFrame{
 		Credential:   s.myCredential,
 		Name:         s.deviceLabel(),
@@ -205,6 +214,8 @@ func (s *Service) greet(p peer.ID) {
 		Receipts:     s.receiptsPrefFor(p),
 		HideReq:      s.hideReqFor(p),
 		ChatPrefs:    s.chatPrefsFor(p),
+		TypingOn:     s.typingOfferFor(p, &typingAt),
+		TypingAt:     typingAt,
 		ProfileAt:    hint,
 	})
 	if err != nil {
@@ -313,6 +324,7 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	out.ReadMarks = s.readMarksFor(from)
 	out.Receipts = s.receiptsPrefFor(from)
 	out.ChatPrefs = s.chatPrefsFor(from)
+	out.TypingOn = s.typingOfferFor(from, &out.TypingAt)
 	out.ProfileAt = s.profileHintFor(from)
 	if out.Revoked == nil && s.canPlace(from) {
 		out.Credential, out.Name = s.myCredential, s.deviceLabel()
@@ -502,6 +514,7 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 		go s.adoptOfferedReceiptsPref(from, f.Receipts)
 		go s.adoptOfferedHides(from, f)
 		go s.adoptOfferedChatPrefs(from, f.ChatPrefs)
+		s.adoptOfferedTypingPref(from, f.TypingOn, f.TypingAt)
 	}()
 	// A revocation naming THIS device is the one thing we act on before anything
 	// else, since acting on it means we stop existing.

@@ -194,3 +194,39 @@ func TestTypingIndicatorNeedsBothSides(t *testing.T) {
 		t.Fatal("no indicator with both sides on")
 	}
 }
+
+// A device that was offline when the switch was turned off must not keep
+// sending: the choice and its stamp ride the own-device hello when it returns.
+func TestTypingOffReachesADeviceThatWasOffline(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	boot := testRendezvous(t, ctx)
+	deskDir, phoneDir := t.TempDir(), t.TempDir()
+	desk, phone, _, _ := linkedPair(t, ctx, deskDir, phoneDir, boot)
+
+	// Both on, via the live path.
+	waitUntil(t, 40*time.Second, func() bool {
+		_ = desk.SetTypingEnabled(true)
+		time.Sleep(500 * time.Millisecond)
+		return phone.TypingEnabled()
+	}, "the phone never saw typing turned on")
+
+	// The phone goes away; the desktop then turns it off. (Stamp strictly newer.)
+	if err := phone.Close(); err != nil {
+		t.Fatalf("close phone: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if err := desk.SetTypingEnabled(false); err != nil {
+		t.Fatal(err)
+	}
+
+	phone = startServiceOn(t, ctx, phoneDir, boot)
+	if !phone.TypingEnabled() {
+		t.Fatal("the phone should still hold its old choice before it hears from the desktop")
+	}
+	waitUntil(t, 60*time.Second, func() bool { return !phone.TypingEnabled() },
+		"a device that was offline kept broadcasting typing after it was turned off elsewhere")
+}

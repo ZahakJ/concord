@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/libp2p/go-libp2p/core/peer"
+
 	"encoding/json"
 	"strconv"
 	"time"
@@ -85,4 +87,32 @@ func (s *Service) broadcastTypingPref(on bool, at int64) {
 	if ct, err := s.mls.Encrypt(s.ctx, notes.GroupID, payload); err == nil {
 		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(notes.GroupID), ct)
 	}
+}
+
+// typingOfferFor returns the typing choice to put in a hello for p, setting
+// *at to its stamp, or nil for anyone who is not a current device of THIS
+// account or when the choice has never been stamped (nothing to say).
+func (s *Service) typingOfferFor(p peer.ID, at *int64) *bool {
+	if !s.ownDevice(p) || s.revocationFor(p) != nil {
+		return nil
+	}
+	s.typingPrefMu.Lock()
+	defer s.typingPrefMu.Unlock()
+	st := s.typingStamp()
+	if st <= 0 {
+		return nil
+	}
+	on := s.TypingEnabled()
+	*at = st
+	return &on
+}
+
+// adoptOfferedTypingPref folds in a choice that rode in on a hello, from a
+// proven device of this account only, by the same newest-wins, capped rule as
+// the live message. It never re-broadcasts.
+func (s *Service) adoptOfferedTypingPref(from peer.ID, on *bool, at int64) {
+	if on == nil || !s.ownDevice(from) || s.revocationFor(from) != nil {
+		return
+	}
+	s.applyRemoteTypingPref(*on, at)
 }
