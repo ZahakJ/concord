@@ -253,9 +253,11 @@ var ErrBehindOnlyCommitter = errors.New("app: this copy fell behind and cannot b
 // guild's view carries this so the banner can say it instead of offering to
 // continue.
 func (s *Service) CannotRepairHere(guildID string) bool {
-	// The latch first: it is a map read, and it is down on almost every guild
-	// almost always. Every send and governance op asks this (mintBarred).
-	if !s.behindLatched(guildID) || s.aloneInGuild(guildID) {
+	// The proven latch first: it is a map read, and it is down on almost every
+	// guild almost always. Every send and governance op asks this
+	// (mintBarred). An unproven claim (noteBehindClaim) never bars anything:
+	// any member can make one up.
+	if !s.behindProven(guildID) || s.aloneInGuild(guildID) {
 		return false
 	}
 	return s.onlyPossibleCommitter(guildID)
@@ -316,13 +318,20 @@ func (s *Service) onlyPossibleCommitter(guildID string) bool {
 // stood at when this device, behind it, could not follow.
 const behindSeenPrefix = "behind_seen:"
 
-// noteBehind latches that a member stood at epoch, strictly ahead of this
-// device, and this device could not be bridged there: a fork verdict, or an
-// EpochGap from a peer ahead. It is kept until the device is level again with a
-// readable answer, a heal Join replaces its group state, ResolveStranding is
-// accepted, or the device is evicted. Losing the ahead member, or restarting,
-// does not clear it; that is what lets the guard in ResolveStranding hold once
-// the members who are ahead close their apps.
+// noteBehind latches, on PROOF, that the guild stands at epoch, strictly ahead
+// of this device, and this device could not be bridged there. The proof is a
+// commit for this device's own current epoch, from a committer this device
+// itself authorizes, that verifies against this device's tree (signature and
+// membership tag, mls VerifyCommit) and that it still could not apply: the
+// guild moved on from where this copy stands, by a commit this copy cannot
+// follow. A peer's word for its epoch is not proof; see noteBehindClaim.
+//
+// The proven latch is kept until the device is level again with a readable
+// answer, a heal Join replaces its group state, ResolveStranding is accepted,
+// or the device is evicted. Losing the ahead member, or restarting, does not
+// clear it; that is what lets the guard in ResolveStranding hold once the
+// members who are ahead close their apps. It is the only latch CannotRepairHere
+// reads.
 func (s *Service) noteBehind(guildID string, epoch uint64) {
 	s.mu.Lock()
 	if epoch <= s.behindSeen[guildID] {
@@ -333,6 +342,40 @@ func (s *Service) noteBehind(guildID string, epoch uint64) {
 	s.mu.Unlock()
 	_ = s.store.SetSetting(behindSeenPrefix+guildID, strconv.FormatUint(epoch, 10))
 	s.emitGuildUpdate()
+}
+
+// noteBehindClaim records a member's unproven word that it stands at epoch,
+// ahead of this device: an EpochGap, or a payload this device could not read
+// from a peer reporting a higher epoch, with no verifiable commit behind it.
+// Both are a number any seated member can send. The claim keeps the recovery
+// from resolving the stranding by itself, keeps the banner from calling the
+// copy alone, and lets the heal ask the peer that made it; it bars nothing.
+// It lives in memory only and is dropped at the next readable answer from any
+// member (dropBehindClaim), so a made-up claim lasts until the next sync.
+//
+// An honest claim is how a Notes copy restored to before its phone was linked
+// learns it is behind: the phone's log starts at its own join, so it can only
+// answer with an EpochGap.
+func (s *Service) noteBehindClaim(guildID string, epoch uint64) {
+	s.mu.Lock()
+	if epoch <= s.behindClaimed[guildID] {
+		s.mu.Unlock()
+		return
+	}
+	s.behindClaimed[guildID] = epoch
+	s.mu.Unlock()
+	s.emitGuildUpdate()
+}
+
+// dropBehindClaim forgets an unproven claim, after a readable answer.
+func (s *Service) dropBehindClaim(guildID string) {
+	s.mu.Lock()
+	_, had := s.behindClaimed[guildID]
+	delete(s.behindClaimed, guildID)
+	s.mu.Unlock()
+	if had {
+		s.emitGuildUpdate()
+	}
 }
 
 // noteAhead records that this device itself saw p standing strictly ahead of
@@ -355,8 +398,16 @@ func (s *Service) sawAhead(guildID string, p peer.ID) bool {
 	return s.seenAhead[guildID][p]
 }
 
-// behindLatched reports whether the "seen behind" latch stands for a guild.
+// behindLatched reports whether this device holds any evidence that a guild is
+// ahead of it, proven or claimed.
 func (s *Service) behindLatched(guildID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.behindSeen[guildID] > 0 || s.behindClaimed[guildID] > 0
+}
+
+// behindProven reports whether the proven latch stands (noteBehind).
+func (s *Service) behindProven(guildID string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.behindSeen[guildID] > 0
@@ -380,11 +431,12 @@ func (s *Service) clearBehindIfLevel(guildID string, groupID []byte) {
 	s.clearBehind(guildID)
 }
 
-// clearBehind drops the latch and its persisted copy, and with them what this
+// clearBehind drops the latch and its persisted copy, any claim, and what this
 // device saw of which peers stood ahead of it.
 func (s *Service) clearBehind(guildID string) {
 	s.mu.Lock()
 	delete(s.seenAhead, guildID)
+	delete(s.behindClaimed, guildID)
 	if s.behindSeen[guildID] == 0 {
 		s.mu.Unlock()
 		return
@@ -624,8 +676,8 @@ func (s *Service) healAsk(guildID string, pid peer.ID) (bool, string) {
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 	ask := s.host.RequestInvite
-	if s.requestInvite != nil {
-		ask = s.requestInvite
+	if f := s.requestInvite.Load(); f != nil {
+		ask = *f
 	}
 	respBytes, err := ask(ctx, peer.AddrInfo{ID: pid}, req)
 	if err != nil {

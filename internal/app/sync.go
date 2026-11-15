@@ -833,8 +833,8 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 		})
 		ctx, cancel := context.WithTimeout(s.ctx, 20*time.Second)
 		ask := s.host.RequestSync
-		if s.requestSync != nil {
-			ask = s.requestSync
+		if f := s.requestSync.Load(); f != nil {
+			ask = *f
 		}
 		respBytes, err := ask(ctx, p, reqBytes)
 		cancel()
@@ -857,6 +857,12 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 		}
 
 		applied := 0
+		// proven is set when a commit for our own current epoch, from a
+		// committer we authorize, verifies against our tree and still cannot
+		// be applied: the one thing a peer cannot make up about being ahead of
+		// us (see noteBehind). The epoch numbers in this response are only the
+		// peer's word.
+		proven := false
 		for _, c := range resp.Commits {
 			// Same governance gate as the live control topic: a peer serving us
 			// backfill cannot slip in an unauthorized membership change. The
@@ -875,6 +881,7 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 				return nil
 			}
 			if err := s.mls.ApplyCommit(s.ctx, guild.GroupID, c); err != nil {
+				proven = s.mls.VerifyCommit(s.ctx, guild.GroupID, c) == nil
 				break
 			}
 			s.logCommit(guild.GroupID, c)
@@ -896,8 +903,10 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 		if resp.EpochGap {
 			// Nobody reachable can bridge us; surface it rather than dropping
 			// messages silently. A later successful sync clears the flag.
+			// An EpochGap carries no commit, so it is a claim and never the
+			// proven latch: any seated member can send one with any epoch.
 			if cur, err := s.mls.Epoch(s.ctx, guild.GroupID); err == nil && resp.Epoch > cur {
-				s.noteBehind(guildID, resp.Epoch)
+				s.noteBehindClaim(guildID, resp.Epoch)
 				s.noteAhead(guildID, p)
 			}
 			s.setOutOfSync(guildID, true)
@@ -927,6 +936,11 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 			// A member still at an old epoch answers readably too. While the
 			// latch traps this copy, that proves nothing: the flag stays up.
 			s.clearBehindIfLevel(guildID, guild.GroupID)
+			// A member that a claim said was ahead of us, or any other, has
+			// just answered readably: the claim, which nobody proved, goes.
+			if len(resp.Payload) > 0 {
+				s.dropBehindClaim(guildID)
+			}
 			if !s.clearForkedPeer(guildID, p) && !s.CannotRepairHere(guildID) {
 				s.setOutOfSync(guildID, false)
 			}
@@ -950,7 +964,15 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 				// BEHIND can strand us, so only that verdict is kept; the equal
 				// case stays the transient flag it has always been, and the next
 				// commit on either branch breaks the tie.
-				s.noteBehind(guildID, resp.Epoch)
+				// The unreadable payload and the epoch are this peer's word
+				// too (bytes that decrypt to nothing, and a number). Only a
+				// commit that verifies makes it the proven latch, at the one
+				// epoch past ours that the commit proves.
+				if proven {
+					s.noteBehind(guildID, cur+1)
+				} else {
+					s.noteBehindClaim(guildID, resp.Epoch)
+				}
 				s.noteAhead(guildID, p)
 				s.noteForkedPeer(guildID, p)
 			} else {

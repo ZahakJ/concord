@@ -36,6 +36,11 @@ import (
 // host, gossipsub bus, MLS group-crypto engine, and encrypted store, and
 // presents one UI-agnostic API. Both the headless CLI and the Wails GUI drive
 // Concord exclusively through a Service.
+// syncAskFunc and inviteAskFunc are the shapes of the two request transports
+// tests can stand in for (Service.requestSync, Service.requestInvite).
+type syncAskFunc func(ctx context.Context, to peer.ID, request []byte) ([]byte, error)
+type inviteAskFunc func(ctx context.Context, to peer.AddrInfo, request []byte) ([]byte, error)
+
 type Service struct {
 	// ctx is the Service's own lifetime, derived from the caller's in Start and
 	// cancelled first thing in Close. Every background loop, the gossipsub
@@ -92,13 +97,15 @@ type Service struct {
 	// syncedAt is when a catch-up last completed per guild|peer, under
 	// syncFlightMu: the order a guild-wide catch-up asks members in.
 	syncedAt map[string]time.Time
-	// requestSync is the transport a catch-up asks over; nil means the host's
-	// sync protocol. Tests put a hand on it to hold a request open.
-	requestSync func(ctx context.Context, to peer.ID, request []byte) ([]byte, error)
-	// requestInvite is the transport a heal asks over; nil means the host's
+	// requestSync is the transport a catch-up asks over; unset means the
+	// host's sync protocol. Tests put a hand on it to hold a request open, or
+	// to answer as a peer that lies; atomic, because the service's own
+	// catch-ups read it while a test swaps it.
+	requestSync atomic.Pointer[syncAskFunc]
+	// requestInvite is the transport a heal asks over; unset means the host's
 	// invite protocol. Tests put a hand on it to see what a heal does with a
 	// Welcome for the wrong group.
-	requestInvite func(ctx context.Context, to peer.AddrInfo, request []byte) ([]byte, error)
+	requestInvite atomic.Pointer[inviteAskFunc]
 	// dropLive, when set, discards a live message before it is stored: a test's
 	// stand-in for gossip losing one. Never set outside tests.
 	dropLive atomic.Pointer[func(domain.Message) bool]
@@ -276,6 +283,11 @@ type Service struct {
 	// it does not lapse when that member goes offline, and it is persisted: it
 	// is what CannotRepairHere reads. Guarded by mu. See heal.go.
 	behindSeen map[string]uint64
+	// behindClaimed is, per guild, the highest epoch a member CLAIMED to stand
+	// at ahead of this device without proof (an EpochGap, or an unreadable
+	// payload with no verifiable commit). In memory only, it bars nothing.
+	// Guarded by mu. See noteBehindClaim in heal.go.
+	behindClaimed map[string]uint64
 	// seenAhead names, per guild, the peers this device itself saw standing
 	// strictly ahead of it there (an EpochGap from them, or a payload from
 	// them it could not read at a higher epoch). A device of this account is
@@ -1207,6 +1219,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		evictedReason:    map[string]string{},
 		forkedPeers:      map[string]map[peer.ID]bool{},
 		behindSeen:       map[string]uint64{},
+		behindClaimed:    map[string]uint64{},
 		seenAhead:        map[string]map[peer.ID]bool{},
 		lastReciprocal:   map[string]time.Time{},
 		lastHealed:       map[string]time.Time{},

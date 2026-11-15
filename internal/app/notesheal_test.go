@@ -265,7 +265,7 @@ func TestHealRefusesWelcomeForAnotherGroup(t *testing.T) {
 	waitMemberCount(t, 90*time.Second, g2.ID, 2, u, p)
 
 	// The committer answers a heal for g1 with a Welcome into g2.
-	p.requestInvite = func(ctx context.Context, to peer.AddrInfo, request []byte) ([]byte, error) {
+	wrong := inviteAskFunc(func(ctx context.Context, to peer.AddrInfo, request []byte) ([]byte, error) {
 		var req inviteRequest
 		if err := json.Unmarshal(request, &req); err != nil {
 			return nil, err
@@ -273,7 +273,8 @@ func TestHealRefusesWelcomeForAnotherGroup(t *testing.T) {
 		req.GuildID = g2.ID
 		b, _ := json.Marshal(req)
 		return p.host.RequestInvite(ctx, to, b)
-	}
+	})
+	p.requestInvite.Store(&wrong)
 	cur, err := p.mls.Epoch(p.ctx, rhGroup(p, g1))
 	if err != nil {
 		t.Fatal(err)

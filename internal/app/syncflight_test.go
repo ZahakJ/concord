@@ -50,14 +50,15 @@ func TestOneCatchUpPerGuildAtATime(t *testing.T) {
 
 	var asked atomic.Int32
 	release := make(chan struct{})
-	b.requestSync = func(ctx context.Context, to peer.ID, req []byte) ([]byte, error) {
+	hold := syncAskFunc(func(ctx context.Context, to peer.ID, req []byte) ([]byte, error) {
 		asked.Add(1)
 		select {
 		case <-release:
 		case <-ctx.Done():
 		}
 		return nil, errors.New("held")
-	}
+	})
+	b.requestSync.Store(&hold)
 	done := make(chan struct{}, 8)
 	for i := 0; i < 5; i++ {
 		go func() { b.syncGuildFromAnyPeer(g.ID); done <- struct{}{} }()
