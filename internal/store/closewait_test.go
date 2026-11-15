@@ -31,3 +31,33 @@ func TestCloseWaitsForAWriteInFlight(t *testing.T) {
 		t.Fatalf("Close returned %v before the write in flight finished", done.Sub(closed))
 	}
 }
+
+// TestCloseWaitsForAReadInFlight is the same for the read pool. A read still
+// running when Close returned held the last connection to the file, and
+// closing it checkpointed the log and deleted concord.db-wal and -shm after
+// Close had returned. A backup copy taken right after Close found the -shm
+// listed and then gone ("no such file or directory").
+func TestCloseWaitsForAReadInFlight(t *testing.T) {
+	s, _ := openTestStore(t)
+	if s.rdb == nil {
+		t.Fatal("the store has no read pool; this test needs one")
+	}
+	rows, err := s.rd().Query(`SELECT 1`)
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	finished := make(chan time.Time, 1)
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		for rows.Next() {
+		}
+		_ = rows.Close()
+		finished <- time.Now()
+	}()
+	time.Sleep(20 * time.Millisecond) // the read is under way before Close starts
+	_ = s.Close()
+	closed := time.Now()
+	if done := <-finished; done.After(closed) {
+		t.Fatalf("Close returned %v before the read in flight finished", done.Sub(closed))
+	}
+}

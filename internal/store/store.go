@@ -4355,11 +4355,26 @@ func (s *Store) Close() error {
 	// in the tests, the removal of the data directory. The connection is shut
 	// as it is given back, so wait for that, bounded by the busy timeout's
 	// order of magnitude so a wedged statement cannot hold shutdown forever.
+	//
+	// The read pool needs the same wait. A read still running when Close
+	// returned held the last connection to the file, and closing that
+	// connection checkpoints the log and deletes concord.db-wal and -shm: the
+	// data directory was still changing after the store said it was closed,
+	// and a backup copy taken right then found a file gone from under it.
 	deadline := time.Now().Add(closeDrain)
-	for s.db.Stats().OpenConnections > 0 && time.Now().Before(deadline) {
+	for s.openConnections() > 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	return err
+}
+
+// openConnections counts the connections both pools still hold.
+func (s *Store) openConnections() int {
+	n := s.db.Stats().OpenConnections
+	if s.rdb != nil {
+		n += s.rdb.Stats().OpenConnections
+	}
+	return n
 }
 
 // closeDrain bounds how long Close waits for a statement in flight.
