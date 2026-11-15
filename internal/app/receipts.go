@@ -34,6 +34,13 @@ import (
 //     off (a receipt covers only the span the read cursor moved across after
 //     the switch, see queueReadReceipt).
 //
+// While presence is invisible neither leaves this device: an ack says the
+// device is online now, and a read receipt says the person is. Both stay in
+// the queue below, under its usual bounds, and go out once presence is
+// anything else (releaseHeldReceipts), whether it was changed here or on a
+// sibling. The queue is in memory: what is held when the app closes is not
+// sent later.
+//
 // Every inbound receipt is authenticated in receiveReceipt: from a device of an
 // account that is a member of THIS DM, naming messages in this DM's channel
 // that we sent (the store enforces the last part). Anything else is dropped
@@ -231,13 +238,32 @@ func (s *Service) armReceiptTimerLocked() {
 	}
 }
 
-// flushReceipts publishes what has queued, one frame per channel.
+// releaseHeldReceipts sends what was held while presence was invisible, once
+// it no longer is. Called whenever presence may have changed.
+func (s *Service) releaseHeldReceipts() {
+	if s.invisible() {
+		return
+	}
+	s.receiptMu.Lock()
+	if len(s.pendingAcks) > 0 || len(s.pendingReads) > 0 {
+		s.armReceiptTimerLocked()
+	}
+	s.receiptMu.Unlock()
+}
+
+// flushReceipts publishes what has queued, one frame per channel. While
+// presence is invisible it publishes nothing and keeps the queue.
 func (s *Service) flushReceipts() {
 	if s.beatsStopped.Load() || s.ctx.Err() != nil {
 		return
 	}
+	hold := s.invisible()
 	s.receiptMu.Lock()
 	s.receiptTimer = nil
+	if hold {
+		s.receiptMu.Unlock()
+		return
+	}
 	acks, reads := s.pendingAcks, s.pendingReads
 	s.pendingAcks, s.pendingReads = nil, nil
 	s.receiptMu.Unlock()

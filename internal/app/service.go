@@ -2231,6 +2231,7 @@ func (s *Service) AdoptLinkedProfile(p Profile) bool {
 	if !adopted {
 		return false
 	}
+	s.releaseHeldReceipts() // presence may have left invisible
 	s.emitGuildUpdate()
 	// Our guilds' members may only be hearing from THIS device — tell them too.
 	s.announceProfileAll()
@@ -2381,6 +2382,7 @@ func (s *Service) SetProfile(p Profile) error {
 	}
 	s.bumpProfileStamp()
 	s.profileMu.Unlock()
+	s.releaseHeldReceipts() // presence may have left invisible
 	s.announceProfileAll()
 	// The gossip announce above reaches PEERS; our own devices ignore our own
 	// announce and take the stored profile over the device hello instead (see
