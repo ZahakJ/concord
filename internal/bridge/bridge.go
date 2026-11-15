@@ -3224,24 +3224,41 @@ func (b *Bridge) RedeemLinkCode(code, passphrase, confirm string) (string, error
 func linkWarning(missing []string, failed []appsvc.LinkJoinFailure) string {
 	var parts []string
 	if n := len(failed); n > 0 {
-		names := make([]string, 0, n)
+		var again, final []string
 		refused := false
 		for _, f := range failed {
 			name := f.Name
 			if name == "" {
 				name = "a guild"
 			}
-			names = append(names, name)
+			if f.Retrying {
+				again = append(again, name)
+			} else {
+				final = append(final, name)
+			}
 			refused = refused || f.Refused
 		}
-		noun := "guild"
-		if n != 1 {
-			noun = "guilds"
+		guilds := func(k int) string {
+			if k == 1 {
+				return "guild"
+			}
+			return "guilds"
 		}
-		msg := fmt.Sprintf("this device couldn't join %d %s yet (%s). Concord keeps trying for the next hour while this device and the device that admits it are both online",
-			n, noun, strings.Join(names, ", "))
+		msg := fmt.Sprintf("this device couldn't join %d %s", n, guilds(n))
+		if len(again) > 0 {
+			msg += fmt.Sprintf(" yet. It tries %s again a few times over the next hour while Concord stays open here and the device that admits it is online",
+				strings.Join(again, ", "))
+		}
+		if len(final) > 0 {
+			if len(again) > 0 {
+				msg += ". "
+			} else {
+				msg += ": "
+			}
+			msg += fmt.Sprintf("%s turned this device away, and it will not try again; ask an admin there for a new invite", strings.Join(final, ", "))
+		}
 		if refused {
-			msg += "; if one still doesn't appear, the device that admits it may hold an earlier copy of this device and need a newer Concord to replace it"
+			msg += "; if a guild still doesn't appear, the device that admits it may hold an earlier copy of this device and need a newer Concord to replace it"
 		}
 		parts = append(parts, msg+".")
 	}

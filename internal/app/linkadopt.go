@@ -18,10 +18,14 @@ import (
 type LinkJoinFailure struct {
 	GuildID string
 	Name    string
-	// Refused is set when a committer answered and turned the join down;
-	// unset when it could not be reached or the request failed in transit.
+	// Refused is set when the admitting device answered that it could not
+	// add this device ("invite failed"), which is what an admitting device
+	// still holding an earlier copy of this device answers. Other refusals
+	// (catching up, not authorized, banned) leave it unset.
 	Refused bool
-	Err     string
+	// Retrying is set when the join is tried again in the background.
+	Retrying bool
+	Err      string
 }
 
 // linkRetryBackoff is the wait before each retry of a handed-over guild the
@@ -48,9 +52,10 @@ func (s *Service) AdoptLinkedGuilds(codes []string) []LinkJoinFailure {
 		}
 		ic, _ := decodeInviteCode(strings.TrimSpace(code))
 		f := LinkJoinFailure{GuildID: ic.GuildID, Name: ic.GuildName, Err: err.Error()}
-		f.Refused = strings.Contains(f.Err, "invite rejected")
+		f.Refused = strings.Contains(f.Err, "invite failed")
+		f.Retrying = linkJoinWorthRetrying(err)
 		failed = append(failed, f)
-		if linkJoinWorthRetrying(err) {
+		if f.Retrying {
 			retry = append(retry, code)
 		}
 	}
