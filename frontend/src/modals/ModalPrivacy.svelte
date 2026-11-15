@@ -14,6 +14,7 @@
   import { hasOwnStun } from "../lib/callice.js";
   import { bioEnrolled } from "../lib/biometric.js";
   import { S, setPref, flash, setOffDeviceSearch } from "../lib/state.svelte.js";
+  import { refreshReadReceiptsSetting } from "../lib/receipts.svelte.js";
 
   let { onClose } = $props();
 
@@ -86,7 +87,26 @@
     }
   }
 
+  // Read receipts are opt-in and mutual, like typing indicators: off means you
+  // send none and see none. Delivered ticks are not behind this switch.
+  let readReceipts = $state(false);
+  async function toggleReadReceipts() {
+    readReceipts = !readReceipts;
+    try {
+      await api.setReadReceiptsEnabled(readReceipts);
+      refreshReadReceiptsSetting();
+    } catch (err) {
+      readReceipts = !readReceipts; // revert on failure
+      flash(err);
+    }
+  }
+
   (async () => {
+    try {
+      readReceipts = await api.readReceiptsEnabled();
+    } catch {
+      /* older backend: receipts stay off */
+    }
     try {
       richPresence = await api.richPresenceEnabled();
     } catch {
@@ -103,7 +123,7 @@
 <RailShell title="Privacy &amp; safety" here="privacy" {onClose}>
   <SettingGroup
     label="What leaves this device"
-    info="Read receipts need no switch here: your read state only ever travels to your own devices, so nobody else was ever told."
+    info="Two things about your messages in DMs and group DMs are shared, and only there (never in guild channels). Delivered ticks are always on: when a device of the person you wrote to has received and decrypted your message, it tells your devices so, inside the same end-to-end encrypted conversation. Which channels you have read, and when, still stays on your own devices unless you switch on Read receipts below."
   >
     <SettingRow
       icon="screen"
@@ -177,6 +197,14 @@
       info="They go both ways. Switch them off and you stop sending them and stop seeing them — there's no server to enforce a one-way deal, and a client that took without giving would just be lying to its friends."
       checked={typing}
       onclick={toggleTyping}
+    />
+    <SettingRow
+      icon="check"
+      title="Read receipts"
+      sub="Tell people in DMs when you've read their message — and see when they've read yours"
+      info="Off by default. They go both ways: with this on, your devices tell the sender of a DM or group DM message that you have read it, and you see who has read yours. Switch it off and you stop sending them and stop seeing them; anything others sent you while it was on is discarded. Turning it on never reports what you already read while it was off. It applies to every one of your devices, to DMs and group DMs only, and the receipt travels inside the end-to-end encrypted conversation, rounded to the second. Delivered ticks are separate and always on: they only say a message arrived on a device, not that you looked at it."
+      checked={readReceipts}
+      onclick={toggleReadReceipts}
     />
     <SettingRow
       icon="spark"

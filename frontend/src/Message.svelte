@@ -46,6 +46,7 @@
   import { radialBurst } from "./lib/burst.js";
   import { playTick } from "./lib/sounds.js";
   import { saved, isSaved, toggleSaved, refreshSaved } from "./lib/saved.svelte.js";
+  import ReceiptTick from "./ReceiptTick.svelte";
   import { sealedAt, stripTimestamp, sealShort, sealFull, sealAgo, shortWhen } from "./lib/timestamp.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
@@ -134,6 +135,11 @@
   // ...and the same bit pins, because the pinned strip is one shared list every
   // member of the guild reads. A DM or a meeting has no roles in it, so both
   // sides of one may pin there; the backend draws the line the same way.
+  // Delivery / read ticks go under our own messages in a DM or group DM only;
+  // the backend sends receipts nowhere else (internal/app/receipts.go).
+  const ownInDM = $derived(
+    activeGuild()?.kind === "dm" && !!m.sender && m.sender === S.identity.fingerprint && !m.kind,
+  );
   const canPin = $derived(!!activeGuild()?.kind || canDeleteOthers);
 
   // Touch device? Drives which gesture owns the context menu (see the .msg div).
@@ -1601,7 +1607,7 @@
             </button>
           {/if}{@html bodyHtml}{#if m.edited}<span
               class="edited-tag">(edited)</span
-            >{/if}{#if unsignedMark && (compact || gameAside)}<span
+            >{/if}{#if ownInDM}<ReceiptTick id={m.id} />{/if}{#if unsignedMark && (compact || gameAside)}<span
               class="unsigned-mark trailing"
               role="img"
               use:tooltip={UNSIGNED_TIP}
@@ -1672,6 +1678,7 @@
              exactly the case where a reader deserves to be told. -->
         <span class="edited-tag att-edited">(edited)</span>
       {/if}
+      {#if ownInDM && !bodyText && (atts.length || files.length)}<ReceiptTick id={m.id} />{/if}
       {#if richEmbed}
         <EmbedView embed={richEmbed} {mentionNames} customEmoji={cemoji} {refs} />
       {/if}

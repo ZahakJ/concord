@@ -456,6 +456,9 @@ export const api = {
   acceptMessageRequest: (fingerprint) => call("AcceptMessageRequest", fingerprint),
   declineMessageRequest: (fingerprint, block = false) =>
     call("DeclineMessageRequest", fingerprint, block),
+  receipts: (channelId) => call("Receipts", channelId),
+  readReceiptsEnabled: () => call("ReadReceiptsEnabled"),
+  setReadReceiptsEnabled: (on) => call("SetReadReceiptsEnabled", on),
   typingEnabled: () => call("TypingEnabled"),
   setTypingEnabled: (on) => call("SetTypingEnabled", on),
   // The two off-device search switches. These are backend prefs, not

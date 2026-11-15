@@ -60,6 +60,7 @@
   import { isGuildSetupArmed } from "./lib/setup.js";
   import { continuesGroup } from "./lib/grouping.js";
   import { dayLabel } from "./lib/daylabel.js";
+  import { refreshReceipts } from "./lib/receipts.svelte.js";
   import { showInspectorTab } from "./lib/inspector.svelte.js";
 
   let { onDropFiles, onJoinVoice } = $props();
@@ -281,6 +282,11 @@
   });
   const byId = $derived(new Map(S.messages.map((m) => [m.id, m])));
   const isDMView = $derived(activeGuild()?.kind === "dm");
+  // Ticks under our own messages: fetched when a DM opens, then kept current by
+  // the "receipts" event (lib/receipts.svelte.js).
+  $effect(() => {
+    if (isDMView && S.activeChannelId) refreshReceipts(S.activeChannelId);
+  });
 
   // Empty-channel greeting: what to show before the first message exists.
   // Notes and DMs get personal copy; guild channels get "start of #channel".

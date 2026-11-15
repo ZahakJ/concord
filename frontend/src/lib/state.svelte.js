@@ -53,6 +53,7 @@ import { momentsPlaylist } from "./moments.js";
 import { insertBySent, compareSent } from "./feedorder.js";
 import { createFeedCache, reconcileFeed } from "./feedcache.js";
 import { formatClock } from "./clockfmt.js";
+import { watchReceipts } from "./receipts.svelte.js";
 import { isBlankText } from "./compose.js";
 import { isReading, readThrough, attention, addressedToYou, mergeUnreadChunk } from "./readstate.js";
 import {
@@ -4226,6 +4227,9 @@ function initEvents() {
     await refreshGuilds();
     refreshChronicle(p.guildId || S.activeGuildId);
   });
+
+  // Delivery / read ticks under our own DM messages (lib/receipts.svelte.js).
+  watchReceipts(() => S.activeChannelId);
 
   // Another session (a second window) or another linked device advanced a
   // channel's read cursor: adopt it and re-count that channel's badge, so a
