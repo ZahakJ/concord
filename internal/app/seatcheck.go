@@ -423,6 +423,13 @@ func certNamesKey(l mls.Leaf) bool {
 // auditSeats reads a group's whole tree and recomputes its flags. It runs
 // after every applied commit, after a Welcome, and at startup, and is
 // flag-only: it changes nothing in the group itself.
+//
+// A rewritten leaf (seatChanged) shows here only to a member that was present
+// when the leaf was added, whose record of the credential at its add differs
+// from the tree. A member that joined by Welcome after the rewrite builds its
+// records from the tree itself, so the two agree and nothing is flagged: a
+// path rewrite to the bare key of an account this joiner holds no proof for
+// is invisible to it.
 func (s *Service) auditSeats(guildID string, groupID []byte) {
 	leaves, err := s.mls.Leaves(s.ctx, groupID)
 	if err != nil {

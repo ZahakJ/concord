@@ -547,9 +547,11 @@ func (r *rewriteEngine) MemberLeaves(ctx context.Context, gid mls.GroupID) (map[
 	return r.Engine.MemberLeaves(ctx, gid)
 }
 
-// A commit that rewrites a leaf's credential is flagged at the commit, and a
-// tree whose leaf credential differs from the one recorded at its add (what
-// a member joining by Welcome after such a commit holds) is flagged on audit.
+// A commit that rewrites a leaf's credential is flagged at the commit. A
+// member present at the add keeps flagging it on a later audit (after a
+// restart, when the commit's own flags are gone), because the credential it
+// recorded at the add differs from the tree. A member that joins by Welcome
+// after the rewrite cannot see it (see auditSeats); nothing here models one.
 func TestRewrittenLeafIsFlagged(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -588,7 +590,8 @@ func TestRewrittenLeafIsFlagged(t *testing.T) {
 		t.Fatal("frames from the rewritten leaf would still carry authority")
 	}
 
-	// The audit alone, as a joiner by Welcome would run it.
+	// The audit alone, with the commit's flags gone, against a record of the
+	// credential at the add that differs from the tree.
 	members, _ := wrap.Engine.MemberLeaves(ctx, gid)
 	members[ml[0].Index] = owner.myCredential
 	wrap.members = members
