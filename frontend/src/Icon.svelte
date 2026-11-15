@@ -58,6 +58,9 @@
     // Text colour: an A, with the coloured bar under it drawn by the caller so
     // the swatch can be the colour and the glyph can stay monochrome.
     textcolor: "M3.4 10.6 8 2.6l4.6 8M5.2 7.9h5.6",
+    // An I-beam: the text cursor, for "Select text". Not the pencil, which
+    // already means Edit in the same sheet.
+    textcursor: "M5.5 2.5h1.3c.7 0 1.2.5 1.2 1.2v8.6c0 .7.5 1.2 1.2 1.2h1.3 M10.5 2.5H9.2c-.7 0-1.2.5-1.2 1.2 M5.5 13.5h1.3c.7 0 1.2-.5 1.2-1.2 M6.3 8h3.4",
     // The advanced composer. It borrowed `heading` — an H — inside a composer
     // that already has a formatting bar, where an H means "heading". A page
     // with a pen over it says "write this one properly".

@@ -1150,7 +1150,7 @@
       // Copy text takes all of it. On a phone a held finger opens this menu,
       // so the system's own word selection never got a turn: this hands the
       // next press on the words back to it, handles and Copy included.
-      coarse && copyText && { label: "Select text", icon: "edit", onClick: startSelecting },
+      coarse && copyText && { label: "Select text", icon: "textcursor", onClick: startSelecting },
       {
         label: "Copy link",
         icon: "link",
