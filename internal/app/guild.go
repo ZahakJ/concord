@@ -2421,6 +2421,10 @@ func (s *Service) announceProfileForce(guildID string) { s.publishProfile(guildI
 
 // publishProfile does the work and reports whether anything went on the wire.
 func (s *Service) publishProfile(guildID string, force bool) bool {
+	// A profile (name, avatar, bio) is content too; see publishMeta.
+	if s.mintBarred(guildID) != nil {
+		return false
+	}
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte
@@ -3119,6 +3123,11 @@ func (s *Service) SetChannelLinks(guildID, channelID string, links []string) err
 // the tags they picked (validated against the forum's own palette, which we
 // certainly hold on this path).
 func (s *Service) CreateThread(guildID, forumID, title, firstMessage string, tagIDs []string) (domain.Channel, error) {
+	// Asked first: the opening message would be refused below and the post
+	// announced without it, title and all, as a success (see sendAsWith).
+	if err := s.mintBarred(guildID); err != nil {
+		return domain.Channel{}, err
+	}
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return domain.Channel{}, fmt.Errorf("app: a post needs a title")
@@ -3218,11 +3227,35 @@ func (s *Service) Categories(guildID string) ([]domain.Category, error) {
 }
 
 // publishMeta MLS-encrypts and publishes a guild-meta update (best-effort).
+//
+// Nothing leaves a copy that CannotRepairHere (mintBarred) but its way out
+// (member_left) and the governance ops issueGovOp has already let through
+// (gov_op, which it bars itself). Everything else on this lane carries
+// content (story captions, events, forum banners and tags, GIFs, channel
+// links, nicknames), encrypted to the tree the copy was restored to, which can
+// still seat a member removed since.
 func (s *Service) publishMeta(groupID []byte, meta guildMeta) {
+	if meta.Type != "member_left" && meta.Type != "gov_op" {
+		if id := s.guildIDForGroup(groupID); id != "" && s.mintBarred(id) != nil {
+			return
+		}
+	}
 	payload, _ := json.Marshal(meta)
 	if ct, err := s.mls.Encrypt(s.ctx, groupID, payload); err == nil {
 		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct)
 	}
+}
+
+// guildIDForGroup is the guild whose MLS group is groupID, or "".
+func (s *Service) guildIDForGroup(groupID []byte) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for id, g := range s.guilds {
+		if bytes.Equal(g.GroupID, groupID) {
+			return id
+		}
+	}
+	return ""
 }
 
 // addChannel records a channel in memory, persists it, subscribes to its topics,

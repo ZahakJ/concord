@@ -554,6 +554,9 @@ func (s *Service) retryPendingDMInvites() {
 // member-list name. Reuses the guild_renamed meta lane (advisory, same trust
 // model as a channel rename).
 func (s *Service) RenameDM(guildID, name string) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	name = strings.TrimSpace(name)
 	name = clampBytes(name, maxNameBytes)
 	s.mu.Lock()
