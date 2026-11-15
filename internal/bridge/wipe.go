@@ -212,6 +212,20 @@ func (b *Bridge) ConfirmWipe(ticket, typed string) error {
 		b.svc = nil
 		closed = true
 	})
+	if !closed && errors.Is(err, identity.ErrKeystoreChanged) {
+		if pub, rerr := identity.ReadAccountPub(ksPath); rerr != nil || !bytes.Equal(pub, svc.PublicKey()) {
+			// Not this session's account any more (another window restored or
+			// linked another, or erased it): the session is over.
+			_ = b.svc.Close()
+			b.svc = nil
+			b.lockReason = LockSignedOut
+			b.mu.Unlock()
+			if b.OnPresence != nil {
+				b.OnPresence()
+			}
+			return &CodedError{Code: CodeConfirmStale, Msg: "Another Concord window or process put another account on this device, or removed this one, since this confirmation opened. Nothing was deleted, and you have been signed out. Unlock and look again before erasing."}
+		}
+	}
 	if !closed {
 		b.mu.Unlock()
 		switch {
@@ -222,11 +236,17 @@ func (b *Bridge) ConfirmWipe(ticket, typed string) error {
 		}
 		return err
 	}
-	b.lockReason = LockWiped
-	b.mu.Unlock()
 	if err != nil && !errors.Is(err, identity.ErrEraseDeferred) && !errors.Is(err, appsvc.ErrDataNotErased) {
+		// The session is closed and the keystore is still here: not wiped.
+		b.lockReason = LockSignedOut
+		b.mu.Unlock()
+		if b.OnPresence != nil {
+			b.OnPresence()
+		}
 		return err
 	}
+	b.lockReason = LockWiped
+	b.mu.Unlock()
 	// The UI is now talking to a locked bridge over a session that no longer
 	// exists; poke the presence feed so the shell goes back to the lock screen,
 	// the same way an unlink does (see the OnUnlinked hook in bridge.go).

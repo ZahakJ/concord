@@ -217,3 +217,76 @@ func TestAnOpenWipeDialogDoesNotKeepASignedOutSessionInMemory(t *testing.T) {
 	}
 	t.Fatal("the signed-out session is still in memory while its wipe dialog is open")
 }
+
+// When the keystore now holds another account (another window or process
+// restored or linked it), the refused wipe signs the user out: the session
+// is Ada's, and what is on the device is not hers any more.
+func TestAWipeOverAnotherAccountsKeystoreSignsOut(t *testing.T) {
+	b, view, ks := adaWithAWipeOpen(t)
+	bob, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(t.TempDir(), "keystore.json")
+	if err := identity.CreateKeystore(scratch, "bob-pass-1", bob); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(scratch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ks+".other", raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(ks+".other", ks); err != nil {
+		t.Fatal(err)
+	}
+	pokes := 0
+	b.OnPresence = func() { pokes++ }
+
+	err = b.ConfirmWipe(view.Ticket, "Ada")
+	if code, _ := codeOf(err); code != CodeConfirmStale {
+		t.Fatalf("ConfirmWipe over another account's keystore: %v, want CodeConfirmStale", err)
+	}
+	for _, says := range []string{"another account", "Nothing was deleted", "signed out"} {
+		if !strings.Contains(err.Error(), says) {
+			t.Errorf("the refusal %q does not say %q", err, says)
+		}
+	}
+	mustStillHold(t, ks, bob.PublicKey(), "after a wipe over another account's keystore")
+	if _, err := b.service(); err == nil {
+		t.Fatal("Ada's session is still open over Bob's keystore")
+	}
+	b.mu.Lock()
+	reason := b.lockReason
+	b.mu.Unlock()
+	if reason != LockSignedOut {
+		t.Fatalf("lockReason = %q, want %q", reason, LockSignedOut)
+	}
+	if pokes != 1 {
+		t.Fatalf("OnPresence called %d times, want 1", pokes)
+	}
+}
+
+// A wipe that closed the session and then could not remove the keystore did
+// not wipe the device: the lock screen must not say it did.
+func TestAWipeThatCannotRemoveTheKeystoreDoesNotSayWiped(t *testing.T) {
+	b, view, ks := adaWithAWipeOpen(t)
+	// Something the erase cannot remove, beside the keystore: a non-empty
+	// directory at the name of an old temporary file.
+	if err := os.MkdirAll(filepath.Join(ks+".tmp", "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ConfirmWipe(view.Ticket, "Ada"); err == nil {
+		t.Fatal("a wipe that could not remove the keystore reported success")
+	}
+	if _, err := os.Stat(ks); err != nil {
+		t.Fatalf("setup: the keystore went after all: %v", err)
+	}
+	b.mu.Lock()
+	reason := b.lockReason
+	b.mu.Unlock()
+	if reason == LockWiped {
+		t.Fatal("the lock screen says the device was wiped, and its keystore is still here")
+	}
+}
