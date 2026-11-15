@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"slices"
 	"strings"
@@ -446,6 +447,14 @@ func (s *Service) selfRevoked() bool {
 // is deliberately KEPT — it is not account data, and leaving it means the person
 // holding the device can re-link it (a fresh, freshly-authorized device) without
 // having to find their rendezvous address again.
+//
+// The revocation was for one account's device, and the erase is checked
+// against that under the keystore lock, with it (stillThisDevice): another
+// window or process may have restored or linked an account here since, and
+// that is not erased. If the lock cannot be had, nothing is erased either:
+// the check could not be trusted without it, nobody is waiting on this erase,
+// and the service is closed already; the next start, which runs this again
+// before anything is served, finishes it.
 func (s *Service) wipeSelf() error {
 	dir := s.dataDir
 	s.mu.RLock()
@@ -453,17 +462,17 @@ func (s *Service) wipeSelf() error {
 	s.mu.RUnlock()
 
 	s.Close()
-	err := ResetIdentity(dir)
+	err := ResetIdentityIf(dir, s.stillThisDevice(dir), nil)
 	switch {
 	case errors.Is(err, ErrDataNotErased):
-		// Names what is still here (and, joined, a deferred keystore erase).
+		// Names what is still here.
 		err = fmt.Errorf("%w: %w", ErrDeviceUnlinkedNotErased, err)
-	case errors.Is(err, identity.ErrEraseDeferred):
-		// Everything else is gone, and the keystore already reads as gone.
-		log.Printf("concord/app: this device was unlinked from its account; local data erased, and the keystore's removal completes at the next unlock")
-		err = nil
+	case errors.Is(err, identity.ErrKeystoreChanged):
+		err = fmt.Errorf("%w; nothing was erased: this device now holds another account, or was linked again, since the revocation arrived", ErrDeviceUnlinkedNotErased)
+	case errors.Is(err, identity.ErrKeystoreBusy):
+		err = fmt.Errorf("%w; nothing was erased yet, and it is tried again at the next start: %w", ErrDeviceUnlinkedNotErased, err)
 	case err != nil:
-		// ResetIdentity stops at the keystore: everything is still here.
+		// The erase stops at the keystore: everything is still here.
 		err = fmt.Errorf("%w; nothing was erased yet: %w", ErrDeviceUnlinkedNotErased, err)
 	default:
 		log.Printf("concord/app: this device was unlinked from its account; local data erased")
@@ -475,6 +484,30 @@ func (s *Service) wipeSelf() error {
 		cb(err)
 	}
 	return err
+}
+
+// stillThisDevice reports, for the self-erase and under the keystore lock,
+// whether dataDir still holds the device the revocation named: the device
+// marker certifies this account and this device key (revokesUs checked the
+// same), and the keystore, if there is one, names no other account. Every
+// restore or link onto a linked install replaces or removes the marker, so
+// one that landed since is seen. A keystore that names no account in the
+// clear was written before builds recorded it; the marker decides then. No
+// keystore at all (an erase that stopped part-way) leaves the marker to
+// decide whether the data is this device's.
+func (s *Service) stillThisDevice(dataDir string) func() bool {
+	return func() bool {
+		pub, err := identity.ReadAccountPub(keystorePathIn(dataDir))
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+		case err != nil:
+			return false
+		case pub != nil && !ed25519Equal(pub, s.id.PublicKey()):
+			return false
+		}
+		_, linked := loadDeviceMarker(dataDir, s.id.PublicKey(), s.id.DevicePublicKey())
+		return linked
+	}
 }
 
 // plural counts a thing in a user-facing sentence. It exists because the one
