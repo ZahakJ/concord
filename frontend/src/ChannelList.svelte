@@ -2702,7 +2702,7 @@
   }
   .dm-pin {
     display: inline-flex;
-    margin-left: 4px;
+    margin-left: var(--sp-1);
     color: var(--text-faint, var(--text-muted));
     flex-shrink: 0;
   }
