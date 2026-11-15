@@ -307,6 +307,9 @@ type Service struct {
 	// its own sync request, that it stands ahead of us (see handleSyncRequest),
 	// keyed guildID|peerID.
 	lastReciprocal map[string]time.Time
+	// behindPersistMu orders the writes of the persisted seen-behind latch.
+	// See persistBehind.
+	behindPersistMu sync.Mutex
 	// lastHealed is when an automatic re-add last completed for a guild; a fresh
 	// fork verdict inside forkEvidenceCooldown of it cannot route another one.
 	// Guarded by mu. See heal.go.

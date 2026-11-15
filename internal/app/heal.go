@@ -341,7 +341,7 @@ func (s *Service) noteBehind(guildID string, epoch uint64) {
 	}
 	s.behindSeen[guildID] = epoch
 	s.mu.Unlock()
-	_ = s.store.SetSetting(behindSeenPrefix+guildID, strconv.FormatUint(epoch, 10))
+	s.persistBehind(guildID)
 	s.emitGuildUpdate()
 }
 
@@ -444,7 +444,7 @@ func (s *Service) clearBehind(guildID string) {
 	}
 	delete(s.behindSeen, guildID)
 	s.mu.Unlock()
-	_ = s.store.SetSetting(behindSeenPrefix+guildID, "")
+	s.persistBehind(guildID)
 	s.emitGuildUpdate()
 }
 
