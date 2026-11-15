@@ -57,7 +57,20 @@ func TestSnippetFlattensTheSameWayTheClientDoes(t *testing.T) {
 			"joined Office hours",
 		},
 		{"bold and italics lose their markers", "the **whole** trick is *the fold*", "the whole trick is the fold"},
-		{"a link keeps its label", "see [the spec](https://example.org/spec) first", "see the spec first"},
+		{"a link keeps its label and says where it goes", "see [the spec](https://example.org/spec) first", "see the spec (example.org) first"},
+		{"a disguised link shows its real domain", "log in: [paypal.com](https://evil.example/login)", "log in: paypal.com (evil.example)"},
+		{"a link whose words are its address is the address", "[https://example.org](https://example.org)", "https://example.org"},
+		{
+			"a link card is its title and domain",
+			"[Never Gonna Give You Up](https://www.youtube.com/watch?v=dQw4w9WgXcQ) · youtube.com\n![image](concord://attach/v2/" +
+				strings.Repeat("a", 64) + "/" + strings.Repeat("A", 75) + "/jpeg/480x270/2//" + b64u("Rick Astley") + ")",
+			"🔗 Never Gonna Give You Up · youtube.com",
+		},
+		{
+			"a card under words leaves the words",
+			"look at this https://example.org/a lol\n[A page](https://example.org/a) · example.org",
+			"look at this https://example.org/a lol",
+		},
 		{"a quote loses its angle", "> quoted line", "quoted line"},
 		{
 			"a fenced block is named, not flattened",

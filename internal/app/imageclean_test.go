@@ -413,7 +413,7 @@ func TestSearchedGifsAreSentWithoutMetadata(t *testing.T) {
 // that way.
 func TestLinkCardPictureCarriesNoMetadata(t *testing.T) {
 	for _, f := range []imgfixture.Fixture{fixtureNamed("jpeg"), fixtureNamed("png"), fixtureNamed("gif")} {
-		out, _, _, err := cleanPreviewImage(f.Bytes)
+		out, _, _, err := cleanCardImage(context.Background(), f.Bytes, false)
 		if err != nil {
 			t.Fatalf("%s: %v", f.Name, err)
 		}

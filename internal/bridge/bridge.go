@@ -2296,16 +2296,30 @@ func (b *Bridge) ScheduledSends() ([]ScheduledSendView, error) {
 	return out, nil
 }
 
-// PrepareLinkPreviews builds, on this device, the preview rider token for the
-// links in a message the user is composing (see internal/app/linkembed.go).
-// Returns "" when there is nothing to attach. This is the only link-preview
-// entry point: nothing fetches a preview on behalf of a message received.
-func (b *Bridge) PrepareLinkPreviews(text string) (string, error) {
+// LinkCardView is a link card the SENDER's device built for a link it is
+// about to send (internal/app/linkcard.go). Block is the text to append to the
+// message; "" means send it as typed.
+type LinkCardView struct {
+	URL      string `json:"url"`
+	Title    string `json:"title"`
+	Site     string `json:"site"`
+	Duration string `json:"duration"`
+	Block    string `json:"block"`
+}
+
+// LinkCard fetches a link's title and picture once, at send time, for a
+// message this device is sending. This is the only link-preview entry point:
+// readers never call it, because a card travels inside the message.
+func (b *Bridge) LinkCard(url string, withThumb bool) (LinkCardView, error) {
 	svc, err := b.service()
 	if err != nil {
-		return "", err
+		return LinkCardView{}, err
 	}
-	return svc.PrepareLinkPreviews(text), nil
+	c, err := svc.LinkCard(url, withThumb)
+	if err != nil {
+		return LinkCardView{}, err
+	}
+	return LinkCardView{URL: c.URL, Title: c.Title, Site: c.Site, Duration: c.Duration, Block: c.Block}, nil
 }
 
 // SendAttachment seals an image into a local encrypted blob and posts the
@@ -4241,8 +4255,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.SweepUnstampedAttachments(argBool(args, 0))
 	case "FetchFile":
 		return b.FetchFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
-	case "PrepareLinkPreviews":
-		return b.PrepareLinkPreviews(argStr(args, 0))
+	case "LinkCard":
+		return b.LinkCard(argStr(args, 0), argBool(args, 1))
 	case "UpdateState":
 		return b.UpdateState(), nil
 	case "ApplyUpdate":

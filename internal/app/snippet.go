@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -44,17 +45,21 @@ var (
 	snInlineRe = regexp.MustCompile("`([^`]*)`")
 	snImgMdRe  = regexp.MustCompile(`!\[[^\]]*\]\([^)]*\)`)
 	snLinkMdRe = regexp.MustCompile(`\[([^\]]*)\]\(([^)]*)\)`)
-	snBold3Re  = regexp.MustCompile(`\*\*\*([^*]+)\*\*\*`)
-	snBold2Re  = regexp.MustCompile(`\*\*([^*]+)\*\*`)
-	snItalicRe = regexp.MustCompile(`\*([^*]+)\*`)
-	snUnder3Re = regexp.MustCompile(`___([^_]+)___`)
-	snUnder2Re = regexp.MustCompile(`__([^_]+)__`)
-	snStrikeRe = regexp.MustCompile(`~~([^~]+)~~`)
-	snSpoilRe  = regexp.MustCompile(`\|\|([^|]+)\|\|`)
-	snDanglRe  = regexp.MustCompile(`(\*\*|~~|\|\|)`)
-	snHeadRe   = regexp.MustCompile(`(?m)^#{1,6}\s+`)
-	snQuoteRe  = regexp.MustCompile(`(?m)^\s*>\s?`)
-	snListRe   = regexp.MustCompile(`(?m)^\s*(?:[-*+]|\d{1,3}\.)\s+`)
+	// A link card's lines (linkcard.go; lib/linkcard.js parseCard).
+	snCardLineRe  = regexp.MustCompile(`^\[((?:\\.|[^\]\\\n])+)\]\((https?://[^\s)]+)\)(?: · (\S+))?$`)
+	snCardThumbRe = regexp.MustCompile(`^!\[image\]\(concord://attach/v2/[^\s)/]+/[^\s)/]+/[^\s)/]+/[^\s)/]+/(\d+)/[^\s)]*\)$`)
+	snUnescRe     = regexp.MustCompile(`\\(.)`)
+	snBold3Re     = regexp.MustCompile(`\*\*\*([^*]+)\*\*\*`)
+	snBold2Re     = regexp.MustCompile(`\*\*([^*]+)\*\*`)
+	snItalicRe    = regexp.MustCompile(`\*([^*]+)\*`)
+	snUnder3Re    = regexp.MustCompile(`___([^_]+)___`)
+	snUnder2Re    = regexp.MustCompile(`__([^_]+)__`)
+	snStrikeRe    = regexp.MustCompile(`~~([^~]+)~~`)
+	snSpoilRe     = regexp.MustCompile(`\|\|([^|]+)\|\|`)
+	snDanglRe     = regexp.MustCompile(`(\*\*|~~|\|\|)`)
+	snHeadRe      = regexp.MustCompile(`(?m)^#{1,6}\s+`)
+	snQuoteRe     = regexp.MustCompile(`(?m)^\s*>\s?`)
+	snListRe      = regexp.MustCompile(`(?m)^\s*(?:[-*+]|\d{1,3}\.)\s+`)
 )
 
 // The names a quoted card answers to. Short: this is a label in a one-line
@@ -153,6 +158,16 @@ func flattenBody(body string) string {
 		return note
 	}
 
+	// A link card: the words around it if there are any, otherwise its title
+	// and where it goes. Its picture is the card's, not an image the message
+	// carries, so it never reads as "🖼 image".
+	if title, dom, rest, ok := snCard(s); ok {
+		if strings.TrimSpace(snRiderRe.ReplaceAllString(rest, "")) == "" {
+			return "🔗 " + title + " · " + dom
+		}
+		s = rest
+	}
+
 	// Block content inside prose becomes a token too. A fenced block flattened
 	// into one line is eleven lines of somebody's code with the newlines taken
 	// out, which is a preview of nothing.
@@ -186,7 +201,7 @@ const spoilerMask = "[spoiler]"
 func flattenMarkdown(s string) string {
 	s = snInlineRe.ReplaceAllString(s, "$1")
 	s = snImgMdRe.ReplaceAllString(s, " ")
-	s = snLinkMdRe.ReplaceAllString(s, "$1")
+	s = snLinkMdRe.ReplaceAllStringFunc(s, snMasked)
 	s = snBold3Re.ReplaceAllString(s, "$1")
 	s = snBold2Re.ReplaceAllString(s, "$1")
 	s = snItalicRe.ReplaceAllString(s, "$1")
@@ -271,4 +286,86 @@ func callLength(secs int) string {
 		return strconv.Itoa(m/60) + "h"
 	}
 	return strconv.Itoa(m/60) + "h " + strconv.Itoa(m%60) + "m"
+}
+
+// snMasked flattens one masked link. A link to the web keeps its words and
+// gains its registrable domain after them, as the feed prints it: the words
+// can say anything, and a notification reading "paypal.com" for a link to
+// evil.example is the disguise the feed refuses. Words that are the address
+// itself become the address.
+func snMasked(m string) string {
+	sub := snLinkMdRe.FindStringSubmatch(m)
+	words, target := sub[1], sub[2]
+	u, err := url.Parse(target)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return words
+	}
+	if snSameAsURL(words, target) {
+		return target
+	}
+	return words + " (" + snDomain(u) + ")"
+}
+
+// snDomain is what a reader prints for a link: its registrable domain, or the
+// whole host where there is none (an address, a bare suffix).
+func snDomain(u *url.URL) string {
+	if d := cardDomain(u); d != "" {
+		return d
+	}
+	return strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+}
+
+// snSameAsURL: the words are the URL give or take the scheme, a www. and a
+// trailing slash (lib/regdomain.js sameAsURL).
+func snSameAsURL(words, target string) bool {
+	norm := func(s string) string {
+		s = strings.TrimSpace(foldForCheck(s))
+		if i := strings.Index(s, "://"); i > 0 && !strings.ContainsAny(s[:i], "/ ") {
+			s = s[i+3:]
+		}
+		s = strings.TrimSuffix(s, "/")
+		s = strings.ToLower(s)
+		return strings.TrimPrefix(s, "www.")
+	}
+	return norm(words) == norm(target)
+}
+
+// snCard recognises a link card at the end of a body, by the rule the reader
+// uses (lib/linkcard.js parseCard): an optional flagged picture last, then a
+// masked link alone on its line, optionally followed by " · <its domain>",
+// whose words are not an address of another site.
+func snCard(body string) (title, dom, rest string, ok bool) {
+	lines := strings.Split(strings.TrimRight(body, " \t\r\n"), "\n")
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if m := snCardThumbRe.FindStringSubmatch(last); m != nil {
+		flags, _ := strconv.Atoi(m[1])
+		if flags&attachCardThumb == 0 || flags&1 != 0 || len(lines) < 2 {
+			return "", "", "", false
+		}
+		lines = lines[:len(lines)-1]
+		last = strings.TrimSpace(lines[len(lines)-1])
+	}
+	m := snCardLineRe.FindStringSubmatch(last)
+	if m == nil {
+		return "", "", "", false
+	}
+	u, err := url.Parse(m[2])
+	if err != nil || u.Host == "" {
+		return "", "", "", false
+	}
+	dom = snDomain(u)
+	if m[3] != "" && strings.ToLower(m[3]) != dom {
+		return "", "", "", false
+	}
+	raw := snUnescRe.ReplaceAllString(m[1], "$1")
+	title = cleanCardText(raw, cardTitleMax)
+	if title == "" || snSameAsURL(title, m[2]) {
+		return "", "", "", false
+	}
+	for _, t := range []string{raw, title} {
+		if named := namedDomain(strings.Trim(t, " \"'`*_~|()[]{}<>«»“”‘’.,:;!?")); named != "" && named != dom {
+			return "", "", "", false
+		}
+	}
+	return title, dom, strings.Join(lines[:len(lines)-1], "\n"), true
 }

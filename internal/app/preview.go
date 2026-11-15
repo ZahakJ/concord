@@ -18,7 +18,7 @@ import (
 
 // Link previews: the app's ONLY outbound HTTP, and it is made only by the
 // SENDER's device when it builds a preview to attach to its own message
-// (linkembed.go). A receiver never calls this: it renders what the message
+// (linkcard.go). A receiver never calls this: it renders what the message
 // carries and nothing else. A preview fetch reveals the
 // user's IP to the linked site — the same exposure as clicking the link — but
 // nothing else (no cookies, no auth, tight size/time caps). Because a chat
@@ -33,6 +33,9 @@ type Preview struct {
 	Description string `json:"description"`
 	ImageURL    string `json:"imageUrl"`
 	SiteName    string `json:"siteName"`
+	// Duration is og:video:duration / video:duration as the page wrote it
+	// (seconds). Only link cards read it.
+	Duration string `json:"duration,omitempty"`
 }
 
 const (
@@ -55,8 +58,8 @@ type previewCache struct {
 	// validatePreviewURL in production; only tests replace it (to reach an
 	// httptest server on a random loopback port).
 	validate func(*url.URL) error
-	// embeds caches finished sender-side embeds (see linkembed.go).
-	embeds map[string]embedEntry
+	// cards caches finished sender-side link cards (see linkcard.go).
+	cards map[string]cardEntry
 }
 
 type previewEntry struct {
@@ -70,7 +73,7 @@ func newPreviewCache() *previewCache {
 		entries:  map[string]previewEntry{},
 		sem:      make(chan struct{}, previewParallel),
 		validate: validatePreviewURL,
-		embeds:   map[string]embedEntry{},
+		cards:    map[string]cardEntry{},
 	}
 	pc.client = &http.Client{
 		Timeout: previewTimeout,
@@ -351,6 +354,10 @@ func parsePreviewHTML(r io.Reader, base *url.URL) Preview {
 				}
 			case "og:site_name":
 				p.SiteName = content
+			case "og:video:duration", "video:duration":
+				if p.Duration == "" {
+					p.Duration = strings.TrimSpace(content)
+				}
 			case "twitter:title":
 				if p.Title == "" {
 					p.Title = content
