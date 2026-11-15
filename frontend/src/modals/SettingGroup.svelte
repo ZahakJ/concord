@@ -28,7 +28,11 @@
     text-align: start;
     margin-top: var(--sp-5);
   }
-  .grp:first-child {
+  /* The first group on a page sits right under the page's own header (the
+     dialog's .sheet-top is its preceding sibling, so :first-child alone
+     never matched inside a dialog). */
+  .grp:first-child,
+  :global(.sheet-top) + .grp {
     margin-top: 0;
   }
   .sec-label {

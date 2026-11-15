@@ -918,10 +918,21 @@
     font-variant-numeric: tabular-nums;
   }
   @media (max-width: 768px) {
-    .swatch {
-      width: 32px;
-      height: 32px;
-      min-height: 32px;
+    /* The phone's tap floor (Modal.svelte) makes every button --tap-min tall;
+       a 32px-wide swatch under it was a lozenge. Square it to the floor. */
+    .swatches {
+      gap: var(--sp-1);
+      flex-wrap: nowrap;
+      width: 100%;
+    }
+    /* Seven to a row, each as large as the floor allows and round. */
+    .swatches .swatch {
+      flex: 1 1 0;
+      width: auto;
+      max-width: var(--tap-min);
+      height: auto;
+      min-height: 0;
+      aspect-ratio: 1;
     }
     .fx-row {
       grid-template-columns: repeat(2, minmax(0, 1fr));
