@@ -114,8 +114,10 @@ type PhraseCheck struct {
 	Device appsvc.DeviceAccount `json:"device"`
 	// Incoming is the fingerprint of the phrase's account.
 	Incoming string `json:"incoming"`
-	// Confirm is what a confirmation to erase sends back: the incoming
-	// account over the keystore the device holds now (app.ConfirmToken).
+	// Confirm is what a confirmation to erase sends back with the typed
+	// word: a single-use ticket for the incoming account over the keystore
+	// the device holds now (app.ConfirmToken; see replaceconfirm.go). Empty
+	// when restoring keeps the data or nothing is here.
 	Confirm string `json:"confirm"`
 }
 
@@ -134,16 +136,30 @@ func (b *Bridge) CheckRecoveryPhrase(phrase string) (PhraseCheck, error) {
 	if err != nil {
 		return PhraseCheck{}, errBadPhrase
 	}
-	return PhraseCheck{
+	pc := PhraseCheck{
 		Match:     appsvc.MatchDeviceAccount(dir, seed),
 		KeepsData: appsvc.RestoreKeepsData(dir, seed),
 		Device:    appsvc.LockedAccount(dir),
 		Incoming:  id.Fingerprint(),
-		Confirm:   appsvc.ConfirmToken(dir, id.Fingerprint()),
-	}, nil
+	}
+	if !pc.KeepsData && pc.Match != appsvc.MatchNone {
+		pc.Confirm = b.issueReplace(appsvc.ConfirmToken(dir, id.Fingerprint()))
+	}
+	return pc, nil
 }
 
 var errBadPhrase = errors.New("that recovery phrase isn't valid — check each word and their order")
+
+// NoKeystoreView is the detail of a CodeDataWithoutKeystore error: what the
+// lock screen may promise about the data (app.NoKeystoreKeepable).
+type NoKeystoreView struct {
+	// Keepable: restoring or re-linking this account's own phrase or device
+	// keeps the data. Otherwise either erases it, after asking.
+	Keepable bool `json:"keepable"`
+	// Linked: the install joined its account by linking, which is why its
+	// data cannot be kept.
+	Linked bool `json:"linked"`
+}
 
 // ReplaceRefusal is the detail of a CodeReplaceRefused error.
 type ReplaceRefusal struct {
@@ -151,13 +167,15 @@ type ReplaceRefusal struct {
 	Device       appsvc.DeviceAccount `json:"device"`
 	Incoming     string               `json:"incoming"`
 	IncomingName string               `json:"incomingName,omitempty"`
-	// Confirm is what the screen sends back as its yes to exactly this
-	// replacement: the incoming account over the keystore shown.
+	// Confirm is what the screen sends back, with the typed word, as its yes
+	// to exactly this replacement: a single-use ticket standing for the
+	// incoming account over the keystore shown (see replaceconfirm.go).
 	Confirm string `json:"confirm"`
 }
 
-// codeReplace turns the app's refusal into the coded error the UI confirms on.
-func codeReplace(err error) error {
+// codeReplaceLocked turns the app's refusal into the coded error the UI
+// confirms on, with a fresh ticket for its yes. Called with b.mu held.
+func (b *Bridge) codeReplaceLocked(err error) error {
 	var r *appsvc.ReplaceRefusedError
 	if errors.As(err, &r) {
 		return &CodedError{
@@ -165,7 +183,7 @@ func codeReplace(err error) error {
 			Msg:  "this would erase the account on this device; confirm to continue",
 			Detail: ReplaceRefusal{
 				Match: r.Match, Device: r.Device, Incoming: r.Incoming, IncomingName: r.IncomingName,
-				Confirm: r.Confirm,
+				Confirm: b.issueReplaceLocked(r.Confirm),
 			},
 		}
 	}

@@ -61,6 +61,10 @@ test("data without a keystore: unlocking deletes nothing, and the account's own 
   const text = await page.locator("form").innerText();
   assert.match(text, /Nothing was deleted/, "the refusal does not say nothing was deleted");
   assert.match(text, /holds data from an account it can't open/, "the choices are not worded for this state");
+  // Never linked, with a message to check a phrase against: the core says
+  // this data can be kept, and only then may the screen promise it.
+  assert.match(text, /keeps everything here/, "the screen does not say the account's own phrase keeps the data");
+  assert.match(text, /If it is this account's phrase, everything on this device is kept\./, "no keep hint");
   assert.ok(await page.getByRole("button", { name: "Re-link from my other device" }).isVisible(), "no re-link choice");
   assert.ok(await page.getByRole("button", { name: "Erase this data and start over" }).isVisible(), "no erase choice");
   assert.equal(await alice.rpc("Session"), false, "an account was set up beside the data");
@@ -92,7 +96,13 @@ test("data without a keystore: another account's phrase is asked about, declinin
   await fillRestore(page, bashirPhrase, "brand-new-pass");
   const ask = page.getByRole("alertdialog");
   await ask.waitFor();
-  assert.match(await ask.innerText(), /different account/);
+  const asked = await ask.innerText();
+  assert.match(asked, /different account/);
+  // The data's messages showed whose it is not; there is no keystore, so
+  // nothing about a passphrase proving anything, and no account "here".
+  assert.match(asked, /holds data from an account it can't open: its keystore is\s+missing/, `the no-keystore case is not described: ${asked}`);
+  assert.match(asked, /Its messages show it is not the account the phrase\s+is for/, `the evidence is not named: ${asked}`);
+  assert.doesNotMatch(asked, /passphrase can prove/, "the text speaks of a keystore that is not there");
   assert.equal(await alice.rpc("Session"), false, "restored without asking");
 
   step("declining leaves everything as it was");
@@ -142,6 +152,9 @@ test("data without a keystore: erasing it takes the typed word and a current con
   const yes = page.getByRole("button", { name: "Yes, delete and start over" });
   await word.waitFor();
   assert.ok(await yes.isDisabled(), "the erase button is enabled before anything is typed");
+  const [c, y] = [await page.getByRole("button", { name: "Cancel" }).boundingBox(), await yes.boundingBox()];
+  assert.ok(c.y < y.y, "the erase comes before Cancel");
+  assert.ok(y.width < c.width, "the erase is as wide as Cancel");
   for (const wrong of ["ERAS", "delete", "Alice", "ERASE!"]) {
     await word.fill(wrong);
     assert.ok(await yes.isDisabled(), `the erase button is enabled with "${wrong}" typed`);
@@ -168,4 +181,40 @@ test("data without a keystore: erasing it takes the typed word and a current con
   await waitFor(async () => (await alice.rpc("Session")) === true, { message: "the new account is set up" });
   const me = await alice.rpc("Identity");
   assert.notEqual(me.fingerprint, alice.fingerprint, "the old account came back");
+});
+
+test("data without a keystore on a linked install: nothing promises to keep it, and its own phrase is asked about", async ({ world, assert, waitFor, step }) => {
+  const [alice, bashir] = await world.peers(2);
+  const g = await world.guild({ name: "Kept?", members: [alice, bashir] });
+  const phone = await world.linkDevice(alice, { name: "AlicePhone" });
+  await world.settleGuild({ id: g.id, name: g.name }, [alice, bashir, phone]);
+  await bashir.send(g.allChannels[0].id, "a message the phone holds");
+  await phone.waitForMessage(g.allChannels[0].id, "a message the phone holds");
+  const phrase = await alice.rpc("RevealMnemonic", alice.passphrase);
+  const dbBefore = await keystoreLost(phone);
+
+  step("the choices say this data can't be kept, and why");
+  const app = await phone.open({ unlock: false, viewport: "phone" });
+  const { page } = app;
+  await page.goto(`${phone.url}/?t=${phone.token}`, { waitUntil: "domcontentloaded" });
+  await refusedCreate(page);
+  const text = await page.locator("form").innerText();
+  assert.match(text, /This device holds an account it can't open/, "heading");
+  assert.match(text, /was linked to that account/, `the linked case is not said: ${text}`);
+  assert.match(text, /This data can't be kept: you'll be asked before it is erased\./, "no honest phrase hint");
+  assert.doesNotMatch(text, /keeps everything|everything on this device is kept/, "the screen promises to keep data the core will erase");
+  untouched(assert, phone, dbBefore, "after the refused create");
+
+  step("the account's own phrase is asked about, in the linked words, and the erase names no account");
+  await page.getByRole("button", { name: "Use my recovery phrase" }).click();
+  await fillRestore(page, phrase, "brand-new-pass");
+  const ask = page.getByRole("alertdialog");
+  await ask.waitFor();
+  const asked = await ask.innerText();
+  assert.match(asked, /Its messages show it is the account the phrase\s+is for/, `the same account is not recognised: ${asked}`);
+  assert.match(asked, /can't be kept/, asked);
+  const yes = page.getByRole("button", { name: "Erase this data and restore" });
+  assert.ok(await yes.isDisabled(), "the erase is enabled before ERASE is typed");
+  await page.getByRole("button", { name: "Keep everything here" }).click();
+  untouched(assert, phone, dbBefore, "after declining");
 });

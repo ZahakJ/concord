@@ -77,7 +77,7 @@ func TestBridgeRestoreOverExistingBranches(t *testing.T) {
 		t.Fatalf("check for another account's phrase: %+v", pc)
 	}
 
-	_, err = b.Dispatch("RestoreOverExisting", rawArgs(otherPhrase, "new-pass", ""))
+	_, err = b.Dispatch("RestoreOverExisting", rawArgs(otherPhrase, "new-pass", "", ""))
 	code, detail := codeOf(err)
 	if code != CodeReplaceRefused {
 		t.Fatalf("unconfirmed restore over another account: %v", err)
@@ -95,7 +95,7 @@ func TestBridgeRestoreOverExistingBranches(t *testing.T) {
 	if pc := chk.(PhraseCheck); pc.Match != "same" || !pc.KeepsData {
 		t.Fatalf("check for own phrase: %+v", pc)
 	}
-	if _, err := b.Dispatch("RestoreOverExisting", rawArgs(ownPhrase, "fresh-pass", "")); err != nil {
+	if _, err := b.Dispatch("RestoreOverExisting", rawArgs(ownPhrase, "fresh-pass", "", "")); err != nil {
 		t.Fatalf("same-account restore: %v", err)
 	}
 	if err := b.Login("fresh-pass"); err != nil {
@@ -110,7 +110,7 @@ func TestBridgeRestoreOverExistingBranches(t *testing.T) {
 	// Confirmed, with the token the check gave the screen: the other account
 	// replaces Bea.
 	chk, _ = b.Dispatch("CheckRecoveryPhrase", rawArgs(otherPhrase))
-	if _, err := b.Dispatch("RestoreOverExisting", rawArgs(otherPhrase, "new-pass", chk.(PhraseCheck).Confirm)); err != nil {
+	if _, err := b.Dispatch("RestoreOverExisting", rawArgs(otherPhrase, "new-pass", chk.(PhraseCheck).Confirm, "ERASE")); err != nil {
 		t.Fatalf("confirmed restore: %v", err)
 	}
 	if err := b.Login("new-pass"); err != nil {
@@ -265,8 +265,17 @@ func adaIsBack(t *testing.T, b *Bridge, ks string, saved []byte) {
 func TestUnlockWithTheKeystoreLostDeletesNothing(t *testing.T) {
 	b, ks, saved := lostKeystore(t)
 	err := b.Login("new")
-	if code, _ := codeOf(err); code != CodeDataWithoutKeystore {
+	code, detail := codeOf(err)
+	if code != CodeDataWithoutKeystore {
 		t.Fatalf("unlock with the keystore lost: %v", err)
+	}
+	// Ada has no messages to check a phrase against, so no restore can keep
+	// her data, and the screen must not be told it can.
+	if v, ok := detail.(NoKeystoreView); !ok || v.Keepable || v.Linked {
+		t.Fatalf("detail = %#v, want not keepable, not linked", detail)
+	}
+	if strings.Contains(err.Error(), "keeps everything") {
+		t.Fatalf("the message promises to keep data nothing can keep: %q", err)
 	}
 	// The words match the screen, which offers its choices below and has no
 	// "Forgot passphrase" link to follow on the create form.
@@ -354,7 +363,7 @@ func TestRestoreFromPhraseNeverComesUpBesideAnotherAccountsData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = b.RestoreFromMnemonic(phrase, "new", "")
+	err = b.RestoreFromMnemonic(phrase, "new", "", "")
 	if code, _ := codeOf(err); code != CodeReplaceRefused {
 		t.Fatalf("restore of another account over Ada's data: %v, want it asked about", err)
 	}

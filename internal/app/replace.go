@@ -296,6 +296,19 @@ func noKeystoreGate(dataDir string, seed []byte, confirm, incomingName string, s
 	}
 }
 
+// NoKeystoreKeepable says, for a device holding an account's data without a
+// keystore, whether restoring or re-linking that account could keep the data:
+// noKeystoreGate's keep rule before anyone knows whose phrase or code it will
+// be. It needs an install that was never linked (a linked one's data is also
+// bound to the device key that went with the keystore) and a sealed message
+// in the database to check the account against. Otherwise every restore or
+// re-link asks, and then erases the data. linked reports the first condition.
+func NoKeystoreKeepable(dataDir string) (keepable, linked bool) {
+	_, linked = readMarker(dataDir)
+	_, known := store.KeyOpensMessages(dbPathIn(dataDir), make([]byte, 32))
+	return known && !linked, linked
+}
+
 // RestoreOverExisting is the forgotten-passphrase restore. The phrase is
 // validated before anything is touched. The same account on a never-linked
 // install keeps everything on the device: only the keystore is re-sealed under

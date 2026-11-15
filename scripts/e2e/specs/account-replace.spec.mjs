@@ -144,3 +144,59 @@ test("the replace question erases nothing in one tap: keeping comes first, and e
   await waitFor(async () => (await alice.rpc("Session")) === true, { message: "the confirmed restore unlocks" });
   assert.equal((await alice.rpc("Identity")).fingerprint, bashir.fingerprint);
 });
+
+test("a link code for another account: keep first, and the erase waits for the word and a new code", async ({ world, assert, waitFor, step }) => {
+  const [alice, bashir] = await world.peers(2);
+  await alice.rpc("Logout");
+  const app = await alice.open({ unlock: false, viewport: "phone" });
+  const { page } = app;
+  await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
+
+  step("a wrong passphrase points at the ways back in");
+  const pass = page.locator('input[placeholder="Passphrase"]');
+  await pass.fill("not-alices-passphrase");
+  await pass.press("Enter");
+  await page.getByText("below has the ways back in").waitFor();
+
+  step("Bashir's link code on Alice's locked device is asked about");
+  await page.getByRole("button", { name: "Re-link from another device" }).click();
+  await page.getByRole("textbox", { name: "Link code" }).fill(await bashir.rpc("LinkOffer"));
+  await page.getByPlaceholder("Passphrase for this device").fill("brand-new-pass");
+  await page.getByPlaceholder("Confirm passphrase").fill("brand-new-pass");
+  await page.getByRole("button", { name: "Link this device" }).click();
+  await page.getByRole("alertdialog").waitFor({ timeout: 60000 });
+  const keep = page.getByRole("button", { name: "Keep everything here" });
+  const yes = page.getByRole("button", { name: /^Erase .* and link$/ });
+  const word = page.getByRole("textbox", { name: "Type ERASE to confirm" });
+  const code = page.getByRole("textbox", { name: "New link code" });
+  assert.ok(await yes.isDisabled(), "the erase is enabled with nothing typed");
+  const [k, y] = [await keep.boundingBox(), await yes.boundingBox()];
+  assert.ok(k.y < y.y && y.width < k.width, "the erase is not after and narrower than keeping");
+
+  step("the word alone, or a new code alone, is not a yes");
+  await word.fill("ERASE");
+  assert.ok(await yes.isDisabled(), "the erase is enabled without a new code");
+  await code.fill(await bashir.rpc("LinkOffer"));
+  await word.fill("");
+  assert.ok(await yes.isDisabled(), "the erase is enabled without the word");
+  await word.press("Enter");
+  assert.equal((await alice.rpc("LockedAccount")).fingerprint, alice.fingerprint, "the account here changed without a yes");
+
+  step("both, and the device holds Bashir's account");
+  await word.fill("ERASE");
+  await yes.click();
+  await waitFor(async () => (await alice.rpc("Session")) === true, { timeout: 90000, message: "the confirmed link unlocks" });
+  assert.equal((await alice.rpc("Identity")).fingerprint, bashir.fingerprint, "the device does not hold the code's account");
+});
+
+test("the core takes no yes without the word, whoever calls it", async ({ world, assert, step }) => {
+  const [alice, bashir] = await world.peers(2);
+  const bashirPhrase = await bashir.rpc("RevealMnemonic", bashir.passphrase);
+  await alice.rpc("Logout");
+  const chk = await alice.rpc("CheckRecoveryPhrase", bashirPhrase);
+  assert.ok(chk.confirm, "no ticket for a restore that erases");
+  for (const typed of ["", "Alice", "ERAS"]) {
+    await assert.rejects(alice.rpc("RestoreOverExisting", bashirPhrase, "brand-new-pass", chk.confirm, typed), /type ERASE/, `a yes with "${typed}" typed`);
+  }
+  assert.equal((await alice.rpc("LockedAccount")).fingerprint, alice.fingerprint, "a yes without the word erased Alice");
+});

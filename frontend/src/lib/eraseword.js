@@ -27,7 +27,7 @@ export function replaceEraseReady({ typed, busy = false, kind, linkCode = "" }) 
 export function replaceEraseLabel({ match, kind, verified = false, name = "", hasIdentity = true }) {
   const then = kind === "link" ? "link" : "restore";
   if (!hasIdentity) return `Erase this data and ${then}`;
-  if (match === "same") return "Erase this device's copy and restore";
+  if (match === "same") return `Erase this device's copy and ${then}`;
   if (verified && name && match !== "unknown") return `Erase ${name} and ${then}`;
   return `Erase the account on this device and ${then}`;
 }

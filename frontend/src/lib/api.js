@@ -282,7 +282,8 @@ export const api = {
   cancelLinkOffer: () => call("CancelLinkOffer"),
   // confirm: the fingerprint of the account the user agreed may replace the
   // one on this device (see Login's replace step); "" for none.
-  redeemLinkCode: (code, passphrase, confirm = "") => call("RedeemLinkCode", code, passphrase, confirm),
+  // confirm and typed: the replace question's ticket and the word typed there.
+  redeemLinkCode: (code, passphrase, confirm = "", typed = "") => call("RedeemLinkCode", code, passphrase, confirm, typed),
   logout: () => call("Logout"),
   hasIdentity: () => call("HasIdentity"),
   beginStartOver: () => call("BeginStartOver"),
@@ -293,7 +294,8 @@ export const api = {
   sessionState: () => call("SessionState"),
   lockedAccount: () => call("LockedAccount"),
   checkRecoveryPhrase: (phrase) => call("CheckRecoveryPhrase", phrase),
-  restoreFromMnemonic: (phrase, passphrase, confirm = "") => call("RestoreFromMnemonic", phrase, passphrase, confirm),
+  restoreFromMnemonic: (phrase, passphrase, confirm = "", typed = "") =>
+    call("RestoreFromMnemonic", phrase, passphrase, confirm, typed),
   // The restore screen's rendezvous field (before unlock): what to prefill it
   // with, and saving what was typed (addresses, or an invite's rendezvous list).
   getRestoreRendezvous: () => call("GetRestoreRendezvous"),
@@ -303,8 +305,8 @@ export const api = {
   // A name for a restored account until its real profile comes back; never an
   // edit, so the real profile still wins (see Login.svelte's naming step).
   setProvisionalName: (name) => call("SetProvisionalName", name),
-  restoreOverExisting: (phrase, passphrase, confirm = "") =>
-    call("RestoreOverExisting", phrase, passphrase, confirm),
+  restoreOverExisting: (phrase, passphrase, confirm = "", typed = "") =>
+    call("RestoreOverExisting", phrase, passphrase, confirm, typed),
   login: (passphrase) => call("Login", passphrase),
   identity: () => call("Identity"),
   guilds: () => call("Guilds"),

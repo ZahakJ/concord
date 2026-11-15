@@ -30,6 +30,7 @@ assert.equal(replaceEraseLabel({ match: "unknown", kind: "restore", verified: tr
 assert.equal(replaceEraseLabel({ match: "unknown", kind: "link", name: "Alice" }), "Erase the account on this device and link");
 assert.equal(replaceEraseLabel({ match: "different", kind: "restore", verified: true, name: "" }), "Erase the account on this device and restore");
 assert.equal(replaceEraseLabel({ match: "same", kind: "restore", verified: true, name: "Alice" }), "Erase this device's copy and restore");
+assert.equal(replaceEraseLabel({ match: "same", kind: "link", verified: true, name: "Alice" }), "Erase this device's copy and link");
 // Data whose keystore is missing: no account can be opened, so none is named.
 assert.equal(replaceEraseLabel({ match: "unknown", kind: "restore", name: "Chen", hasIdentity: false }), "Erase this data and restore");
 

@@ -160,10 +160,10 @@ func TestIdentityChangesWaitForALinkInProgress(t *testing.T) {
 	b := &Bridge{linking: true}
 	for name, call := range map[string]func() error{
 		"Login":               func() error { return b.Login("pw") },
-		"RestoreFromMnemonic": func() error { return b.RestoreFromMnemonic("x", "pw", "") },
-		"RestoreOverExisting": func() error { return b.RestoreOverExisting("x", "pw", "") },
+		"RestoreFromMnemonic": func() error { return b.RestoreFromMnemonic("x", "pw", "", "") },
+		"RestoreOverExisting": func() error { return b.RestoreOverExisting("x", "pw", "", "") },
 		"ResetIdentity":       func() error { return b.ResetIdentity("", StartOverWord) },
-		"RedeemLinkCode":      func() error { _, err := b.RedeemLinkCode("x", "pw", ""); return err },
+		"RedeemLinkCode":      func() error { _, err := b.RedeemLinkCode("x", "pw", "", ""); return err },
 	} {
 		if err := call(); !errors.Is(err, errLinkInProgress) {
 			t.Errorf("%s during a link: %v, want it refused", name, err)
@@ -224,12 +224,12 @@ func TestPanickingLinkDoesNotLockTheBridgeOut(t *testing.T) {
 	b := &Bridge{}
 	func() {
 		defer func() { _ = recover() }()
-		_, _ = b.RedeemLinkCode("code", "pw", "")
+		_, _ = b.RedeemLinkCode("code", "pw", "", "")
 	}()
 	redeemLink = func(context.Context, string, string, string, string) (appsvc.LinkResult, error) {
 		return appsvc.LinkResult{}, errors.New("no issuer")
 	}
-	if _, err := b.RedeemLinkCode("code", "pw", ""); errors.Is(err, errLinkInProgress) {
+	if _, err := b.RedeemLinkCode("code", "pw", "", ""); errors.Is(err, errLinkInProgress) {
 		t.Fatal("after a link panicked, the next link is refused as one still running")
 	}
 }

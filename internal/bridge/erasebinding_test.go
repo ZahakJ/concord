@@ -88,7 +88,7 @@ func TestAWipeConfirmationIsNotForTheNextAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Dispatch("RestoreOverExisting", rawArgs(phrase, "bob-pass-1", chk.(PhraseCheck).Confirm)); err != nil {
+	if _, err := b.Dispatch("RestoreOverExisting", rawArgs(phrase, "bob-pass-1", chk.(PhraseCheck).Confirm, "ERASE")); err != nil {
 		t.Fatal(err)
 	}
 	if err := b.Login("bob-pass-1"); err != nil {

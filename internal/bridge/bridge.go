@@ -60,6 +60,9 @@ type Bridge struct {
 	// BeginStartOver): its ticket, the device state it was opened on, and
 	// when. Guarded by mu.
 	startOver startOverTicket
+	// replace is the outstanding replace question's ticket (see
+	// replaceconfirm.go). Guarded by mu.
+	replace replaceTicket
 	// The visibility vote. See visibility.go: shellBackground is the native
 	// mobile lifecycle's answer, clientVisible is what each attached UI says
 	// about itself, and the two are ANDed. All three are remembered across a
@@ -481,7 +484,10 @@ var errLinkInProgress = errors.New("this device is being linked to an account in
 // RestoreFromMnemonic reconstructs the identity from a recovery phrase, sealing
 // it under a new passphrase. Refused if an identity already exists here (the
 // user must "start over" first) or while unlocked.
-func (b *Bridge) RestoreFromMnemonic(phrase, passphrase, confirm string) error {
+//
+// confirm is the ticket of the replace question the user said yes to, and
+// typed what they typed there (StartOverWord); see replaceconfirm.go.
+func (b *Bridge) RestoreFromMnemonic(phrase, passphrase, confirm, typed string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.svc != nil {
@@ -503,10 +509,14 @@ func (b *Bridge) RestoreFromMnemonic(phrase, passphrase, confirm string) error {
 	if _, err := identity.SeedFromMnemonic(phrase); err != nil {
 		return errBadPhrase
 	}
+	token, err := b.takeReplaceLocked(confirm, typed)
+	if err != nil {
+		return err
+	}
 	// Data already on the device (a lost keystore, an unfinished erase) goes
 	// through the replace gate: kept if it is the phrase's account's, else
 	// asked about with the same confirmation as a restore over an account.
-	return b.afterRestore(appsvc.RestoreOverExisting(dir, phrase, passphrase, confirm))
+	return b.afterRestore(appsvc.RestoreOverExisting(dir, phrase, passphrase, token))
 }
 
 // RestoreOverExisting is the forgot-passphrase recovery path: a (locked,
@@ -522,7 +532,7 @@ func (b *Bridge) RestoreFromMnemonic(phrase, passphrase, confirm string) error {
 // any other case erases the device, and is refused with CodeReplaceRefused
 // unless confirm is the fingerprint of the phrase's account — what the UI
 // sends after showing CheckRecoveryPhrase's answer and getting a yes.
-func (b *Bridge) RestoreOverExisting(phrase, passphrase, confirm string) error {
+func (b *Bridge) RestoreOverExisting(phrase, passphrase, confirm, typed string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.svc != nil {
@@ -542,7 +552,11 @@ func (b *Bridge) RestoreOverExisting(phrase, passphrase, confirm string) error {
 	if err != nil {
 		return err
 	}
-	return b.afterRestore(appsvc.RestoreOverExisting(dir, phrase, passphrase, confirm))
+	token, err := b.takeReplaceLocked(confirm, typed)
+	if err != nil {
+		return err
+	}
+	return b.afterRestore(appsvc.RestoreOverExisting(dir, phrase, passphrase, token))
 }
 
 // afterRestore maps a restore's result for the UI. A restore that went
@@ -551,8 +565,9 @@ func (b *Bridge) RestoreOverExisting(phrase, passphrase, confirm string) error {
 func (b *Bridge) afterRestore(err error) error {
 	if err == nil {
 		b.startOver = startOverTicket{}
+		b.replace = replaceTicket{}
 	}
-	return codeReplace(err)
+	return b.codeReplaceLocked(err)
 }
 
 // StartOverView is what the lock screen's erase confirmation is built from.
@@ -889,7 +904,12 @@ func (b *Bridge) Login(passphrase string) error {
 			// Nothing was created and nothing deleted (see the create guard in
 			// internal/app). Logged too: a headless unlock has nobody to show.
 			log.Printf("concord: this device has an account's data but no keystore; not creating a new account beside it")
-			return &CodedError{Code: CodeDataWithoutKeystore, Msg: "This device holds an account's data, but not the keystore that opens it. Nothing was deleted, and no new account was created beside it. Choose below: restore with that account's recovery phrase (which keeps everything here), re-link it from another device, or erase it and start over."}
+			keepable, linked := appsvc.NoKeystoreKeepable(dataDir)
+			msg := "This device holds an account's data, but not the keystore that opens it. Nothing was deleted, and no new account was created beside it. Choose below: restore with that account's recovery phrase or re-link it from another of its devices (either keeps everything here), or erase it and start over."
+			if !keepable {
+				msg = "This device holds an account's data, but not the keystore that opens it. Nothing was deleted, and no new account was created beside it. This data can't be kept: restoring or re-linking the account erases it, after asking. Choose below."
+			}
+			return &CodedError{Code: CodeDataWithoutKeystore, Msg: msg, Detail: NoKeystoreView{Keepable: keepable, Linked: linked}}
 		}
 		return err
 	}
@@ -3155,18 +3175,24 @@ func (b *Bridge) CancelLinkOffer() error {
 // logged in, and reporting that as a failure would be a lie that also leaves
 // the UI on the login screen in front of a working session.
 //
-// confirm is the fingerprint of the account the user agreed may replace the
-// one on this device; a code from a different account than the one here is
-// refused with CodeReplaceRefused, before anything is written, until then.
-func (b *Bridge) RedeemLinkCode(code, passphrase, confirm string) (string, error) {
+// confirm is the ticket of the replace question the user said yes to, and
+// typed what they typed there (StartOverWord; see replaceconfirm.go); a code
+// from a different account than the one here is refused with
+// CodeReplaceRefused, before anything is written, until then.
+func (b *Bridge) RedeemLinkCode(code, passphrase, confirm, typed string) (string, error) {
 	dataDir, err := appsvc.DataDir()
 	if err != nil {
 		return "", err
 	}
 	b.mu.Lock()
 	hasSvc, busy := b.svc != nil, b.linking
+	var token string
+	var werr error
 	if !hasSvc && !busy {
-		b.linking = true
+		token, werr = b.takeReplaceLocked(confirm, typed)
+		if werr == nil {
+			b.linking = true
+		}
 	}
 	b.mu.Unlock()
 	if hasSvc {
@@ -3174,6 +3200,9 @@ func (b *Bridge) RedeemLinkCode(code, passphrase, confirm string) (string, error
 	}
 	if busy {
 		return "", errLinkInProgress
+	}
+	if werr != nil {
+		return "", werr
 	}
 	res, err := func() (appsvc.LinkResult, error) {
 		// Deferred, so a panic in the link (recovered by the HTTP server,
@@ -3184,10 +3213,12 @@ func (b *Bridge) RedeemLinkCode(code, passphrase, confirm string) (string, error
 			b.linking = false
 			b.mu.Unlock()
 		}()
-		return redeemLink(b.ctx, dataDir, code, passphrase, confirm)
+		return redeemLink(b.ctx, dataDir, code, passphrase, token)
 	}()
 	if err != nil {
-		return "", codeReplace(err)
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return "", b.codeReplaceLocked(err)
 	}
 	// Start the service in linked mode (the marker written by RedeemLink flips it).
 	if err := b.Login(passphrase); err != nil {
@@ -4026,7 +4057,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "CancelLinkOffer":
 		return nil, b.CancelLinkOffer()
 	case "RedeemLinkCode":
-		return b.RedeemLinkCode(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+		return b.RedeemLinkCode(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "Logout":
 		return nil, b.Logout()
 	case "HasIdentity":
@@ -4058,9 +4089,9 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "CheckRecoveryPhrase":
 		return b.CheckRecoveryPhrase(argStr(args, 0))
 	case "RestoreFromMnemonic":
-		return nil, b.RestoreFromMnemonic(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+		return nil, b.RestoreFromMnemonic(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "RestoreOverExisting":
-		return nil, b.RestoreOverExisting(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+		return nil, b.RestoreOverExisting(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "Login":
 		// The result is a notice for the user after a successful unlock, ""
 		// for none (see takeUnlockNotice).
