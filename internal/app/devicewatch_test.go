@@ -269,3 +269,33 @@ func TestFoldDevicesDedupe(t *testing.T) {
 		t.Fatalf("repeat scan re-announced %d devices", len(fresh))
 	}
 }
+
+// A scan that read the roster before a commit can fold after one that read it
+// after: the late, stale fold must neither re-announce nor forget the device.
+func TestFoldDevicesStaleAfterFresh(t *testing.T) {
+	acct, _ := identity.Generate()
+	mk := func(name string) []byte {
+		dev, _ := identity.Generate()
+		return acct.IssueDeviceCertFor(dev.PublicKey(), name, 1).Marshal()
+	}
+	old, phone := mk("Desktop"), mk("iPhone")
+	scan := func(creds ...[]byte) map[string]map[string][]byte {
+		m := map[string][]byte{}
+		for _, c := range creds {
+			m[hex.EncodeToString(mailboxKeyOf(c))] = c
+		}
+		return map[string]map[string][]byte{"fpr": m}
+	}
+	known := map[string]map[string]bool{}
+	foldDevices(known, scan(old))
+	total := 0
+	f, _ := foldDevices(known, scan(old, phone)) // fresh scan
+	total += len(f)
+	f, _ = foldDevices(known, scan(old)) // stale scan lands late
+	total += len(f)
+	f, _ = foldDevices(known, scan(old, phone)) // next scan
+	total += len(f)
+	if total != 1 {
+		t.Fatalf("got %d notices, want exactly 1", total)
+	}
+}

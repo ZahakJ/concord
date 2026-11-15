@@ -389,6 +389,10 @@ type Service struct {
 	// guarded by mu. A key appearing that isn't in the set is a device that was
 	// linked into their account since we last looked.
 	devices map[string]map[string]bool
+	// deviceScanMu serializes noteDeviceLeaves end to end (read members, fold,
+	// persist, announce): scans run from the heal tick and from every applied
+	// commit, and must not interleave.
+	deviceScanMu sync.Mutex
 
 	// pendingMembers[guildID][fingerprint] = people you've invited who have
 	// not accepted yet. Bookkeeping for re-pushing the invite, not a roster

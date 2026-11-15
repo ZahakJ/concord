@@ -129,6 +129,8 @@ func foldDevices(known map[string]map[string]bool, seen map[string]map[string][]
 // on the heal tick, which is the only cadence this needs: a device that joins an
 // account shows up as a leaf in the groups we share, and it stays there.
 func (s *Service) noteDeviceLeaves() {
+	s.deviceScanMu.Lock()
+	defer s.deviceScanMu.Unlock()
 	s.mu.RLock()
 	ids := make([][]byte, 0, len(s.guilds))
 	for _, g := range s.guilds {
