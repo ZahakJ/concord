@@ -963,7 +963,7 @@ func (s *Service) healthyMembership(guildID string) (domain.Guild, bool) {
 // stranded every member who dropped one commit frame).
 func (s *Service) joinOfferedInvite(code string) {
 	ic, err := decodeInviteCode(strings.TrimSpace(code))
-	if err != nil {
+	if err != nil || !s.admitsInviteGuild(ic.GuildID) {
 		return
 	}
 	// Leave-tombstone veto, enforced RECEIVE-side: this path runs on nothing
@@ -1071,6 +1071,11 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 // "catching up", "not authorized", unknown guild) leaves us holding what we
 // held. Caller holds the guild's join lock.
 func (s *Service) redeemInvite(ic inviteCode, held *domain.Guild) (domain.Guild, error) {
+	// Every join path ends here, so the guild id is checked here too (a held
+	// or already-known guild is always admitted; see admitsInviteGuild).
+	if held == nil && !s.admitsInviteGuild(ic.GuildID) {
+		return domain.Guild{}, errors.New("app: bad invite code")
+	}
 	probe := held != nil
 	// Adopt any rendezvous nodes carried by the invite: persist them for future
 	// restarts (DHT bootstrap) and connect to them right now so relayed dials
@@ -4106,8 +4111,8 @@ func (s *Service) admitsInviteGuild(id string) bool {
 	return known
 }
 
-// sanitizeGuildRecord drops the channels and categories of a guild record
-// from a peer whose ids are malformed, and malformed references in the rest.
+// sanitizeGuildRecord drops the channels of a guild record from a peer whose
+// ids are malformed, and malformed references in the rest.
 func sanitizeGuildRecord(g *domain.Guild) {
 	keep := g.Channels[:0:0]
 	for _, ch := range g.Channels {
