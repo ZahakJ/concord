@@ -154,6 +154,9 @@ func cleanGifTags(tags []string) []string {
 // AddGuildGif seals an image into an attachment blob, records it in the guild's
 // pack and announces the (small) record to the other members.
 func (s *Service) AddGuildGif(guildID, name string, tags []string, dataURL string, w, h int) (GuildGif, error) {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return GuildGif{}, err
+	}
 	if !s.hasPerm(guildID, PermManageGuild) {
 		return GuildGif{}, fmt.Errorf("app: you don't have permission to manage this guild")
 	}
@@ -213,6 +216,9 @@ func (s *Service) AddGuildGif(guildID, name string, tags []string, dataURL strin
 // The blob itself is left alone: messages already posted from this GIF still
 // reference it, and the attachment store is what keeps them viewable.
 func (s *Service) RemoveGuildGif(guildID, id string) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	if !s.hasPerm(guildID, PermManageGuild) {
 		return fmt.Errorf("app: you don't have permission to manage this guild")
 	}

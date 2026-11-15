@@ -2511,6 +2511,9 @@ func (s *Service) nickAllowed(guildID, actor, target string) bool {
 // action). The same gate runs on every peer that receives it, so a client that
 // skips this check convinces nobody.
 func (s *Service) SetMemberNickname(guildID, fingerprint, nick string) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	nick = strings.TrimSpace(nick)
 	nick = clampBytes(nick, maxNameBytes)
 	if !s.nickAllowed(guildID, s.id.Fingerprint(), fingerprint) {
@@ -2533,6 +2536,9 @@ func (s *Service) SetMemberNickname(guildID, fingerprint, nick string) error {
 }
 
 func (s *Service) SetNickname(guildID, nick string) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	nick = strings.TrimSpace(nick)
 	nick = clampBytes(nick, maxNameBytes)
 	s.mu.RLock()
@@ -3071,6 +3077,9 @@ func (s *Service) applyChannelRename(guildID, actor, channelID, name string) {
 // announcement channel itself and anything unknown are dropped. Synced to
 // members over the channel_updated meta lane, like categories.
 func (s *Service) SetChannelLinks(guildID, channelID string, links []string) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	if !s.hasPerm(guildID, PermManageChannels) {
 		return fmt.Errorf("app: you don't have permission to manage channels")
 	}

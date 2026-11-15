@@ -227,6 +227,14 @@ func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request [
 	if req.Epoch > myEpoch && s.claimReciprocalSync(req.GuildID, from) {
 		go s.syncGuildFromPeer(req.GuildID, from)
 	}
+	// A copy that CannotRepairHere answers no one. Its payload is encrypted to
+	// the tree it was restored to, which can still seat a member removed since,
+	// and whatever it holds is served to whoever that tree seats. The empty
+	// body is the ordinary "declined" (errSyncDeclined): the requester asks the
+	// next member. The pull above still runs; it is how this copy learns more.
+	if s.CannotRepairHere(req.GuildID) {
+		return []byte{}, nil
+	}
 	if req.Epoch < myEpoch {
 		rows, err := s.store.CommitsAfter(guild.GroupID, req.Epoch)
 		if err != nil || !bridges(rows, req.Epoch, myEpoch) {

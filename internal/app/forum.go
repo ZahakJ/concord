@@ -231,6 +231,9 @@ const maxForumBannerBytes = 384 << 10
 // SetForumBanner sets (or clears, with "") a forum's own artwork. Managing a
 // channel's appearance is the same permission as managing the channel.
 func (s *Service) SetForumBanner(guildID, forumID, banner string) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	if !s.hasPerm(guildID, PermManageChannels) {
 		return fmt.Errorf("app: you don't have permission to manage channels")
 	}
@@ -412,6 +415,9 @@ func (s *Service) mutateChannel(guildID, channelID string, mut func(*domain.Chan
 // channel announcement per post, and the client already renders an unknown id as
 // nothing. Re-adding the tag with the same id restores it everywhere.
 func (s *Service) SetForumTags(guildID, forumID string, tags []domain.ForumTag) ([]domain.ForumTag, error) {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return nil, err
+	}
 	if !s.hasPerm(guildID, PermManageChannels) {
 		return nil, fmt.Errorf("app: you don't have permission to manage channels")
 	}
@@ -511,6 +517,9 @@ func (s *Service) postAuthor(postID string) (string, bool) {
 // because locally we are certain we hold the palette, so an unknown id is a
 // client bug worth surfacing rather than a sync race.
 func (s *Service) SetPostTags(guildID, postID string, tagIDs []string) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	_, forum, ok := s.postAndForum(guildID, postID)
 	if !ok {
 		return fmt.Errorf("app: unknown forum post %s", postID)
@@ -544,6 +553,9 @@ func (s *Service) SetPostTags(guildID, postID string, tagIDs []string) error {
 // It is the same permission bit that already governs pinning a message, so a
 // moderator's existing role needs no change to moderate a forum.
 func (s *Service) SetPostPinned(guildID, postID string, pinned bool) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	if _, _, ok := s.postAndForum(guildID, postID); !ok {
 		return fmt.Errorf("app: unknown forum post %s", postID)
 	}
@@ -569,6 +581,9 @@ func (s *Service) SetPostPinned(guildID, postID string, pinned bool) error {
 // and making them beg a moderator for it is how a Q&A board fills with posts
 // nobody can tell are finished.
 func (s *Service) SetPostSolved(guildID, postID string, solved bool) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	if _, _, ok := s.postAndForum(guildID, postID); !ok {
 		return fmt.Errorf("app: unknown forum post %s", postID)
 	}
@@ -596,6 +611,9 @@ func (s *Service) SetPostSolved(guildID, postID string, solved bool) error {
 // keep talking, whereas locking silences other people, and those should not be
 // the same button.
 func (s *Service) SetPostLocked(guildID, postID string, locked bool) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	if _, _, ok := s.postAndForum(guildID, postID); !ok {
 		return fmt.Errorf("app: unknown forum post %s", postID)
 	}

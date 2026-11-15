@@ -244,6 +244,11 @@ func (s *Service) PostStory(guildIDs []string, preset, caption string) error {
 	if len(guildIDs) == 0 {
 		return fmt.Errorf("app: pick at least one guild for the story")
 	}
+	for _, guildID := range guildIDs {
+		if err := s.mintBarred(guildID); err != nil { // see publishMeta
+			return err
+		}
+	}
 	// The author's accent pair comes from their own profile — a story is
 	// rendered in the author's colors, like their profile card.
 	p := s.SelfProfile()
@@ -375,6 +380,9 @@ func (s *Service) DeleteStory(storyID string) error {
 	self := s.id.Fingerprint()
 	if row.Author != self {
 		return fmt.Errorf("app: only the author can delete a story")
+	}
+	if err := s.mintBarred(row.GuildID); err != nil { // see publishMeta
+		return err
 	}
 	d := storyDelete{Kind: "story_del", StoryID: storyID, GuildID: row.GuildID, Author: self, At: time.Now().Unix()}
 	d.Sig = s.id.Sign(d.signingBytes())

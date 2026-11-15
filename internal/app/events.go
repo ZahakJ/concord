@@ -217,6 +217,9 @@ func (s *Service) locationChannelInGuild(guildID, channelID string) bool {
 // locationChannelID ties the event to one of THIS guild's channels ("" = the
 // free-text location stands alone).
 func (s *Service) CreateEvent(guildID, title, details string, startUnix, endUnix int64, location, locationChannelID, repeat string, repeatUntil int64) (domain.Event, error) {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return domain.Event{}, err
+	}
 	groupID, ok := s.eventGroup(guildID)
 	if !ok {
 		return domain.Event{}, fmt.Errorf("app: unknown guild %s", guildID)
@@ -260,6 +263,9 @@ func (s *Service) CreateEvent(guildID, title, details string, startUnix, endUnix
 // back to unanswered because the start moved an hour would throw away more
 // signal than it protects.
 func (s *Service) UpdateEvent(guildID, eventID, title, details string, startUnix, endUnix int64, location, locationChannelID, repeat string, repeatUntil int64) (domain.Event, error) {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return domain.Event{}, err
+	}
 	groupID, ok := s.eventGroup(guildID)
 	if !ok {
 		return domain.Event{}, fmt.Errorf("app: unknown guild %s", guildID)
@@ -310,6 +316,9 @@ func (s *Service) UpdateEvent(guildID, eventID, title, details string, startUnix
 // DeleteEvent removes an event (author or Manage Messages) and announces the
 // removal.
 func (s *Service) DeleteEvent(guildID, eventID string) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	groupID, ok := s.eventGroup(guildID)
 	if !ok {
 		return fmt.Errorf("app: unknown guild %s", guildID)
@@ -343,6 +352,9 @@ func (s *Service) Events(guildID string) ([]domain.Event, error) {
 // RSVP records this account's answer to an event: going|maybe|no, or "" to
 // clear it. Any member; one answer per account.
 func (s *Service) RSVP(guildID, eventID, state string) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	if !validRSVPState(state) {
 		return fmt.Errorf("app: an RSVP must be going, maybe, no, or empty to clear it")
 	}

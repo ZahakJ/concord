@@ -835,6 +835,9 @@ type ChronicleMessageView struct {
 // the whole call: an archive that is 90% present is an archive whose reader
 // discovers the missing tenth by scrolling into a hole.
 func (s *Service) AttachChronicle(guildID string, manifestRaw []byte, chunks map[string][]byte) error {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return err
+	}
 	self := s.id.Fingerprint()
 	if !s.IsGuildOwner(guildID, self) {
 		return fmt.Errorf("app: only the guild's owner can attach an archive")
