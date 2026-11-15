@@ -162,19 +162,49 @@ func (s *Service) dmOtherAccounts(groupID []byte) (others []string, ok bool) {
 // The predicate is the definition of "the Notes group" and it lives here alone
 // so the two other places that need to recognise one (read-state flushing, and
 // the startup mint) cannot drift from it.
+//
+// The record (kind, name, owner) is what any inviter hands over, so it is not
+// enough: every leaf of the group must also be a device of this account
+// (notesSeatsOnlyUs). Hides, pins, the receipts and typing settings, read
+// markers and the notes themselves are encrypted to this group.
 func (s *Service) findNotesDM() (domain.Guild, bool) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var best *domain.Guild
+	var cands []domain.Guild
 	for _, g := range s.guilds {
-		if isNotesGuild(*g, s.PublicKey()) && (best == nil || notesBefore(*g, *best)) {
+		if isNotesGuild(*g, s.PublicKey()) {
+			cands = append(cands, g.Clone())
+		}
+	}
+	s.mu.RUnlock()
+	var best *domain.Guild
+	for i := range cands {
+		g := &cands[i]
+		if (best == nil || notesBefore(*g, *best)) && s.notesSeatsOnlyUs(g.GroupID) {
 			best = g
 		}
 	}
 	if best == nil {
 		return domain.Guild{}, false
 	}
-	return best.Clone(), true
+	return *best, true
+}
+
+// notesSeatsOnlyUs reports whether every leaf of a group is a device of this
+// account (ownAccountLeaf). An unreadable tree proves nothing and fails.
+func (s *Service) notesSeatsOnlyUs(groupID []byte) bool {
+	if s.mls == nil || len(groupID) == 0 {
+		return false
+	}
+	leaves, err := s.mls.Leaves(s.ctx, groupID)
+	if err != nil || len(leaves) == 0 {
+		return false
+	}
+	for _, l := range leaves {
+		if !s.ownAccountLeaf(l) {
+			return false
+		}
+	}
+	return true
 }
 
 // notesBefore orders an account's Notes groups: the one created first, then

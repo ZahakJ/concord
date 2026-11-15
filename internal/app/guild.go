@@ -1172,6 +1172,11 @@ func (s *Service) redeemInvite(ic inviteCode, held *domain.Guild) (domain.Guild,
 	if resp.Guild.ID != ic.GuildID {
 		return domain.Guild{}, fmt.Errorf("app: invite answered with a different guild")
 	}
+	// A record shaped as this account's Notes comes only from one of this
+	// account's own devices.
+	if isNotesGuild(resp.Guild, s.PublicKey()) && (!s.ownDevice(owner.ID) || s.revocationFor(owner.ID) != nil) {
+		return domain.Guild{}, fmt.Errorf("app: invite answered with this account's Notes by a device that is not this account's")
+	}
 	sanitizeGuildRecord(&resp.Guild)
 	// And the group. The join lands only in the group named here, checked
 	// inside the join before anything is stored (founderpin.go joinWant):
