@@ -320,7 +320,19 @@
   }
   .cm-sub {
     font-size: var(--fs-small);
+    line-height: 1.25;
     color: var(--text-muted);
+  }
+  /* A row with a second line (a link's domain under "Open link") gets the
+     room the single-line rows have around their one line, instead of being
+     packed into the same 32px. */
+  .cm-item:has(.cm-sub) {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  .cm-item:has(.cm-sub) .cm-text {
+    gap: 1px;
+    line-height: 1.25;
   }
   /* ---- mobile action-sheet rows ---- */
   .as-quick {

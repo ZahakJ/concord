@@ -7,17 +7,22 @@
   // i.ytimg.com — a zero-click request that leaks the viewer's IP and online
   // time the moment a message scrolls into view. Messages are never allowed to
   // cause that, so callers pass autoload={false}: a neutral placeholder, and
-  // Google is contacted only once the user explicitly clicks.
+  // Google is contacted only once the user explicitly clicks. (A YouTube link
+  // that came with a card shows the card's own picture instead, see
+  // LinkPreview.svelte.)
+  //
+  // `url` rides on the box as data-link-href so holding or right-clicking it
+  // offers Open link / Copy link like any other link.
   import { ytThumb, ytEmbed } from "./lib/embeds.js";
 
-  let { videoId, autoload = true } = $props();
+  let { videoId, url = "", autoload = true } = $props();
   let playing = $state(false);
   // Reveal the (network-touching) thumbnail only when previews are allowed, or
   // after the user opts in by clicking the placeholder.
   let revealed = $state(autoload);
 </script>
 
-<div class="yt">
+<div class="yt" data-link-href={url || null}>
   {#if playing}
     <iframe
       src={ytEmbed(videoId)}

@@ -18,6 +18,10 @@ export const ATTACH_RE =
   /!\[image\]\(concord:\/\/attach\/v1\/([0-9a-f]{64})\/([A-Za-z0-9_-]{75})\/(png|jpeg|gif|webp)\/(\d{1,5})x(\d{1,5})\)|!\[image\]\(concord:\/\/attach\/v2\/([0-9a-f]{64})\/([A-Za-z0-9_-]{75})\/(png|jpeg|gif|webp)\/(\d{1,5})x(\d{1,5})\/(\d{1,3})\/([A-Za-z0-9_-]*)\/([A-Za-z0-9_-]*)\)/g;
 
 export const ATTACH_SPOILER = 1;
+// Bit 1: this picture is a link card's thumbnail (lib/linkcard.js). A peer that
+// predates the bit reads only bit 0 and shows an ordinary picture with its
+// caption, which is the card's fallback on purpose.
+export const ATTACH_CARD = 2;
 
 // File tokens: [file](concord://file/v1/<blobID>/<keys>/<size>/<mimeB64url>/<nameB64url>)
 export const FILE_RE =
@@ -42,7 +46,7 @@ export function parseAttachTokens(content) {
   const out = [];
   for (const m of content.matchAll(ATTACH_RE)) {
     if (m[1]) {
-      out.push({ blobId: m[1], keys: m[2], subtype: m[3], w: +m[4], h: +m[5], spoiler: false, name: "", desc: "" });
+      out.push({ blobId: m[1], keys: m[2], subtype: m[3], w: +m[4], h: +m[5], spoiler: false, card: false, name: "", desc: "" });
     } else {
       const flags = +m[11] || 0;
       out.push({
@@ -52,6 +56,7 @@ export function parseAttachTokens(content) {
         w: +m[9],
         h: +m[10],
         spoiler: (flags & ATTACH_SPOILER) !== 0,
+        card: (flags & ATTACH_CARD) !== 0,
         name: displayFileName(b64urlDecode(m[12])),
         desc: b64urlDecode(m[13]),
       });

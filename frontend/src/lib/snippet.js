@@ -28,6 +28,20 @@ import { parseEventToken, EVENT_RE } from "./eventtoken.js";
 import { GAME_RE } from "./games.js";
 import { DOODLE_RE } from "./doodle.js";
 import { SFX_RE } from "./sfxrecipe.js";
+import { parseCard } from "./linkcard.js";
+import { linkDomain, sameAsURL } from "./regdomain.js";
+
+// A masked link to the web. Its words can say anything, so the one-line form
+// carries the real registrable domain after them, as the feed does
+// (lib/markdown.js): a notification that reads "paypal.com" for a link to
+// evil.example is the disguise the feed refuses.
+const MASKED_HTTP_RE = /\[((?:\\.|[^\]\\\n])+)\]\((https?:\/\/[^\s)]+)\)/g;
+function maskedPlain(_, text, url) {
+  const words = text.replace(/\\(.)/g, "$1");
+  if (sameAsURL(words, url)) return url;
+  const dom = linkDomain(url);
+  return dom ? `${words} (${dom})` : words;
+}
 
 // A fence, closed or left open by a truncated excerpt.
 const FENCE_RE = /```[\s\S]*?(?:```|$)/g;
@@ -84,6 +98,15 @@ export function plainSnippet(content, max = 0) {
   const invite = inviteSnippet(c);
   if (invite) return cap(invite, max);
 
+  // A link card: the words around it if there are any, otherwise its title.
+  // Its picture is the card's, not an image the message carries, so it never
+  // reads as "🖼 image".
+  const card = parseCard(c);
+  if (card) {
+    if (card.linkOnly) return cap(`🔗 ${card.title} · ${card.domain}`, max);
+    c = card.rest;
+  }
+
   // Block content inside prose becomes a token too. A fenced block flattened
   // into one line is eleven lines of somebody's code with the newlines taken
   // out, which is not a preview of anything.
@@ -91,6 +114,7 @@ export function plainSnippet(content, max = 0) {
 
   // Attachments to a placeholder, then inline formatting to the words inside
   // it, then whitespace to single spaces.
+  c = c.replace(MASKED_HTTP_RE, maskedPlain);
   const shown = previewText(c)
     .replace(LOOSE_IMG_RE, " 🖼 image ")
     .replace(LOOSE_FILE_RE, " 📎 file ");

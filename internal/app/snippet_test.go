@@ -67,6 +67,11 @@ func TestSnippetFlattensTheSameWayTheClientDoes(t *testing.T) {
 			"🔗 Never Gonna Give You Up · youtube.com",
 		},
 		{
+			"a disappearing link-only card is its title too",
+			"[eph](concord://eph/v1/1900000000)\n[Never Gonna Give You Up](https://www.youtube.com/watch?v=dQw4w9WgXcQ) · youtube.com",
+			"🔗 Never Gonna Give You Up · youtube.com",
+		},
+		{
 			"a card under words leaves the words",
 			"look at this https://example.org/a lol\n[A page](https://example.org/a) · example.org",
 			"look at this https://example.org/a lol",

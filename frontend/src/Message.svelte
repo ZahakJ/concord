@@ -68,7 +68,9 @@
   } from "./lib/attachments.js";
   import { knownRecipe } from "./lib/memerecipe.js";
   import { extractLinks, youtubeID } from "./lib/embeds.js";
-  import { parseLinkEmbeds, stripLinkEmbed } from "./lib/linkembed.js";
+  import { stripLinkEmbed } from "./lib/linkembed.js";
+  import { cardFor, restForDisplay, cardEditSeed, cardEditSave } from "./lib/linkcard.js";
+  import { linkDomain } from "./lib/regdomain.js";
   import {
     S,
     memberByFpr,
@@ -290,8 +292,12 @@
   // same <mark>, keyed on the hit the row has already computed. Applied to the
   // RENDERED html rather than the source, because the source is markdown and an
   // alert word can be split across emphasis markers.
+  // Above a card, the words as the feed shows them: the card's own URL is
+  // dropped where it ends them and printed short, as its domain, elsewhere
+  // (lib/linkcard.js restForDisplay). Copy and edit keep the words as sent.
+  const shownText = $derived(card ? restForDisplay(bodyText, card.url) : bodyText);
   const bodyHtml = $derived.by(() => {
-    const html = renderMarkdown(bodyText, mentionNames, cemoji, refs);
+    const html = renderMarkdown(shownText, mentionNames, cemoji, refs, card ? { cardUrl: card.url } : null);
     return alertHit ? markInHtml(html, alertHit) : html;
   });
 
@@ -363,8 +369,16 @@
   // this channel belongs to — not a remote guild, so the local guild is it.
   const announceGuild = $derived(announce ? activeGuild() : null);
   const richEmbed = $derived(m.deleted ? null : parseEmbed(m.content));
-  const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
-  const files = $derived(m.deleted ? [] : parseFileTokens(m.content));
+  // A link card the sender's device built and sent inside the message
+  // (lib/linkcard.js), drawn only on a row whose signature was checked.
+  // Everything below reads the body WITHOUT the card's lines: its picture is
+  // the card's, not one of the message's attachments, and its masked link is
+  // the card's face, not a line of text. A message that was only the link is
+  // only the card.
+  const card = $derived(cardFor(m));
+  const content = $derived(card ? card.rest : m.content);
+  const atts = $derived(m.deleted ? [] : parseAttachTokens(content));
+  const files = $derived(m.deleted ? [] : parseFileTokens(content));
   // A doodle: strokes, not an image (lib/doodle.js). null means either "there
   // is no doodle here" or "there is one and this client refuses to draw it" —
   // over a bound, from a version we do not know, or simply corrupt. The two
@@ -389,7 +403,7 @@
   // inside the line.
   const gameAside = $derived(gameRow?.kind === "note" || gameRow?.kind === "orphan");
   const bodyText = $derived.by(() => {
-    let c = atts.length || files.length ? stripAttachTokens(m.content) : m.content;
+    let c = atts.length || files.length ? stripAttachTokens(content) : content;
     if (richEmbed) c = stripEmbedToken(c);
     // Stripped unconditionally, NOT gated on `doodle` being non-null. A doodle
     // this client refused must leave nothing behind: gating the strip on a
@@ -409,6 +423,8 @@
   // hundred characters of base64. The readable form is the one the inbox, the
   // reply strip and search already print.
   const copyText = $derived.by(() => {
+    // A message that is only a card copies as what it says and where it goes.
+    if (card && !bodyText.trim()) return `${card.title}\n${card.url}`;
     const t = bodyText.trim();
     return !t || t.includes("concord://") ? plainSnippet(m.content) : t;
   });
@@ -598,14 +614,12 @@
 
   // Disappearing: expiry epoch (ms) if this message carries one, else 0.
   const ephExp = $derived(m.deleted ? 0 : ephemeralExpiry(m.content));
-  // Link previews are built by the SENDER and ride inside the message
-  // (lib/linkembed.js); this device renders them and never fetches anything on
-  // their account. With no embedded preview, a YouTube link gets a placeholder
-  // that contacts Google only if you click it.
+  // Link cards are built by the SENDER and ride inside the message
+  // (lib/linkcard.js); this device renders them and never fetches anything on
+  // their account. With no card, a YouTube link gets a placeholder that
+  // contacts Google only if you click it.
   const embed = $derived.by(() => {
-    if (m.deleted || m.kind !== "") return null;
-    const cards = parseLinkEmbeds(m.content);
-    if (cards.length) return { kind: "cards", cards };
+    if (m.deleted || m.kind !== "" || card) return null;
     for (const url of extractLinks(m.content)) {
       const yt = youtubeID(url);
       if (yt) return { kind: "yt", id: yt, url };
@@ -613,6 +627,7 @@
     return null;
   });
   let editDraft = $state("");
+  let editSeed = null;
   // The direction this edit will store. Starts as the message's own, and the ⇄
   // in the edit bar cycles it — which is what makes a direction set by a
   // mis-click correctable at all: before this, EditMessage carried only content
@@ -652,7 +667,10 @@
   $effect.pre(() => {
     const editing = S.editing?.id === m.id;
     if (editing && !wasEditing) {
-      editDraft = untrack(() => m.content);
+      // Without a link card's lines (lib/linkcard.js cardEditSeed): they go
+      // back on at save while the words still hold that link.
+      editSeed = untrack(() => cardEditSeed(m.content));
+      editDraft = editSeed.text;
       // The edit box inherits the direction the message was WRITTEN in. It used
       // to inherit none: pressing ↑ on an Arabic message threw the text ~1,100px
       // across the pane, into a box laid out left-to-right, and there was no
@@ -798,7 +816,7 @@
   }
   function commitEdit() {
     // Same shortcode treatment as the composer: :fire: saves as 🔥.
-    saveEdit(m, replaceShortcodes(editDraft), editDirToken);
+    saveEdit(m, cardEditSave(replaceShortcodes(editDraft).trim(), editSeed), editDirToken);
   }
 
   // The ":colon command" while editing — same autocomplete as the composer:
@@ -1049,7 +1067,17 @@
     // user-select:none so the WebView's own "copy link address" never appears,
     // and "Copy Text" copies the whole message — neither gets you one URL out of
     // a paragraph. Same branch improves the desktop right-click.
-    const link = e.target?.closest?.("a[href]");
+    //
+    // A card, and a YouTube box, are links too even where they are not an <a>:
+    // they carry their destination in data-link-href. And a message with a card
+    // offers the card's link wherever it is held, since the URL itself is not
+    // printed: holding the words, or the row, still gets you the address.
+    const linkEl = e.target?.closest?.("a[href], [data-link-href]");
+    const href = linkEl ? linkEl.getAttribute("data-link-href") || linkEl.href : card?.url || "";
+    const link = /^https?:\/\//i.test(href || "") ? { href } : null;
+    // Where the link really goes, computed from the URL: a masked link's words
+    // and a card's title can say anything, and this is where a reader checks.
+    const linkSub = link ? linkDomain(link.href) : "";
     // Code fences scroll horizontally on desktop; on a phone the chat pane is
     // touch-action:pan-y so they cannot be panned at all (they wrap instead, see
     // the styles) — either way "copy the block" is what a reader actually wants.
@@ -1105,10 +1133,11 @@
     openContextMenu(e, [
       link && {
         label: "Open link",
+        sub: linkSub,
         icon: "forward",
         onClick: () => window.open(link.href, "_blank", "noopener,noreferrer"),
       },
-      link && { label: "Copy link", icon: "copy", onClick: () => copy(link.href, "Copied link") },
+      link && { label: "Copy link", sub: linkSub, icon: "copy", onClick: () => copy(link.href, "Copied link") },
       pre && {
         label: "Copy code",
         icon: "copy",
@@ -1135,7 +1164,7 @@
       // next press on the words back to it, handles and Copy included.
       coarse && copyText && { label: "Select text", icon: "textcursor", onClick: startSelecting },
       {
-        label: "Copy link",
+        label: "Copy message link",
         icon: "link",
         onClick: () => copy(`concord://msg/${m.channelId}/${m.id}`, "Copied message link"),
       },
@@ -1663,12 +1692,11 @@
       {#if richEmbed}
         <EmbedView embed={richEmbed} {mentionNames} customEmoji={cemoji} {refs} />
       {/if}
-      {#if embed?.kind === "yt"}
-        <YouTubeEmbed videoId={embed.id} autoload={false} />
-      {:else if embed?.kind === "cards"}
-        {#each embed.cards as card (card.url)}
-          <LinkPreview {card} channelId={m.channelId} />
-        {/each}
+      {#if card}
+        <LinkPreview {card} channelId={m.channelId} />
+        {#if m.edited && !shownText.trim()}<EditHistory channelId={m.channelId} messageId={m.id} />{/if}
+      {:else if embed?.kind === "yt"}
+        <YouTubeEmbed videoId={embed.id} url={embed.url} autoload={false} />
       {/if}
       {#if ephExp}
         <span
