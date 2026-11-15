@@ -83,6 +83,7 @@ func (s *Service) sweepRetention(now time.Time) {
 		}
 		pruned += n
 	}
+	_, _ = s.store.SweepHidden(time.Now()) // hides whose message is gone
 	// Something vanished underneath whatever is on screen, so tell the UI to
 	// re-read rather than leave it showing messages that are no longer there.
 	if pruned > 0 {

@@ -421,6 +421,9 @@ export const api = {
   markRead: (channelID, atMs) => call("MarkRead", channelID, atMs),
   markReadLatest: (channelIDs) => call("MarkReadLatest", channelIDs),
   readState: () => call("ReadState"),
+  hideMessage: (channelID, messageID) => call("HideMessage", channelID, messageID),
+  hiddenMessages: (channelID) => call("HiddenMessages", channelID),
+  unhideMessage: (channelID, messageID) => call("UnhideMessage", channelID, messageID),
   appVersion: () => call("AppVersion"),
   // Saved messages (bookmarks) — device-local, never on any wire.
   bookmarkMessage: (id, channelId) => call("BookmarkMessage", id, channelId),

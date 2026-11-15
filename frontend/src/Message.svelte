@@ -1,4 +1,5 @@
 <script module>
+  import { replyState } from "./lib/hidden.js";
   // Holding Shift over the feed swaps Edit, Pin and Delete into the hover
   // toolbar. One listener for the whole app, written to the root as an
   // attribute so every row's bar answers from CSS — hundreds of rows each
@@ -74,6 +75,7 @@
     mentionNames as sharedMentionNames,
     react,
     deleteMsg,
+    hideMsg,
     saveEdit,
     jumpToMessage,
     flash,
@@ -900,8 +902,9 @@
   // a reply to a code message quoted the fence and the first two tokens of the
   // code — "here it is in eleven lines: ```js export function". The shared rule
   // lives in lib/snippet.js and the search panel uses the same one.
+  const replyHidden = $derived(replyState(m.replyTo, replyRef, S.hiddenIds) === "hidden");
   const replySnippet = $derived(
-    replyRef && !replyRef.deleted ? plainSnippet(replyRef.content, 80) || "(empty message)" : "",
+    replyRef && !replyHidden && !replyRef.deleted ? plainSnippet(replyRef.content, 80) || "(empty message)" : "",
   );
 
   function copy(text, ok) {
@@ -1223,9 +1226,10 @@
         icon: "alert",
         onClick: () => (S.modal = { kind: "report", message: m }),
       },
-      (isOwn || canDeleteOthers) && { sep: true },
+      { sep: true },
+      !m.deleted && { label: "Delete for me", icon: "eyeOff", onClick: () => hideMsg(m) },
       (isOwn || canDeleteOthers) && {
-        label: "Delete",
+        label: "Delete for everyone",
         icon: "trash",
         danger: true,
         onClick: () => deleteMsg(m),
@@ -1437,11 +1441,15 @@
           <span class="reply-author" style={inkFor(replyRef.sender) ? `color:${inkFor(replyRef.sender)}` : ""}
             >{nameFor(replyRef.sender, replyRef.senderName)}</span
           >
-          {#if replyRef.deleted}
+          {#if replyHidden}
+            <em class="reply-snippet faded">Message hidden</em>
+          {:else if replyRef.deleted}
             <em class="reply-snippet faded">Original message was deleted</em>
           {:else}
             <span class="reply-snippet">{replySnippet}</span>
           {/if}
+        {:else if replyHidden}
+          <em class="reply-snippet faded">Message hidden</em>
         {:else}
           <em class="reply-snippet faded">Original message not loaded</em>
         {/if}

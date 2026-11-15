@@ -134,6 +134,7 @@ func main() {
 			b.OnGuildInvite = func(inv appsvc.GuildInvite) { wruntime.EventsEmit(ctx, "guild-invite", inv) }
 			b.OnReadState = func(r bridge.ReadStateView) { wruntime.EventsEmit(ctx, "read-state", r) }
 			b.OnReceipts = func(r bridge.ReceiptsView) { wruntime.EventsEmit(ctx, "receipts", r) }
+			b.OnHidden = func(h bridge.HiddenView) { wruntime.EventsEmit(ctx, "message-hidden", h) }
 			b.OnStory = func(u bridge.StoryUpdate) { wruntime.EventsEmit(ctx, "story", u) }
 			b.OnChronicleImport = func(p appsvc.ChatImportProgress) { wruntime.EventsEmit(ctx, "chronicle-import", p) }
 		},

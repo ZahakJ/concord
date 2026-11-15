@@ -52,6 +52,7 @@ import { isPersonDM, listedNotesCopy } from "./notes.js";
 import { momentsPlaylist } from "./moments.js";
 import { insertBySent, compareSent } from "./feedorder.js";
 import { createFeedCache, reconcileFeed } from "./feedcache.js";
+import { dropMessage, withHidden, HIDE_TITLE, HIDE_BODY } from "./hidden.js";
 import { formatClock } from "./clockfmt.js";
 import { watchReceipts } from "./receipts.svelte.js";
 import { isBlankText } from "./compose.js";
@@ -139,6 +140,7 @@ export const S = $state({
   // being entered — JoinVeil.svelte renders it above everything, and the
   // joiner lands in the room mid-fade instead of context-jumping.
   joinVeil: null,
+  hiddenIds: {}, // message ids hidden with "Delete for me" (id -> true), for reply lines
   toasts: [], // [{ id, kind, text }] — kind: "info" | "success" | "error"
   quickSwitcher: false,
   // Raised by the command palette's "Set status" action; ChannelList consumes
@@ -3540,6 +3542,13 @@ export async function selectChannel(id) {
     return;
   }
   S.messages = msgs;
+  // Which replies point at a hidden message (the reply line says so).
+  api
+    .hiddenMessages(id)
+    .then((ids) => {
+      if (ids?.length) for (const x of ids) S.hiddenIds = withHidden(S.hiddenIds, x, true);
+    })
+    .catch(() => {});
   feedOldest = msgs.length ? msgs[0].sent : "";
   S.feedLoading = false;
   // A short first page means there's nothing older to page back to.
@@ -3972,6 +3981,38 @@ export function deleteMsg(m, opts = {}) {
   };
 }
 
+// hideMsg is "Delete for me": the message disappears from this account's
+// devices only; nobody else is told. Asks first (the wording says what it is
+// not), then offers a short Undo. The "message-hidden" event does the actual
+// removal on every open window and linked device, this one included.
+export function hideMsg(m, opts = {}) {
+  const run = async () => {
+    try {
+      await api.hideMessage(m.channelId, m.id);
+      flash("Message deleted for you", "info", {
+        label: "Undo",
+        run: () => api.unhideMessage(m.channelId, m.id).catch((err) => flash(err)),
+      });
+    } catch (err) {
+      flash(err);
+    }
+  };
+  if (opts.now) {
+    run();
+    return;
+  }
+  S.modal = {
+    kind: "confirm",
+    title: HIDE_TITLE,
+    body: HIDE_BODY,
+    confirmLabel: "Delete for me",
+    onConfirm: async () => {
+      S.modal = null;
+      await run();
+    },
+  };
+}
+
 // `dir` is the edit's instruction about the message's base direction: "rtl",
 // "ltr", "auto" for back-to-per-line, or "" for "unchanged". An edit that only
 // changes the direction is still an edit worth sending, so the no-op test asks
@@ -4252,6 +4293,43 @@ function initEvents() {
       S.unread = next;
     } catch {
       /* history unreadable right now — badge stays until the next recount */
+    }
+  });
+
+  // "Delete for me" on this window, another one, or another linked device.
+  on("message-hidden", async (h) => {
+    if (!h?.messageId) return;
+    S.hiddenIds = withHidden(S.hiddenIds, h.messageId, h.hidden);
+    feedCache.drop(h.channelId);
+    if (h.channelId === S.activeChannelId) {
+      if (h.hidden) {
+        const next = dropMessage(S.messages, h.messageId);
+        if (next !== S.messages) S.messages = next;
+      } else {
+        // Undo: the row is back in the store; fetch it into the open feed.
+        try {
+          const msgs = (await api.messages(h.channelId)) || [];
+          if (h.channelId === S.activeChannelId) {
+            const have = new Set(S.messages.map((x) => x.id));
+            const back = msgs.find((x) => x.id === h.messageId);
+            if (back && !have.has(back.id)) S.messages = insertBySent(S.messages, back);
+          }
+        } catch {
+          /* the next channel load picks it up */
+        }
+      }
+    }
+    // The badge, the DM preview line and the inbox all derive from the store.
+    refreshInbox();
+    refreshGuilds();
+    try {
+      const u = await countChannelUnread(h.channelId);
+      const next = { ...S.unread };
+      if (u) next[h.channelId] = u;
+      else delete next[h.channelId];
+      S.unread = next;
+    } catch {
+      /* badge stays until the next recount */
     }
   });
 

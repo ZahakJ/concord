@@ -490,6 +490,9 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 	if err := s.migrateSyncMarks(); err != nil {
 		return err
 	}
+	if err := s.migrateHidden(); err != nil {
+		return err
+	}
 	if err := s.migrateExpires(); err != nil {
 		return err
 	}
@@ -885,6 +888,9 @@ func (s *Store) DeleteChannel(channelID string) error {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM msg_receipts WHERE channel_id=?`, channelID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM hidden_messages WHERE channel_id=?`, channelID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM messages WHERE channel_id=?`, channelID); err != nil {
@@ -1294,6 +1300,9 @@ func (s *Store) DeleteGuild(guildID string) error {
 		if _, err := tx.Exec(`DELETE FROM msg_receipts WHERE channel_id = ?`, ch); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(`DELETE FROM hidden_messages WHERE channel_id = ?`, ch); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`DELETE FROM messages WHERE channel_id = ?`, ch); err != nil {
 			return err
 		}
@@ -1556,7 +1565,8 @@ func (s *Store) UnreadCounts(sinceNano map[string]int64) (map[string]int, error)
 	rows, err := s.rd().Query(
 		`SELECT j.key, (SELECT COUNT(*) FROM messages
 		                WHERE channel_id = j.key AND sent > j.value
-		                  AND deleted = 0 AND quiet = 0 AND kind IN ('', 'guest'))
+		                  AND deleted = 0 AND quiet = 0 AND kind IN ('', 'guest')
+		                  AND id NOT IN (SELECT message_id FROM hidden_messages))
 		 FROM json_each(?) j`, string(cursors))
 	if err != nil {
 		return nil, err
@@ -1592,6 +1602,7 @@ func (s *Store) UnreadBySender(channelID string, since int64) ([]SenderCount, er
 	rows, err := s.rd().Query(
 		`SELECT sender, COUNT(*) FROM messages
 		 WHERE channel_id = ? AND sent > ? AND deleted = 0 AND quiet = 0 AND kind IN ('', 'guest')
+		 AND id NOT IN (SELECT message_id FROM hidden_messages)
 		 GROUP BY sender`,
 		channelID, since)
 	if err != nil {
@@ -1626,6 +1637,7 @@ func (s *Store) UnreadBySenderAll(sinceNano map[string]int64) (map[string][]Send
 		 FROM json_each(?) j
 		 JOIN messages m ON m.channel_id = j.key AND m.sent > j.value
 		 WHERE m.deleted = 0 AND m.quiet = 0 AND m.kind IN ('', 'guest')
+		 AND m.id NOT IN (SELECT message_id FROM hidden_messages)
 		 GROUP BY m.channel_id, m.sender`, string(cursors))
 	if err != nil {
 		return nil, err
@@ -1646,7 +1658,7 @@ func (s *Store) UnreadBySenderAll(sinceNano map[string]int64) (map[string][]Send
 // first, decrypting bodies. A limit <= 0 returns all messages.
 func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) {
 	q := `SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, expired, content_enc, nonce, sent, sig, unverified
-	      FROM messages WHERE channel_id = ? ORDER BY sent DESC`
+	      FROM messages WHERE channel_id = ? AND id NOT IN (SELECT message_id FROM hidden_messages) ORDER BY sent DESC`
 	args := []any{channelID}
 	if limit > 0 {
 		q += ` LIMIT ?`
@@ -1716,7 +1728,7 @@ func (s *Store) UnreadRows(channelID string, afterNano int64, limit int) ([]doma
 	rows, err := s.rd().Query(
 		`SELECT id, channel_id, sender, name, kind, reply_to, content_enc, nonce, sent
 		 FROM messages WHERE channel_id = ? AND sent > ? AND deleted = 0 AND quiet = 0 AND kind IN ('', 'guest')
-		 ORDER BY sent DESC LIMIT ?`, channelID, afterNano, limit)
+		 AND id NOT IN (SELECT message_id FROM hidden_messages) ORDER BY sent DESC LIMIT ?`, channelID, afterNano, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1754,7 +1766,7 @@ func (s *Store) NewestMessage(channelID string) (domain.Message, bool, error) {
 	var deleted int
 	err := s.rd().QueryRow(
 		`SELECT id, channel_id, sender, kind, deleted, content_enc, nonce, sent
-		 FROM messages WHERE channel_id = ? ORDER BY sent DESC LIMIT 1`, channelID).
+		 FROM messages WHERE channel_id = ? AND id NOT IN (SELECT message_id FROM hidden_messages) ORDER BY sent DESC LIMIT 1`, channelID).
 		Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Kind, &deleted, &enc, &nonceB, &sent)
 	if err == sql.ErrNoRows {
 		return domain.Message{}, false, nil
@@ -1783,7 +1795,7 @@ func (s *Store) MessagesBefore(channelID string, beforeNano int64, limit int) ([
 	}
 	rows, err := s.rd().Query(
 		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, expired, content_enc, nonce, sent, sig, unverified
-		 FROM messages WHERE channel_id = ? AND sent < ? ORDER BY sent DESC LIMIT ?`,
+		 FROM messages WHERE channel_id = ? AND sent < ? AND id NOT IN (SELECT message_id FROM hidden_messages) ORDER BY sent DESC LIMIT ?`,
 		channelID, beforeNano, limit)
 	if err != nil {
 		return nil, err
@@ -2066,7 +2078,7 @@ func (s *Store) BookmarkedMessages() ([]domain.Message, error) {
 	rows, err := s.rd().Query(
 		`SELECT m.id, m.channel_id, m.sender, m.name, m.kind, m.reply_to, m.dir, m.edited, m.pinned, m.content_enc, m.nonce, m.sent
 		 FROM saved_messages sv JOIN messages m ON m.id = sv.message_id
-		 WHERE m.deleted = 0 ORDER BY sv.at DESC LIMIT 200`)
+		 WHERE m.deleted = 0 AND m.id NOT IN (SELECT message_id FROM hidden_messages) ORDER BY sv.at DESC LIMIT 200`)
 	if err != nil {
 		return nil, err
 	}
@@ -2161,7 +2173,7 @@ func (s *Store) InboxCandidates(self []byte, terms []string, beforeNano, afterNa
 		}
 	}
 
-	where := `m.deleted = 0 AND m.kind = '' AND m.sender <> ?`
+	where := `m.deleted = 0 AND m.kind = '' AND m.sender <> ? ` + "AND m.id NOT IN (SELECT message_id FROM hidden_messages)"
 	args := []any{self}
 	if afterNano > 0 {
 		where += ` AND m.sent > ?`
@@ -2292,7 +2304,7 @@ func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) 
 	// any other query; the caller decides whether that is a question worth
 	// asking (the search box refuses to ask it).
 
-	where := `deleted = 0 AND kind = ''`
+	where := `deleted = 0 AND kind = '' AND id NOT IN (SELECT message_id FROM hidden_messages)`
 	var args []any
 	if f.FromSender != "" {
 		where += ` AND instr(lower(name), ?) > 0`
@@ -2442,6 +2454,7 @@ func (s *Store) MarkDeleted(id string, bySender []byte, force bool) (domain.Mess
 	if _, err := s.db.Exec(`UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0 WHERE id = ?`, time.Now().UnixNano(), id); err != nil {
 		return domain.Message{}, false, err
 	}
+	_, _ = s.db.Exec(`DELETE FROM hidden_messages WHERE message_id = ?`, id) // a tombstone needs no hide
 	m.ID = id
 	m.ChannelID = chID
 	m.Deleted = true
@@ -2582,6 +2595,9 @@ func (s *Store) pruneMessagesChunk(channelIDs []string, cutoff int64) (int, erro
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
 
+	if _, err := tx.Exec(`DELETE FROM hidden_messages WHERE message_id IN (`+victims+`)`, args...); err != nil {
+		return 0, fmt.Errorf("store: prune hidden: %w", err)
+	}
 	if _, err := tx.Exec(`DELETE FROM reactions WHERE message_id IN (`+victims+`)`, args...); err != nil {
 		return 0, fmt.Errorf("store: prune reactions: %w", err)
 	}

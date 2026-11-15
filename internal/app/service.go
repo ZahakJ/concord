@@ -172,6 +172,7 @@ type Service struct {
 	onGuildUpdate []func()
 	onGuildInvite []func(GuildInvite)
 	onReadState   []func(channelID string, at int64)
+	onHidden      []func(channelID, messageID string, hidden bool)
 	// onStory fires when a guild's stories change ("" = expiry sweep, several
 	// guilds may have changed). See story.go.
 	onStory []func(guildID string)
@@ -186,6 +187,11 @@ type Service struct {
 	readMarkMu      sync.Mutex
 	pendingReadMark map[string]int64
 	readMarkTimer   *time.Timer
+
+	// "Delete for me" ops awaiting broadcast to our own devices (hide.go).
+	hideMu      sync.Mutex
+	pendingHide map[string]hideOp
+	hideTimer   *time.Timer
 
 	// Browser-guest sessions (see guest.go): issued meeting tokens, the live
 	// sessions per channel, and the same sessions by id — a guest in a call is
@@ -1892,6 +1898,11 @@ func (s *Service) OnMessage(fn func(domain.Message)) {
 }
 
 func (s *Service) emitMessage(m domain.Message) {
+	// A message hidden with "Delete for me" never reaches a UI or a
+	// notification, whether it is arriving for the first time or was edited.
+	if s.store.IsHidden(m.ID) {
+		return
+	}
 	s.mu.RLock()
 	cbs := append([]func(domain.Message){}, s.onMessage...)
 	s.mu.RUnlock()

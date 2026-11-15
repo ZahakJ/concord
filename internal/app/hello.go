@@ -106,6 +106,10 @@ type helloFrame struct {
 	// ONLY to and from a proven device of our own account, so a device linked
 	// later learns it without waiting for the next change. Newest stamp wins.
 	Receipts *receiptsPref `json:"receipts,omitempty"`
+	// Hide/Unhide are "Delete for me" ops (channel → message ids), only to and
+	// from a proven device of our own account (hide.go). Older builds ignore them.
+	Hide   map[string][]string `json:"hide,omitempty"`
+	Unhide map[string][]string `json:"unhide,omitempty"`
 	// ProfileAt is the edit stamp of the profile record we could hand this
 	// peer's account over the profile stream (profilerecord.go): our own stamp
 	// to a device of our account, and to a member the stamp of the record they
@@ -474,6 +478,7 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 		}()
 		go s.adoptOfferedReadMarks(from, f.ReadMarks)
 		go s.adoptOfferedReceiptsPref(from, f.Receipts)
+		go s.adoptOfferedHides(from, f.Hide, f.Unhide)
 	}()
 	// A revocation naming THIS device is the one thing we act on before anything
 	// else, since acting on it means we stop existing.

@@ -195,6 +195,13 @@ func (n *Node) SetEventSink(sink EventSink) {
 		}
 		emit("receipts", r)
 	}
+	prevHidden := b.OnHidden
+	b.OnHidden = func(h bridge.HiddenView) {
+		if prevHidden != nil {
+			prevHidden(h)
+		}
+		emit("message-hidden", h)
+	}
 	prevStory := b.OnStory
 	b.OnStory = func(u bridge.StoryUpdate) {
 		if prevStory != nil {

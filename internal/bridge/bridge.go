@@ -95,6 +95,9 @@ type Bridge struct {
 	// OnReceipts fires as the "receipts" event when delivery/read ticks for a
 	// DM channel changed (ChannelID "" = the read-receipts setting changed).
 	OnReceipts func(ReceiptsView)
+	// OnHidden fires as the "message-hidden" event when a message is hidden or
+	// unhidden with "Delete for me", here or on another of our devices.
+	OnHidden func(HiddenView)
 	// OnStory fires as the "story" event when a guild's stories change
 	// (GuildID "" = the expiry sweep; recheck every guild).
 	OnStory func(StoryUpdate)
@@ -130,6 +133,13 @@ type ReadStateView struct {
 // ReceiptsView names the DM channel whose message ticks changed.
 type ReceiptsView struct {
 	ChannelID string `json:"channelId"`
+}
+
+// HiddenView reports a "Delete for me" change: Hidden false means it was undone.
+type HiddenView struct {
+	ChannelID string `json:"channelId"`
+	MessageID string `json:"messageId"`
+	Hidden    bool   `json:"hidden"`
 }
 
 // TypingInfo reports that a peer is typing in a channel.
@@ -965,6 +975,11 @@ func (b *Bridge) Login(passphrase string) error {
 			b.OnReceipts(ReceiptsView{ChannelID: channelID})
 		}
 	})
+	svc.OnHidden(func(channelID, messageID string, hidden bool) {
+		if b.OnHidden != nil {
+			b.OnHidden(HiddenView{ChannelID: channelID, MessageID: messageID, Hidden: hidden})
+		}
+	})
 	svc.OnStory(func(guildID string) {
 		if b.OnStory != nil {
 			b.OnStory(StoryUpdate{GuildID: guildID})
@@ -1006,6 +1021,35 @@ func (b *Bridge) MarkRead(channelID string, at int64) (int64, error) {
 		return 0, err
 	}
 	return svc.MarkRead(channelID, at)
+}
+
+// HideMessage hides a message on this account's devices only ("Delete for
+// me"); nothing is sent to the channel.
+func (b *Bridge) HideMessage(channelID, messageID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.HideMessage(channelID, messageID)
+}
+
+// HiddenMessages lists the message ids hidden in a channel with "Delete for
+// me", so the UI can word a reply to one as hidden rather than not loaded.
+func (b *Bridge) HiddenMessages(channelID string) ([]string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.HiddenMessages(channelID)
+}
+
+// UnhideMessage undoes HideMessage.
+func (b *Bridge) UnhideMessage(channelID, messageID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.UnhideMessage(channelID, messageID)
 }
 
 // MarkReadLatest marks channels read through the newest message held in each.
@@ -3913,6 +3957,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.Guilds()
 	case "MarkRead":
 		return b.MarkRead(argStr(args, 0), argInt64(args, 1))
+	case "HideMessage":
+		return nil, b.HideMessage(argStr(args, 0), argStr(args, 1))
+	case "HiddenMessages":
+		return b.HiddenMessages(argStr(args, 0))
+	case "UnhideMessage":
+		return nil, b.UnhideMessage(argStr(args, 0), argStr(args, 1))
 	case "MarkReadLatest":
 		var ids []string
 		if len(args) > 0 {
