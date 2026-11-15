@@ -2260,8 +2260,7 @@ type guildMeta struct {
 	Since    int64         `json:"since,omitempty"`
 	Receipts *receiptsPref `json:"receipts,omitempty"`
 	// hide_marker (Notes self-group only): "Delete for me" ops, channel → ids.
-	Hide   map[string][]string `json:"hide,omitempty"`
-	Unhide map[string][]string `json:"unhide,omitempty"`
+	Hides []store.HideRec `json:"hides,omitempty"`
 
 	// forum_tags: replace the tag palette of the forum named by ChannelID.
 	// Its own type rather than a field on channel_updated, because that message
@@ -3500,7 +3499,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if notes, ok := s.findNotesDM(); !ok || notes.ID != guildID {
 			return
 		}
-		s.applyRemoteHide(m.Hide, m.Unhide)
+		s.applyRemoteHides(m.Hides)
 		return
 	case "channel_added":
 		if !sanitizeChannelRefs(&m.Channel) || !s.mayAddChannel(guildID, actor, m.Channel) {

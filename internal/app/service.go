@@ -190,8 +190,9 @@ type Service struct {
 
 	// "Delete for me" ops awaiting broadcast to our own devices (hide.go).
 	hideMu      sync.Mutex
-	pendingHide map[string]hideOp
+	pendingHide map[string]store.HideRec
 	hideTimer   *time.Timer
+	hideCursor  map[peer.ID]int64 // per own device: last stamp of its registers we hold
 
 	// Browser-guest sessions (see guest.go): issued meeting tokens, the live
 	// sessions per channel, and the same sessions by id — a guest in a call is

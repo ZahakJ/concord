@@ -10,6 +10,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/ZahakJ/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/store"
 	"github.com/ZahakJ/concord/internal/version"
 )
 
@@ -106,10 +107,15 @@ type helloFrame struct {
 	// ONLY to and from a proven device of our own account, so a device linked
 	// later learns it without waiting for the next change. Newest stamp wins.
 	Receipts *receiptsPref `json:"receipts,omitempty"`
-	// Hide/Unhide are "Delete for me" ops (channel → message ids), only to and
+	// Hides are "Delete for me" registers, only to and
 	// from a proven device of our own account (hide.go). Older builds ignore them.
-	Hide   map[string][]string `json:"hide,omitempty"`
-	Unhide map[string][]string `json:"unhide,omitempty"`
+	Hides []store.HideRec `json:"hides,omitempty"`
+	// HideReq asks an own device for the registers it changed after this
+	// stamp; the answer carries a page in Hides, the stamp to resume from in
+	// HideNext, and HideMore while pages remain.
+	HideReq  *int64 `json:"hideReq,omitempty"`
+	HideNext int64  `json:"hideNext,omitempty"`
+	HideMore bool   `json:"hideMore,omitempty"`
 	// ProfileAt is the edit stamp of the profile record we could hand this
 	// peer's account over the profile stream (profilerecord.go): our own stamp
 	// to a device of our account, and to a member the stamp of the record they
@@ -193,6 +199,7 @@ func (s *Service) greet(p peer.ID) {
 		Arrived:      s.arrivalsFor(p),
 		ReadMarks:    s.readMarksFor(p),
 		Receipts:     s.receiptsPrefFor(p),
+		HideReq:      s.hideReqFor(p),
 		ProfileAt:    hint,
 	})
 	if err != nil {
@@ -255,13 +262,22 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	// and idempotent, and refusing to read it would be the wrong thing to
 	// harden.
 	s.ingestHello(from, req)
+	// A catch-up page for an own device's cursor. It rides EVERY answer, the
+	// short one too: the continuation pages of one sync all arrive on a
+	// connection that has already been answered once.
+	var page helloFrame
+	var asked helloFrame
+	if json.Unmarshal(req, &asked) == nil {
+		s.hidePageFor(from, asked.HideReq, &page)
+	}
 	if !s.answered.claim(from) {
 		// Except the revocation, which costs nothing to look up and must not
 		// wait on the claim. A device that restarts and redials faster than we
 		// notice its old connection die finds the claim still held from that
 		// connection; answering it with nothing left an unlinked device running
 		// with the account's keys until it happened to reconnect again.
-		return json.Marshal(helloFrame{Revoked: s.revocationFor(from)})
+		page.Revoked = s.revocationFor(from)
+		return json.Marshal(page)
 	}
 	// The claim is per connection, and the connection's end is what releases
 	// it. A hello read just before its connection dropped is still being
@@ -277,7 +293,7 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	// ingested, now includes the linked device that could not be placed a
 	// microsecond ago. A peer we still can't place gets an empty frame: a clear
 	// "nothing for you" rather than a dropped stream they'd retry against.
-	var out helloFrame
+	out := page
 	// The revocation goes out regardless of whether we would otherwise talk to
 	// this peer: telling a device we unlinked that it has been unlinked is the
 	// one message it is still owed, and it is signed, so it proves itself.
@@ -478,7 +494,7 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 		}()
 		go s.adoptOfferedReadMarks(from, f.ReadMarks)
 		go s.adoptOfferedReceiptsPref(from, f.Receipts)
-		go s.adoptOfferedHides(from, f.Hide, f.Unhide)
+		go s.adoptOfferedHides(from, f)
 	}()
 	// A revocation naming THIS device is the one thing we act on before anything
 	// else, since acting on it means we stop existing.

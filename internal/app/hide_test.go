@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 func hasMsg(s *Service, ch, id string) bool {
@@ -119,7 +121,7 @@ func TestHideOpsOnlyComeFromMyOwnDevices(t *testing.T) {
 	}
 
 	// A hide_marker forged by a member into the guild's own meta topic.
-	payload, _ := json.Marshal(guildMeta{Type: "hide_marker", Hide: map[string][]string{ch: {msg.ID}}})
+	payload, _ := json.Marshal(guildMeta{Type: "hide_marker", Hides: []store.HideRec{{Channel: ch, ID: msg.ID, Hidden: true, At: time.Now().UnixMilli()}}})
 	ct, err := member.mls.Encrypt(ctx, g.GroupID, payload)
 	if err != nil {
 		t.Fatalf("Encrypt: %v", err)
@@ -132,7 +134,7 @@ func TestHideOpsOnlyComeFromMyOwnDevices(t *testing.T) {
 	// And on a hello.
 	req, _ := json.Marshal(helloFrame{
 		Credential: member.myCredential,
-		Hide:       map[string][]string{ch: {msg.ID}},
+		Hides:      []store.HideRec{{Channel: ch, ID: msg.ID, Hidden: true, At: time.Now().UnixMilli()}},
 	})
 	owner.answered.release(member.host.PeerID())
 	if _, err := owner.handleHello(ctx, member.host.PeerID(), req); err != nil {
@@ -141,5 +143,105 @@ func TestHideOpsOnlyComeFromMyOwnDevices(t *testing.T) {
 	time.Sleep(time.Second)
 	if owner.store.IsHidden(msg.ID) {
 		t.Fatal("a guild member's hello hid a message on the owner's devices")
+	}
+}
+
+// TestAnOfflineDeviceCatchesUpOnHides: the phone is stopped while the desktop
+// hides X, undoes an earlier hide of Y and hides Z. When the phone is back, X
+// and Z are hidden and Y is visible: state is exchanged on the hello, with the
+// unhide kept as a tombstone, so nothing is replayed and nothing resurrects.
+func TestAnOfflineDeviceCatchesUpOnHides(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	boot := testRendezvous(t, ctx)
+	phoneDir := t.TempDir()
+	desk, phone, ch, _ := linkedPair(t, ctx, t.TempDir(), phoneDir, boot)
+
+	var ids []string
+	for _, body := range []string{"x", "y", "z"} {
+		m, err := desk.SendMessage(ch, body, "", "")
+		if err != nil {
+			t.Fatalf("SendMessage: %v", err)
+		}
+		ids = append(ids, m.ID)
+	}
+	x, y, z := ids[0], ids[1], ids[2]
+	waitUntil(t, 30*time.Second, func() bool {
+		return hasMsg(phone, ch, x) && hasMsg(phone, ch, y) && hasMsg(phone, ch, z)
+	}, "the messages never reached the phone")
+
+	// Y is hidden while both are online, and the phone knows.
+	if err := desk.HideMessage(ch, y); err != nil {
+		t.Fatalf("HideMessage y: %v", err)
+	}
+	waitUntil(t, 30*time.Second, func() bool { return phone.store.IsHidden(y) },
+		"the first hide of Y never reached the phone")
+
+	// The phone goes away; its copy of the world is frozen with Y hidden.
+	_ = phone.Close()
+
+	if err := desk.HideMessage(ch, x); err != nil {
+		t.Fatal(err)
+	}
+	if err := desk.UnhideMessage(ch, y); err != nil {
+		t.Fatal(err)
+	}
+	if err := desk.HideMessage(ch, z); err != nil {
+		t.Fatal(err)
+	}
+
+	phone2 := startServiceOn(t, ctx, phoneDir, boot)
+	waitUntil(t, 60*time.Second, func() bool {
+		return phone2.store.IsHidden(x) && phone2.store.IsHidden(z) && !phone2.store.IsHidden(y)
+	}, "the returning phone did not converge: want X and Z hidden, Y visible")
+	if hasMsg(phone2, ch, x) || hasMsg(phone2, ch, z) || !hasMsg(phone2, ch, y) {
+		t.Fatal("the returning phone's history does not match its hide state")
+	}
+}
+
+// TestHideRegistersLastWriterWinsAndBounded: a stale hide cannot beat a newer
+// unhide, a fast clock is capped, and a catch-up is served in bounded pages.
+func TestHideRegistersLastWriterWinsAndBounded(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc := startServiceInDir(t, ctx, t.TempDir())
+	now := time.Now().UnixMilli()
+	svc.applyRemoteHides([]store.HideRec{{Channel: "c", ID: "m", Hidden: false, At: now}})
+	svc.applyRemoteHides([]store.HideRec{{Channel: "c", ID: "m", Hidden: true, At: now - 5000}})
+	if svc.store.IsHidden("m") {
+		t.Fatal("a stale hide beat a newer unhide")
+	}
+	svc.applyRemoteHides([]store.HideRec{{Channel: "c", ID: "f", Hidden: true, At: now + int64(24*time.Hour/time.Millisecond)}})
+	recs, _, _, _ := svc.store.HideRecordsAfter(0, 500)
+	for _, r := range recs {
+		if r.At > now+int64(readSkew/time.Millisecond)+1000 {
+			t.Fatalf("a record from the future kept its stamp: %+v", r)
+		}
+	}
+	for i := 0; i < 400; i++ {
+		svc.applyRemoteHides([]store.HideRec{{Channel: "c", ID: "bulk" + string(rune('a'+i%26)) + string(rune('a'+i/26)), Hidden: true, At: now}})
+	}
+	var from int64
+	pages, total := 0, 0
+	for {
+		recs, last, more, err := svc.store.HideRecordsAfter(from, hidePageSize)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(recs) > hidePageSize {
+			t.Fatalf("page of %d exceeds the cap", len(recs))
+		}
+		pages++
+		total += len(recs)
+		from = last
+		if !more {
+			break
+		}
+	}
+	if pages < 3 || total < 400 {
+		t.Fatalf("pages=%d total=%d: the catch-up was not paged", pages, total)
 	}
 }

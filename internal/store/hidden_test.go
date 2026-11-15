@@ -174,3 +174,41 @@ func TestHiddenRowsArePruned(t *testing.T) {
 		t.Fatal("sweep dropped the hide of a live message")
 	}
 }
+
+func TestHideRegistersAreLastWriterWinsWithTombstones(t *testing.T) {
+	s, _ := openTestStore(t)
+	if ch, err := s.SetHidden(HideRec{Channel: "c", ID: "m", Hidden: true, At: 100}); err != nil || !ch {
+		t.Fatalf("hide = %v, %v", ch, err)
+	}
+	if ch, _ := s.SetHidden(HideRec{Channel: "c", ID: "m", Hidden: false, At: 200}); !ch || s.IsHidden("m") {
+		t.Fatal("a newer unhide did not win")
+	}
+	// A stale hide must not resurrect it, and the tombstone is kept to say so.
+	if ch, _ := s.SetHidden(HideRec{Channel: "c", ID: "m", Hidden: true, At: 150}); ch || s.IsHidden("m") {
+		t.Fatal("a stale hide resurrected an undone hide")
+	}
+	recs, _, more, err := s.HideRecordsAfter(0, 10)
+	if err != nil || more || len(recs) != 1 || recs[0].Hidden || recs[0].At != 200 {
+		t.Fatalf("records = %+v more=%v err=%v; want one tombstone at 200", recs, more, err)
+	}
+	// Local undo in the same millisecond as the hide still wins.
+	if _, _, err := s.LocalHide("c", "q", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.LocalHide("c", "q", false); err != nil || s.IsHidden("q") {
+		t.Fatalf("undo lost to its own hide: %v", err)
+	}
+	// Paging resumes after the stamp it returned.
+	first, last, more, _ := s.HideRecordsAfter(0, 1)
+	if len(first) != 1 || !more {
+		t.Fatalf("first page = %d more=%v", len(first), more)
+	}
+	rest, _, more, _ := s.HideRecordsAfter(last, 10)
+	if len(rest) != 1 || more {
+		t.Fatalf("rest = %d more=%v", len(rest), more)
+	}
+	// Tombstones are swept like hides: when their message is gone for good.
+	if n, _ := s.SweepHidden(time.Now().Add(hiddenOrphanTTL + time.Hour)); n != 2 {
+		t.Fatalf("swept %d, want both stale tombstones", n)
+	}
+}
