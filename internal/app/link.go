@@ -198,6 +198,16 @@ func (s *Service) handleLinkRequest(_ context.Context, _ peer.ID, reqBytes []byt
 // honour, and a code naming the owner is not one of those. The recipient is
 // another device of an account the group already contains.
 func (s *Service) linkGuildInvites() (codes, missing []string) {
+	codes, left := s.ownGuildOffers()
+	for _, g := range left {
+		missing = append(missing, g.Name)
+	}
+	return codes, missing
+}
+
+// ownGuildOffers is linkGuildInvites with the guilds it could not hand over
+// returned whole.
+func (s *Service) ownGuildOffers() (codes []string, missing []domain.Guild) {
 	for _, g := range s.Guilds() {
 		if code, err := s.InviteCode(g.ID); err == nil {
 			codes = append(codes, code)
@@ -207,7 +217,7 @@ func (s *Service) linkGuildInvites() (codes, missing []string) {
 			codes = append(codes, code)
 			continue
 		}
-		missing = append(missing, g.Name)
+		missing = append(missing, g)
 	}
 	return codes, missing
 }
@@ -221,6 +231,9 @@ func (s *Service) ownerInviteCode(g domain.Guild) (string, bool) {
 	// manage-members holder) can actually commit the linked device in — a code
 	// addressed to the dethroned founder would dial someone whose commits
 	// honest peers refuse.
+	if withholdOwnerCodes.Load() {
+		return "", false
+	}
 	ownerFpr := s.effectiveOwner(g.ID)
 	if ownerFpr == "" || ownerFpr == s.id.Fingerprint() {
 		return "", false // our own guild — InviteCode already had its say

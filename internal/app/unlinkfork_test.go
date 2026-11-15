@@ -17,7 +17,7 @@ type unlinkWorld struct {
 	boot                     string
 	alice, carol, bob, phone *Service
 	ra, rc, rb               *recorder
-	phoneKey                 string
+	phoneKey, phoneDir       string
 }
 
 func newUnlinkWorld(t *testing.T, ctx context.Context) *unlinkWorld {
@@ -35,11 +35,11 @@ func newUnlinkWorld(t *testing.T, ctx context.Context) *unlinkWorld {
 	if err != nil {
 		t.Fatal(err)
 	}
-	phoneDir := t.TempDir()
-	if _, err := RedeemLink(ctx, phoneDir, code, "test-pass", ""); err != nil {
+	w.phoneDir = t.TempDir()
+	if _, err := RedeemLink(ctx, w.phoneDir, code, "test-pass", ""); err != nil {
 		t.Fatalf("link Bob's phone: %v", err)
 	}
-	w.phone = startServiceOn(t, ctx, phoneDir, w.boot)
+	w.phone = startServiceOn(t, ctx, w.phoneDir, w.boot)
 	w.phoneKey = deviceKeyOf(t, w.phone)
 	w.ra, w.rc, w.rb = &recorder{}, &recorder{}, &recorder{}
 	w.alice.OnMessage(w.ra.add)
@@ -177,13 +177,13 @@ func TestUnlinkInADMCarolStartedKeepsBobInIt(t *testing.T) {
 	}
 	ch := dm.Channels[0].ID
 	ok := false
-	deadline := time.Now().Add(180 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) && !ok {
 		ok = memberCount(w.carol, dm.ID) == 3 && memberCount(w.bob, dm.ID) == 3
 		time.Sleep(time.Second)
 	}
 	if !ok {
-		t.Skipf("the DM never held Carol and both of Bob's devices (carol=%d bob=%d); the case under test did not arise", memberCount(w.carol, dm.ID), memberCount(w.bob, dm.ID))
+		t.Fatalf("setup: the DM never held Carol and both of Bob's devices (carol=%d bob=%d)", memberCount(w.carol, dm.ID), memberCount(w.bob, dm.ID))
 	}
 	if !delivered(w.bob, ch, "dm before", 30*time.Second, w.rc) {
 		t.Fatal("setup: Bob's desktop could not reach the DM before the unlink")

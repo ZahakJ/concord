@@ -307,7 +307,12 @@ func (s *Service) guildInvitesFor(p peer.ID) []string {
 	if !s.ownDevice(p) {
 		return nil
 	}
-	codes, _ := s.linkGuildInvites()
+	codes, missing := s.ownGuildOffers()
+	ids := make([]string, 0, len(missing))
+	for _, g := range missing {
+		ids = append(ids, g.ID)
+	}
+	s.noteOfferGaps(p, ids)
 	return codes
 }
 
@@ -526,7 +531,8 @@ func (s *Service) peerResolved(p peer.ID) {
 		s.recordPeer(p, pp.Fingerprint) // protect + remember: they're one of ours
 		s.announceProfileAll()
 		s.reannounceVoice()
-		s.syncFromPeer(p) // the catch-up the connect tail declined to attempt
+		s.reofferOnCommitterConnect(p) // a committer we could not offer for
+		s.syncFromPeer(p)              // the catch-up the connect tail declined to attempt
 		s.healStrandedGuilds()
 	}()
 }

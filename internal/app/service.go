@@ -299,6 +299,10 @@ type Service struct {
 	// in-memory, because a restart greets our devices again and they re-offer.
 	offeredRetry    map[string]string
 	offeredRetrying atomic.Bool
+	// offerGaps holds, per device of ours, what the last offer to it had to
+	// leave out, so the offer is made again (see offergap.go).
+	offerGaps  map[peer.ID]*offerGap
+	offerGapMu sync.Mutex
 
 	// linkedDevice: this install runs on a device certificate, so the account
 	// existed before it and already has a Notes somewhere (see notesGroup).
@@ -1308,6 +1312,9 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		// account stops being a stranger within one round trip instead of
 		// whenever unrelated traffic next happens to carry its certificate.
 		go s.greet(p)
+		// A committer of a guild we could not offer one of our devices may now
+		// be dialable for it.
+		go s.reofferOnCommitterConnect(p)
 		// rememberPeer records the contact too, behind the shares-a-guild gate
 		// (see peercache.go) — and rememberMembers re-runs it when membership
 		// moves, which is what covers the peer whose invite is still in flight.
@@ -1370,6 +1377,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		s.greeted.release(p)
 		s.answered.release(p)
 		s.solicited.release(p)
+		s.forgetOfferGap(p)
 		s.ownProfile.forget(p)
 		s.markDeviceLeft(p)
 		s.emitPeerDown(p, s.presence(p))
