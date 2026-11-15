@@ -17,11 +17,14 @@ import (
 //
 // An erase normally takes the keystore lock, so no write can be half-way
 // through when the file goes. When the lock cannot be had in time (another
-// process holding it, possibly stalled in the middle of a write), the erase
-// goes ahead anyway and leaves a tombstone, so that the holder cannot bring
-// the keystore back when it resumes: writes check for a tombstone before and
-// after they rename (saveKeystoreLocked), reads treat the condemned keystore
-// as absent, and whoever takes the lock next finishes the erase.
+// process holding it, possibly stalled in the middle of a write), an
+// unconditional erase (RemoveKeystore) goes ahead anyway and leaves a
+// tombstone; a conditional one (RemoveKeystoreIf) erases nothing and reports
+// the keystore busy, since its condition can only be checked under the lock.
+// The tombstone is there so that the holder cannot bring the keystore back
+// when it resumes: writes check for a tombstone before and after they rename
+// (saveKeystoreLocked), reads treat the condemned keystore as absent, and
+// whoever takes the lock next finishes the erase.
 //
 // Two rules keep that machinery from ever deleting what nobody asked to
 // erase. A tombstone condemns one file, the one on disk when the erase was
@@ -188,24 +191,31 @@ func removeKeystoreOnly(path string) error {
 // what happens when the keystore lock cannot be had in time.
 func RemoveKeystore(path string) error { return RemoveKeystoreIf(path, nil, nil) }
 
-// RemoveKeystoreIf is RemoveKeystore for an erase the user confirmed for the
-// device as a screen showed it. still is asked under the keystore lock, with
+// RemoveKeystoreIf is RemoveKeystore for an erase confirmed for something
+// still can recognise: the device as a screen showed it, or the account and
+// device a revocation named. Taking the keystore lock, asking still, removing
+// the keystore and running then all happen in one hold of the lock, with
 // every other writer of this data directory shut out, and the erase happens
-// only if it answers true: a keystore another window or process restored,
+// only if still answers true: a keystore another window or process restored,
 // linked or re-keyed between the confirmation and this call is not the one
 // that was confirmed, and is left (ErrKeystoreChanged, nothing removed).
-// then, when set, runs under the same lock once the keystore is gone, so the
+// then, when set, runs in that same hold once the keystore is gone, so the
 // rest of the erase cannot fall on what a writer waiting for the lock is
 // about to put there.
 //
-// Without the lock (a holder that will not let go) still is asked once before
-// the erase is recorded, then is not run and the caller erases the rest
-// itself: the marker left behind condemns only the file that was there.
+// When the lock cannot be had (a holder that will not let go), nothing is
+// removed, nothing is recorded, still and then are not run, and the error is
+// ErrKeystoreBusy. Asked without the lock, still would only describe the
+// keystore at that moment, and the holder can rename another one in right
+// after; erasing on that answer is what the check is there to prevent. The
+// caller tries again later. RemoveKeystore (still nil) is the erase that
+// goes ahead without the lock (see the top of this file).
 func RemoveKeystoreIf(path string, still func() bool, then func()) error {
 	if err := refuseSymlinkErase(path); err != nil {
 		return err
 	}
-	if unlock, err := lockKeystore(path); err == nil {
+	unlock, lerr := lockKeystore(path)
+	if lerr == nil {
 		defer unlock()
 		if still != nil && !still() {
 			return ErrKeystoreChanged
@@ -221,8 +231,8 @@ func RemoveKeystoreIf(path string, still func() bool, then func()) error {
 	if _, err := os.Stat(filepath.Dir(path)); os.IsNotExist(err) {
 		return nil // nothing to erase
 	}
-	if still != nil && !still() {
-		return ErrKeystoreChanged
+	if still != nil {
+		return lerr
 	}
 	t, present, err := identify(path)
 	if err != nil {

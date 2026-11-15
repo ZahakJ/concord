@@ -26,7 +26,9 @@ var tryLock = tryLockFile
 
 var lockUnsupported sync.Once
 
-var errKeystoreBusy = errors.New("identity: the keystore is busy in another Concord window or process; try again")
+// ErrKeystoreBusy: the keystore lock could not be had in time; another
+// window or process holds it.
+var ErrKeystoreBusy = errors.New("identity: the keystore is busy in another Concord window or process; try again")
 
 // lockKeystore takes the keystore lock for path: keystoreMu for this process,
 // and an advisory lock on path+".lock" for any other process on the same data
@@ -41,7 +43,7 @@ func lockKeystore(path string) (unlock func(), err error) {
 	deadline := time.Now().Add(keystoreLockWait)
 	for !keystoreMu.TryLock() {
 		if time.Now().After(deadline) {
-			return nil, errKeystoreBusy
+			return nil, ErrKeystoreBusy
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -82,7 +84,7 @@ func lockKeystore(path string) (unlock func(), err error) {
 		if time.Now().After(deadline) {
 			_ = f.Close()
 			keystoreMu.Unlock()
-			return nil, errKeystoreBusy
+			return nil, ErrKeystoreBusy
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

@@ -519,7 +519,7 @@ var errKeystoreSymlink = errors.New("identity: the keystore is a symbolic link; 
 
 // ReadKeystore returns the keystore file's bytes: the snapshot a caller
 // decides on (decrypts with OpenKeystoreBytes, compares accounts) and then
-// hands back to ReplaceKeystore or RemoveKeystoreIfUnchanged as expected.
+// hands back to ReplaceKeystore as expected.
 // A keystore an unfinished erase condemned (see RemoveKeystore) reads as
 // absent.
 func ReadKeystore(path string) ([]byte, error) {

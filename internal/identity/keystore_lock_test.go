@@ -189,7 +189,7 @@ func TestInProcessLockWaitIsBounded(t *testing.T) {
 	go func() { done <- ChangePassphrase(path, "old", "new") }()
 	select {
 	case err := <-done:
-		if !errors.Is(err, errKeystoreBusy) {
+		if !errors.Is(err, ErrKeystoreBusy) {
 			t.Fatalf("change behind a stuck writer: %v, want busy", err)
 		}
 	case <-time.After(5 * time.Second):
