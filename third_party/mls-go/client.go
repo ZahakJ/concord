@@ -1527,17 +1527,44 @@ func (c *Client) ListMembers(ctx context.Context, groupID []byte) ([]MemberInfo,
 // go on to process it (a commit whose path secrets it cannot decrypt, for
 // instance).
 func (c *Client) VerifyCommit(ctx context.Context, groupID, commitBytes []byte) error {
+	_, _, err := c.verifyCommit(ctx, groupID, commitBytes)
+	return err
+}
+
+// VerifyOwnCommit is VerifyCommit for a commit this client's own leaf made: it
+// also requires the sender to be this client's own leaf index in the current
+// tree, and that leaf's signature key to be this client's own signature key.
+// Credential bytes alone do not identify this client's leaf.
+func (c *Client) VerifyOwnCommit(ctx context.Context, groupID, commitBytes []byte) error {
+	g, pub, err := c.verifyCommit(ctx, groupID, commitBytes)
+	if err != nil {
+		return err
+	}
+	sender := group.LeafNodeIndex(pub.Content.Sender.LeafIndex)
+	if sender != g.OwnLeafIndex() {
+		return fmt.Errorf("commit sender leaf %d is not this client's leaf %d", sender, g.OwnLeafIndex())
+	}
+	own := c.credWithKey.SignatureKeyBytes
+	if len(own) == 0 || !bytes.Equal(g.MemberSigningKey(sender), own) {
+		return fmt.Errorf("commit sender leaf does not carry this client's signature key")
+	}
+	return nil
+}
+
+// verifyCommit is the shared body of VerifyCommit and VerifyOwnCommit. It
+// returns the group state it verified against and the parsed message.
+func (c *Client) verifyCommit(ctx context.Context, groupID, commitBytes []byte) (*group.Group, *framing.PublicMessage, error) {
 	if len(commitBytes) == 0 {
-		return ErrEmptyCommit
+		return nil, nil, ErrEmptyCommit
 	}
 	c.mu.Lock()
 	if err := c.checkOpen(); err != nil {
 		c.mu.Unlock()
-		return err
+		return nil, nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		c.mu.Unlock()
-		return err
+		return nil, nil, err
 	}
 	entry := c.getOrCreateEntryLocked(groupCacheKeyBytes(groupID))
 	c.mu.Unlock()
@@ -1547,29 +1574,32 @@ func (c *Client) VerifyCommit(ctx context.Context, groupID, commitBytes []byte) 
 
 	g, err := c.loadGroupEntry(ctx, groupID, entry)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	msg, err := framing.UnmarshalMLSMessage(commitBytes)
 	if err != nil {
-		return fmt.Errorf("parsing commit message: %w", err)
+		return nil, nil, fmt.Errorf("parsing commit message: %w", err)
 	}
 	pub, ok := msg.AsPublic()
 	if !ok {
-		return fmt.Errorf("commit is not a public message")
+		return nil, nil, fmt.Errorf("commit is not a public message")
 	}
 	if pub.Content.ContentType() != framing.ContentTypeCommit {
-		return fmt.Errorf("message is not a commit")
+		return nil, nil, fmt.Errorf("message is not a commit")
 	}
 	if pub.Content.Sender.Type != framing.SenderTypeMember {
-		return fmt.Errorf("commit sender is not a member")
+		return nil, nil, fmt.Errorf("commit sender is not a member")
 	}
 	if !bytes.Equal(pub.Content.GroupID, groupID) {
-		return fmt.Errorf("commit is for another group")
+		return nil, nil, fmt.Errorf("commit is for another group")
 	}
 	if pub.Content.Epoch != g.Epoch().AsUint64() {
-		return fmt.Errorf("commit epoch %d is not the current epoch %d", pub.Content.Epoch, g.Epoch().AsUint64())
+		return nil, nil, fmt.Errorf("commit epoch %d is not the current epoch %d", pub.Content.Epoch, g.Epoch().AsUint64())
 	}
-	return g.VerifyPublicMessage(pub)
+	if err := g.VerifyPublicMessage(pub); err != nil {
+		return nil, nil, err
+	}
+	return g, pub, nil
 }
 
 // Export derives exporter secret material for the current epoch using the

@@ -115,6 +115,11 @@ type Engine interface {
 	// tell a real one from bytes a peer made up.
 	VerifyCommit(ctx context.Context, gid GroupID, commit []byte) error
 
+	// VerifyOwnCommit is VerifyCommit for a commit this member's own leaf
+	// made: the sender must be this member's leaf index in our tree, with this
+	// member's own signature key.
+	VerifyOwnCommit(ctx context.Context, gid GroupID, commit []byte) error
+
 	// Remove evicts the member with the given credential, returning a commit
 	// that every remaining member must apply. After it takes effect the removed
 	// member can no longer decrypt new messages (post-compromise security).
@@ -365,6 +370,13 @@ func (e *mlsEngine) ApplyCommit(ctx context.Context, gid GroupID, commit []byte)
 func (e *mlsEngine) VerifyCommit(ctx context.Context, gid GroupID, commit []byte) error {
 	if err := e.c.VerifyCommit(ctx, gid, commit); err != nil {
 		return fmt.Errorf("mls: verify commit: %w", err)
+	}
+	return nil
+}
+
+func (e *mlsEngine) VerifyOwnCommit(ctx context.Context, gid GroupID, commit []byte) error {
+	if err := e.c.VerifyOwnCommit(ctx, gid, commit); err != nil {
+		return fmt.Errorf("mls: verify own commit: %w", err)
 	}
 	return nil
 }

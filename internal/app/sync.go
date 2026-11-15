@@ -498,17 +498,13 @@ func (s *Service) coalesceSync(key string, fn func() error) error {
 }
 
 // ownLostCommit reports whether a commit that this device could not apply is
-// one its own leaf made at its current epoch: sent by this device's own
-// credential, and verifying against its tree (mls VerifyCommit). That is the
-// only commit a device can be stuck on for good, since it holds no path secret
-// for its own lost commit; another committer's it can apply. It is the proof
-// noteBehind requires, and only this device's key can produce it.
+// one its own leaf made at its current epoch: sent from this device's own leaf
+// index in its tree, under this device's own signature key, and verifying
+// against that tree (mls VerifyOwnCommit). That is the only commit a device
+// can be stuck on for good, since it holds no path secret for its own lost
+// commit; another member's it can apply. It is the proof noteBehind requires.
 func (s *Service) ownLostCommit(groupID, commit []byte) bool {
-	sender, err := s.mls.CommitSender(s.ctx, groupID, commit)
-	if err != nil || !bytes.Equal(sender, s.myCredential) {
-		return false
-	}
-	return s.mls.VerifyCommit(s.ctx, groupID, commit) == nil
+	return s.mls.VerifyOwnCommit(s.ctx, groupID, commit) == nil
 }
 
 // noteForkedPeer records that p served a payload we could not read while
