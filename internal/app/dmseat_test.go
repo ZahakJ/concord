@@ -116,3 +116,45 @@ func TestAnOfferThatLeftAGuildOutIsMadeAgain(t *testing.T) {
 	waitUntil(t, 60*time.Second, func() bool { return holdsGuild(phone, g.ID) },
 		"the phone never got the guild its first offer left out")
 }
+
+// Closing a service stops its pending re-offers, and a re-offer that fires
+// anyway once the service is closing does nothing at all: it must not greet
+// through a host and store that are being torn down.
+func TestReofferStopsWhenTheServiceCloses(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc := startServiceOn(t, ctx, t.TempDir(), testRendezvous(t, ctx))
+	p := svc.host.PeerID() // any peer; nothing is sent to it
+
+	saved := offerGapBackoff
+	offerGapBackoff = []time.Duration{time.Hour}
+	t.Cleanup(func() { offerGapBackoff = saved })
+	svc.noteOfferGaps(p, []string{"some-guild"})
+	svc.offerGapMu.Lock()
+	timer := svc.offerGaps[p].timer
+	svc.offerGapMu.Unlock()
+
+	_ = svc.Close()
+	svc.offerGapMu.Lock()
+	left := len(svc.offerGaps)
+	svc.offerGapMu.Unlock()
+	if left != 0 || timer.Stop() {
+		t.Fatalf("Close left re-offers pending (%d entries, timer still armed: %v)", left, timer.Stop())
+	}
+
+	// A re-offer already past its timer when Close ran. Were it to go on, it
+	// would find no connection and drop this entry; returning first leaves it.
+	svc.offerGapMu.Lock()
+	svc.offerGaps[p] = &offerGap{}
+	svc.offerGapMu.Unlock()
+	svc.reoffer(p)
+	svc.offerGapMu.Lock()
+	_, kept := svc.offerGaps[p]
+	svc.offerGapMu.Unlock()
+	if !kept {
+		t.Fatal("a re-offer ran on a closed service")
+	}
+}

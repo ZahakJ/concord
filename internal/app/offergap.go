@@ -89,6 +89,12 @@ func (s *Service) noteOfferGaps(p peer.ID, missing []string) {
 
 // reofferOnCommitterConnect offers again to every device of ours whose last
 // offer left out a guild that the newly connected peer's account commits in.
+//
+// It runs on connect and again from peerResolved, and one connection counts
+// once: a peer that already resolves to its account at connect (an original
+// device, or one whose certificate we hold) never reaches peerResolved, which
+// runs only when a hello changes what the peer resolves to; one that does
+// not resolves to its own device key at connect, which commits in nothing.
 func (s *Service) reofferOnCommitterConnect(q peer.ID) {
 	f := s.presence(q).Fingerprint
 	if f == "" || f == s.id.Fingerprint() {
@@ -110,12 +116,27 @@ func (s *Service) reofferOnCommitterConnect(q peer.ID) {
 
 // reoffer greets our device p again, which composes and sends a fresh offer.
 func (s *Service) reoffer(p peer.ID) {
+	if s.ctx.Err() != nil {
+		return // closing: the store and host are going away under us
+	}
 	if !s.host.HasConnection(p) || !s.ownDevice(p) {
 		s.forgetOfferGap(p)
 		return
 	}
 	s.greeted.release(p)
 	s.greet(p)
+}
+
+// stopOfferGaps stops every pending re-offer, for Close.
+func (s *Service) stopOfferGaps() {
+	s.offerGapMu.Lock()
+	for p, gap := range s.offerGaps {
+		if gap.timer != nil {
+			gap.timer.Stop()
+		}
+		delete(s.offerGaps, p)
+	}
+	s.offerGapMu.Unlock()
 }
 
 // forgetOfferGap drops the state for p; its next connection starts afresh.

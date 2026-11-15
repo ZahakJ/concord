@@ -2497,6 +2497,7 @@ func (s *Service) Close() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	s.stopOfferGaps()
 	if s.peers != nil {
 		// Flush past the write throttle: everything learned in the last few
 		// seconds of a session is exactly what the next launch wants.
