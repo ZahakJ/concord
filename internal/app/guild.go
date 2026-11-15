@@ -901,6 +901,12 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	if err != nil {
 		return domain.Guild{}, err
 	}
+	// A guild id of any other shape than the one every client mints is
+	// refused, unless it names a guild already on this device: nothing
+	// that is already here may become unreachable.
+	if !s.admitsInviteGuild(ic.GuildID) {
+		return domain.Guild{}, errors.New("app: bad invite code")
+	}
 	// Cleared even if the join then fails (owner offline): the intent stands,
 	// and a half-lifted state would leave the user unable to be re-offered the
 	// guild they are actively trying to re-enter.
@@ -1133,6 +1139,12 @@ func (s *Service) redeemInvite(ic inviteCode, held *domain.Guild) (domain.Guild,
 		log.Printf("concord/app: guild %s: the inviter re-seated us in reply to a membership probe", ic.GuildID)
 	}
 
+	// The record the inviter sends must be the guild the code names, and its
+	// channels and categories must be well formed (sanitizeChannelRefs).
+	if resp.Guild.ID != ic.GuildID {
+		return domain.Guild{}, fmt.Errorf("app: invite answered with a different guild")
+	}
+	sanitizeGuildRecord(&resp.Guild)
 	if _, err := s.mls.Join(s.ctx, resp.Welcome); err != nil {
 		return domain.Guild{}, fmt.Errorf("app: join group: %w", err)
 	}
@@ -3375,7 +3387,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		}
 		return
 	case "channel_added":
-		if !s.mayAddChannel(guildID, actor, m.Channel) {
+		if !sanitizeChannelRefs(&m.Channel) || !s.mayAddChannel(guildID, actor, m.Channel) {
 			return
 		}
 		// Refuse to bind a channel ID that already belongs to another guild — a
@@ -3399,7 +3411,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 			s.deliverMessage(*o, msg.SenderID)
 		}
 	case "channel_updated":
-		if m.Channel.ID == "" {
+		if m.Channel.ID == "" || !sanitizeChannelRefs(&m.Channel) {
 			return
 		}
 		if !s.memberHasPerm(guildID, actor, PermManageChannels) || !s.channelInGuild(m.Channel.ID, guildID) {
@@ -3440,7 +3452,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		s.settleChannelLayout(guildID)
 		s.emitGuildUpdate()
 	case "category_added":
-		if m.Category.ID == "" {
+		if !validEntityID(m.Category.ID) {
 			return
 		}
 		if !s.memberHasPerm(guildID, actor, PermManageChannels) {
@@ -4039,6 +4051,71 @@ func ownerAddrInfo(ic inviteCode) (peer.AddrInfo, error) {
 		addrs = append(addrs, ma)
 	}
 	return peer.AddrInfo{ID: pid, Addrs: addrs}, nil
+}
+
+// validEntityID admits a guild, channel, category or thread id of the one
+// shape every client has ever minted (domain.NewID: 16 random bytes as 32
+// lowercase hex). Applied where such an id first arrives from a peer.
+func validEntityID(id string) bool {
+	if len(id) != 32 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// sanitizeChannelRefs holds a channel record from a peer to the id shape:
+// its own id must be well formed (false refuses the record), a thread's
+// parent too; a malformed category or link is dropped as advisory layout.
+func sanitizeChannelRefs(ch *domain.Channel) bool {
+	if !validEntityID(ch.ID) {
+		return false
+	}
+	if ch.Parent != "" && !validEntityID(ch.Parent) {
+		return false
+	}
+	if ch.Category != "" && !validEntityID(ch.Category) {
+		ch.Category = ""
+	}
+	if len(ch.Links) > 0 {
+		keep := ch.Links[:0:0]
+		for _, l := range ch.Links {
+			if validEntityID(l) {
+				keep = append(keep, l)
+			}
+		}
+		ch.Links = keep
+	}
+	return true
+}
+
+// admitsInviteGuild: an invite may name a well-formed guild id, or any id of
+// a guild this device already holds.
+func (s *Service) admitsInviteGuild(id string) bool {
+	if validEntityID(id) {
+		return true
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, known := s.guilds[id]
+	return known
+}
+
+// sanitizeGuildRecord drops the channels and categories of a guild record
+// from a peer whose ids are malformed, and malformed references in the rest.
+func sanitizeGuildRecord(g *domain.Guild) {
+	keep := g.Channels[:0:0]
+	for _, ch := range g.Channels {
+		if sanitizeChannelRefs(&ch) {
+			keep = append(keep, ch)
+		}
+	}
+	g.Channels = keep
 }
 
 // presetPrefix marks a banner that names an entry in the client's preset

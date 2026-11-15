@@ -983,7 +983,7 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 	// Channels created while we were away (addChannel is idempotent and
 	// subscribes topics); adopt a rename the same way receiveGuildMeta would.
 	for _, ch := range payload.Guild.Channels {
-		if ch.ID == "" {
+		if !sanitizeChannelRefs(&ch) {
 			continue
 		}
 		ch.GuildID = guildID
@@ -1068,7 +1068,7 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 		s.learnProfile(fpr, p)
 	}
 	for _, c := range payload.Categories {
-		if c.ID != "" {
+		if validEntityID(c.ID) {
 			c.GuildID = guildID
 			_ = s.store.SaveCategory(c)
 		}
