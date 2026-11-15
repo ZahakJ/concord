@@ -99,7 +99,7 @@ type Service struct {
 	syncedAt map[string]time.Time
 	// requestSync is the transport a catch-up asks over; unset means the
 	// host's sync protocol. Tests put a hand on it to hold a request open, or
-	// to answer as a peer that lies; atomic, because the service's own
+	// to answer as some other peer would; atomic, because the service's own
 	// catch-ups read it while a test swaps it.
 	requestSync atomic.Pointer[syncAskFunc]
 	// requestInvite is the transport a heal asks over; unset means the host's

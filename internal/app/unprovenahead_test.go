@@ -9,19 +9,16 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-// NR-01. A seated member that is not a committer answers the owner's sync with
-// a made-up claim to be far ahead. Neither form of the claim may freeze the
-// owner's copy:
-//   - an EpochGap with an inflated epoch (no commit can come with it);
-//   - an unreadable payload at an inflated epoch, served after a replayed,
-//     genuine commit of the owner's from an earlier epoch, so that the owner's
-//     own leaf is named as its author.
+// An answer that says the guild stands far ahead, with no commit this copy can
+// verify behind it, is a claim and does not bar the owner's copy. Two shapes:
+//   - an EpochGap at a much higher epoch (no commit can come with it);
+//   - an unreadable payload at a much higher epoch, after an owner commit from
+//     an earlier epoch, which names the owner's own leaf but is not for this
+//     epoch.
 //
 // Each is still recorded as a claim (the copy does not call itself alone, and
 // a heal may ask that peer), and a readable answer drops the claim.
-//
-// Ported from the reviewer's probe (notesheal-review.md, NR-01).
-func TestForgedAheadDoesNotFreezeOwner(t *testing.T) {
+func TestUnprovenAheadDoesNotBarOwner(t *testing.T) {
 	if testing.Short() {
 		t.Skip("network integration test")
 	}
@@ -38,22 +35,22 @@ func TestForgedAheadDoesNotFreezeOwner(t *testing.T) {
 	if err != nil || len(rows) == 0 {
 		t.Fatalf("setup: the owner logged no commit of its own to replay (%v)", err)
 	}
-	replayed := rows[0].Commit
-	if !u.commitAuthorized(gid, groupID, replayed) {
-		t.Fatal("setup: the replayed commit does not name an authorized committer")
+	earlier := rows[0].Commit
+	if !u.commitAuthorized(gid, groupID, earlier) {
+		t.Fatal("setup: the earlier commit does not name an authorized committer")
 	}
 
-	forgeries := map[string]syncResponse{
+	answers := map[string]syncResponse{
 		"an EpochGap far ahead": {EpochGap: true, Epoch: cur + 1000},
-		"an unreadable payload far ahead, after a replayed owner commit": {
-			Commits: [][]byte{replayed}, Epoch: cur + 1000, Payload: []byte("not a ciphertext"),
+		"an unreadable payload far ahead, after an earlier-epoch owner commit": {
+			Commits: [][]byte{earlier}, Epoch: cur + 1000, Payload: []byte("not a ciphertext"),
 		},
 	}
-	for name, forged := range forgeries {
-		lie := syncAskFunc(func(ctx context.Context, to peer.ID, req []byte) ([]byte, error) {
-			return json.Marshal(forged)
+	for name, answer := range answers {
+		reply := syncAskFunc(func(ctx context.Context, to peer.ID, req []byte) ([]byte, error) {
+			return json.Marshal(answer)
 		})
-		u.requestSync.Store(&lie)
+		u.requestSync.Store(&reply)
 		_ = u.syncGuildFromPeerOnce(gid, p.host.PeerID())
 		u.requestSync.Store(nil)
 
@@ -61,7 +58,7 @@ func TestForgedAheadDoesNotFreezeOwner(t *testing.T) {
 			t.Errorf("%s: not even recorded as a claim", name)
 		}
 		if u.behindProven(gid) || u.CannotRepairHere(gid) {
-			t.Errorf("%s: the owner's copy is barred on a member's word", name)
+			t.Errorf("%s: the owner's copy is barred on an unproven claim", name)
 		}
 		if v, _ := u.store.GetSetting(behindSeenPrefix + gid); v != "" {
 			t.Errorf("%s: a claim was persisted as the latch: %q", name, v)
@@ -86,7 +83,7 @@ func TestForgedAheadDoesNotFreezeOwner(t *testing.T) {
 		}
 	}
 	if err := u.KickMember(gid, p.Fingerprint(), ""); err != nil {
-		t.Errorf("the owner cannot kick the forger: %v", err)
+		t.Errorf("the owner cannot kick that member: %v", err)
 	}
 }
 

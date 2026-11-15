@@ -881,9 +881,9 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 		applied := 0
 		// proven is set when a commit our own leaf made at our current epoch
 		// verifies against our tree and still cannot be applied
-		// (ownLostCommit): the one thing a peer cannot make up about being
-		// ahead of us (see noteBehind). The epoch numbers in this response are
-		// only the peer's word.
+		// (ownLostCommit): evidence of being behind that only this device's
+		// own key can have produced (see noteBehind). The epoch numbers in this
+		// response are only the peer's word.
 		proven := false
 		for _, c := range resp.Commits {
 			// Same governance gate as the live control topic: a peer serving us

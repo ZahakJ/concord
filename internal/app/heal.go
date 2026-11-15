@@ -352,7 +352,7 @@ func (s *Service) noteBehind(guildID string, epoch uint64) {
 // from resolving the stranding by itself, keeps the banner from calling the
 // copy alone, and lets the heal ask the peer that made it; it bars nothing.
 // It lives in memory only and is dropped at the next readable answer from any
-// member (dropBehindClaim), so a made-up claim lasts until the next sync.
+// member (dropBehindClaim), so an unproven claim lasts until the next readable answer.
 //
 // An honest claim is how a Notes copy restored to before its phone was linked
 // learns it is behind: the phone's log starts at its own join, so it can only
