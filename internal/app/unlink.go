@@ -330,7 +330,7 @@ func (s *Service) removeDeviceLeaves(devicePub []byte) (failed, pending []Unlink
 				continue
 			}
 			// The same rule the other members apply to our commit.
-			if !s.authorizedCommitter(g.id, s.myCredential) {
+			if !s.authorizedCommitter(g.id, s.myCredential) || s.mintBarred(g.id) != nil {
 				pending = append(pending, s.unlinkSpot(g.id, g.name, g.kind, g.groupID))
 				break
 			}

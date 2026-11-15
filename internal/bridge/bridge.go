@@ -3341,7 +3341,7 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 		CanManage:        svc.CanManageMembers(g.ID),
 		MyPerms:          uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
 		Icon:             g.Icon, Banner: g.Banner, Description: g.Description,
-		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
+		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID) || svc.CannotRepairHere(g.ID),
 		Evicted: svc.EvictedFrom(g.ID), EvictedReason: svc.EvictedReason(g.ID),
 		Alone:        svc.AloneInGuild(g.ID),
 		CannotRepair: svc.CannotRepairHere(g.ID),

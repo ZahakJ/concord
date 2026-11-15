@@ -643,6 +643,9 @@ func (s *Service) BanMember(guildID, targetFpr, reason string) error {
 	if !s.canManageMembers(guildID) {
 		return fmt.Errorf("app: you don't have permission to ban members")
 	}
+	if err := s.mintBarred(guildID); err != nil {
+		return err
+	}
 	if !s.outranks(guildID, s.id.Fingerprint(), targetFpr) {
 		return errOutranked
 	}
@@ -664,6 +667,9 @@ func (s *Service) BanMember(guildID, targetFpr, reason string) error {
 func (s *Service) KickMember(guildID, targetFpr, reason string) error {
 	if !s.canManageMembers(guildID) {
 		return fmt.Errorf("app: you don't have permission to remove members")
+	}
+	if err := s.mintBarred(guildID); err != nil {
+		return err
 	}
 	if targetFpr == "" {
 		return fmt.Errorf("app: no member given")
@@ -690,6 +696,9 @@ func (s *Service) KickMember(guildID, targetFpr, reason string) error {
 func (s *Service) ReadmitMember(guildID, targetFpr string) error {
 	if !s.canManageMembers(guildID) {
 		return fmt.Errorf("app: you don't have permission to manage members")
+	}
+	if err := s.mintBarred(guildID); err != nil {
+		return err
 	}
 	if targetFpr == "" {
 		return fmt.Errorf("app: no member given")

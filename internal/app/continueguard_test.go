@@ -52,7 +52,7 @@ func runContinueGuard(t *testing.T, c guardCase) {
 		}
 		return svc
 	}
-	uDir, pDir, qDir, tDir := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
+	uDir, pDir, qDir, tDir, rDir := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
 	u, p := start(uDir), start(pDir)
 	var q, r, tab *Service
 	defer func() {
@@ -120,12 +120,48 @@ func runContinueGuard(t *testing.T, c guardCase) {
 			if err := r.LeaveGuild(g.ID); err != nil {
 				t.Fatal(err)
 			}
+			// The leave announcement is best effort. If it went astray, do
+			// what U's leave handler does on hearing it: remove R's leaf, with
+			// no kick on record.
+			deadline := time.Now().Add(30 * time.Second)
+			for memberCount(u, g.ID) != 2 && time.Now().Before(deadline) {
+				time.Sleep(200 * time.Millisecond)
+			}
+			if memberCount(u, g.ID) != 2 {
+				creds, err := u.GuildMembers(g.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, cred := range creds {
+					if accountFingerprintOf(cred) == r.Fingerprint() {
+						if err := u.RemoveMember(g.ID, cred); err != nil {
+							t.Fatalf("removing R's leaf: %v", err)
+						}
+					}
+				}
+			}
 			waitMemberCount(t, 90*time.Second, g.ID, 2, u, p)
 		} else {
 			members = 3
 		}
 		_ = r.Close()
 		r = nil
+	}
+	if c == guardSole {
+		// R is an ordinary member who goes offline before U admits Q, so R
+		// stays at the epoch U is restored to: a member U can read.
+		r = start(rDir)
+		code, err := u.InviteCode(g.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.JoinViaInvite(code); err != nil {
+			t.Fatalf("R join: %v", err)
+		}
+		waitMemberCount(t, 90*time.Second, g.ID, 3, u, p, r)
+		_ = r.Close()
+		r = nil
+		members = 3
 	}
 
 	// The backup: U's data dir as it stood before it admitted Q.
@@ -211,6 +247,28 @@ func runContinueGuard(t *testing.T, c guardCase) {
 	u = nil
 	u = start(uDir)
 	refused("after a restart")
+
+	// R comes back, still at U's old epoch, and answers U readably. That must
+	// not reopen the dead copy: no admission, no kick, no readmit.
+	r = start(rDir)
+	waitFor(t, 60*time.Second, func() bool { return len(u.memberPeers(g.ID)) > 0 }, "R never reached U")
+	u.recoverOutOfSync(g.ID)
+	refused("with a member at the old epoch online")
+	if err := u.KickMember(g.ID, r.Fingerprint(), ""); !errors.Is(err, ErrBehindOnlyCommitter) {
+		t.Fatalf("KickMember on the dead copy: err=%v, want ErrBehindOnlyCommitter", err)
+	}
+	if err := u.ReadmitMember(g.ID, r.Fingerprint()); !errors.Is(err, ErrBehindOnlyCommitter) {
+		t.Fatalf("ReadmitMember on the dead copy: err=%v, want ErrBehindOnlyCommitter", err)
+	}
+	sDir := t.TempDir()
+	sv := start(sDir)
+	defer func() { _ = sv.Close() }()
+	if code, err := u.InviteCode(g.ID); err == nil {
+		if _, err := sv.JoinViaInvite(code); err == nil {
+			t.Fatal("the dead copy admitted a newcomer")
+		}
+	}
+	refused("after the refused admission")
 }
 
 // copyDataDir copies a stopped device's data directory, the way restoring a
@@ -256,4 +314,85 @@ func assertBehindCleared(t *testing.T, s *Service, guildID string) {
 	if s.CannotRepairHere(guildID) {
 		t.Fatal("a device that caught up still says it cannot be repaired")
 	}
+}
+
+// A device that only learns the guild's commits from peers that report no
+// epoch (an older build) still clears its latch once it stands level, and a
+// latch on a device that is not the only committer does not raise the flag at
+// startup.
+func TestBehindLatchClearsAndStartupFlag(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	boot := testRendezvous(t, ctx)
+	start := func(dir string) *Service {
+		t.Helper()
+		svc, err := Start(ctx, Config{
+			DataDir: dir, Passphrase: "test-pass", DisableMDNS: true,
+			BootstrapPeers: []string{boot},
+			listenAddrs:    []string{"/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/udp/0/quic-v1"},
+		})
+		if err != nil {
+			t.Fatalf("start %s: %v", dir, err)
+		}
+		return svc
+	}
+	uDir, pDir := t.TempDir(), t.TempDir()
+	u, p := start(uDir), start(pDir)
+	defer func() {
+		for _, s := range []*Service{u, p} {
+			if s != nil {
+				_ = s.Close()
+			}
+		}
+	}()
+	g, err := u.CreateGuild("latched")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := u.InviteCode(g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.JoinViaInvite(code); err != nil {
+		t.Fatalf("P join: %v", err)
+	}
+	waitMemberCount(t, 90*time.Second, g.ID, 2, u, p)
+	groupID := rhGroup(p, g.ID)
+	cur, err := p.mls.Epoch(p.ctx, groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Latched where P stands: a readable answer from a peer that reports no
+	// epoch (an older build) clears it.
+	p.noteBehind(g.ID, cur)
+	p.clearBehindIfLevel(g.ID, groupID)
+	if p.behindLatched(g.ID) {
+		t.Fatal("a device level with its latch kept it after a readable answer without an epoch")
+	}
+	// Latched above where P stands: the same answer changes nothing.
+	p.noteBehind(g.ID, cur+1)
+	p.clearBehindIfLevel(g.ID, groupID)
+	if !p.behindLatched(g.ID) {
+		t.Fatal("a readable answer cleared the latch while P is still behind it")
+	}
+	// P is not the guild's only committer (it is not even the owner): a restart
+	// keeps the latch but does not raise the flag.
+	_ = p.Close()
+	p = start(pDir)
+	if !p.behindLatched(g.ID) {
+		t.Fatal("the latch did not survive a restart")
+	}
+	if p.OutOfSync(g.ID) {
+		t.Fatal("a device that is not the only committer was flagged at startup by its latch")
+	}
+}
+
+func rhGroup(s *Service, guildID string) []byte {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.guilds[guildID].GroupID
 }

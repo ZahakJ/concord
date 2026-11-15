@@ -196,6 +196,12 @@ func (s *Service) lingerAdmission(b *admissionBatch) {
 // so a wave in which several joiners are retrying still costs two epochs and
 // not two per joiner.
 func (s *Service) commitAdmissions(g *domain.Guild, tickets []*admissionTicket) {
+	if s.mintBarred(g.ID) != nil {
+		for _, t := range tickets {
+			t.err = "inviter is catching up; ask another member"
+		}
+		return
+	}
 	served := s.admitRound(g, tickets)
 
 	var retry []*admissionTicket

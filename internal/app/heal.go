@@ -305,14 +305,16 @@ func (s *Service) behindLatched(guildID string) bool {
 	return s.behindSeen[guildID] > 0
 }
 
-// clearBehindIfLevel drops the latch after a readable answer from a peer at or
-// past the latched epoch, once this device stands there too. A readable answer
-// from a member at an older epoch proves nothing about the branch that was ahead.
-func (s *Service) clearBehindIfLevel(guildID string, groupID []byte, peerEpoch uint64) {
+// clearBehindIfLevel drops the latch after a readable answer once this device
+// itself stands at or past the latched epoch, whatever epoch the peer reports
+// (an older build reports none). mintBarred is what makes that safe: a device
+// the latch could trap mints no commits, so it can only have got there by
+// applying the guild's own.
+func (s *Service) clearBehindIfLevel(guildID string, groupID []byte) {
 	s.mu.RLock()
 	seen := s.behindSeen[guildID]
 	s.mu.RUnlock()
-	if seen == 0 || peerEpoch < seen {
+	if seen == 0 {
 		return
 	}
 	if cur, err := s.mls.Epoch(s.ctx, groupID); err != nil || cur < seen {
@@ -334,10 +336,11 @@ func (s *Service) clearBehind(guildID string) {
 	s.emitGuildUpdate()
 }
 
-// loadBehindSeen restores the latch at startup, and with it the out-of-sync
-// flag: the group state on disk still reads as a healthy guild, so without this
-// a restart would lower the banner, re-enable admissions, and offer nothing to
-// say the copy is behind until a member who is ahead happened to answer.
+// loadBehindSeen restores the latch at startup. Where the latch traps the
+// device (CannotRepairHere) it raises the out-of-sync flag too: the group state
+// on disk reads as a healthy guild, and the banner would otherwise stay down
+// until a member who is ahead happened to answer. Elsewhere a re-add can still
+// come, and the ordinary sync finds out soon enough whether one is needed.
 func (s *Service) loadBehindSeen() {
 	s.mu.RLock()
 	ids := make([]string, 0, len(s.guilds))
@@ -356,11 +359,28 @@ func (s *Service) loadBehindSeen() {
 		}
 		s.mu.Lock()
 		s.behindSeen[id] = epoch
-		if s.evicted[id] == "" {
-			s.outOfSync[id] = true
-		}
 		s.mu.Unlock()
+		if s.CannotRepairHere(id) {
+			s.mu.Lock()
+			if s.evicted[id] == "" {
+				s.outOfSync[id] = true
+			}
+			s.mu.Unlock()
+		}
 	}
+}
+
+// mintBarred refuses any membership commit, or governance act standing in for
+// one, from a copy that CannotRepairHere: the latch, not the out-of-sync flag,
+// is the guard, because the flag has more than one way down. Without new
+// commits of its own, this device's epoch can reach the latched one only by
+// applying the real guild's commits, which is what lets a readable answer at
+// that epoch clear the latch safely.
+func (s *Service) mintBarred(guildID string) error {
+	if s.CannotRepairHere(guildID) {
+		return ErrBehindOnlyCommitter
+	}
+	return nil
 }
 
 // resolveStranding is ResolveStranding without the guard, for the case the

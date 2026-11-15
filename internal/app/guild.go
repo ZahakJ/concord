@@ -736,6 +736,9 @@ func (s *Service) RemoveMember(guildID string, memberCredential []byte) error {
 	if !s.canManageMembers(guildID) {
 		return fmt.Errorf("app: you don't have permission to remove members")
 	}
+	if err := s.mintBarred(guildID); err != nil {
+		return err
+	}
 	// Compare on the account fingerprint so a device leaf is recognized as its
 	// account (owner protection and self-check must hold across all of an
 	// account's devices) — against the EFFECTIVE owner, so a transferred crown
@@ -1238,7 +1241,7 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	// they would fork the group at a dead epoch and drag the joiner onto the
 	// fork. Refusing makes the requester try another committer (heals iterate
 	// candidates), which is strictly better than serving them poison.
-	if s.OutOfSync(req.GuildID) {
+	if s.OutOfSync(req.GuildID) || s.mintBarred(req.GuildID) != nil {
 		return json.Marshal(inviteResponse{Error: "inviter is catching up; ask another member"})
 	}
 

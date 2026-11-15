@@ -908,8 +908,10 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 			// wiped seconds later by somebody on ours, the flag never latched,
 			// and no heal was ever attempted. Withdraw the evidence against this
 			// peer, and clear the guild only when none stands.
-			s.clearBehindIfLevel(guildID, guild.GroupID, resp.Epoch)
-			if !s.clearForkedPeer(guildID, p) {
+			// A member still at an old epoch answers readably too. While the
+			// latch traps this copy, that proves nothing: the flag stays up.
+			s.clearBehindIfLevel(guildID, guild.GroupID)
+			if !s.clearForkedPeer(guildID, p) && !s.CannotRepairHere(guildID) {
 				s.setOutOfSync(guildID, false)
 			}
 		} else if cur, err := s.mls.Epoch(s.ctx, guild.GroupID); err == nil && resp.Epoch >= cur {
