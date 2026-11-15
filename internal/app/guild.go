@@ -1693,7 +1693,25 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName, dir strin
 
 // sendAsWith is sendAs with a hook that sees the finished, signed message just
 // before it is published, and can stop the send by returning an error.
+//
+// A plain message written here by the user moves the user's own read mark
+// (see sendCore). System notices, invites, call notices and relayed guest
+// messages are not the user reading anything, and do not.
 func (s *Service) sendAsWith(channelID, content, kind, replyTo, guestName, dir string, beforePublish func(domain.Message) error) (domain.Message, error) {
+	return s.sendCore(channelID, content, kind, replyTo, guestName, dir, beforePublish, kind == "" && guestName == "")
+}
+
+// sendScheduled posts a message the user queued earlier. It fires whether or
+// not anyone is looking, so it does not move the read mark: that would clear
+// the unread badges here and on every own device, and, with read receipts on,
+// report as read whatever arrived since.
+func (s *Service) sendScheduled(channelID, content, replyTo string) (domain.Message, error) {
+	return s.sendCore(channelID, content, "", replyTo, "", "", nil, false)
+}
+
+// sendCore is the one send path. markRead says whether the user is writing in
+// the chat now, which means having read it up to the message.
+func (s *Service) sendCore(channelID, content, kind, replyTo, guestName, dir string, beforePublish func(domain.Message) error, markRead bool) (domain.Message, error) {
 	s.mu.RLock()
 	guildID, ok := s.channelToGuild[channelID]
 	var groupID []byte
@@ -1846,7 +1864,7 @@ func (s *Service) sendAsWith(channelID, content, kind, replyTo, guestName, dir s
 	s.emitMessage(msg)
 	// Writing in a chat means having read it up to here: our own message must
 	// not sit past our own read mark, here or on our other devices.
-	if guestName == "" {
+	if markRead {
 		_, _ = s.MarkRead(channelID, msg.Sent.UnixMilli())
 	}
 	return msg, nil
