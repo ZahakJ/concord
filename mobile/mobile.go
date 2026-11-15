@@ -32,6 +32,7 @@ import (
 	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/bridge"
 	"github.com/ZahakJ/concord/internal/httpapi"
+	"github.com/ZahakJ/concord/internal/store"
 	"github.com/ZahakJ/concord/internal/version"
 )
 
@@ -201,6 +202,13 @@ func (n *Node) SetEventSink(sink EventSink) {
 			prevHidden(h)
 		}
 		emit("message-hidden", h)
+	}
+	prevChatPrefs := b.OnChatPrefs
+	b.OnChatPrefs = func(m map[string]store.ChatPref) {
+		if prevChatPrefs != nil {
+			prevChatPrefs(m)
+		}
+		emit("chat-prefs", m)
 	}
 	prevStory := b.OnStory
 	b.OnStory = func(u bridge.StoryUpdate) {

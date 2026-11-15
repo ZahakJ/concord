@@ -242,8 +242,12 @@ func newestMarks(rs map[string]int64, n int) map[string]int64 {
 func marshalHello(f helloFrame) ([]byte, error) {
 	for {
 		b, err := json.Marshal(f)
-		if err != nil || len(b) <= helloFrameBudget || len(f.ReadMarks) == 0 {
+		if err != nil || len(b) <= helloFrameBudget || (len(f.ReadMarks) == 0 && len(f.ChatPrefs) == 0) {
 			return b, err
+		}
+		if len(f.ChatPrefs) > 0 {
+			f.ChatPrefs = newestChatPrefs(f.ChatPrefs, len(f.ChatPrefs)/2)
+			continue
 		}
 		f.ReadMarks = newestMarks(f.ReadMarks, len(f.ReadMarks)/2)
 	}
@@ -277,7 +281,12 @@ func (s *Service) pushReadMarksToDevices(markers map[string]int64) {
 // and that failure is what retires it, so the next attempt finds a live one.
 // The same dead connection is what swallowed the publish.
 func (s *Service) sayReadMarks(p peer.ID, markers map[string]int64) {
-	req, err := marshalHello(helloFrame{Credential: s.myCredential, ReadMarks: markers})
+	s.sayOwnFrame(p, helloFrame{Credential: s.myCredential, ReadMarks: markers})
+}
+
+// sayOwnFrame sends a hello frame to one of our own devices, retried as above.
+func (s *Service) sayOwnFrame(p peer.ID, f helloFrame) {
+	req, err := marshalHello(f)
 	if err != nil {
 		return
 	}

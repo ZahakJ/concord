@@ -116,6 +116,10 @@ type helloFrame struct {
 	HideReq  *int64 `json:"hideReq,omitempty"`
 	HideNext int64  `json:"hideNext,omitempty"`
 	HideMore bool   `json:"hideMore,omitempty"`
+	// ChatPrefs is the account's pins and archive state (chatprefs.go), under
+	// the same rule as ReadMarks: only to and from a proven device of our own
+	// account. Older builds neither send nor read it.
+	ChatPrefs map[string]store.ChatPref `json:"chatPrefs,omitempty"`
 	// ProfileAt is the edit stamp of the profile record we could hand this
 	// peer's account over the profile stream (profilerecord.go): our own stamp
 	// to a device of our account, and to a member the stamp of the record they
@@ -200,6 +204,7 @@ func (s *Service) greet(p peer.ID) {
 		ReadMarks:    s.readMarksFor(p),
 		Receipts:     s.receiptsPrefFor(p),
 		HideReq:      s.hideReqFor(p),
+		ChatPrefs:    s.chatPrefsFor(p),
 		ProfileAt:    hint,
 	})
 	if err != nil {
@@ -307,6 +312,7 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	out.Arrived = s.arrivalsFor(from)
 	out.ReadMarks = s.readMarksFor(from)
 	out.Receipts = s.receiptsPrefFor(from)
+	out.ChatPrefs = s.chatPrefsFor(from)
 	out.ProfileAt = s.profileHintFor(from)
 	if out.Revoked == nil && s.canPlace(from) {
 		out.Credential, out.Name = s.myCredential, s.deviceLabel()
@@ -495,6 +501,7 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 		go s.adoptOfferedReadMarks(from, f.ReadMarks)
 		go s.adoptOfferedReceiptsPref(from, f.Receipts)
 		go s.adoptOfferedHides(from, f)
+		go s.adoptOfferedChatPrefs(from, f.ChatPrefs)
 	}()
 	// A revocation naming THIS device is the one thing we act on before anything
 	// else, since acting on it means we stop existing.

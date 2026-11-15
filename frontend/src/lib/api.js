@@ -424,6 +424,11 @@ export const api = {
   hideMessage: (channelID, messageID) => call("HideMessage", channelID, messageID),
   hiddenMessages: (channelID) => call("HiddenMessages", channelID),
   unhideMessage: (channelID, messageID) => call("UnhideMessage", channelID, messageID),
+  // Pins and archive state — this account's own devices only, never sent to anyone.
+  chatPrefs: () => call("ChatPrefs"),
+  setChatPinned: (chatID, pinned) => call("SetChatPinned", chatID, pinned),
+  setChatArchived: (chatID, archived) => call("SetChatArchived", chatID, archived),
+  setChatPinOrder: (chatIDs) => call("SetChatPinOrder", chatIDs),
   appVersion: () => call("AppVersion"),
   // Saved messages (bookmarks) — device-local, never on any wire.
   bookmarkMessage: (id, channelId) => call("BookmarkMessage", id, channelId),

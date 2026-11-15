@@ -97,7 +97,8 @@ type Bridge struct {
 	OnReceipts func(ReceiptsView)
 	// OnHidden fires as the "message-hidden" event when a message is hidden or
 	// unhidden with "Delete for me", here or on another of our devices.
-	OnHidden func(HiddenView)
+	OnHidden    func(HiddenView)
+	OnChatPrefs func(map[string]store.ChatPref)
 	// OnStory fires as the "story" event when a guild's stories change
 	// (GuildID "" = the expiry sweep; recheck every guild).
 	OnStory func(StoryUpdate)
@@ -980,6 +981,13 @@ func (b *Bridge) Login(passphrase string) error {
 			b.OnHidden(HiddenView{ChannelID: channelID, MessageID: messageID, Hidden: hidden})
 		}
 	})
+	svc.OnChatPrefs(func() {
+		if b.OnChatPrefs != nil {
+			if m, err := svc.ChatPrefs(); err == nil {
+				b.OnChatPrefs(m)
+			}
+		}
+	})
 	svc.OnStory(func(guildID string) {
 		if b.OnStory != nil {
 			b.OnStory(StoryUpdate{GuildID: guildID})
@@ -1068,6 +1076,43 @@ func (b *Bridge) ReadState() (map[string]int64, error) {
 		return nil, err
 	}
 	return svc.ReadState()
+}
+
+// ChatPrefs returns every chat's pin/archive record (this account's devices
+// only; never sent to anyone else).
+func (b *Bridge) ChatPrefs() (map[string]store.ChatPref, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.ChatPrefs()
+}
+
+// SetChatPinned pins or unpins a direct chat.
+func (b *Bridge) SetChatPinned(chatID string, pinned bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetChatPinned(chatID, pinned)
+}
+
+// SetChatPinOrder reorders the pinned chats (first = top).
+func (b *Bridge) SetChatPinOrder(chatIDs []string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetChatPinOrder(chatIDs)
+}
+
+// SetChatArchived archives or unarchives a direct chat.
+func (b *Bridge) SetChatArchived(chatID string, archived bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetChatArchived(chatID, archived)
 }
 
 // ToggleReaction adds/removes an emoji reaction on a message.
@@ -3971,6 +4016,18 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.MarkReadLatest(ids)
 	case "ReadState":
 		return b.ReadState()
+	case "ChatPrefs":
+		return b.ChatPrefs()
+	case "SetChatPinned":
+		return nil, b.SetChatPinned(argStr(args, 0), argBool(args, 1))
+	case "SetChatArchived":
+		return nil, b.SetChatArchived(argStr(args, 0), argBool(args, 1))
+	case "SetChatPinOrder":
+		var ids []string
+		if len(args) > 0 {
+			_ = json.Unmarshal(args[0], &ids)
+		}
+		return nil, b.SetChatPinOrder(ids)
 	case "CreateGuild":
 		return b.CreateGuild(argStr(args, 0))
 	case "CreateGuestLink":

@@ -173,6 +173,7 @@ type Service struct {
 	onGuildInvite []func(GuildInvite)
 	onReadState   []func(channelID string, at int64)
 	onHidden      []func(channelID, messageID string, hidden bool)
+	onChatPrefs   []func()
 	// onStory fires when a guild's stories change ("" = expiry sweep, several
 	// guilds may have changed). See story.go.
 	onStory []func(guildID string)

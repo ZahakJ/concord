@@ -56,6 +56,7 @@ import { dropMessage, withHidden, HIDE_TITLE, HIDE_BODY } from "./hidden.js";
 import { formatClock } from "./clockfmt.js";
 import { watchReceipts } from "./receipts.svelte.js";
 import { isBlankText } from "./compose.js";
+import { arrange, canPin, movePin, chatIdOf } from "./chatlist.js";
 import { isReading, readThrough, attention, addressedToYou, mergeUnreadChunk } from "./readstate.js";
 import {
   step as callStep,
@@ -125,6 +126,8 @@ export const S = $state({
   // NOT redeemed ([{ from, fromName, code, at }]). Until one is accepted the
   // sender has learned nothing about us — see internal/app/request.go.
   requests: [],
+  // Pinned/archived DMs: { [chatId]: { p, k, pa, a, aa } } from the backend.
+  chatPrefs: {},
 
   replyingTo: null, // message being replied to
   editing: null, // message being edited (Message.svelte owns the draft)
@@ -1715,6 +1718,62 @@ async function recomputeUnread() {
 // mark wins even when it is LOWER than this page's copy: a page whose clock ran
 // fast stored marks hours ahead in localStorage, and merging newest-wins here
 // would have restored the very marks the core repairs (readstate.go).
+// ---- pinned and archived chats ----
+// The records live in the backend (encrypted store, synced only between this
+// account's own devices); the UI mirrors them and re-reads on the chat-prefs
+// event. Ordering rules are in lib/chatlist.js.
+async function syncChatPrefs() {
+  try {
+    S.chatPrefs = (await api.chatPrefs()) || {};
+  } catch {
+    /* backend without pins — the list just stays in activity order */
+  }
+}
+
+export function chatId(dm) {
+  return chatIdOf(dm);
+}
+
+export async function setChatPinned(dm, pinned) {
+  const id = chatIdOf(dm);
+  if (!id) return;
+  if (pinned) {
+    const can = canPin(dmList(), S.chatPrefs);
+    if (!can.ok) return flash(can.message, "error");
+  }
+  try {
+    await api.setChatPinned(id, pinned);
+    await syncChatPrefs();
+  } catch (e) {
+    flash(e);
+  }
+}
+
+export async function setChatArchived(dm, archived) {
+  const id = chatIdOf(dm);
+  if (!id) return;
+  try {
+    await api.setChatArchived(id, archived);
+    await syncChatPrefs();
+    if (archived) {
+      // Archiving is tidying, not muting; say so once.
+      flash("Archived. It stays out of your list when new messages arrive, and still notifies as before. Mute it to silence it.");
+    }
+  } catch (e) {
+    flash(e);
+  }
+}
+
+export async function moveChatPin(dm, dir) {
+  const ids = movePin(arrange(dmList(), S.chatPrefs).pinned, chatIdOf(dm), dir);
+  try {
+    await api.setChatPinOrder(ids);
+    await syncChatPrefs();
+  } catch (e) {
+    flash(e);
+  }
+}
+
 async function syncReadState() {
   try {
     adoptMarks((await api.readState()) || {});
@@ -2804,6 +2863,7 @@ export async function onLogin() {
   // Adopt reads that happened in other sessions/devices BEFORE counting, so
   // badges cleared elsewhere stay cleared here.
   await syncReadState();
+  await syncChatPrefs();
   recomputeUnread();
   refreshInbox({ soon: true });
   refreshNetStatus();
@@ -4275,6 +4335,9 @@ function initEvents() {
   // Another session (a second window) or another linked device advanced a
   // channel's read cursor: adopt it and re-count that channel's badge, so a
   // message read anywhere clears (or trims) the badge here immediately.
+  on("chat-prefs", (m) => {
+    S.chatPrefs = m || {};
+  });
   on("read-state", async (r) => {
     if (!r?.channelId || !r?.at) return;
     const local = own(lastRead, r.channelId) ? Date.parse(own(lastRead, r.channelId)) : 0;

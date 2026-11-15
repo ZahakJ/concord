@@ -68,6 +68,7 @@
   import { MOM } from "./lib/momentsunseen.svelte.js";
   import { tooltip } from "./lib/tooltip.js";
   import { tick } from "svelte";
+  import { isArchived } from "./lib/chatlist.js";
   import { RADAR, guildLiveSet } from "./lib/radar.svelte.js";
   import { failedInGuild } from "./lib/outbox.svelte.js";
 
@@ -124,8 +125,11 @@
   const allGuilds = $derived(S.guilds.filter((x) => x.kind !== "dm"));
   const guildById = $derived(new Map(allGuilds.map((s) => [s.id, s])));
   // The classic rail's floating DM faces: unread conversations and the open one.
+  // Archived chats leave them (they still notify as set).
   const dms = $derived(
-    S.guilds.filter((x) => isPersonDM(x) && (guildUnread(x).count > 0 || x.id === S.activeGuildId)),
+    S.guilds.filter(
+      (x) => isPersonDM(x) && (x.id === S.activeGuildId || (guildUnread(x).count > 0 && !isArchived(S.chatPrefs, x))),
+    ),
   );
 
   // Keep the persisted layout in step with the live guild set. Guilds it has

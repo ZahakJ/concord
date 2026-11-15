@@ -631,6 +631,7 @@ func (s *Service) deleteGuildLocal(guildID string) error {
 	}
 	s.mu.Unlock()
 	_ = s.store.DeleteReadState(chIDs)
+	s.dropChatPrefs(chIDs)
 	if !ok {
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
@@ -2261,6 +2262,9 @@ type guildMeta struct {
 	Receipts *receiptsPref `json:"receipts,omitempty"`
 	// hide_marker (Notes self-group only): "Delete for me" ops, channel → ids.
 	Hides []store.HideRec `json:"hides,omitempty"`
+	// chat_prefs (Notes self-group only, like read_marker): the changed chats'
+	// pin and archive records. Never sent to any other group.
+	ChatPrefs map[string]store.ChatPref `json:"chatPrefs,omitempty"`
 
 	// forum_tags: replace the tag palette of the forum named by ChannelID.
 	// Its own type rather than a field on channel_updated, because that message
@@ -2849,6 +2853,7 @@ func (s *Service) applyChannelRemoved(guildID, channelID string) {
 	s.mu.Unlock()
 	_ = s.store.DeleteChannel(channelID)
 	_ = s.store.DeleteReadState([]string{channelID})
+	s.dropChatPrefs([]string{channelID})
 	s.emitGuildUpdate()
 }
 
@@ -3472,6 +3477,14 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 			return
 		}
 		_ = s.applyReceiptsPref(*m.Receipts, false)
+		return
+	case "chat_prefs":
+		// Pins and archive state: ours alone, so only another device of this
+		// account may set them. MLS authenticates the sender.
+		if actor != s.id.Fingerprint() {
+			return
+		}
+		s.applyRemoteChatPrefs(m.ChatPrefs)
 		return
 	case "read_marker":
 		// Read markers only ever travel the Notes self-group, and only OUR OWN

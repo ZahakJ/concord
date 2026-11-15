@@ -30,6 +30,7 @@ import (
 	"github.com/ZahakJ/concord/internal/bridge"
 	"github.com/ZahakJ/concord/internal/cli"
 	"github.com/ZahakJ/concord/internal/httpapi"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 //go:embed all:frontend/dist
@@ -135,6 +136,7 @@ func main() {
 			b.OnReadState = func(r bridge.ReadStateView) { wruntime.EventsEmit(ctx, "read-state", r) }
 			b.OnReceipts = func(r bridge.ReceiptsView) { wruntime.EventsEmit(ctx, "receipts", r) }
 			b.OnHidden = func(h bridge.HiddenView) { wruntime.EventsEmit(ctx, "message-hidden", h) }
+			b.OnChatPrefs = func(m map[string]store.ChatPref) { wruntime.EventsEmit(ctx, "chat-prefs", m) }
 			b.OnStory = func(u bridge.StoryUpdate) { wruntime.EventsEmit(ctx, "story", u) }
 			b.OnChronicleImport = func(p appsvc.ChatImportProgress) { wruntime.EventsEmit(ctx, "chronicle-import", p) }
 		},

@@ -282,6 +282,14 @@ CREATE TABLE IF NOT EXISTS read_state (
   channel_id TEXT PRIMARY KEY,
   at         INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chat_prefs (
+  chat_id  TEXT PRIMARY KEY,
+  pinned   INTEGER NOT NULL DEFAULT 0,
+  pin_key  REAL    NOT NULL DEFAULT 0,
+  pin_at   INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0,
+  arch_at  INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS blocked (
   fingerprint TEXT PRIMARY KEY,
   created     INTEGER NOT NULL

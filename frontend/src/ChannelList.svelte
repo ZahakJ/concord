@@ -61,6 +61,9 @@
     blockUser,
     unblockUser,
     dmList,
+    setChatPinned,
+    setChatArchived,
+    moveChatPin,
     isCallLocked,
     CHANNEL_TYPES,
     channelTypeIcon,
@@ -86,6 +89,7 @@
   import { GSW, toggleGuildSwitcher } from "./lib/guildswitch.svelte.js";
   import { MOM } from "./lib/momentsunseen.svelte.js";
   import { guildMenu } from "./lib/guildmenu.js";
+  import { arrange, isPinned, isArchived, chatIdOf, archivedUnread } from "./lib/chatlist.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
   import { api } from "./lib/api.js";
   import { tooltip } from "./lib/tooltip.js";
@@ -304,7 +308,7 @@
   // when they are read, so nothing jumps under the pointer.
   let dmOrder = $state([]);
   $effect(() => {
-    const unread = dmList().filter((d) => isPersonDM(d) && guildUnread(d).count > 0);
+    const unread = dmList().filter((d) => isPersonDM(d) && !isArchived(S.chatPrefs, d) && guildUnread(d).count > 0);
     const ids = new Set(unread.map((d) => d.id));
     const kept = dmOrder.filter((id) => ids.has(id));
     const fresh = unread
@@ -549,6 +553,18 @@
     }
     return list;
   });
+
+  // Notes, pins in the user's order, the rest; archived chats sit behind one
+  // "Archived" row (or are the whole list while it is open). lib/chatlist.js.
+  const arranged = $derived(arrange(dms, S.chatPrefs));
+  let showArchived = $state(false);
+  $effect(() => {
+    if (showArchived && !arranged.archived.length) showArchived = false;
+  });
+  const shownDms = $derived(showArchived ? arranged.archived : arranged.main);
+  const archivedCount = $derived(
+    archivedUnread(arranged.archived, (d) => guildUnread(d).count),
+  );
 
   // The second line of a DM row: "You:" when the last thing said was yours, and
   // nothing otherwise. In a 1:1 the only other speaker is the person whose name
@@ -979,6 +995,33 @@
             { sep: true },
           ]
         : []),
+      {
+        label: isPinned(S.chatPrefs, dm) ? "Unpin" : "Pin to top",
+        icon: "pin",
+        onClick: () => setChatPinned(dm, !isPinned(S.chatPrefs, dm)),
+      },
+      isPinned(S.chatPrefs, dm) &&
+        !isArchived(S.chatPrefs, dm) &&
+        arranged.pinned[0] !== dm && {
+          label: "Move pin up",
+          icon: "back",
+          onClick: () => moveChatPin(dm, -1),
+        },
+      isPinned(S.chatPrefs, dm) &&
+        !isArchived(S.chatPrefs, dm) &&
+        arranged.pinned[arranged.pinned.length - 1] !== dm && {
+          label: "Move pin down",
+          icon: "chevron",
+          onClick: () => moveChatPin(dm, 1),
+        },
+      {
+        // Tidying, not muting: archived chats still notify by their own
+        // notification setting.
+        label: isArchived(S.chatPrefs, dm) ? "Unarchive" : "Archive (does not mute)",
+        icon: "folder",
+        onClick: () => setChatArchived(dm, !isArchived(S.chatPrefs, dm)),
+      },
+      { sep: true },
       dm.channels?.[0] && {
         label: "Disappearing messages…",
         icon: "clock",
@@ -1298,7 +1341,16 @@
           <Badge dot label="{S.requests.length} waiting" />
         </button>
       {/if}
-      {#each dms as dm (dm.id)}
+      {#if showArchived}
+        <button class="dm-item requests" onclick={() => (showArchived = false)}>
+          <span class="dm-notes-icon"><Icon name="back" size={15} /></span>
+          <span class="dm-col">
+            <span class="dm-name">Archived</span>
+            <span class="dm-sub">Still notify as set. Archiving is not muting.</span>
+          </span>
+        </button>
+      {/if}
+      {#each shownDms as dm (dm.id)}
         {@const active = dm.id === S.activeGuildId}
         {@const unread = isNotesLike(dm) ? { count: 0, attention: 0 } : guildUnread(dm)}
         {@const draft = draftIn(dm.channels?.[0]?.id)}
@@ -1327,6 +1379,9 @@
           <span class="dm-col">
             <span class="dm-top">
               <span class="dm-name">{dm.dmNotes ? "Notes (you)" : dm.name}</span>
+              {#if isPinned(S.chatPrefs, dm) && !dm.dmNotes && !isNotesLike(dm)}
+                <span class="dm-pin" role="img" aria-label="Pinned"><Icon name="pinFilled" size={11} /></span>
+              {/if}
               {#if ownsPlace(dm)}<OwnerMark size={11} label={ownerLabel(dm)} />{/if}
               {#if isPersonDM(dm) && liveChannels.has(dm.channels?.[0]?.id)}
                 <!-- A DM-located event is live: the conversation IS the meeting. -->
@@ -1367,6 +1422,17 @@
           {/if}
         </button>
       {/each}
+      {#if !showArchived && arranged.archived.length}
+        <button class="dm-item requests" onclick={() => (showArchived = true)}>
+          <span class="dm-notes-icon"><Icon name="folder" size={15} /></span>
+          <span class="dm-name">Archived</span>
+          {#if archivedCount > 0}
+            <Badge count={archivedCount} label="{archivedCount} unread in archived chats" />
+          {:else}
+            <span class="dm-when">{arranged.archived.length}</span>
+          {/if}
+        </button>
+      {/if}
       {#if !dms.some((d) => isPersonDM(d))}
         <div class="empty-block">
           <span class="empty-ic"><Icon name="smile" size={18} /></span>
@@ -2633,6 +2699,12 @@
   }
   .dm-item.unread .dm-sub {
     color: var(--text-muted);
+  }
+  .dm-pin {
+    display: inline-flex;
+    margin-left: 4px;
+    color: var(--text-faint, var(--text-muted));
+    flex-shrink: 0;
   }
   .dm-notes-icon {
     width: 36px;

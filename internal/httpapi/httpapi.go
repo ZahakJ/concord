@@ -16,6 +16,7 @@ import (
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/bridge"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 // sseEvent is one Server-Sent Event fanned out to connected clients.
@@ -98,6 +99,7 @@ func (s *Server) WireSSE() {
 	s.b.OnReadState = func(r bridge.ReadStateView) { s.broadcast(sseEvent{"read-state", r}) }
 	s.b.OnReceipts = func(r bridge.ReceiptsView) { s.broadcast(sseEvent{"receipts", r}) }
 	s.b.OnHidden = func(h bridge.HiddenView) { s.broadcast(sseEvent{"message-hidden", h}) }
+	s.b.OnChatPrefs = func(m map[string]store.ChatPref) { s.broadcast(sseEvent{"chat-prefs", m}) }
 	s.b.OnStory = func(u bridge.StoryUpdate) { s.broadcast(sseEvent{"story", u}) }
 	s.b.OnChronicleImport = func(p appsvc.ChatImportProgress) { s.broadcast(sseEvent{"chronicle-import", p}) }
 }
