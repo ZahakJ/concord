@@ -300,6 +300,16 @@ type Service struct {
 	offeredRetry    map[string]string
 	offeredRetrying atomic.Bool
 
+	// linkedDevice: this install runs on a device certificate, so the account
+	// existed before it and already has a Notes somewhere (see NotesDM).
+	linkedDevice bool
+	// notesOffer is the latest code one of our own devices offered us for a
+	// Notes group, and siblingOffered whether any of our devices has offered
+	// us its groups since Start. Both guarded by joiningMu; in-memory, because
+	// a restart greets our devices again and they re-offer.
+	notesOffer     string
+	siblingOffered bool
+
 	// liveGaps is topic -> the peer that forwarded a message we had to drop,
 	// waiting for the catch-up noteLiveGap schedules. Guarded by liveGapMu.
 	liveGaps  map[string]peer.ID
@@ -1123,6 +1133,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	}
 
 	s := &Service{
+		linkedDevice:     linked,
 		ctx:              ctx,
 		cancel:           cancel,
 		dataDir:          cfg.DataDir,
@@ -1428,10 +1439,20 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// Idempotent, and a failure is not fatal: the group can still be minted by
 	// the first thing that asks for it, exactly as it always was, and refusing
 	// to open the app over a scratchpad would be the wrong trade.
+	//
+	// A LINKED device is never backfilled here, settled or not. Its account
+	// existed before it did, and the handover minted the account's Notes before
+	// handing it over, so the one it lacks is on its way: one that joined some
+	// groups and was restarted (Android kills apps freely) before Notes arrived
+	// used to mint a rival here, and the next hello gave it the account's as
+	// well. It adopts the account's from its siblings' hello instead; NotesDM
+	// says when it may mint. A restored ORIGINAL device can still mint one here
+	// that the account already has elsewhere, because nothing on it says so;
+	// notesBefore is what makes that harmless.
 	s.mu.RLock()
 	settled := len(s.guilds) > 0
 	s.mu.RUnlock()
-	if freshIdentity || settled {
+	if freshIdentity || (settled && !linked) {
 		if _, err := s.ensureNotesDM(); err != nil {
 			log.Printf("concord/app: could not create the Notes group: %v", err)
 		}

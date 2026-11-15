@@ -3169,7 +3169,9 @@ export async function selectNotes({ browse = false } = {}) {
 export function dmList() {
   // Hide empty pending DMs — a freshly-created invite nobody has joined yet
   // (just you) is noise until a peer redeems it and it gets a name/avatar.
-  const list = S.guilds.filter((x) => x.kind === "dm" && (x.dmNotes || (x.dmMembers ?? 2) >= 2));
+  // A second Notes group holding notes (dmNotesCopy) stays listed, under its
+  // own name, so those notes are never out of reach.
+  const list = S.guilds.filter((x) => x.kind === "dm" && (x.dmNotes || x.dmNotesCopy || (x.dmMembers ?? 2) >= 2));
   list.sort(
     (a, b) => (a.dmNotes ? -1 : b.dmNotes ? 1 : 0) || (b.lastActivity || 0) - (a.lastActivity || 0),
   );

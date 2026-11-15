@@ -258,6 +258,9 @@ type GuildView struct {
 	DMFaces []DMFace `json:"dmFaces,omitempty"`
 	DMNamed bool     `json:"dmNamed,omitempty"` // group DM has a user-set custom name
 	DMNotes bool     `json:"dmNotes,omitempty"` // the self-notes DM (stored name, immune to a peer named "Notes")
+	// DMNotesCopy is a second Notes group of this account that holds notes:
+	// listed under its own name so they stay readable, never as Notes.
+	DMNotesCopy bool `json:"dmNotesCopy,omitempty"`
 	// The last thing said in this conversation, for the DM list's second line.
 	// DM guilds only: it costs one row read and one open per conversation, which
 	// is affordable for a handful of DMs and would not be for every channel of
@@ -3276,6 +3279,14 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 	if g.Kind == "dm" && len(g.Channels) > 0 {
 		dmPreview, dmPreviewMine, dmPreviewAt = svc.LastSaid(g.Channels[0].ID)
 	}
+	// An account can hold more than one Notes group; only the canonical one is
+	// Notes. Another that holds notes is listed as itself so nothing in it is
+	// out of reach; an empty one is left out of the list (one member, so the
+	// DM list's filter drops it).
+	notesCopy := g.Kind == "dm" && svc.NotesCopy(g.ID)
+	if notesCopy {
+		name = "Notes (other copy)"
+	}
 
 	return GuildView{
 		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
@@ -3284,7 +3295,8 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 		DMPeerPresence:   dmPeerPresence, DMPeerOnline: dmPeerOnline,
 		DMPeerAvatar: dmPeerAvatar, DMMembers: dmMembers, DMFaces: dmFaces,
 		DMNamed:       g.Kind == "dm" && isCustomDMName(g.Name),
-		DMNotes:       g.Kind == "dm" && g.Name == "Notes",
+		DMNotes:       g.Kind == "dm" && g.Name == "Notes" && !notesCopy,
+		DMNotesCopy:   notesCopy && dmPreviewAt > 0,
 		DMPreview:     dmPreview,
 		DMPreviewMine: dmPreviewMine,
 		DMPreviewAt:   dmPreviewAt,

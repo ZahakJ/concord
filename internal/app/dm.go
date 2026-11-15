@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -155,7 +156,8 @@ func (s *Service) dmOtherAccounts(groupID []byte) (others []string, ok bool) {
 	return others, true
 }
 
-// findNotesDM returns this account's Notes group if it already has one.
+// findNotesDM returns this account's Notes group if it already has one: when
+// this device holds more than one, the canonical one (see notesBefore).
 //
 // The predicate is the definition of "the Notes group" and it lives here alone
 // so the two other places that need to recognise one (read-state flushing, and
@@ -163,12 +165,60 @@ func (s *Service) dmOtherAccounts(groupID []byte) (others []string, ok bool) {
 func (s *Service) findNotesDM() (domain.Guild, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	var best *domain.Guild
 	for _, g := range s.guilds {
-		if isNotesGuild(*g, s.PublicKey()) {
-			return g.Clone(), true
+		if isNotesGuild(*g, s.PublicKey()) && (best == nil || notesBefore(*g, *best)) {
+			best = g
 		}
 	}
-	return domain.Guild{}, false
+	if best == nil {
+		return domain.Guild{}, false
+	}
+	return best.Clone(), true
+}
+
+// notesBefore orders an account's Notes groups: the one created first, then
+// the smaller guild id. The earliest is THE Notes, on every device.
+//
+// An account can hold more than one. A device that holds none mints one, and
+// a device cannot always know that the account already has one elsewhere (an
+// original device restored from a backup taken before it had Notes is the
+// case nothing can prevent; see Start). Every device offers its siblings every
+// group it holds, so from then on all of them hold all the copies. Before this
+// order the Notes was whichever an unordered map yielded first: each tap on
+// either "Notes" row could open either group, notes went into whichever was
+// picked, and read markers were published into a random one.
+//
+// Both keys travel with the group: Created is set once by the device that
+// minted it and handed unchanged to every joiner in the invite response, and
+// the id is the group's. So every device of the account, this build or an old
+// one, holds the same two values for every copy, and every device on this
+// build computes the same answer without exchanging anything. The earliest
+// is the one the account had first, which is the one its other devices have
+// been writing into; the copy that loses is the one minted by mistake.
+func notesBefore(a, b domain.Guild) bool {
+	if ta, tb := a.Created.UnixNano(), b.Created.UnixNano(); ta != tb {
+		return ta < tb
+	}
+	return a.ID < b.ID
+}
+
+// NotesCopy reports whether a guild is one of this account's Notes groups but
+// not the canonical one. Such a copy is kept, with every note in it, and stays
+// a working group of the account's own devices (an older device may still
+// write into it). It is never shown as Notes; a copy that holds notes is shown
+// as a separate conversation so they stay readable. Nothing is moved or
+// re-posted: every device would do it, and a copy of a copy is not a merge.
+func (s *Service) NotesCopy(guildID string) bool {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	isNotes := ok && isNotesGuild(*g, s.PublicKey())
+	s.mu.RUnlock()
+	if !isNotes {
+		return false
+	}
+	canon, ok := s.findNotesDM()
+	return ok && canon.ID != guildID
 }
 
 // isNotesGuild: a one-member DM you own, called Notes.
@@ -199,6 +249,11 @@ func (s *Service) ensureNotesDM() (domain.Guild, error) {
 	return g, nil
 }
 
+// ErrNotesArriving: this device holds no Notes yet and the account's is on its
+// way from another of its devices. Minting one here would give the account a
+// second.
+var ErrNotesArriving = errors.New("your notes have not arrived from your other device yet; open Notes again in a moment")
+
 // NotesDM returns your personal self-DM, and is what OPENING Notes calls: it
 // surfaces the conversation if it had been closed, which is what asking for it
 // means.
@@ -213,13 +268,44 @@ func (s *Service) ensureNotesDM() (domain.Guild, error) {
 // neither could decrypt and stopped converging at all. The mint stays here as
 // the fallback for a service whose startup mint failed (a locked MLS store,
 // a full disk) rather than as the normal path.
+//
+// A device that holds no Notes mints one only when it cannot adopt the
+// account's. One of our devices has offered us a Notes: join that. A linked
+// device that has not yet heard any of its siblings' offers: wait for them
+// (ErrNotesArriving). The Messages tab lands on Notes when there is no other
+// conversation, so a phone opened right after being linked asked for Notes
+// before the handover had joined it, minted its own, and the account had two.
 func (s *Service) NotesDM() (domain.Guild, error) {
+	if _, ok := s.findNotesDM(); !ok {
+		s.joiningMu.Lock()
+		code, offered := s.notesOffer, s.siblingOffered
+		s.joiningMu.Unlock()
+		if code != "" {
+			s.joinOfferedInvite(code)
+			if _, ok := s.findNotesDM(); !ok {
+				return domain.Guild{}, ErrNotesArriving
+			}
+		} else if s.linkedDevice && !offered {
+			return domain.Guild{}, ErrNotesArriving
+		}
+	}
 	g, err := s.ensureNotesDM()
 	if err != nil {
 		return domain.Guild{}, err
 	}
 	s.unhideDM(g.ID) // opening Notes always surfaces it
 	return g, nil
+}
+
+// noteNotesOffer remembers a code one of our devices offered us, if it is for
+// a Notes group, so NotesDM can adopt it instead of minting a rival.
+func (s *Service) noteNotesOffer(code string, ic inviteCode) {
+	if ic.GuildName != notesGuildName || s.store.GuildIsLeft(ic.GuildID) {
+		return
+	}
+	s.joiningMu.Lock()
+	s.notesOffer = code
+	s.joiningMu.Unlock()
 }
 
 type dmInvite struct {

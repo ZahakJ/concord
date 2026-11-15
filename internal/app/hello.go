@@ -380,7 +380,11 @@ func (s *Service) redeemOfferedInvites(from peer.ID, codes []string, arrived map
 		// anything newer. That was the reported "sometimes instant, sometimes
 		// nothing arrives for minutes".
 		ic, err := decodeInviteCode(strings.TrimSpace(code))
-		if err != nil || have[ic.GuildID] {
+		if err != nil {
+			continue
+		}
+		s.noteNotesOffer(code, ic)
+		if have[ic.GuildID] {
 			continue
 		}
 		// We left this guild, but the device offering it arrived in it after
@@ -396,6 +400,12 @@ func (s *Service) redeemOfferedInvites(from peer.ID, codes []string, arrived map
 		// landed.
 		s.joinOfferedInvite(code)
 	}
+	// Only now, after any Notes among these codes has been noted (and joined):
+	// a sibling has told us what the account holds, so a linked device that
+	// still has no Notes may mint one (NotesDM).
+	s.joiningMu.Lock()
+	s.siblingOffered = true
+	s.joiningMu.Unlock()
 }
 
 // regreetOwnDevices re-greets every connected device of this account, so that

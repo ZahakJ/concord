@@ -965,6 +965,7 @@ func (s *Service) joinOfferedInvite(code string) {
 		s.noteOfferedRetry(ic.GuildID, "")
 		return
 	}
+	s.noteNotesOffer(code, ic)
 	release := s.claimJoin(ic.GuildID)
 	defer release()
 	s.mu.RLock()
