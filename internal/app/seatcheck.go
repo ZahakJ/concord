@@ -234,6 +234,26 @@ func (s *Service) ownAccountLeaf(l mls.Leaf) bool {
 	return bytes.Equal(l.Key, s.ownAccountSigningKey())
 }
 
+// fromOwnDevice reports whether a decrypted frame comes from a current device
+// of this account: its leaf passes ownAccountLeaf, and a certificate leaf's
+// device has not been unlinked here. Unlinking leaves a leaf seated wherever
+// this device cannot commit, and that leaf speaks for the account no more.
+// Revocation stays out of ownAccountLeaf itself, so a kick that meets a
+// revoked leaf still reads as a removal, not as a replacement.
+func (s *Service) fromOwnDevice(m *mls.Message) bool {
+	if m == nil {
+		return false
+	}
+	l := mls.Leaf{Index: m.SenderLeaf, Credential: m.SenderLeafID, Key: m.SenderKey}
+	if !bytes.Equal(m.SenderID, m.SenderLeafID) || !s.ownAccountLeaf(l) {
+		return false
+	}
+	if cert, ok := identity.ParseDeviceCert(l.Credential); ok && s.deviceIsRevoked(cert.DevicePub) {
+		return false
+	}
+	return true
+}
+
 // ownDeviceLeaves lists the leaves of a group that are devices of this
 // account, this device's own included, by ownAccountLeaf.
 func (s *Service) ownDeviceLeaves(groupID []byte) (own []mls.Leaf, mine uint32, err error) {

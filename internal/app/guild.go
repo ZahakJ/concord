@@ -3658,7 +3658,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 			// Another device of this account left: MLS authenticated the leaf,
 			// and it is not ours. Leaving is the account's decision; see
 			// leave.go.
-			if !bytes.Equal(msg.SenderID, s.myCredential) && s.ownAccountLeaf(mls.Leaf{Index: msg.SenderLeaf, Credential: msg.SenderLeafID, Key: msg.SenderKey}) {
+			if !bytes.Equal(msg.SenderID, s.myCredential) && s.fromOwnDevice(msg) {
 				go s.leaveWithSibling(guildID)
 			}
 			return
@@ -3691,7 +3691,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	case "receipts_pref":
 		// The account's own setting, from one of its own devices, over the
 		// Notes group only.
-		if actor != s.id.Fingerprint() || m.Receipts == nil {
+		if !s.fromOwnDevice(msg) || m.Receipts == nil {
 			return
 		}
 		if g, ok := s.findNotesDM(); !ok || g.ID != guildID {
@@ -3702,7 +3702,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	case "chat_prefs":
 		// Pins and archive state: ours alone, so only another device of this
 		// account may set them. MLS authenticates the sender.
-		if actor != s.id.Fingerprint() {
+		if !s.fromOwnDevice(msg) {
 			return
 		}
 		if notes, ok := s.findNotesDM(); !ok || notes.ID != guildID {
@@ -3714,7 +3714,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		// Read markers only ever travel the Notes self-group, and only OUR OWN
 		// account's devices may move our read cursor — a marker authored by
 		// anyone else is dropped (MLS authenticates the sender, so this holds).
-		if actor != s.id.Fingerprint() || !s.ownAccountLeaf(mls.Leaf{Index: msg.SenderLeaf, Credential: msg.SenderLeafID, Key: msg.SenderKey}) {
+		if !s.fromOwnDevice(msg) {
 			return
 		}
 		if notes, ok := s.findNotesDM(); !ok || notes.ID != guildID {
@@ -3729,7 +3729,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		// "Delete for me" travels only the Notes self-group, and only from a
 		// leaf of our OWN account: anyone else's op is dropped (MLS
 		// authenticates the sender), so no one can hide messages for us.
-		if actor != s.id.Fingerprint() {
+		if !s.fromOwnDevice(msg) {
 			return
 		}
 		if notes, ok := s.findNotesDM(); !ok || notes.ID != guildID {
@@ -3739,7 +3739,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		return
 	case "typing_pref":
 		// Own devices only, over the Notes group (typingsync.go).
-		if actor != s.id.Fingerprint() || m.TypingOn == nil {
+		if !s.fromOwnDevice(msg) || m.TypingOn == nil {
 			return
 		}
 		if notes, ok := s.findNotesDM(); !ok || notes.ID != guildID {
