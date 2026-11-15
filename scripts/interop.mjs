@@ -8,7 +8,7 @@
 // that actually broke instead of just "sync is down".
 //
 // Run as: node scripts/interop.mjs <phase>
-// Phases: online | while-old-down | old-came-back | while-new-down | new-came-back | report
+// Phases: online | while-old-down | old-came-back | while-new-down | new-came-back | seats | unlink | report
 // State and evidence persist in $INTEROP_WORK between phases, because the
 // history-sync lane needs the OLD peer restarted in between.
 
@@ -889,6 +889,196 @@ async function phaseOldCameBack() {
   return results.every((r) => r.status !== "FAIL");
 }
 
+// ---------------------------------------------------------------- leaves
+//
+// The lanes below run with both peers up and a third: a device LINKED to the
+// OLD account, running the OLD binary (the unlink lanes after them bring their
+// own fresh devices). They cover what NEW's check on who
+// holds each leaf (app/seatcheck.go) must never get wrong about an honest
+// older peer: chat, typing, reactions, renames, a linked device's certificate
+// as a shipped build encodes it, membership changes an OLD committer makes,
+// and kicks in both directions. After every lane NEW must flag no leaf.
+
+const SEATLINK = process.env.INTEROP_SEATLINK;
+const PASS_SEATLINK = "interop-seatlink-passphrase";
+
+async function noSeatFlags(base, label) {
+  const flagged = (await rpc(base, "Guilds")).filter((g) => (g.seatFlags || []).length || (g.seatNotices || []).length);
+  if (flagged.length) {
+    throw new Error(`${label} flags leaves: ${JSON.stringify(flagged.map((g) => ({ name: g.name, f: g.seatFlags, n: g.seatNotices })))}`);
+  }
+  return `${label}: no flagged leaf in any guild`;
+}
+
+// typingSeen opens base's event stream and resolves with the first typing
+// event from fpr, or null after the timeout.
+async function typingSeen(base, fpr, timeout = 20000) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeout);
+  try {
+    const res = await fetch(`${base}/events?token=${encodeURIComponent(process.env.CONCORD_API_TOKEN || "")}`, { signal: ctl.signal });
+    const dec = new TextDecoder();
+    let buf = "";
+    for await (const chunk of res.body) {
+      buf += dec.decode(chunk, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const block = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        if (!block.includes("event: typing")) continue;
+        const line = block.split("\n").find((l) => l.startsWith("data: "));
+        const t = line ? JSON.parse(line.slice(6)) : null;
+        if (t && t.from === fpr && !t.stop) return t;
+      }
+    }
+  } catch {
+    /* aborted: nothing seen */
+  } finally {
+    clearTimeout(timer);
+  }
+  return null;
+}
+
+async function phaseSeats() {
+  const st = loadState();
+  if (!SEATLINK) throw new Error("INTEROP_SEATLINK must be set for this phase");
+
+  await lane("K1", "chat both ways, nothing flagged or marked unsigned", async () => {
+    const ev = [];
+    for (const [dir, from, to, cf, ct] of [
+      ["NEW->OLD", NEW, OLD, st.newGuildChanNew, st.newGuildChanOld],
+      ["OLD->NEW", OLD, NEW, st.oldGuildChanOld, st.oldGuildChanNew],
+    ]) {
+      const body = `SEATS-CHAT-${dir}`;
+      await rpc(from, "SendMessage", [cf, body, ""]);
+      const got = await waitFor(`${dir}`, () => findMessage(to, ct, body));
+      if (to === NEW && got.unverified) throw new Error(`${dir} marked unsigned on NEW`);
+      ev.push(`${dir}: ${got.content}`);
+    }
+    ev.push(await noSeatFlags(NEW, "NEW"));
+    return { evidence: ev };
+  });
+
+  await lane("K2", "typing both ways", async () => {
+    const ev = [];
+    for (const [dir, from, to, chan, fpr] of [
+      ["OLD->NEW", OLD, NEW, st.oldGuildChanOld, st.oldFP],
+      ["NEW->OLD", NEW, OLD, st.newGuildChanNew, st.newFP],
+    ]) {
+      const seen = typingSeen(to, fpr);
+      await sleep(500);
+      for (let i = 0; i < 6; i++) {
+        await tryRpc(from, "SendTyping", [chan]);
+        await sleep(1500);
+      }
+      const t = await seen;
+      if (!t) throw new Error(`${dir}: no typing event`);
+      ev.push(`${dir}: typing from ${t.name || t.from} in ${t.channelId.slice(0, 8)}`);
+    }
+    return { evidence: ev };
+  });
+
+  await lane("K3", "reactions both ways", async () => {
+    const ev = [];
+    for (const [dir, from, to, cf, ct, fromFP] of [
+      ["NEW reacts, OLD sees", NEW, OLD, st.oldGuildChanNew, st.oldGuildChanOld, st.newFP],
+      ["OLD reacts, NEW sees", OLD, NEW, st.newGuildChanOld, st.newGuildChanNew, st.oldFP],
+    ]) {
+      const target = await waitFor("target message", () => findMessage(from, cf, "SEATS-CHAT-"));
+      await rpc(from, "ToggleReaction", [cf, target.id, "👍"]);
+      const got = await waitFor(dir, async () => {
+        const m = (await messagesIn(to, ct)).find((x) => x.id === target.id);
+        return m && (m.reactions?.["👍"] || []).includes(fromFP) ? m : null;
+      });
+      ev.push(`${dir}: ${JSON.stringify(got.reactions)}`);
+    }
+    ev.push(await noSeatFlags(NEW, "NEW"));
+    return { evidence: ev };
+  });
+
+  await lane("K4", "guild renames both ways", async () => {
+    const ev = [];
+    for (const [dir, from, to, gid, name] of [
+      ["OLD renames, NEW sees", OLD, NEW, st.oldGuildID, "OldMadeGuildRenamed"],
+      ["NEW renames, OLD sees", NEW, OLD, st.newGuildID, "NewMadeGuildRenamed"],
+    ]) {
+      await rpc(from, "RenameGuild", [gid, name]);
+      await waitFor(dir, async () => (await rpc(to, "Guilds")).find((g) => g.id === gid && g.name === name));
+      ev.push(`${dir}: ${name}`);
+    }
+    ev.push(await noSeatFlags(NEW, "NEW"));
+    return { evidence: ev };
+  });
+
+  await lane("K5", "a device linked to OLD (OLD binary) joins both guilds; NEW flags nothing and attributes it to OLD", async () => {
+    const ev = [];
+    const code = await rpc(OLD, "LinkOffer");
+    await rpc(SEATLINK, "RedeemLinkCode", [code, PASS_SEATLINK, ""]);
+    for (const gid of [st.newGuildID, st.oldGuildID]) {
+      try {
+        await waitFor(`linked device holds ${gid.slice(0, 8)}`, async () => (await rpc(SEATLINK, "Guilds")).find((g) => g.id === gid), { timeout: 90000 });
+      } catch (e) {
+        // Say where it stopped: what each side holds and how it sees the guild.
+        const view = async (base) => (await tryRpc(base, "Guilds")).result?.map((g) => ({ id: g.id.slice(0, 8), name: g.name, outOfSync: g.outOfSync, evicted: g.evicted, cannotRepair: g.cannotRepair })) || [];
+        const mem = async (base) => (await tryRpc(base, "Members", [gid])).result?.map((m) => `${m.name}${m.online ? "*" : ""}`) || [];
+        throw new Error(`${e.message}\n           guild ${gid.slice(0, 8)} (${gid === st.newGuildID ? "NEW's" : "OLD's"})` +
+          `\n           linked device holds ${JSON.stringify(await view(SEATLINK))}` +
+          `\n           NEW: ${JSON.stringify(await view(NEW))} members ${JSON.stringify(await mem(NEW))}` +
+          `\n           OLD: ${JSON.stringify(await view(OLD))} members ${JSON.stringify(await mem(OLD))}` +
+          `\n           linked devices on OLD: ${JSON.stringify((await tryRpc(OLD, "LinkedDevices")).result || null)}`);
+      }
+    }
+    const linkChanNew = textChannels((await rpc(SEATLINK, "Guilds")).find((g) => g.id === st.newGuildID))[0].id;
+    st.linkChanNew = linkChanNew;
+    saveState(st);
+    await rpc(SEATLINK, "SendMessage", [linkChanNew, "SEATS-FROM-LINKED", ""]);
+    const got = await waitFor("NEW receives the linked device's message", () => findMessage(NEW, st.newGuildChanNew, "SEATS-FROM-LINKED"), { timeout: 60000 });
+    if (got.sender !== st.oldFP) throw new Error(`attributed to ${got.sender}, not OLD`);
+    if (got.unverified) throw new Error("marked unsigned on NEW");
+    ev.push(`NEW got "${got.content}" from OLD's account, verified`);
+    await rpc(NEW, "SendMessage", [st.newGuildChanNew, "SEATS-TO-LINKED", ""]);
+    await waitFor("the linked device receives NEW's message", () => findMessage(SEATLINK, linkChanNew, "SEATS-TO-LINKED"), { timeout: 60000 });
+    ev.push("the linked device reads NEW's message");
+    ev.push(await noSeatFlags(NEW, "NEW"));
+    return { evidence: ev };
+  });
+
+  await lane("K6", "NEW stays level with membership commits an OLD committer makes", async () => {
+    // OLD owns OldMadeGuild, so the linked device's leaf there was added by an
+    // OLD commit. NEW must have applied it: a message NEW sends now is
+    // readable by that leaf, and NEW is neither behind nor flagging.
+    const linkChanOld = textChannels((await rpc(SEATLINK, "Guilds")).find((g) => g.id === st.oldGuildID))[0].id;
+    await rpc(NEW, "SendMessage", [st.oldGuildChanNew, "SEATS-LEVEL", ""]);
+    await waitFor("linked device reads NEW in OLD's guild", () => findMessage(SEATLINK, linkChanOld, "SEATS-LEVEL"), { timeout: 60000 });
+    const g = (await rpc(NEW, "Guilds")).find((x) => x.id === st.oldGuildID);
+    if (g.outOfSync) throw new Error("NEW is out of sync in OLD's guild");
+    return { evidence: ["NEW at the epoch OLD's commit made; not out of sync", await noSeatFlags(NEW, "NEW")] };
+  });
+
+  await lane("K7", "kicks both ways", async () => {
+    const ev = [];
+    await rpc(OLD, "RemoveMember", [st.oldGuildID, st.newFP, ""]);
+    const gone = await waitFor("NEW reads OLD's kick", async () => {
+      const g = (await rpc(NEW, "Guilds")).find((x) => x.id === st.oldGuildID);
+      return g && g.evicted ? g : null;
+    }, { timeout: 60000 });
+    ev.push(`NEW after OLD's kick: evicted=${gone.evicted}`);
+    await rpc(NEW, "RemoveMember", [st.newGuildID, st.oldFP, ""]);
+    for (const [label, base] of [["OLD", OLD], ["linked device", SEATLINK]]) {
+      const g = await waitFor(`${label} reads NEW's kick`, async () => {
+        const x = (await rpc(base, "Guilds")).find((y) => y.id === st.newGuildID);
+        return x && x.evicted ? x : null;
+      }, { timeout: 60000 });
+      ev.push(`${label} after NEW's kick: evicted=${g.evicted}`);
+    }
+    ev.push(await noSeatFlags(NEW, "NEW"));
+    return { evidence: ev };
+  });
+  st.lanes = (st.lanes || []).concat(results);
+  saveState(st);
+  return results.every((r) => r.status !== "FAIL");
+}
+
 // ---------------------------------------------------------------- unlink
 
 // Each account links a fresh device running the other build, then unlinks it:
@@ -903,6 +1093,9 @@ async function ensureSession(base, pass, name) {
 }
 
 async function linkThenUnlink(accountBase, deviceBase, deviceDir) {
+  // The account may already hold a linked device (the seats lanes link one to
+  // OLD); only a device that appears after this link is the one to unlink.
+  const before = new Set(((await rpc(accountBase, "LinkedDevices")) || []).map((d) => d.key));
   await waitFor(
     "link the device",
     async () => {
@@ -918,7 +1111,7 @@ async function linkThenUnlink(accountBase, deviceBase, deviceDir) {
   if (device.fingerprint !== account.fingerprint) throw new Error(`the device holds ${device.fingerprint}, not ${account.fingerprint}`);
   const other = await waitFor("the account lists the device", async () => {
     const list = (await rpc(accountBase, "LinkedDevices")) || [];
-    return list.find((d) => !d.thisOne && !d.revokedAt && d.online);
+    return list.find((d) => !d.thisOne && !d.revokedAt && d.online && !before.has(d.key));
   }, { timeout: 90000, interval: 1000 });
   const evidence = [`unlinked device ${other.key.slice(0, 12)}`];
   // Older builds report "unlinked, but a guild still lists the device" as an
@@ -987,6 +1180,7 @@ const phases = {
   "old-came-back": phaseOldCameBack,
   "while-new-down": phaseWhileNewDown,
   "new-came-back": phaseNewCameBack,
+  seats: phaseSeats,
   unlink: phaseUnlink,
   report: async () => phaseReport(),
 };
