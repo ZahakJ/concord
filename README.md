@@ -39,7 +39,7 @@ the [releases page](https://github.com/ZahakJ/concord/releases/latest).
 <table>
 <tr>
 <td width="50%"><picture><source media="(prefers-color-scheme: light)" srcset="docs/media/screens/shelf-light.webp"><img src="docs/media/screens/shelf-dark.webp" alt="The guild switcher open over the sidebar, listing eleven guilds with a search field"></picture><br>Guilds sit in a row above the channel list. Click the guild's name to find any of them.</td>
-<td width="50%"><picture><source media="(prefers-color-scheme: light)" srcset="docs/media/screens/appearance-light.webp"><img src="docs/media/screens/appearance-dark.webp" alt="Settings, Appearance: the Layout cards Sidebar, Rail and Compact, the theme choice and the theme packs"></picture><br>Settings › Appearance › Layout: Sidebar, Rail or Compact.</td>
+<td width="50%"><picture><source media="(prefers-color-scheme: light)" srcset="docs/media/screens/appearance-light.webp"><img src="docs/media/screens/appearance-dark.webp" alt="Settings, Appearance: the theme choice and the theme packs"></picture><br>Settings › Appearance: one theme picker, and the layout: Sidebar or Rail.</td>
 </tr>
 <tr>
 <td width="50%"><picture><source media="(prefers-color-scheme: light)" srcset="docs/media/screens/rail-light.webp"><img src="docs/media/screens/rail-dark.webp" alt="The Rail layout: a column of guild icons beside the channel list"></picture><br>The Rail layout keeps the guilds in a column.</td>
