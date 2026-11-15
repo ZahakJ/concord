@@ -21,14 +21,32 @@ func serveProfiles(t *testing.T, to, from *Service, guildID string, roster map[s
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	ct, err := from.mls.Encrypt(from.ctx, g.GroupID, raw)
-	if err != nil {
-		t.Fatalf("encrypt: %v", err)
-	}
-	if !to.applySyncPayload(guildID, g.GroupID, ct, from.Fingerprint()) {
-		t.Fatal("the payload was not readable — test setup broken")
+	// A commit still landing (the guild was just formed) can leave the two a
+	// beat apart in epoch, and then the payload is simply unreadable. That is
+	// setup, not the guard, so wait for the epochs to agree and try again; a
+	// payload that stays unreadable is still a broken setup and fails.
+	for try := 0; ; try++ {
+		waitUntil(t, 10*time.Second, func() bool {
+			a, errA := to.mls.Epoch(to.ctx, g.GroupID)
+			b, errB := from.mls.Epoch(from.ctx, g.GroupID)
+			return errA == nil && errB == nil && a == b
+		}, "the two never reached the same epoch")
+		ct, err := from.mls.Encrypt(from.ctx, g.GroupID, raw)
+		if err != nil {
+			t.Fatalf("encrypt: %v", err)
+		}
+		if to.applySyncPayload(guildID, g.GroupID, ct, from.Fingerprint()) {
+			return
+		}
+		if try >= 4 {
+			t.Fatal("the payload was not readable — test setup broken")
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
+
+// maxRosterAttempts bounds the reruns when C's own announce wins the race.
+const maxRosterAttempts = 5
 
 // TestUntrustedRosterCannotRouteSomeoneElsesMail: an ordinary member serving a
 // sync roster could fill in a profile we did not hold yet for a third member,
@@ -45,25 +63,45 @@ func TestUntrustedRosterCannotRouteSomeoneElsesMail(t *testing.T) {
 	svcs, guildID, _ := guildOf(t, ctx, 3)
 	a, b, c := svcs[0], svcs[1], svcs[2]
 
-	// A has not learned C yet, as if C joined while A was away. Let the join's
-	// own announces land first, or one of them re-teaches A in the middle.
+	// A has not learned C yet, as if C joined while A was away.
 	waitUntil(t, 10*time.Second, func() bool { return a.ProfileOf(c.Fingerprint()).Name != "" }, "A never learned C")
-	time.Sleep(time.Second)
-	a.mu.Lock()
-	delete(a.profiles, c.Fingerprint())
-	a.mu.Unlock()
+	genuine := a.ProfileOf(c.Fingerprint()).MailboxPub
 
+	// C keeps announcing on its own schedule, and any announce of C's that
+	// lands between forgetting C and the doctored roster re-teaches A C's own
+	// copy, which rightly makes the roster's copy no first fill at all. That
+	// race is the network being honest, not the guard failing, so an attempt
+	// C's own copy won is run again. Every attempt still holds the guard to
+	// all of it: no planted key and no stranger, ever.
 	planted := bytes.Repeat([]byte{0xee}, 32)
-	serveProfiles(t, a, b, guildID, map[string]Profile{
-		c.Fingerprint(): {Name: "C, says B", MailboxPub: planted, UpdatedAt: time.Now().UnixMilli() + (1 << 40)},
-		"NOT-A-MEMBER":  {Name: "a stranger"},
-	})
-	if got := a.ProfileOf("NOT-A-MEMBER").Name; got != "" {
-		t.Fatalf("a roster entry for a non-member was adopted: %q", got)
-	}
-	got := a.ProfileOf(c.Fingerprint())
-	if got.Name != "C, says B" {
-		t.Fatalf("a first fill for a member was refused outright: %+v", got)
+	var got Profile
+	for attempt := 0; ; attempt++ {
+		a.mu.Lock()
+		delete(a.profiles, c.Fingerprint())
+		a.mu.Unlock()
+		serveProfiles(t, a, b, guildID, map[string]Profile{
+			c.Fingerprint(): {Name: "C, says B", MailboxPub: planted, UpdatedAt: time.Now().UnixMilli() + (1 << 40)},
+			"NOT-A-MEMBER":  {Name: "a stranger"},
+		})
+		if got := a.ProfileOf("NOT-A-MEMBER").Name; got != "" {
+			t.Fatalf("a roster entry for a non-member was adopted: %q", got)
+		}
+		got = a.ProfileOf(c.Fingerprint())
+		if bytes.Equal(got.MailboxPub, planted) {
+			t.Fatal("an ordinary member planted a mailbox key for a third member")
+		}
+		if got.Name == "C, says B" {
+			break
+		}
+		if got.Name == "" || !bytes.Equal(got.MailboxPub, genuine) {
+			t.Fatalf("a first fill for a member was refused outright: %+v", got)
+		}
+		// Capped: a guard that C's own copy beats every time is a guard this
+		// test never exercised, and that must fail, not pass quietly.
+		if attempt >= maxRosterAttempts-1 {
+			t.Fatalf("C's own announce won all %d attempts; the first-fill guard went untested", maxRosterAttempts)
+		}
+		time.Sleep(50 * time.Millisecond) // C's own announce got there first
 	}
 	if len(got.MailboxPub) > 0 {
 		t.Fatal("an ordinary member planted a mailbox key for a third member")
