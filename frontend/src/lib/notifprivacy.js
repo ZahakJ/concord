@@ -38,8 +38,28 @@ export function redactNotification(mode, kind, { title = "", body = "" } = {}) {
 // The mode in force on this device. Held here (set by App.svelte whenever the
 // pref changes) so the notification doors need not import app state.
 let current = DEFAULT_NOTIFY_MODE;
+// Notifications still on screen, built under the mode that was in force when
+// they were posted. A change of mode closes them, so nothing one showed
+// outlives the setting that allowed it.
+const shown = new Set();
+export const trackNotification = (n) => {
+  shown.add(n);
+  n.addEventListener?.("close", () => shown.delete(n));
+  return n;
+};
 export const setNotifyMode = (v) => {
-  current = normalizeNotifyMode(v);
+  const next = normalizeNotifyMode(v);
+  if (next !== current) {
+    for (const n of shown) {
+      try {
+        n.close();
+      } catch {
+        /* already gone */
+      }
+    }
+    shown.clear();
+  }
+  current = next;
   return current;
 };
 export const getNotifyMode = () => current;

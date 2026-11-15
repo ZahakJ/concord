@@ -3520,6 +3520,9 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if actor != s.id.Fingerprint() {
 			return
 		}
+		if notes, ok := s.findNotesDM(); !ok || notes.ID != guildID {
+			return
+		}
 		s.applyRemoteChatPrefs(m.ChatPrefs)
 		return
 	case "read_marker":

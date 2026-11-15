@@ -12,7 +12,7 @@
 
 import { plainSnippet } from "./snippet.js";
 import { shouldNotify, notificationTitle } from "./notifs.js";
-import { redactNotification, getNotifyMode } from "./notifprivacy.js";
+import { redactNotification, getNotifyMode, trackNotification } from "./notifprivacy.js";
 
 // The native notification bridge (Android/iOS), or null on web/desktop.
 function nativeNotifier() {
@@ -172,7 +172,7 @@ export function notify(m, { selfFpr, direct = false, mention = false, where = {}
   // Desktop / browser: the web Notification API.
   if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
   try {
-    const n = new Notification(title, { body, tag: m.channelId });
+    const n = trackNotification(new Notification(title, { body, tag: m.channelId }));
     n.onclick = () => {
       window.focus();
       onClick?.();

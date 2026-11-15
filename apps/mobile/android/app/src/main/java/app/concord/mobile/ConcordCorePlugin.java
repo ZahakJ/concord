@@ -700,9 +700,26 @@ public class ConcordCorePlugin extends Plugin {
     public void setNotifyPrivacy(PluginCall call) {
         String v = call.getString("mode", MODE_NOTHING);
         if (!MODE_NAME.equals(v) && !MODE_FULL.equals(v)) v = MODE_NOTHING;
-        getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        Context ctx = getContext();
+        boolean changed = !v.equals(notifyMode(ctx));
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(PREF_NOTIFY, v).apply();
+        // What is already in the tray was built under the old setting. Take it
+        // down, history and all, so nothing it showed outlives the change.
+        if (changed) clearMessageNotifications(ctx);
         call.resolve();
+    }
+
+    static void clearMessageNotifications(Context ctx) {
+        synchronized (HISTORY) {
+            HISTORY.clear();
+        }
+        NotificationManager nm =
+            (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        for (android.service.notification.StatusBarNotification sb : nm.getActiveNotifications()) {
+            if (sb.getId() == MSG_NOTIF_ID) nm.cancel(sb.getTag(), MSG_NOTIF_ID);
+        }
     }
 
     private static boolean appLockOn(Context ctx) {

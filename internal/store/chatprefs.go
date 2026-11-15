@@ -48,7 +48,7 @@ func archWins(a, b ChatPref) bool {
 // MergeChatPref folds in a record, local or remote, stamps capped at
 // now+ChatPrefSkew. It returns the stored result and whether anything changed.
 func (s *Store) MergeChatPref(chatID string, in ChatPref, now time.Time) (ChatPref, bool, error) {
-	if chatID == "" {
+	if chatID == "" || len(chatID) > maxChatIDLen {
 		return ChatPref{}, false, nil
 	}
 	lim := now.Add(ChatPrefSkew).UnixMilli()
@@ -73,6 +73,15 @@ func (s *Store) MergeChatPref(chatID string, in ChatPref, now time.Time) (ChatPr
 	}
 	if next == cur {
 		return cur, false, nil
+	}
+	if cur == (ChatPref{}) {
+		var n int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM chat_prefs`).Scan(&n); err != nil {
+			return cur, false, err
+		}
+		if n >= chatPrefCap {
+			return cur, false, nil // full: a new chat's record is not taken
+		}
 	}
 	_, err = s.db.Exec(
 		`INSERT INTO chat_prefs (chat_id, pinned, pin_key, pin_at, archived, arch_at)
@@ -140,18 +149,36 @@ func (s *Store) DeleteChatPrefs(chatIDs []string) error {
 	return nil
 }
 
-// PruneChatPrefs deletes every record whose chat is not in keep, returning the
-// ids it removed.
-func (s *Store) PruneChatPrefs(keep map[string]bool) ([]string, error) {
+// MaxChatPrefs bounds the table. A record only ever comes from this account's
+// own devices, but a device that misbehaved must still not grow it for good.
+const MaxChatPrefs = 4096
+
+// chatPrefCap is MaxChatPrefs; tests lower it.
+var chatPrefCap = MaxChatPrefs
+
+// maxChatIDLen is far above any channel id; anything longer is not one.
+const maxChatIDLen = 128
+
+// ChatPrefTTL is how long a record for a chat this device does not have is
+// kept: long enough for a pin synced ahead of the chat itself to meet it.
+const ChatPrefTTL = 90 * 24 * time.Hour
+
+// SweepChatPrefs drops the records of chats this device does not have whose
+// newest change is older than ChatPrefTTL. It returns how many went.
+func (s *Store) SweepChatPrefs(have func(chatID string) bool, now time.Time) (int, error) {
 	all, err := s.ChatPrefs()
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
+	cut := now.Add(-ChatPrefTTL).UnixMilli()
 	var gone []string
-	for id := range all {
-		if !keep[id] {
+	for id, p := range all {
+		if have(id) {
+			continue
+		}
+		if last := max(p.PinAt, p.ArchAt); last < cut {
 			gone = append(gone, id)
 		}
 	}
-	return gone, s.DeleteChatPrefs(gone)
+	return len(gone), s.DeleteChatPrefs(gone)
 }

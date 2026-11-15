@@ -194,7 +194,7 @@
       icon="edit"
       title="Typing indicators"
       sub="Off by default. Both ways: you show yours and see theirs"
-      info="Off by default. When on, people in a conversation with you see while you are typing, and you see when they are. It is only that you are typing: never what, never how much. It works both ways, so with it off you neither send nor see it. It is shared across your own devices. Off on both sides is the norm."
+      info="Off by default. When on, people in a conversation with you see while you are typing, and you see when they are. It is only that you are typing: never what, never how much. It works both ways, so with it off you neither send nor see it. It is shared across your own devices. Off on both sides is the norm. Both ways is kept by the other person's app: with yours on, someone whose app was changed to ignore their own switch could still see you typing."
       checked={typing}
       onclick={toggleTyping}
     />
@@ -202,7 +202,7 @@
       icon="check"
       title="Read receipts"
       sub="Tell people in DMs when you've read their message — and see when they've read yours"
-      info="Off by default. They go both ways: with this on, your devices tell the sender of a DM or group DM message that you have read it, and you see who has read yours. Switch it off and you stop sending them and stop seeing them; anything others sent you while it was on is discarded. Turning it on never reports what you already read while it was off. It applies to every one of your devices, to DMs and group DMs only, and the receipt travels inside the end-to-end encrypted conversation, rounded to the second. Delivered ticks are separate and always on: they only say a message arrived on a device, not that you looked at it."
+      info="Off by default. They go both ways: with this on, your devices tell the sender of a DM or group DM message that you have read it, and you see who has read yours. Switch it off and you stop sending them and stop seeing them; anything others sent you while it was on is discarded. Turning it on never reports what you already read while it was off. It applies to every one of your devices, to DMs and group DMs only, and the receipt travels inside the end-to-end encrypted conversation, rounded to the second. Delivered ticks are separate and always on: they only say a message arrived on a device, not that you looked at it. Both ways is kept by the other person's app: with yours on, someone whose app was changed to ignore their own switch could still see that you read their messages."
       checked={readReceipts}
       onclick={toggleReadReceipts}
     />

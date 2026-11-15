@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { redactNotification, normalizeNotifyMode, DEFAULT_NOTIFY_MODE } from "./notifprivacy.js";
+import { redactNotification, normalizeNotifyMode, DEFAULT_NOTIFY_MODE, setNotifyMode, trackNotification } from "./notifprivacy.js";
 
 const sample = {
   message: { title: "Ada in #general · Dee Guild", body: "lunch at 12?" },
@@ -33,4 +33,18 @@ test("default is nothing", () => {
   assert.equal(DEFAULT_NOTIFY_MODE, "nothing");
   assert.equal(normalizeNotifyMode(undefined), "nothing");
   assert.equal(normalizeNotifyMode("name"), "name");
+});
+
+test("a change of mode closes what is still on screen", () => {
+  setNotifyMode("full");
+  let closed = 0;
+  const fake = () => ({ close: () => closed++ });
+  trackNotification(fake());
+  trackNotification(fake());
+  setNotifyMode("full"); // same mode: nothing closes
+  assert.equal(closed, 0);
+  setNotifyMode("nothing");
+  assert.equal(closed, 2);
+  setNotifyMode("name"); // already closed, not closed twice
+  assert.equal(closed, 2);
 });

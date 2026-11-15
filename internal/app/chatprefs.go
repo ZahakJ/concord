@@ -189,6 +189,20 @@ func (s *Service) applyRemoteChatPrefs(recs map[string]store.ChatPref) {
 	}
 }
 
+// haveChannel reports whether a channel of any guild this device holds has id.
+func (s *Service) haveChannel(id string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, g := range s.guilds {
+		for _, c := range g.Channels {
+			if c.ID == id {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // dropChatPrefs forgets records for chats that no longer exist.
 func (s *Service) dropChatPrefs(chatIDs []string) {
 	if len(chatIDs) == 0 {

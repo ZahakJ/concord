@@ -1,6 +1,8 @@
 package store
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -91,17 +93,37 @@ func TestChatPrefSkewIsCapped(t *testing.T) {
 	}
 }
 
-func TestChatPrefPrune(t *testing.T) {
+func TestChatPrefSweepAndBounds(t *testing.T) {
 	s, _ := openTestStore(t)
 	now := time.Now()
-	for _, id := range []string{"a", "b", "c"} {
-		s.MergeChatPref(id, ChatPref{Pinned: true, PinAt: now.UnixMilli()}, now)
+	old := now.Add(-ChatPrefTTL - time.Hour)
+	s.MergeChatPref("have-old", ChatPref{Pinned: true, PinAt: old.UnixMilli()}, now)
+	s.MergeChatPref("gone-old", ChatPref{Pinned: true, PinAt: old.UnixMilli()}, now)
+	s.MergeChatPref("gone-new", ChatPref{Archived: true, ArchAt: now.UnixMilli()}, now)
+	n, err := s.SweepChatPrefs(func(id string) bool { return id == "have-old" }, now)
+	if err != nil || n != 1 {
+		t.Fatalf("swept %d err=%v", n, err)
 	}
-	gone, err := s.PruneChatPrefs(map[string]bool{"b": true})
-	if err != nil || len(gone) != 2 {
-		t.Fatalf("pruned %v err=%v", gone, err)
+	m, _ := s.ChatPrefs()
+	if len(m) != 2 || !m["have-old"].Pinned || !m["gone-new"].Archived {
+		t.Fatalf("left %+v: a chat we have, or a fresh record, was swept", m)
 	}
-	if m, _ := s.ChatPrefs(); len(m) != 1 || !m["b"].Pinned {
-		t.Fatalf("left %+v", m)
+
+	// An id no channel could have is refused.
+	if _, ch, _ := s.MergeChatPref(strings.Repeat("x", 129), ChatPref{Pinned: true, PinAt: now.UnixMilli()}, now); ch {
+		t.Fatal("an over-long chat id was stored")
+	}
+	// A full table takes no new chat, but still takes changes to one it holds.
+	defer func(c int) { chatPrefCap = c }(chatPrefCap)
+	chatPrefCap = 8
+	for i := len(m); i < chatPrefCap; i++ {
+		s.MergeChatPref(fmt.Sprintf("fill-%d", i), ChatPref{Pinned: true, PinAt: now.UnixMilli()}, now)
+	}
+	if _, ch, _ := s.MergeChatPref("one-more", ChatPref{Pinned: true, PinAt: now.UnixMilli()}, now); ch {
+		t.Fatal("a full table took a new chat")
+	}
+	later := now.Add(time.Second)
+	if _, ch, _ := s.MergeChatPref("gone-new", ChatPref{Archived: false, ArchAt: later.UnixMilli()}, later); !ch {
+		t.Fatal("a full table refused a change to a chat it holds")
 	}
 }
