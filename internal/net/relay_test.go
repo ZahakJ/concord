@@ -3,11 +3,13 @@ package net
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 
 	"github.com/ZahakJ/concord/internal/identity"
 )
@@ -172,4 +174,81 @@ func TestAddrsAtHostsKeepsClaimedPorts(t *testing.T) {
 	if len(addrsAtHosts(claimed, nil)) != 0 {
 		t.Fatal("with no connection to judge by, nothing is worth remembering")
 	}
+}
+
+// TestHandOnAddrsKeepsLoopbackOnlyWhenThatIsTheConnection: a device offering
+// its sibling a guild it cannot admit to addresses the code at the owner with
+// these. DialableAddrs drops loopback, which is right for what is remembered
+// and left a code with no address at all when the only connection to the
+// owner was over loopback. HandOnAddrs keeps the owner's loopback listen
+// addresses then, and only at the host the connection actually reached.
+func TestHandOnAddrsKeepsLoopbackOnlyWhenThatIsTheConnection(t *testing.T) {
+	loopbackHost := func() *Host {
+		id, _ := identity.Generate()
+		h, err := New(context.Background(), Config{Identity: id, ListenAddrs: []string{"/ip4/127.0.0.1/tcp/0"}})
+		if err != nil {
+			t.Fatalf("New host: %v", err)
+		}
+		t.Cleanup(func() { _ = h.Close() })
+		return h
+	}
+	a, b := loopbackHost(), loopbackHost()
+	if err := a.Connect(context.Background(), peer.AddrInfo{ID: b.PeerID(), Addrs: b.Libp2p().Addrs()}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	// (ii) A loopback address the peer merely claims, at a host we are not
+	// connected on, is no more ours to hand on than one on the internet.
+	claimed := multiaddr.StringCast("/ip4/127.0.0.2/tcp/4001")
+	a.Libp2p().Peerstore().AddAddr(b.PeerID(), claimed, time.Hour)
+
+	if got := a.DialableAddrs(b.PeerID()); len(got) != 0 {
+		t.Fatalf("DialableAddrs kept %v over a loopback-only connection; it must keep nothing", got)
+	}
+	got := a.HandOnAddrs(b.PeerID())
+	if len(got) == 0 {
+		t.Fatal("HandOnAddrs gave nothing to hand on over a loopback connection")
+	}
+	for _, m := range got {
+		if !manet.IsIPLoopback(m) || addrHost(m) != "127.0.0.1" {
+			t.Fatalf("HandOnAddrs returned %s; want only loopback at the connected host", m)
+		}
+		if m.Equal(claimed) {
+			t.Fatalf("HandOnAddrs returned an address the peer merely claimed: %s", m)
+		}
+	}
+
+	// (iii) Over a non-loopback connection the two agree. Needs an interface
+	// with a non-loopback address; machines without one skip this part.
+	c, d := newTestHost(t, mustID(t)), newTestHost(t, mustID(t))
+	var lan []multiaddr.Multiaddr
+	for _, m := range d.Libp2p().Addrs() {
+		if !manet.IsIPLoopback(m) && !isRelayAddr(m) {
+			lan = append(lan, m)
+		}
+	}
+	if len(lan) == 0 {
+		t.Log("no non-loopback interface; skipping the part over a real interface")
+		return
+	}
+	if err := c.Connect(context.Background(), peer.AddrInfo{ID: d.PeerID(), Addrs: lan}); err != nil {
+		t.Fatalf("Connect over %v: %v", lan, err)
+	}
+	dial, hand := c.DialableAddrs(d.PeerID()), c.HandOnAddrs(d.PeerID())
+	if len(dial) == 0 || len(dial) != len(hand) {
+		t.Fatalf("over a non-loopback connection: DialableAddrs %v, HandOnAddrs %v; want the same, non-empty", dial, hand)
+	}
+	for _, m := range dial {
+		if !slices.ContainsFunc(hand, m.Equal) {
+			t.Fatalf("over a non-loopback connection: DialableAddrs %v, HandOnAddrs %v; want the same", dial, hand)
+		}
+	}
+}
+
+func mustID(t *testing.T) *identity.Identity {
+	t.Helper()
+	id, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("identity: %v", err)
+	}
+	return id
 }
