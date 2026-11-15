@@ -109,6 +109,7 @@
     searchEmoji,
   } from "./lib/emoji.js";
   import { reducedMotion } from "./lib/motion.js";
+  import { reactionImage } from "./lib/customemoji.js";
 
   // `entering` is set by MessageList for the newest appended message only, so
   // it fades/slides in once — history rows never animate.
@@ -1694,7 +1695,7 @@
     {#if !poll && m.reactions && Object.keys(m.reactions).length}
       <div class="reactions" use:reactionAnim>
         {#each Object.entries(m.reactions) as [emoji, fprs] (emoji)}
-          {@const cimg = /^:([a-z0-9_]{2,32}):$/.test(emoji) ? cemoji[emoji.slice(1, -1)] : null}
+          {@const cimg = reactionImage(cemoji, emoji)}
           <span class="react-wrap">
             <button
               class="reaction"

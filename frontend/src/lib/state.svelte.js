@@ -78,6 +78,7 @@ import {
   showsBadge,
 } from "./notifs.js";
 import { reducedMotion, motionMode, onOsMotionChange } from "./motion.js";
+import { customEmojiTable } from "./customemoji.js";
 
 export const S = $state({
   ready: false,
@@ -654,9 +655,7 @@ export function nameFor(fpr, frozenName = "") {
 // call re-rendered the body of every message on screen each time.
 const stableEmoji = keepStable();
 const emojiTable = $derived.by(() => {
-  const m = {};
-  for (const e of activeGuild()?.emoji || []) m[e.name] = e.image;
-  return stableEmoji(m);
+  return stableEmoji(customEmojiTable(activeGuild()?.emoji));
 });
 export function customEmojiMap() {
   return emojiTable;
