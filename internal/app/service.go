@@ -1949,7 +1949,34 @@ func (s *Service) SetProvisionalName(name string) error {
 }
 
 // SelfProfile returns this peer's own profile.
+//
+// The edit stamp it reports is read BEFORE the fields. Every edit writes its
+// fields one by one and its stamp last, and this used to read the stamp last
+// too, so a read that overlapped an edit could pair the old pictures with the
+// new stamp. That copy fits inline in a device hello, the other device adopted
+// it as the edit, and the real record that followed was then not newer: the
+// device kept the old pictures for good. With the stamp read first, a read
+// that overlaps an edit can only pair newer fields with an older stamp, and the
+// edit's own stamp, which follows, replaces it. The read is repeated while the
+// stamp moves, so even that is rare.
 func (s *Service) SelfProfile() Profile {
+	at := s.profileStamp()
+	p := s.selfProfileFields()
+	for try := 0; try < 3; try++ {
+		now := s.profileStamp()
+		if now == at {
+			break
+		}
+		at = now
+		p = s.selfProfileFields()
+	}
+	p.UpdatedAt = at
+	return p
+}
+
+// selfProfileFields reads the stored fields of our profile without the stamp;
+// SelfProfile adds the stamp.
+func (s *Service) selfProfileFields() Profile {
 	status, _ := s.store.GetSetting("status_text")
 	emoji, _ := s.store.GetSetting("avatar_emoji")
 	color, _ := s.store.GetSetting("accent_color")
@@ -1989,8 +2016,7 @@ func (s *Service) SelfProfile() Profile {
 		Games: decodeGames(rawGames), Color2: color2, Frame: frame, Effect: effect, Style: style,
 		// This device read its own games out of the store, so whatever it says
 		// — including "none" — is the truth about this account's collection.
-		GamesSet:  true,
-		UpdatedAt: s.profileStamp(),
+		GamesSet: true,
 	}
 }
 
