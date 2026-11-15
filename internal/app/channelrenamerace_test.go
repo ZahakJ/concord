@@ -44,9 +44,30 @@ func TestConcurrentChannelRenamesConverge(t *testing.T) {
 	wg.Wait()
 
 	nameOn := func(s *Service) string { return s.channelByID(g.ID, ch).Name }
+	// Agreement on screen is not enough: the frames travel apart from the log
+	// ops, so all three can show one name while a peer's log still lacks a
+	// rename, and the other frame, still on its way, then lands on a log that
+	// cannot overrule it. Wait until every log holds both renames and every
+	// peer shows what its log says.
+	renamesLogged := func(s *Service) int {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		n := 0
+		for _, o := range s.govOps[g.ID] {
+			if o.Type == "channel_rename" && o.ChannelID == ch {
+				n++
+			}
+		}
+		return n
+	}
 	waitUntil(t, 30*time.Second, func() bool {
-		a, b, c := nameOn(owner), nameOn(admin), nameOn(member)
-		return a == b && b == c && a == owner.loggedChannels(g.ID)[ch].name && a != ""
+		want := nameOn(owner)
+		for _, s := range []*Service{owner, admin, member} {
+			if renamesLogged(s) < 2 || nameOn(s) != want || s.loggedChannels(g.ID)[ch].name != want {
+				return false
+			}
+		}
+		return want != ""
 	}, "the three peers never agreed on the channel's name")
 	winner := nameOn(owner)
 	loser := "alice-name"
