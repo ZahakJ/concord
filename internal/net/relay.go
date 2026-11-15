@@ -430,6 +430,26 @@ func (n *Host) DialableAddrs(p peer.ID) []multiaddr.Multiaddr {
 	return lan
 }
 
+// HandOnAddrs is DialableAddrs for an address handed to another device of
+// ours right now, to dial this peer with, rather than remembered for later
+// launches. The difference is loopback: when the only connection we hold to
+// the peer is over loopback, the peer is on this machine, and the loopback
+// addresses it listens on reach it from any install here. DialableAddrs drops
+// them because they mean nothing on the next launch or another machine; here
+// leaving them out left nothing at all to hand on.
+func (n *Host) HandOnAddrs(p peer.ID) []multiaddr.Multiaddr {
+	if addrs := n.DialableAddrs(p); len(addrs) > 0 {
+		return addrs
+	}
+	var loop []multiaddr.Multiaddr
+	for _, a := range addrsAtHosts(n.h.Peerstore().Addrs(p), n.connectedHosts(p)) {
+		if manet.IsIPLoopback(a) {
+			loop = append(loop, a)
+		}
+	}
+	return loop
+}
+
 // connectedHosts is the set of hosts we currently hold a connection to a peer
 // on. Circuit connections are skipped: their remote address is the relay's, and
 // vouching for addresses at a third party's host is exactly what this guards

@@ -259,7 +259,7 @@ func (s *Service) ownerInviteCode(g domain.Guild) (string, bool) {
 func (s *Service) ownerAddrs(fingerprint string) (peer.ID, []string, bool) {
 	if pid, ok := s.peerForFingerprint(fingerprint); ok {
 		var addrs []string
-		for _, a := range s.host.DialableAddrs(pid) {
+		for _, a := range s.host.HandOnAddrs(pid) {
 			addrs = append(addrs, a.String())
 		}
 		return pid, addrs, true
