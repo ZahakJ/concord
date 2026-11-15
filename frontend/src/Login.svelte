@@ -11,7 +11,9 @@
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import { finishUnlock } from "./lib/unlock.js";
   import { foundName, keepTypedArgs, restoreStep } from "./lib/restoreprofile.js";
+  import { eraseWordMatches, replaceEraseLabel, replaceEraseReady } from "./lib/eraseword.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
+  import EraseConfirm from "./EraseConfirm.svelte";
   import Icon from "./Icon.svelte";
   import PassphraseField from "./PassphraseField.svelte";
   import QRScanner from "./QRScanner.svelte";
@@ -120,15 +122,13 @@
     await enter();
   }
   let confirmingReset = $state(false);
-  // Erasing from here takes a fixed word typed out, the same strength as the
-  // in-app wipe, and a ticket the core issues when the confirmation opens,
-  // bound to what the device holds then. The core checks both (ResetIdentity
-  // refuses without them); the word is never taken from a name, which could
-  // be untypeable.
-  const START_OVER_WORD = "ERASE";
+  // Erasing from here takes a fixed word typed out (EraseConfirm), the same
+  // strength as the in-app wipe, and a ticket the core issues when the
+  // confirmation opens, bound to what the device holds then. The core checks
+  // both (ResetIdentity refuses without them); the word is never taken from a
+  // name, which could be untypeable.
   let resetTyped = $state("");
   let resetTicket = $state("");
-  const resetMatches = $derived(resetTyped.trim().toLowerCase() === START_OVER_WORD.toLowerCase());
 
   async function openReset() {
     error = "";
@@ -213,6 +213,8 @@
   async function doLink(e) {
     e?.preventDefault();
     if (busy) return;
+    // Over the replace question, only its yes goes ahead: the word typed.
+    if (replaceAsk && !eraseWordMatches(replaceTyped)) return;
     // Accept the raw code or the concord://link?c=… URL form (scans/pastes).
     const code = linkCodeFrom(linkCode);
     if (!code) {
@@ -296,7 +298,17 @@
   // said — whose account is here, whose would replace it — until the user
   // agrees for exactly that account or goes back. kind: "restore" | "link".
   let replaceAsk = $state(null);
+  // replaceTyped: the erase word for that yes. Restoring or linking over an
+  // account erases it as surely as starting over, so it takes the same word,
+  // and it is cleared whenever the question is asked again or left.
+  let replaceTyped = $state("");
+  function leaveReplace() {
+    replaceAsk = null;
+    replaceTyped = "";
+    error = "";
+  }
   function askReplace(kind, d) {
+    replaceTyped = "";
     // confirm: the core's token for this account replacing the keystore shown
     // here; sent back as the yes, so a device changed meanwhile is asked again.
     replaceAsk = { kind, match: d.match, incoming: d.incoming, incomingName: d.incomingName || "", confirm: d.confirm || "" };
@@ -440,6 +452,8 @@
   async function doRestore(e) {
     e?.preventDefault();
     if (busy) return;
+    // Over the replace question, only its yes goes ahead: the word typed.
+    if (replaceAsk && !eraseWordMatches(replaceTyped)) return;
     if (!restorePhrase.trim()) {
       error = "Enter your recovery phrase.";
       errField = "phrase";
@@ -618,8 +632,8 @@
 
   async function submit(e) {
     e?.preventDefault();
-    // The erase confirmation is on screen: nothing here submits the form.
-    if (confirmingReset) return;
+    // An erase confirmation is on screen: nothing here submits the form.
+    if (confirmingReset || replaceAsk) return;
     if (resumeBackup && !backupPhrase) return resumeShow(e);
     if (naming) return saveName(e);
     if (!passphrase || busy || backupPhrase) return;
@@ -669,6 +683,9 @@
       await enter();
     } catch (err) {
       fail(err);
+      // The core can't tell a wrong passphrase from a damaged keystore; for
+      // somebody sure of theirs, the ways back in are on the link below.
+      if (err?.code === "wrong-passphrase" && hasIdentity) error += " “Forgot passphrase?” below has the ways back in.";
       // An account's data but no keystore: nothing was created. Offer the
       // ways forward (recovery phrase, re-link, start over) right away.
       if (err?.code === "data-without-keystore") {
@@ -681,7 +698,7 @@
   }
 
   async function doReset() {
-    if (!resetMatches || busy) return;
+    if (!eraseWordMatches(resetTyped) || busy) return;
     busy = true;
     error = "";
     try {
@@ -746,13 +763,17 @@
               : offerBio
                 ? "Unlock faster next time"
                 : confirmingReset
-                  ? "Start over on this device?"
+                  ? dataNoKeystore
+                    ? "Erase this data and start over?"
+                    : "Start over on this device?"
                   : linking
                     ? "Link this device"
                     : restoring
                       ? "Restore your account"
                       : forgot
-                        ? "Forgot your passphrase?"
+                        ? dataNoKeystore
+                          ? "This device holds an account it can't open"
+                          : "Forgot your passphrase?"
                         : hasIdentity
                           ? "Unlock Concord"
                           : "Create your account",
@@ -791,10 +812,9 @@
           While Concord is open it tries again for a day, and it tries again
           the next time it starts. Nothing was deleted from anyone else.
         {:else if endedReason === "unlinked-replaced"}
-          This device was unlinked from its account, but by the time it came to
-          erase itself another account had been restored or linked here, so
-          nothing was erased: what is on this device now is not what the unlink
-          was for.
+          This device was unlinked from its account, but before it could erase
+          itself it was linked again or another account was restored or linked
+          here, so nothing was erased. What is on this device now stays as it is.
         {:else if endedReason === "wiped"}
           Everything on this device was deleted from another Concord window.
         {:else if endedReason === "signed-out"}
@@ -831,7 +851,8 @@
         {#if waitedOut}
           <p class="muted small">
             {#if !rdvInput.trim()}
-              This device has no rendezvous set, so it can only look on this network.
+              This device has no rendezvous (the meeting point it finds other devices through),
+              so it can only look on this network.
             {/if}
             If this account is still open on a device you never linked, the two can't see each
             other: close it there, or link this device from it instead.
@@ -897,6 +918,13 @@
             recovered without the passphrase. Restoring erases this device's guilds,
             messages and notes. If your other device still has the account, re-linking
             from it brings everything back instead.
+          {:else if replaceAsk.match === "unknown" && !hasIdentity}
+            This device holds data from an account it can't open: its keystore is
+            missing{#if device?.name}, and its files say the account is {device.name}{/if}.
+            Going ahead erases <strong>that data</strong> — its guilds, messages and
+            notes — and replaces it with the account
+            {replaceAsk.kind === "link" ? "the code is for" : "the phrase is for"}
+            ({shortFp(replaceAsk.incoming)}).
           {:else if replaceAsk.match === "unknown"}
             Concord can't confirm which account is on this device{#if device?.fingerprint}{" — "}its
               files say {deviceName} ({shortFp(device.fingerprint)}), but only its
@@ -905,23 +933,44 @@
             here, its guilds, messages and notes — and replaces it with the account
             {replaceAsk.kind === "link" ? "the code is for" : "the phrase is for"}
             ({shortFp(replaceAsk.incoming)}).
-          {:else}
-            {device?.verified ? "This device holds" : "This device's files say it holds"}
-            <strong>{deviceName}</strong>{#if device?.fingerprint}&nbsp;({shortFp(
+          {:else if device?.verified}
+            This device holds <strong>{deviceName}</strong>{#if device?.fingerprint}&nbsp;({shortFp(
                 device.fingerprint,
               )}){/if}. The {replaceAsk.kind === "link" ? "code" : "phrase"} belongs to
             <strong>{replaceAsk.incomingName || "another account"}</strong> ({shortFp(replaceAsk.incoming)}).
             Going ahead <strong>erases {deviceName} from this device</strong> — its guilds,
             messages, notes and settings. Nothing can bring this device's copy back unless
             {deviceName} is also on another of your devices.
+          {:else}
+            This device's files say it holds <strong>{deviceName}</strong>{#if device?.fingerprint}&nbsp;({shortFp(
+                device.fingerprint,
+              )}){/if}, but only its passphrase can prove that. The
+            {replaceAsk.kind === "link" ? "code" : "phrase"} belongs to
+            <strong>{replaceAsk.incomingName || "another account"}</strong> ({shortFp(replaceAsk.incoming)}).
+            Going ahead <strong>erases the account on this device</strong> — its guilds,
+            messages, notes and settings. Nothing can bring this device's copy back unless
+            that account is also on another of your devices.
           {/if}
         </p>
         <p class="muted small nothing-yet">Nothing has been changed yet.</p>
       </div>
+      <!-- The safe choices first and full width; erasing comes last, behind the
+           typed word, on a button that is neither first nor full width. -->
+      <button type="button" class="primary" disabled={busy} onclick={leaveReplace}>Keep everything here</button>
+      {#if replaceAsk.match === "same"}
+        <button
+          type="button"
+          class="ghost"
+          disabled={busy}
+          onclick={() => (leaveReplace(), (restoring = false), (linking = true))}
+        >
+          Re-link from my other device instead
+        </button>
+      {/if}
       {#if replaceAsk.kind === "link"}
         <p class="muted small">
-          Each link code works once. To go ahead, make a new code on the other device
-          and paste it here.
+          Each link code works once. To erase and link anyway, make a new code on the
+          other device and paste it here.
         </p>
         <textarea
           class="phrase-in"
@@ -937,32 +986,19 @@
         ></textarea>
       {/if}
       <div class="error slot" role="alert">{error}</div>
-      <button
-        type="button"
-        class="danger"
-        disabled={busy || (replaceAsk.kind === "link" && !linkCode.trim())}
-        onclick={replaceAsk.kind === "link" ? doLink : doRestore}
-      >
-        {#if busy}
-          Erasing…
-        {:else if replaceAsk.match === "same"}
-          Erase this device's copy and restore
-        {:else}
-          Erase {device?.name || "this device's account"} and {replaceAsk.kind === "link" ? "link" : "restore"}
-        {/if}
-      </button>
-      {#if replaceAsk.match === "same"}
-        <button
-          type="button"
-          class="ghost"
-          onclick={() => ((replaceAsk = null), (restoring = false), (linking = true), (error = ""))}
-        >
-          Re-link from my other device instead
-        </button>
-      {/if}
-      <button type="button" class="link" onclick={() => ((replaceAsk = null), (error = ""))}>
-        Go back
-      </button>
+      <EraseConfirm
+        bind:typed={replaceTyped}
+        {busy}
+        ready={replaceEraseReady({ typed: replaceTyped, kind: replaceAsk.kind, linkCode })}
+        label={replaceEraseLabel({
+          match: replaceAsk.match,
+          kind: replaceAsk.kind,
+          verified: !!device?.verified,
+          name: device?.name || "",
+          hasIdentity,
+        })}
+        onconfirm={replaceAsk.kind === "link" ? doLink : doRestore}
+      />
     {:else if offerBio}
       <p class="muted">
         Unlock Concord with your fingerprint or face next time, instead of typing
@@ -1051,35 +1087,34 @@
         <button class="primary" type="button" onclick={toggleReveal}>Show the phrase</button>
       {/if}
     {:else if confirmingReset}
-      <p class="muted">
-        This permanently deletes your identity and all data on <strong>this device</strong>
-        so you can create a new passphrase. Guilds you own will be lost. This
-        cannot be undone.
+      {#if dataNoKeystore}
+        <p class="muted">
+          This permanently deletes the data on <strong>this device</strong> from the
+          account it can't open — its guilds, messages and notes — so you can set up a
+          new account here. That account's recovery phrase, or another of its devices,
+          would keep this data instead. This cannot be undone.
+        </p>
+      {:else}
+        <p class="muted">
+          This permanently deletes your identity and everything on <strong>this device</strong>,
+          so you can set up a new account here. This cannot be undone.
+        </p>
+      {/if}
+      <p class="muted small">
+        Guilds carry on for their other members. A guild you own keeps this account as its
+        owner: unless the account comes back (from another device or your recovery phrase),
+        only an heir you named can take it over.
       </p>
-      <p class="muted">Type <b>{START_OVER_WORD}</b> to confirm.</p>
-      <input
-        type="text"
-        bind:value={resetTyped}
-        autocomplete="off"
-        autocapitalize="off"
-        spellcheck="false"
-        aria-label="Type {START_OVER_WORD} to confirm"
-        placeholder={START_OVER_WORD}
+      <button
+        type="button"
+        class="primary"
         disabled={busy}
-        onkeydown={(e) => {
-          // Enter here is this confirmation's, never the form's: the form's
-          // submit would try to unlock or create with the passphrase fields.
-          if (e.key === "Enter") {
-            e.preventDefault();
-            doReset();
-          }
-        }}
-      />
-      <div class="error slot" role="alert">{error}</div>
-      <button type="button" class="danger" disabled={busy || !resetMatches} onclick={doReset}>
-        {busy ? "Resetting…" : "Yes, delete and start over"}
+        onclick={() => ((confirmingReset = false), (resetTyped = ""), (resetTicket = ""), (error = ""))}
+      >
+        Cancel
       </button>
-      <button type="button" class="link" onclick={() => ((confirmingReset = false), (resetTyped = ""), (resetTicket = ""))}>Cancel</button>
+      <div class="error slot" role="alert">{error}</div>
+      <EraseConfirm bind:typed={resetTyped} {busy} label="Yes, delete and start over" onconfirm={doReset} />
     {:else if linking}
       <p class="muted">
         On your other device, open <strong>Settings → Your devices</strong>.
@@ -1247,11 +1282,15 @@
       <button class="primary" type="button" onclick={() => ((linking = true), (forgot = false), (error = ""))}>
         Re-link from my other device
       </button>
-      <p class="muted small">If the account is still open on another device: everything comes back.</p>
+      <p class="muted small">If the account is still open on another device, everything comes back.</p>
       <button type="button" class="ghost" onclick={() => ((restoring = true), (forgot = false), (error = ""))}>
         Use my recovery phrase
       </button>
-      <p class="muted small">If no other device of yours has the account any more.</p>
+      <p class="muted small">
+        {dataNoKeystore
+          ? "If it is this account's phrase, everything on this device is kept."
+          : "If no other device of yours has the account any more."}
+      </p>
       <button type="button" class="link warn-link" onclick={openReset}>
         {dataNoKeystore ? "Erase this data and start over" : "I have neither — start over (deletes everything)"}
       </button>
@@ -1329,7 +1368,7 @@
         <button type="button" class="link" onclick={() => ((linking = true), (error = ""))}>
           Add this device to my account
         </button>
-        <span class="muted small">Your account is open on another device: link this one with a code from it.</span>
+        <span class="muted small">If your account is open on another device, link this one with a code from it.</span>
         <button type="button" class="link" onclick={() => ((restoring = true), (error = ""))}>
           I lost my devices — restore from my recovery phrase
         </button>

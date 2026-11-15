@@ -494,8 +494,13 @@ func TestAStartOverTicketIsSpentOnUse(t *testing.T) {
 	} else if code, _ := codeOf(err); code == CodeConfirmStale {
 		t.Fatalf("the first use was refused as stale: %v", err)
 	}
-	if code, _ := codeOf(b.ResetIdentity(view.Ticket, "ERASE")); code != CodeConfirmStale {
+	err = b.ResetIdentity(view.Ticket, "ERASE")
+	if code, _ := codeOf(err); code != CodeConfirmStale {
 		t.Fatal("a ticket was used twice")
+	}
+	// A used ticket did not expire, and the sentence must not say it did.
+	if msg := err.Error(); strings.Contains(msg, "expired") || !strings.Contains(msg, "used already") {
+		t.Fatalf("a used ticket is described as %q", msg)
 	}
 }
 
@@ -511,8 +516,12 @@ func TestAStartOverTicketExpiresAndCoversTheKeystore(t *testing.T) {
 	b.mu.Lock()
 	b.startOver.issued = time.Now().Add(-startOverTTL - time.Minute)
 	b.mu.Unlock()
-	if code, _ := codeOf(b.ResetIdentity(view.Ticket, "ERASE")); code != CodeConfirmStale {
+	err := b.ResetIdentity(view.Ticket, "ERASE")
+	if code, _ := codeOf(err); code != CodeConfirmStale {
 		t.Fatal("an expired start-over ticket was accepted")
+	}
+	if !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("an expired ticket is described as %q", err)
 	}
 
 	view, _ = b.BeginStartOver()

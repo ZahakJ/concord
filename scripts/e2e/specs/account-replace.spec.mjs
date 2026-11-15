@@ -1,11 +1,23 @@
 // The forgotten-passphrase restore used to erase the locked account even when
-// the recovery phrase belonged to somebody else, with no question asked.
+// the recovery phrase belonged to somebody else, with no question asked. Then
+// the question's yes erased it in one tap, while starting over took ERASE
+// typed; now the yes takes the same word, and keeping comes first.
 import { test } from "../harness.mjs";
 
 async function toRestoreForm(app) {
   const { page } = app;
   await page.getByRole("button", { name: "Forgot passphrase?" }).click();
   await page.getByRole("button", { name: "Use my recovery phrase" }).click();
+}
+
+// The replace question's yes: the erase button is disabled until ERASE is
+// typed, then pressed.
+async function typeEraseAndGo(page, assert, name) {
+  const yes = page.getByRole("button", { name });
+  await yes.waitFor();
+  assert.ok(await yes.isDisabled(), "the erase is enabled before the word is typed");
+  await page.getByRole("textbox", { name: "Type ERASE to confirm" }).fill("ERASE");
+  await yes.click();
 }
 
 async function fillRestore(app, phrase, pass) {
@@ -37,7 +49,7 @@ test("a recovery phrase for another account asks before erasing the one here", a
   assert.equal(locked.fingerprint, alice.fingerprint, "the refused restore left the device as it was");
 
   step("Back, and her own phrase keeps everything");
-  await app.page.getByRole("button", { name: "Go back" }).click();
+  await app.page.getByRole("button", { name: "Keep everything here" }).click();
   await fillRestore(app, alicePhrase, "brand-new-pass");
   await waitFor(async () => (await alice.rpc("Session")) === true, { message: "own-phrase restore unlocks" });
   const me = await alice.rpc("Identity");
@@ -58,7 +70,7 @@ test("agreeing in the dialog erases the account it named and restores the other"
   const ask = app.page.getByRole("alertdialog");
   await ask.waitFor();
   assert.match(await ask.innerText(), /Alice/);
-  await app.page.getByRole("button", { name: /^Erase .* and restore$/ }).click();
+  await typeEraseAndGo(app.page, assert, "Erase Alice and restore");
   await waitFor(async () => (await alice.rpc("Session")) === true, { message: "the confirmed restore unlocks" });
   const me = await alice.rpc("Identity");
   assert.equal(me.fingerprint, bashir.fingerprint, "the device now holds the phrase's account");
@@ -87,8 +99,48 @@ test("a device nothing has unlocked since it started says what its files claim, 
   await app.screenshot(`${world.dir}/unconfirmed-device.png`);
 
   step("her own phrase is asked about too: nothing can prove it is hers");
-  await app.page.getByRole("button", { name: "Go back" }).click();
+  await app.page.getByRole("button", { name: "Keep everything here" }).click();
   await fillRestore(app, alicePhrase, "brand-new-pass");
   await app.page.getByRole("alertdialog").waitFor();
   assert.equal(await alice.rpc("Session"), false, "nothing was restored without a confirmation");
+});
+
+test("the replace question erases nothing in one tap: keeping comes first, and erasing takes ERASE typed", async ({ world, assert, waitFor, step }) => {
+  const [alice, bashir] = await world.peers(2);
+  const bashirPhrase = await bashir.rpc("RevealMnemonic", bashir.passphrase);
+  await alice.rpc("Logout");
+  const app = await alice.open({ unlock: false, viewport: "phone" });
+  const { page } = app;
+  await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
+  await toRestoreForm(app);
+  await fillRestore(app, bashirPhrase, "brand-new-pass");
+  await page.getByRole("alertdialog").waitFor();
+
+  step("the erase is disabled with nothing typed; keep is first and full width, the erase after it and narrower");
+  const keep = page.getByRole("button", { name: "Keep everything here" });
+  const yes = page.getByRole("button", { name: "Erase Alice and restore" });
+  const word = page.getByRole("textbox", { name: "Type ERASE to confirm" });
+  await yes.waitFor();
+  assert.ok(await yes.isDisabled(), "the erase is enabled with nothing typed: one tap erases Alice");
+  const [k, y] = [await keep.boundingBox(), await yes.boundingBox()];
+  assert.ok(k.y < y.y, "the erase comes before keeping");
+  assert.ok(y.width < k.width, "the erase is as wide as the safe choice");
+
+  step("a tap, a wrong word, or Enter with it erase nothing");
+  await yes.click({ force: true });
+  for (const wrong of ["ERAS", "Alice", "delete"]) {
+    await word.fill(wrong);
+    assert.ok(await yes.isDisabled(), `the erase is enabled with "${wrong}" typed`);
+    await word.press("Enter");
+  }
+  assert.ok(await word.isVisible(), "the question went away without a yes");
+  assert.equal(await alice.rpc("Session"), false, "something was restored without the word");
+  assert.equal((await alice.rpc("LockedAccount")).fingerprint, alice.fingerprint, "the account here changed without the word");
+
+  step("with the word typed, Enter is the yes");
+  await word.fill(" erase ");
+  assert.ok(await yes.isEnabled(), "the erase stays disabled with the word typed");
+  await word.press("Enter");
+  await waitFor(async () => (await alice.rpc("Session")) === true, { message: "the confirmed restore unlocks" });
+  assert.equal((await alice.rpc("Identity")).fingerprint, bashir.fingerprint);
 });

@@ -58,6 +58,10 @@ const BY_CODE = {
   // The sentence says both, so somebody sure of their passphrase is not
   // left assuming they misremembered it before choosing the recovery path.
   "wrong-passphrase": WRONG_PASSPHRASE,
+  // Only the lock screen gets this one, and it already says above the error
+  // what the device holds and what each choice does; the core's sentence
+  // repeats that, so the error keeps just what happened.
+  "data-without-keystore": "Nothing was deleted, and no new account was created beside it.",
 };
 
 // Core sentences that reach the login card, in the words they should have had.

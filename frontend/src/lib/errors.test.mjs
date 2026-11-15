@@ -80,6 +80,10 @@ const wrong = Object.assign(new Error("app: open identity: identity: wrong passp
 });
 eq(humanError(wrong), "That passphrase doesn't unlock this device. Check caps lock and try again — if you're sure it's right, this device's keystore file may have been damaged or changed.", "wrong passphrase by code, which cannot be told from a damaged keystore");
 eq(errorField(wrong), "pass", "wrong passphrase is about the passphrase");
+const noKeystore = Object.assign(new Error("This device holds an account's data, but not the keystore that opens it. Nothing was deleted…"), {
+  code: "data-without-keystore",
+});
+eq(humanError(noKeystore), "Nothing was deleted, and no new account was created beside it.", "data without keystore: what happened, once");
 eq(humanError("link: bad code").startsWith("That isn't a link code."), true, "bad link code");
 eq(errorField("link: bad code"), "code", "bad link code is about the code");
 eq(errorField(new Error("link: bad code encoding")), "code", "bad code encoding");

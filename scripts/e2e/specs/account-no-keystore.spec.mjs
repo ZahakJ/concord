@@ -96,13 +96,18 @@ test("data without a keystore: another account's phrase is asked about, declinin
   assert.equal(await alice.rpc("Session"), false, "restored without asking");
 
   step("declining leaves everything as it was");
-  await page.getByRole("button", { name: "Go back" }).click();
+  await page.getByRole("button", { name: "Keep everything here" }).click();
   untouched(assert, alice, dbBefore, "after declining");
 
   step("agreeing erases Alice's data and restores Bashir");
   await fillRestore(page, bashirPhrase, "brand-new-pass");
   await page.getByRole("alertdialog").waitFor();
-  await page.getByRole("button", { name: /^Erase .* and restore$/ }).click();
+  // No account here can be opened, so the button names none, and it waits
+  // for the same word as erasing outright.
+  const yes = page.getByRole("button", { name: "Erase this data and restore" });
+  assert.ok(await yes.isDisabled(), "the erase is enabled before ERASE is typed");
+  await page.getByRole("textbox", { name: "Type ERASE to confirm" }).fill("ERASE");
+  await yes.click();
   await waitFor(async () => (await alice.rpc("Session")) === true, { message: "the confirmed restore unlocks" });
   const me = await alice.rpc("Identity");
   assert.equal(me.fingerprint, bashir.fingerprint, "the device does not hold the phrase's account");

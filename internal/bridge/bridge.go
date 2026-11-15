@@ -638,8 +638,13 @@ func (b *Bridge) ResetIdentity(ticket, typed string) error {
 	if valid {
 		b.startOver.ticket, b.startOver.token = "", ""
 	}
+	// Not valid: no ticket, one already used, or one replaced because erasing
+	// was opened again (here or in another window). Only the time limit is
+	// an expiry.
 	switch {
-	case !valid || time.Since(issued) > startOverTTL:
+	case !valid:
+		return &CodedError{Code: CodeConfirmStale, Msg: "This confirmation can no longer be used: it was used already, or erasing was opened again here or in another window. Nothing was deleted. Open it again to erase this device."}
+	case time.Since(issued) > startOverTTL:
 		return &CodedError{Code: CodeConfirmStale, Msg: "This confirmation has expired. Nothing was deleted. Open it again to erase this device."}
 	case appsvc.StartOverToken(dir) != want:
 		return &CodedError{Code: CodeConfirmStale, Msg: "What is on this device changed since this confirmation opened. Nothing was deleted. Look again before erasing."}
