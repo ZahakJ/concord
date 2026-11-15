@@ -204,8 +204,13 @@
               class="as-emoji"
               aria-label={"React " + em}
               onclick={() => {
+                // Take the handler BEFORE closing: `quick` is a {@const} over
+                // S.contextMenu, read again on every access, and closing sets
+                // that to null. Calling through it afterwards threw, so no
+                // reaction from this row ever reached the message.
+                const pick = quick.onPick;
                 closeContextMenu();
-                quick.onPick(em);
+                pick(em);
               }}
             >{em}</button>
           {/each}
@@ -216,8 +221,9 @@
               class="as-emoji as-more"
               aria-label="More reactions"
               onclick={() => {
+                const more = quick.onMore; // the same, see the row above
                 closeContextMenu();
-                quick.onMore();
+                more();
               }}
             ><Icon name="plus" size={20} /></button>
           {/if}

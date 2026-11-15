@@ -645,6 +645,21 @@ export class App {
     return this.messageAction(text, `React ${emoji}`);
   }
 
+  // Phone only: holds a finger on `locator` (at `at` = {x, y} inside its box,
+  // default near its left edge) for `ms` and lifts it. Real touch events over
+  // CDP, so the app's long-press action and the browser's own touch handling
+  // both see what a finger would produce.
+  async longPress(locator, { ms = 700, at } = {}) {
+    const b = await locator.boundingBox();
+    if (!b) throw new Error("longPress: the target has no box");
+    const x = b.x + (at ? at.x : Math.min(24, b.width / 2));
+    const y = b.y + (at ? at.y : b.height / 2);
+    this.cdp ||= await this.ctx.newCDPSession(this.page);
+    await this.cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    await sleep(ms);
+    await this.cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  }
+
   // ---- calls (open the page with { watchMedia: true })
 
   // Bytes and frames received so far over every live peer connection.
