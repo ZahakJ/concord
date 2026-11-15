@@ -1,11 +1,12 @@
 // state.svelte.js — Concord's shared UI state (Svelte 5 runes) and the actions
 // that mutate it. Components import { S, ... } and read/mutate S's properties;
 // api.js stays the only transport layer underneath.
-import { tick } from "svelte";
+import { tick, untrack } from "svelte";
 import { closeGuildSwitcher } from "./guildswitch.svelte.js";
 import { MOM } from "./momentsunseen.svelte.js";
 import { api, on, onTransportHealth, probeCore } from "./api.js";
 import { notify, wantsPermissionPrompt, trayPosts, asksLazily, sendNativePolicy } from "./notify.js";
+import { createPolicySync } from "./nativepolicy.js";
 import { draftIn, noteDraft } from "./drafts.svelte.js";
 import { containsMention } from "./markdown.js";
 import { clampAccent, resolveAccent } from "./guildaccent.js";
@@ -74,7 +75,6 @@ import {
   wantsAlert,
   chimeFor,
   chimeGate,
-  nativePolicy,
   showsBadge,
 } from "./notifs.js";
 import { reducedMotion, motionMode, onOsMotionChange } from "./motion.js";
@@ -1010,21 +1010,29 @@ function saveNotifs(next) {
 }
 
 // The Android notifier posts DMs by itself while the page is in the background
-// or gone, so it is told the levels and Do Not Disturb as they stand: whenever
-// a level changes, and each time the page goes to the background (which is
-// also after any change of status).
+// or gone, so it is told the levels and Do Not Disturb as they stand: when a
+// level changes, when the status changes (from this device or another), and
+// each time the page goes to the background. Never before the guild list and
+// the identity have loaded (lib/nativepolicy.js).
+const policySync = createPolicySync({
+  read: () => untrack(() => ({ guilds: S.guilds, notifs: S.notifs, identity: S.identity })),
+  send: (p) => asksLazily() && sendNativePolicy(p),
+});
 function pushNativePolicy() {
-  if (!asksLazily()) return;
-  const dms = S.guilds
-    .filter((g) => g.kind === "dm")
-    .flatMap((g) => (g.channels || []).map((c) => ({ channelId: c.id, guildId: g.id })));
-  sendNativePolicy(nativePolicy({ notifs: S.notifs, dms, dnd: S.identity?.presence === "dnd" }));
+  policySync.push();
 }
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) pushNativePolicy();
   });
 }
+$effect.root(() => {
+  $effect(() => {
+    S.identity?.presence;
+    S.identity?.fingerprint;
+    policySync.identityChanged();
+  });
+});
 
 // level = null puts the channel back to following its guild.
 export function setChannelNotifs(channelId, level) {
@@ -3077,7 +3085,9 @@ function carryDraft(channelId, text) {
 
 export async function refreshGuilds() {
   const before = S.guilds;
-  S.guilds = (await api.guilds()) || [];
+  const list = await api.guilds();
+  S.guilds = list || [];
+  if (Array.isArray(list)) policySync.guildsLoaded();
   if (!S.activeGuildId && S.guilds.length) {
     // Pick up where you left off — the guild you had open when you closed the
     // app, and inside it the channel you were reading. Only when that place
