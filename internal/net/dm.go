@@ -45,10 +45,7 @@ func (n *Host) RequestDMInvite(ctx context.Context, to peer.ID, request []byte) 
 	}
 	defer s.Close()
 	_ = s.SetDeadline(streamDeadline(ctx, serveTimeout))
-	if err := writeFrame(s, request, maxInviteFrame); err != nil {
-		return nil, err
-	}
-	if err := s.CloseWrite(); err != nil {
+	if err := sendRequest(s, request, maxInviteFrame); err != nil {
 		return nil, err
 	}
 	return readFrame(s, maxInviteFrame)

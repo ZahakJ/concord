@@ -61,10 +61,7 @@ func (n *Host) AskProfile(ctx context.Context, p peer.ID, request []byte) ([]byt
 	}
 	defer s.Close()
 	_ = s.SetDeadline(streamDeadline(ctx, serveTimeout))
-	if err := writeFrame(s, request, 4<<10); err != nil {
-		return nil, err
-	}
-	if err := s.CloseWrite(); err != nil {
+	if err := sendRequest(s, request, 4<<10); err != nil {
 		return nil, err
 	}
 	return readFrameProgress(s, maxProfileFrame, time.Now().Add(streamIdle))

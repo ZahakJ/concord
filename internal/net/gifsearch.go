@@ -93,10 +93,7 @@ func (n *Host) RequestGifSearch(ctx context.Context, to peer.ID, request []byte)
 		deadline = d
 	}
 	_ = s.SetDeadline(deadline)
-	if err := writeFrame(s, request, maxGifSearchRequest); err != nil {
-		return nil, err
-	}
-	if err := s.CloseWrite(); err != nil {
+	if err := sendRequest(s, request, maxGifSearchRequest); err != nil {
 		return nil, err
 	}
 	return readFrame(s, MaxGifSearchResponse)

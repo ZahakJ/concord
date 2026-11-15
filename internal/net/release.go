@@ -92,10 +92,7 @@ func (n *Host) RequestRelease(ctx context.Context, to peer.ID, request []byte) (
 	// patience as a context, and every one of them was decorative: the context
 	// stopped applying the moment the stream opened.
 	_ = s.SetDeadline(streamDeadline(ctx, releaseStreamTimeout))
-	if err := writeFrame(s, request, maxReleaseRequest); err != nil {
-		return nil, err
-	}
-	if err := s.CloseWrite(); err != nil {
+	if err := sendRequest(s, request, maxReleaseRequest); err != nil {
 		return nil, err
 	}
 	return readFrame(s, MaxReleaseResponse)

@@ -59,10 +59,7 @@ func (n *Host) RequestAttachment(ctx context.Context, to peer.ID, request []byte
 	}
 	defer s.Close()
 	_ = s.SetWriteDeadline(streamDeadline(ctx, streamIdle))
-	if err := writeFrame(s, request, maxAttachRequest); err != nil {
-		return nil, err
-	}
-	if err := s.CloseWrite(); err != nil {
+	if err := sendRequest(s, request, maxAttachRequest); err != nil {
 		return nil, err
 	}
 	// The peer must START answering within the caller's context; after that a

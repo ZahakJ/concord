@@ -80,10 +80,7 @@ func (n *Host) SayHello(ctx context.Context, p peer.ID, request []byte) ([]byte,
 	}
 	defer s.Close()
 	_ = s.SetDeadline(streamDeadline(ctx, serveTimeout))
-	if err := writeFrame(s, request, maxHelloFrame); err != nil {
-		return nil, err
-	}
-	if err := s.CloseWrite(); err != nil {
+	if err := sendRequest(s, request, maxHelloFrame); err != nil {
 		return nil, err
 	}
 	return readFrame(s, maxHelloFrame)

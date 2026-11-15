@@ -65,11 +65,8 @@ func (n *Host) RequestLink(ctx context.Context, issuer peer.AddrInfo, request []
 	// Never shorter than replyFloor: the request burns the issuer's single-use
 	// secret, and leaving before the answer wastes the code.
 	_ = s.SetDeadline(replyDeadline(ctx, serveTimeout, replyFloor))
-	if err := writeFrame(s, request, maxLinkFrame); err != nil {
+	if err := sendRequest(s, request, maxLinkFrame); err != nil {
 		return nil, fmt.Errorf("net: send link request: %w", err)
-	}
-	if err := s.CloseWrite(); err != nil {
-		return nil, err
 	}
 	return readFrame(s, maxLinkFrame)
 }

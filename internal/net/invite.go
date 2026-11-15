@@ -60,14 +60,38 @@ func (n *Host) RequestInvite(ctx context.Context, owner peer.AddrInfo, request [
 	// this request, and leaving before its Welcome arrives strands us there.
 	_ = s.SetDeadline(replyDeadline(ctx, serveTimeout, replyFloor))
 
-	if err := writeFrame(s, request, maxInviteFrame); err != nil {
-		return nil, err
-	}
-	if err := s.CloseWrite(); err != nil {
+	if err := sendRequest(s, request, maxInviteFrame); err != nil {
 		return nil, err
 	}
 	return readFrame(s, maxInviteFrame)
 }
+
+// sendRequest writes a request's one frame and half-closes the stream.
+//
+// The half-close is a courtesy: every responder reads exactly one frame and
+// never waits for the end of the stream. A responder that has already read the
+// frame, answered and closed its end has also stopped reading, and on QUIC that
+// cancels our sending side, so CloseWrite fails ("close called for canceled
+// stream") while the answer sits in the stream waiting to be read. Under load
+// that order is common. Failing the request there threw a good answer away: an
+// archive page was reported as held by nobody, a heal or a catch-up was counted
+// as unanswered. The read that follows decides: it gets the answer, or the
+// error that really ended the stream.
+func sendRequest(s network.Stream, request []byte, max int) error {
+	if err := writeFrame(s, request, max); err != nil {
+		return err
+	}
+	if testHookRequestWritten != nil {
+		testHookRequestWritten()
+	}
+	_ = s.CloseWrite()
+	return nil
+}
+
+// testHookRequestWritten runs between a request's frame and its half-close,
+// so a test can let the responder answer and close first. Nothing in the
+// product sets it.
+var testHookRequestWritten func()
 
 // Framing: a 4-byte big-endian length prefix followed by the payload. Each
 // protocol passes its own max frame size (invite/sync stay small; attachment

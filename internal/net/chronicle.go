@@ -89,10 +89,7 @@ func (n *Host) RequestChronicleChunk(ctx context.Context, to peer.ID, request []
 	}
 	defer s.Close()
 	_ = s.SetDeadline(streamDeadline(ctx, chronicleStreamTimeout))
-	if err := writeFrame(s, request, maxChronicleRequest); err != nil {
-		return nil, err
-	}
-	if err := s.CloseWrite(); err != nil {
+	if err := sendRequest(s, request, maxChronicleRequest); err != nil {
 		return nil, err
 	}
 	return readFrame(s, MaxChronicleResponse)

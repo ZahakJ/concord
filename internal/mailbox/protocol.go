@@ -324,9 +324,11 @@ func RequestOn(ctx context.Context, h host.Host, node peer.ID, req Request) (Res
 	if err := writeFrame(s, body); err != nil {
 		return Response{}, err
 	}
-	if err := s.CloseWrite(); err != nil {
-		return Response{}, err
-	}
+	// The node reads one frame and never waits for the half-close; one that
+	// has answered and closed first has cancelled our sending side on QUIC,
+	// and CloseWrite then fails with the answer already waiting. The read
+	// decides (see sendRequest in internal/net).
+	_ = s.CloseWrite()
 	respBytes, err := readFrame(s)
 	if err != nil {
 		return Response{}, err

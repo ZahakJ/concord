@@ -59,10 +59,7 @@ func (n *Host) RequestSync(ctx context.Context, to peer.ID, request []byte) ([]b
 	// peer that never answered held this request — and, since catch-ups run
 	// one per guild and peer, every later catch-up between the two — forever.
 	_ = s.SetDeadline(streamDeadline(ctx, syncStreamTimeout))
-	if err := writeFrame(s, request, maxInviteFrame); err != nil {
-		return nil, err
-	}
-	if err := s.CloseWrite(); err != nil {
+	if err := sendRequest(s, request, maxInviteFrame); err != nil {
 		return nil, err
 	}
 	return readFrame(s, maxInviteFrame)
