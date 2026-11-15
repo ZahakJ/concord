@@ -12,7 +12,9 @@ function addedBy(adder, name) {
 
 // seatBannerLines returns [{ key, text, action? }]. action, when present, is
 // { label, title, body, confirmLabel, index, deviceKey } for the removal.
-export function seatBannerLines({ flags = [], notices = [], canManage = false, guildName = "this guild", name = (f) => f }) {
+// owner is the guild owner's fingerprint: nobody can take the owner's
+// permissions away, so no line asks the reader to.
+export function seatBannerLines({ flags = [], notices = [], canManage = false, guildName = "this guild", owner = "", name = (f) => f }) {
   const out = [];
   for (const n of notices) {
     const by = n.adder ? name(n.adder) : "";
@@ -28,8 +30,8 @@ export function seatBannerLines({ flags = [], notices = [], canManage = false, g
       out.push({
         key: `n-repeats-${n.at}`,
         text:
-          `${by || "A member"} keeps adding a device under your identity to ${guildName}. ` +
-          `Concord removed it again. Take away ${by ? `${by}'s` : "their"} permission to manage members.`,
+          `${by || "A member"} keeps adding a device under your identity to ${guildName}. Concord removed it again.` +
+          (n.adder && n.adder === owner ? "" : ` Take away ${by ? `${by}'s` : "their"} permission to manage members.`),
       });
     } else if (n.kind === "replaced") {
       out.push({
@@ -55,9 +57,11 @@ export function seatBannerLines({ flags = [], notices = [], canManage = false, g
       out.push({
         key,
         text:
-          canManage
+          f.removing
             ? `A device that is not yours is in ${guildName} under your identity.${addedBy(f.adder, name)} Concord is removing it.`
-            : `A device that is not yours is in ${guildName} under your identity.${addedBy(f.adder, name)} Only an admin can remove it.`,
+            : canManage
+              ? `A device that is not yours is in ${guildName} under your identity.${addedBy(f.adder, name)} Concord will remove it as soon as this device can.`
+              : `A device that is not yours is in ${guildName} under your identity.${addedBy(f.adder, name)} Only an admin can remove it.`,
         action: canManage ? { ...removal, body: `Remove this device from ${guildName}? Your own devices stay.` } : undefined,
       });
       continue;
@@ -79,13 +83,20 @@ export function seatBannerLines({ flags = [], notices = [], canManage = false, g
       });
       continue;
     }
-    // Two leaves claim one identity and this device cannot tell which is
-    // genuine: no removal is offered, or it could take out the real one.
+    // This device cannot check the leaf: no removal is offered, or it could
+    // take out the real one.
+    if (f.kind === "ambiguous") {
+      out.push({
+        key,
+        text: canManage
+          ? `Two devices in ${guildName} use ${who}'s identity, and this device cannot tell which one is really ${who}'s.${addedBy(f.adder, name)} ${who}'s own device can tell, and removes the other if ${who} may manage members.`
+          : `Two devices in ${guildName} use ${who}'s identity, and this device cannot tell which one is really ${who}'s.`,
+      });
+      continue;
+    }
     out.push({
       key,
-      text: canManage
-        ? `Two devices in ${guildName} both claim to be ${who}'s first device, and only one can be.${addedBy(f.adder, name)} This device cannot tell which is genuine. ${who}'s own device can, and removes the other if ${who} may manage members.`
-        : `Two devices in ${guildName} both claim to be ${who}'s first device, and only one can be.`,
+      text: `A device in ${guildName} claims to be one of ${who}'s, and this device cannot check it.${canManage ? addedBy(f.adder, name) : ""}`,
     });
   }
   return out;

@@ -35,7 +35,19 @@ assert.deepEqual(seatBannerLines({ guildName: g, name }), []);
 {
   const [l] = seatBannerLines({ guildName: g, name, canManage: true, flags: [{ index: 4, key: "cd", kind: "ambiguous", account: "O", provable: false }] });
   assert.equal(l.action, undefined);
-  assert.match(l.text, /^Two devices in Den both claim to be Olu's first device, and only one can be\./);
+  assert.equal(l.text, "Two devices in Den use Olu's identity, and this device cannot tell which one is really Olu's. Olu's own device can tell, and removes the other if Olu may manage members.");
+  const [m] = seatBannerLines({ guildName: g, name, flags: [{ index: 4, key: "cd", kind: "ambiguous", account: "O", provable: false }] });
+  assert.equal(m.text, "Two devices in Den use Olu's identity, and this device cannot tell which one is really Olu's.");
+}
+
+// Every other leaf this device cannot check (a key unlike its record, a seat
+// taken twice, a certificate leaf flagged at its commit): one plain sentence,
+// never "first device", never an action.
+for (const kind of ["key_differs", "seated", "repeated", "replaced", "not_theirs"]) {
+  const [l] = seatBannerLines({ guildName: g, name, canManage: true, flags: [{ index: 5, key: "gh", kind, account: "O", adder: "M", provable: false }] });
+  assert.equal(l.text, "A device in Den claims to be one of Olu's, and this device cannot check it. It was added by Mo.", kind);
+  assert.equal(l.action, undefined);
+  assert.doesNotMatch(l.text, /first device/);
 }
 
 // This account's own identity, on a device that cannot commit.
@@ -43,6 +55,24 @@ assert.deepEqual(seatBannerLines({ guildName: g, name }), []);
   const [l] = seatBannerLines({ guildName: g, name, flags: [{ index: 2, key: "ef", kind: "not_theirs", account: "A", adder: "M", own: true, provable: true }] });
   assert.equal(l.text, "A device that is not yours is in Den under your identity. It was added by Mo. Only an admin can remove it.");
   assert.equal(l.action, undefined);
+}
+
+// "Concord is removing it" only when this device will; otherwise it says when.
+{
+  const flag = { index: 2, key: "ef", kind: "not_theirs", account: "A", adder: "M", own: true, provable: true };
+  const [now] = seatBannerLines({ guildName: g, name, canManage: true, flags: [{ ...flag, removing: true }] });
+  assert.equal(now.text, "A device that is not yours is in Den under your identity. It was added by Mo. Concord is removing it.");
+  const [later] = seatBannerLines({ guildName: g, name, canManage: true, flags: [flag] });
+  assert.equal(later.text, "A device that is not yours is in Den under your identity. It was added by Mo. Concord will remove it as soon as this device can.");
+}
+
+// Repeats: the reader is told to take the adder's permission away, unless the
+// adder is the owner, whose permissions nobody can take.
+{
+  const [l] = seatBannerLines({ guildName: g, name, owner: "O", notices: [{ kind: "repeats", adder: "M", at: 2 }] });
+  assert.equal(l.text, "Mo keeps adding a device under your identity to Den. Concord removed it again. Take away Mo's permission to manage members.");
+  const [o] = seatBannerLines({ guildName: g, name, owner: "O", notices: [{ kind: "repeats", adder: "O", at: 3 }] });
+  assert.equal(o.text, "Olu keeps adding a device under your identity to Den. Concord removed it again.");
 }
 
 console.log("seatbanner: ok");

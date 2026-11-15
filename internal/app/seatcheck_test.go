@@ -186,6 +186,10 @@ func TestRemovalWithSameCredentialLeftBehindIsNotEviction(t *testing.T) {
 		f, ok := flagFor(s.owner, s.g.ID, pub)
 		return ok && f.Own && f.Provable
 	}, "owner does not flag the leaf under its credential")
+	// The removal is held here, so the banner must not say it is happening.
+	if f, _ := flagFor(s.owner, s.g.ID, pub); f.Removing {
+		t.Fatal("a flag says this device is removing a leaf it will not remove")
+	}
 	// The genuine leaf of the same credential is flagged the same way: the
 	// member has nothing that proves which of the two is the owner's.
 	if f := s.member.SeatFlags(s.g.ID); len(f) != 2 || f[0].Provable || f[1].Provable {

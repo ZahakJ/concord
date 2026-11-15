@@ -264,6 +264,7 @@
       notices: activeGuild()?.seatNotices || [],
       canManage: !!activeGuild()?.canManage,
       guildName: activeGuild()?.name || "this guild",
+      owner: activeGuild()?.ownerFingerprint || "",
       name: (f) => nameFor(f),
     }),
   );

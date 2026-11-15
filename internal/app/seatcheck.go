@@ -88,6 +88,9 @@ type SeatFlag struct {
 	// Provable: this device can show the leaf is not the account's, so the
 	// removal action may be offered for it.
 	Provable bool `json:"provable"`
+	// Removing: the leaf is under this account and this device will remove
+	// it itself (mayDefendSeats). Set on the copy SeatFlags returns.
+	Removing bool `json:"removing,omitempty"`
 }
 
 // SeatNotice is something already done or found that the person should be
@@ -817,8 +820,19 @@ func (s *Service) addSeatNotice(guildID string, n SeatNotice) {
 func (s *Service) SeatFlags(guildID string) []SeatFlag {
 	st := s.seatsState()
 	st.mu.Lock()
-	defer st.mu.Unlock()
-	return append([]SeatFlag(nil), st.flags[guildID]...)
+	out := append([]SeatFlag(nil), st.flags[guildID]...)
+	st.mu.Unlock()
+	removing := false
+	for _, f := range out {
+		if f.Own && f.Provable {
+			removing = !seatDefenceHold.Load() && s.mayDefendSeats(guildID)
+			break
+		}
+	}
+	for i := range out {
+		out[i].Removing = removing && out[i].Own && out[i].Provable
+	}
+	return out
 }
 
 // SeatNotices lists what a guild's banner still has to say about leaves
