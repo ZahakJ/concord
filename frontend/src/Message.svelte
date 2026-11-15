@@ -66,6 +66,7 @@
   } from "./lib/attachments.js";
   import { knownRecipe } from "./lib/memerecipe.js";
   import { extractLinks, youtubeID } from "./lib/embeds.js";
+  import { parseLinkEmbeds, stripLinkEmbed } from "./lib/linkembed.js";
   import {
     S,
     memberByFpr,
@@ -389,7 +390,7 @@
     // this client refused must leave nothing behind: gating the strip on a
     // successful parse is how a rejected token ends up printing several
     // hundred characters of base64 into the message body.
-    return stripGame(stripSound(stripDoodle(stripFx(stripTimestamp(stripEphemeral(c))))));
+    return stripGame(stripSound(stripDoodle(stripFx(stripTimestamp(stripEphemeral(stripLinkEmbed(c)))))));
   });
 
   // Send effects ([fx](concord://fx/v1/…)): the burst plays once per session
@@ -592,20 +593,19 @@
 
   // Disappearing: expiry epoch (ms) if this message carries one, else 0.
   const ephExp = $derived(m.deleted ? 0 : ephemeralExpiry(m.content));
-  // One embed per message: the first YouTube link gets a player; otherwise
-  // the first link gets a preview card.
+  // Link previews are built by the SENDER and ride inside the message
+  // (lib/linkembed.js); this device renders them and never fetches anything on
+  // their account. With no embedded preview, a YouTube link gets a placeholder
+  // that contacts Google only if you click it.
   const embed = $derived.by(() => {
     if (m.deleted || m.kind !== "") return null;
-    // Prefer a YouTube player, but keep scanning past plain links to find one —
-    // returning the first link as a card immediately meant a YouTube link after
-    // any other link never got a player. Fall back to the first link's card.
-    let firstCard = null;
+    const cards = parseLinkEmbeds(m.content);
+    if (cards.length) return { kind: "cards", cards };
     for (const url of extractLinks(m.content)) {
       const yt = youtubeID(url);
       if (yt) return { kind: "yt", id: yt, url };
-      if (!firstCard) firstCard = { kind: "card", url };
     }
-    return firstCard;
+    return null;
   });
   let editDraft = $state("");
   // The direction this edit will store. Starts as the message's own, and the ⇄
@@ -1691,11 +1691,11 @@
         <EmbedView embed={richEmbed} {mentionNames} customEmoji={cemoji} {refs} />
       {/if}
       {#if embed?.kind === "yt"}
-        <YouTubeEmbed videoId={embed.id} autoload={S.prefs.linkPreviews !== false} />
-      {:else if embed?.kind === "card"}
-        {#key embed.url}
-          <LinkPreview url={embed.url} />
-        {/key}
+        <YouTubeEmbed videoId={embed.id} autoload={false} />
+      {:else if embed?.kind === "cards"}
+        {#each embed.cards as card (card.url)}
+          <LinkPreview {card} channelId={m.channelId} />
+        {/each}
       {/if}
       {#if ephExp}
         <span

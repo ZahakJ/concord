@@ -45,7 +45,7 @@ const LOOSE_FILE_RE = /\[file\]\(concord:\/\/file\/v1\/[^)\s]*\)/g;
 // composed from stripFx/stripEphemeral/stripTimestamp so this module stays
 // importable outside a Svelte build (ephemeral.svelte.js opens with a $state),
 // and so it reads as the one line its Go counterpart also is.
-const RIDER_RE = /\[(?:fx|eph|ts)\]\(concord:\/\/(?:fx|eph|ts)\/v1\/[A-Za-z0-9_-]+\)/g;
+const RIDER_RE = /\[(?:fx|eph|ts|lp)\]\(concord:\/\/(?:fx|eph|ts|lp)\/v1\/[A-Za-z0-9_-]+\)/g;
 
 // The names a quoted card answers to. Kept short: this is a label inside a
 // one-line strip, not a description.

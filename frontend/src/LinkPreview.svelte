@@ -1,61 +1,45 @@
 <script>
-  // Compact link-preview card. Fetches only once the card scrolls into view
-  // (IntersectionObserver), so opening a link-heavy channel doesn't stampede
-  // the backend. Fetched text renders via interpolation ONLY — never {@html}.
-  import { loadPreview } from "./lib/embeds.js";
-  import { S } from "./lib/state.svelte.js";
+  // Link-preview card, drawn ONLY from what the sender embedded in the message.
+  // Nothing here touches the network on its own: the picture is an encrypted
+  // attachment blob (same path as any image), and the card is a plain link to
+  // the very URL the message text shows. All text renders via interpolation,
+  // never {@html}. `card` has already been validated by parseLinkEmbeds.
+  import { loadAttachment } from "./lib/attachments.js";
 
-  let { url } = $props();
-  let root = $state(null);
-  let preview = $state(null);
-  let attempted = $state(false);
-  // A preview image that 404s / is blocked would otherwise render the browser's
-  // broken-image glyph inside the card — hide it and keep the text-only card.
-  let imgFailed = $state(false);
+  let { card, channelId } = $props();
+  let img = $state("");
 
   const hostname = $derived.by(() => {
     try {
-      return new URL(url).hostname.replace(/^www\./, "");
+      return new URL(card.url).hostname.replace(/^www\./, "");
     } catch {
-      return url;
+      return card.url;
     }
   });
 
   $effect(() => {
-    // Privacy gate: fetching a preview discloses the viewer's IP to the link's
-    // host, so it only happens when the user has opted into link previews.
-    if (!root || attempted || !S.prefs.linkPreviews) return;
-    const io = new IntersectionObserver(async (entries) => {
-      if (!entries.some((e) => e.isIntersecting) || attempted) return;
-      attempted = true;
-      io.disconnect();
-      preview = await loadPreview(url);
-    });
-    io.observe(root);
-    return () => io.disconnect();
+    const tok = card.image;
+    img = "";
+    if (!tok) return;
+    let live = true;
+    loadAttachment(channelId, tok).then(
+      (d) => live && (img = d),
+      () => {}, // no picture: the text card stands on its own
+    );
+    return () => (live = false);
   });
 </script>
 
-<span bind:this={root}>
-  {#if preview?.title}
-    <a class="card" href={url} target="_blank" rel="noopener noreferrer">
-      <span class="meta">
-        <span class="site muted">{preview.siteName || hostname}</span>
-        <span class="title">{preview.title}</span>
-        {#if preview.description}<span class="desc muted">{preview.description}</span>{/if}
-      </span>
-      {#if preview.imageUrl && !imgFailed}
-        <img
-          src={preview.imageUrl}
-          alt=""
-          loading="lazy"
-          referrerpolicy="no-referrer"
-          onerror={() => (imgFailed = true)}
-        />
-      {/if}
-    </a>
+<a class="card" href={card.url} target="_blank" rel="noopener noreferrer">
+  <span class="meta">
+    <span class="site muted">{card.site || hostname}</span>
+    {#if card.title}<span class="title">{card.title}</span>{/if}
+    {#if card.desc}<span class="desc muted">{card.desc}</span>{/if}
+  </span>
+  {#if img}
+    <img src={img} alt="" />
   {/if}
-</span>
+</a>
 
 <style>
   .card {

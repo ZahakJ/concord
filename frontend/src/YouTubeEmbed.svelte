@@ -5,9 +5,9 @@
   //
   // autoload gates the THUMBNAIL. The thumbnail is a direct <img> to Google's
   // i.ytimg.com — a zero-click request that leaks the viewer's IP and online
-  // time the moment a message scrolls into view. When link previews are off we
-  // must not fire it: show a neutral placeholder and only reach out to Google
-  // once the user explicitly clicks.
+  // time the moment a message scrolls into view. Messages are never allowed to
+  // cause that, so callers pass autoload={false}: a neutral placeholder, and
+  // Google is contacted only once the user explicitly clicks.
   import { ytThumb, ytEmbed } from "./lib/embeds.js";
 
   let { videoId, autoload = true } = $props();
@@ -36,12 +36,12 @@
       </span>
     </button>
   {:else}
-    <button class="placeholder" onclick={() => (revealed = true)} aria-label="Load YouTube preview">
+    <button class="placeholder" onclick={() => (revealed = true)} aria-label="Load YouTube video">
       <span class="pi" aria-hidden="true">
         <svg width="40" height="28" viewBox="0 0 46 32"><rect width="46" height="32" rx="8" fill="#f00" /><path d="M18 9v14l13-7z" fill="#fff" /></svg>
       </span>
-      <span class="pl">Load YouTube preview</span>
-      <span class="ph muted">Previews are off · this contacts Google</span>
+      <span class="pl">Load YouTube video</span>
+      <span class="ph muted">Click to load · this contacts Google</span>
     </button>
   {/if}
 </div>

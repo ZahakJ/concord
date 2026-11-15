@@ -29,6 +29,7 @@
   import { scheduleMessage } from "./lib/scheduled.svelte.js";
   import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
   import { stampTimestamp } from "./lib/timestamp.js";
+  import { createPreviewPrep, withPreviews } from "./lib/linkembed.js";
   import { playSend } from "./lib/sounds.js";
   import { resampleEnvelope, voiceFileName } from "./lib/voicemsg.js";
   import { encodeFx, FX_EFFECTS } from "./lib/fxtoken.js";
@@ -44,6 +45,15 @@
   import { isPttKey } from "./lib/shortcuts.js";
 
   let draft = $state("");
+  // "Add previews to links you send": when on, this device fetches the linked
+  // page once, debounced while you type, and the result rides inside the
+  // message. Off (the default), nothing is fetched.
+  const linkPrep = createPreviewPrep((t) => api.prepareLinkPreviews(t), {
+    enabled: () => !!S.prefs.sendLinkPreviews,
+  });
+  $effect(() => {
+    linkPrep.update(draft);
+  });
   // The draft's BASE DIRECTION, when the writer has asked for one: "" (decide
   // per line, the default and almost always right), "rtl", or "ltr".
   //
@@ -965,7 +975,12 @@
       // written and the other way as it is read is not the message anyone
       // wrote — and the reader's client has no way to recover the intent,
       // because the per-line rule is exactly what the writer overrode.
-      outSendText(chId, stampEphemeral(chId, body), nextReply(), dirMode);
+      // Sender-built link previews: whatever the debounced prep has READY for
+      // exactly these links rides inside the message; if it is not ready the
+      // message goes out now without one — sending never waits on a website.
+      const lp = linkPrep.take(text);
+      linkPrep.reset();
+      outSendText(chId, stampEphemeral(chId, withPreviews(body, lp)), nextReply(), dirMode);
       sealNext = false;
       if (chId === S.activeChannelId) armSlowMode();
     }

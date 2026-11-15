@@ -15,8 +15,10 @@
   //   2. No link preview is fetched over an archived body. A decade of history
   //      is a decade of links, and scrolling through it must not turn into an
   //      outbound request per row to hosts the reader has never heard of. This
-  //      file simply never mounts LinkPreview or YouTubeEmbed. URLs still
-  //      linkify — that is text rendering, not a fetch.
+  //      file simply never mounts LinkPreview or YouTubeEmbed, and any
+  //      sender-embedded preview rider is stripped rather than drawn (archived
+  //      rows were written elsewhere; there is nobody to have vouched for one).
+  //      URLs still linkify — that is text rendering, not a fetch.
   //
   // The row is also inert: no reply, no react, no edit, no pin, because none of
   // those operations exist for something that was written elsewhere and signed
@@ -30,6 +32,7 @@
   import { highlightCode } from "./lib/highlight.js";
   import { parseAttachTokens, parseFileTokens, stripAttachTokens } from "./lib/attachments.js";
   import { splitPlaceholders } from "./lib/chronicle.js";
+  import { stripLinkEmbed } from "./lib/linkembed.js";
   import { S, customEmojiMap, openContextMenu, flash, clockOpts, tintFor } from "./lib/state.svelte.js";
   import { reactionImage } from "./lib/customemoji.js";
   import { longpress } from "./lib/touch.js";
@@ -55,7 +58,7 @@
   // lifted back out so the feed can draw a stub rather than leaving square
   // brackets mid-sentence.
   const split = $derived(splitPlaceholders(m.content || ""));
-  const bodyText = $derived(stripAttachTokens(split.text).trim());
+  const bodyText = $derived(stripLinkEmbed(stripAttachTokens(split.text)).trim());
   const missing = $derived(split.files);
 
   // The time only. A day divider sits above every run of these rows and says

@@ -129,11 +129,11 @@
   >
     <SettingRow
       icon="screen"
-      title="Link previews"
-      sub="Fetch a preview for links in messages"
-      info="Off by default. Loading a preview reveals your IP and the moment you were online to whoever hosts the link, so a message containing a link to an attacker's server would deanonymize you with no click at all."
-      checked={S.prefs.linkPreviews}
-      onclick={() => setPref("linkPreviews", !S.prefs.linkPreviews)}
+      title="Add previews to links you send"
+      sub="Your device fetches the page once, when you write the message"
+      info="Off by default. When on, your device loads the linked page (and its picture) while you compose, which shows that site your IP address and that someone is linking to it. The title, description and a small cleaned copy of the picture are then sent inside your encrypted message. People who receive it load nothing: no request is ever made from their device because of a link you send, and none is made from yours because of a link someone sends you."
+      checked={S.prefs.sendLinkPreviews}
+      onclick={() => setPref("sendLinkPreviews", !S.prefs.sendLinkPreviews)}
     />
     <SettingRow
       icon="search"

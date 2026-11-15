@@ -14,6 +14,7 @@
   import { previewText } from "./lib/attachments.js";
   import { stripEphemeral } from "./lib/ephemeral.svelte.js";
   import { stripTimestamp } from "./lib/timestamp.js";
+  import { stripLinkEmbed } from "./lib/linkembed.js";
   import { retry, discard } from "./lib/outbox.svelte.js";
 
   let { entry, first = false } = $props();
@@ -42,7 +43,7 @@
   // The same two strips the feed applies before rendering a body, so the
   // pending row shows the message and not the tokens that ride in front of it.
   const bodyText = $derived(
-    entry.kind === "text" ? stripTimestamp(stripEphemeral(entry.body || "")) : "",
+    entry.kind === "text" ? stripLinkEmbed(stripTimestamp(stripEphemeral(entry.body || ""))) : "",
   );
   // Deliberately no mention table and no link previews: a row that is not a
   // message yet must not ping anybody or fetch anything on its behalf.

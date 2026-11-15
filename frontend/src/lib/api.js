@@ -522,7 +522,9 @@ export const api = {
     call("SendFile", channelID, dataURL, filename, replyTo),
   fetchFile: (channelID, blobID, keys, mime) =>
     call("FetchFile", channelID, blobID, keys, mime),
-  linkPreview: (url) => call("LinkPreview", url),
+  // Built on THIS device for a message being composed; returns the rider token
+  // (or ""). Nothing fetches a preview for a received message.
+  prepareLinkPreviews: (text) => call("PrepareLinkPreviews", text),
   checkForUpdate: () => call("CheckForUpdate"),
   checkPeerUpdate: () => call("CheckPeerUpdate"),
   applyPeerUpdate: () => call("ApplyPeerUpdate"),

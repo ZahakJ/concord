@@ -15,7 +15,10 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// Link previews: the app's ONLY outbound HTTP. A preview fetch reveals the
+// Link previews: the app's ONLY outbound HTTP, and it is made only by the
+// SENDER's device when it builds a preview to attach to its own message
+// (linkembed.go). A receiver never calls this: it renders what the message
+// carries and nothing else. A preview fetch reveals the
 // user's IP to the linked site — the same exposure as clicking the link — but
 // nothing else (no cookies, no auth, tight size/time caps). Because a chat
 // message can name any URL, the fetcher must be SSRF-safe: it will not talk
@@ -47,6 +50,12 @@ type previewCache struct {
 	flight  singleflight.Group
 	sem     chan struct{}
 	client  *http.Client
+	// validate vets a URL before we fetch it and on every redirect hop. It is
+	// validatePreviewURL in production; only tests replace it (to reach an
+	// httptest server on a random loopback port).
+	validate func(*url.URL) error
+	// embeds caches finished sender-side embeds (see linkembed.go).
+	embeds map[string]embedEntry
 }
 
 type previewEntry struct {
@@ -57,8 +66,10 @@ type previewEntry struct {
 
 func newPreviewCache() *previewCache {
 	pc := &previewCache{
-		entries: map[string]previewEntry{},
-		sem:     make(chan struct{}, previewParallel),
+		entries:  map[string]previewEntry{},
+		sem:      make(chan struct{}, previewParallel),
+		validate: validatePreviewURL,
+		embeds:   map[string]embedEntry{},
 	}
 	pc.client = &http.Client{
 		Timeout: previewTimeout,
@@ -70,7 +81,7 @@ func newPreviewCache() *previewCache {
 			if len(via) >= 3 {
 				return fmt.Errorf("too many redirects")
 			}
-			return validatePreviewURL(req.URL)
+			return pc.validate(req.URL)
 		},
 	}
 	return pc
@@ -141,12 +152,12 @@ func (s *Service) LinkPreview(rawURL string) (Preview, error) {
 		return Preview{}, fmt.Errorf("app: bad url: %w", err)
 	}
 	u.Fragment = ""
-	if err := validatePreviewURL(u); err != nil {
+	pc := s.previews
+	if err := pc.validate(u); err != nil {
 		return Preview{}, fmt.Errorf("app: %w", err)
 	}
 	key := u.String()
 
-	pc := s.previews
 	pc.mu.Lock()
 	if e, ok := pc.entries[key]; ok && time.Now().Before(e.expires) {
 		pc.mu.Unlock()

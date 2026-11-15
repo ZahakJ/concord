@@ -2259,26 +2259,16 @@ func (b *Bridge) ScheduledSends() ([]ScheduledSendView, error) {
 	return out, nil
 }
 
-// PreviewView is a scraped link summary for embeds (see internal/app/preview.go).
-type PreviewView struct {
-	URL         string `json:"url"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	ImageURL    string `json:"imageUrl"`
-	SiteName    string `json:"siteName"`
-}
-
-// LinkPreview fetches a link's OpenGraph metadata (SSRF-guarded, cached).
-func (b *Bridge) LinkPreview(url string) (PreviewView, error) {
+// PrepareLinkPreviews builds, on this device, the preview rider token for the
+// links in a message the user is composing (see internal/app/linkembed.go).
+// Returns "" when there is nothing to attach. This is the only link-preview
+// entry point: nothing fetches a preview on behalf of a message received.
+func (b *Bridge) PrepareLinkPreviews(text string) (string, error) {
 	svc, err := b.service()
 	if err != nil {
-		return PreviewView{}, err
+		return "", err
 	}
-	p, err := svc.LinkPreview(url)
-	if err != nil {
-		return PreviewView{}, err
-	}
-	return PreviewView{URL: p.URL, Title: p.Title, Description: p.Description, ImageURL: p.ImageURL, SiteName: p.SiteName}, nil
+	return svc.PrepareLinkPreviews(text), nil
 }
 
 // SendAttachment seals an image into a local encrypted blob and posts the
@@ -4093,8 +4083,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SendFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "FetchFile":
 		return b.FetchFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
-	case "LinkPreview":
-		return b.LinkPreview(argStr(args, 0))
+	case "PrepareLinkPreviews":
+		return b.PrepareLinkPreviews(argStr(args, 0))
 	case "UpdateState":
 		return b.UpdateState(), nil
 	case "ApplyUpdate":

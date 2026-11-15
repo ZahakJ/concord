@@ -35,7 +35,7 @@ var (
 	snEventRe    = regexp.MustCompile(`\[event\]\(concord://event/v1/([A-Za-z0-9_-]+)\)`)
 	// Decorations that ride in FRONT of ordinary words: a send effect, a
 	// disappearing timer, a sealed timestamp. Never the message.
-	snRiderRe = regexp.MustCompile(`\[(?:fx|eph|ts)\]\(concord://(?:fx|eph|ts)/v1/[A-Za-z0-9_-]+\)`)
+	snRiderRe = regexp.MustCompile(`\[(?:fx|eph|ts|lp)\]\(concord://(?:fx|eph|ts|lp)/v1/[A-Za-z0-9_-]+\)`)
 	// Attachments, image and file, v1 and v2. Mirrors lib/attachments.js and
 	// internal/store's own pair.
 	snImageRe  = regexp.MustCompile(`!\[image\]\(concord://attach/v[12]/[^)\s]+\)`)

@@ -45,7 +45,7 @@ const BODY_TOKENS = [
 // The tokens that only MODIFY a message: an expiry, a sealed send time, an
 // effect. They ride in front of ordinary text, so they are stripped before the
 // question is asked — a disappearing message is still a message you can fix.
-const MODIFIERS = /\[(?:eph|ts|fx)\]\(concord:\/\/(?:eph|ts|fx)\/v\d+\/[^)]*\)/g;
+const MODIFIERS = /\[(?:eph|ts|fx|lp)\]\(concord:\/\/(?:eph|ts|fx|lp)\/v\d+\/[^)]*\)/g;
 
 // The token shape, matched exactly as the render path matches it: a markdown
 // link whose target is the scheme. That precision is the point — the renderers
