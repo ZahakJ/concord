@@ -89,6 +89,14 @@ func runContinueGuard(t *testing.T, c guardCase) {
 	}
 	waitMemberCount(t, 90*time.Second, g.ID, members, u, p)
 	if c == guardLinkedDevice {
+		// The member count includes the tablet's leaf as soon as U commits
+		// the add, before the tablet has taken its welcome. A tablet closed in
+		// that gap comes back without the guild, answers U's heal with
+		// "unknown guild", and can repair nothing. Wait until it holds the
+		// guild at U's epoch.
+		waitFor(t, 90*time.Second, func() bool {
+			return seatedAtSameEpoch(tab, u, g.ID)
+		}, "U's tablet never took its welcome to the guild")
 		// The tablet is offline when U comes back, so it re-admits U only when
 		// the test brings it back.
 		_ = tab.Close()
@@ -395,4 +403,22 @@ func rhGroup(s *Service, guildID string) []byte {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.guilds[guildID].GroupID
+}
+
+// seatedAtSameEpoch reports whether a holds the guild's group state at the
+// epoch b stands at.
+func seatedAtSameEpoch(a, b *Service, guildID string) bool {
+	epoch := func(s *Service) (uint64, bool) {
+		s.mu.RLock()
+		g, ok := s.guilds[guildID]
+		s.mu.RUnlock()
+		if !ok {
+			return 0, false
+		}
+		e, err := s.mls.Epoch(s.ctx, g.GroupID)
+		return e, err == nil
+	}
+	ea, oka := epoch(a)
+	eb, okb := epoch(b)
+	return oka && okb && ea == eb
 }
