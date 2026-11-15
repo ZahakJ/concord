@@ -148,7 +148,7 @@ func (s *Service) broadcastReadMarker(channelID string, at int64) {
 	if at > s.pendingReadMark[channelID] {
 		s.pendingReadMark[channelID] = at
 	}
-	if s.readMarkTimer == nil {
+	if s.readMarkTimer == nil && !s.beatsStopped.Load() {
 		s.readMarkTimer = time.AfterFunc(1200*time.Millisecond, s.flushReadMarkers)
 	}
 	s.readMarkMu.Unlock()
@@ -163,7 +163,7 @@ func (s *Service) flushReadMarkers() {
 	s.pendingReadMark = nil
 	s.readMarkTimer = nil
 	s.readMarkMu.Unlock()
-	if len(markers) == 0 {
+	if len(markers) == 0 || s.beatsStopped.Load() {
 		return
 	}
 

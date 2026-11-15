@@ -223,22 +223,24 @@ func (s *Service) dropPendingReadReceipts() {
 	s.receiptMu.Unlock()
 }
 
+// armReceiptTimerLocked starts the beat unless one is running or the service
+// is closing (stopBeats): a timer must not fire into a closed service.
 func (s *Service) armReceiptTimerLocked() {
-	if s.receiptTimer == nil {
+	if s.receiptTimer == nil && !s.beatsStopped.Load() {
 		s.receiptTimer = time.AfterFunc(ackBeat, s.flushReceipts)
 	}
 }
 
 // flushReceipts publishes what has queued, one frame per channel.
 func (s *Service) flushReceipts() {
-	s.receiptMu.Lock()
-	acks, reads := s.pendingAcks, s.pendingReads
-	s.pendingAcks, s.pendingReads = nil, nil
-	s.receiptTimer = nil
-	s.receiptMu.Unlock()
-	if s.ctx.Err() != nil {
+	if s.beatsStopped.Load() || s.ctx.Err() != nil {
 		return
 	}
+	s.receiptMu.Lock()
+	s.receiptTimer = nil
+	acks, reads := s.pendingAcks, s.pendingReads
+	s.pendingAcks, s.pendingReads = nil, nil
+	s.receiptMu.Unlock()
 	on := s.receiptsOn.Load()
 	for ch, ids := range acks {
 		for len(ids) > 0 {

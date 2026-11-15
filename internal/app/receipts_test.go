@@ -47,7 +47,28 @@ func newReceiptRig(t *testing.T) *receiptRig {
 			at:   time.Now().Add(time.Hour),
 		}},
 	}
+	// The beat timers armed here fire on their own goroutine; none may
+	// outlive the test.
+	t.Cleanup(r.s.stopBeats)
 	return r
+}
+
+// acks and reads copy the outbound queue under its lock: a beat armed by the
+// test can be flushing it at the same time.
+func (r *receiptRig) acks() []string {
+	r.s.receiptMu.Lock()
+	defer r.s.receiptMu.Unlock()
+	return append([]string(nil), r.s.pendingAcks[r.ch]...)
+}
+
+func (r *receiptRig) reads() map[string][2]int64 {
+	r.s.receiptMu.Lock()
+	defer r.s.receiptMu.Unlock()
+	out := map[string][2]int64{}
+	for k, v := range r.s.pendingReads {
+		out[k] = v
+	}
+	return out
 }
 
 func (r *receiptRig) send(t *testing.T, from *identity.Identity, at time.Time) domain.Message {
@@ -72,18 +93,20 @@ func TestDeliveredIsAlwaysOnAndNeverForOurOwnMessages(t *testing.T) {
 	mine := r.send(t, r.me, time.Now())
 	r.s.noteDelivered(theirs)
 	r.s.noteDelivered(mine)
-	if got := r.s.pendingAcks[r.ch]; len(got) != 1 || got[0] != theirs.ID {
+	if got := r.acks(); len(got) != 1 || got[0] != theirs.ID {
 		t.Fatalf("pending acks = %v, want only their message", got)
 	}
 	// System rows and non-DM channels are not acked.
 	sys := theirs
 	sys.ID, sys.Kind = "sys", "system"
 	r.s.noteDelivered(sys)
+	r.s.mu.Lock()
 	r.s.guilds[r.guild].Kind = ""
+	r.s.mu.Unlock()
 	other := theirs
 	other.ID = "other"
 	r.s.noteDelivered(other)
-	if got := r.s.pendingAcks[r.ch]; len(got) != 1 {
+	if got := r.acks(); len(got) != 1 {
 		t.Fatalf("pending acks = %v after system/non-DM", got)
 	}
 }
@@ -101,8 +124,8 @@ func TestReadReceiptsAreMutual(t *testing.T) {
 	}
 	// Ours off: nothing is queued to send either.
 	r.s.queueReadReceipt(r.ch, 0, base.UnixMilli())
-	if len(r.s.pendingReads) != 0 {
-		t.Fatalf("read receipt queued while off: %v", r.s.pendingReads)
+	if len(r.reads()) != 0 {
+		t.Fatalf("read receipt queued while off: %v", r.reads())
 	}
 
 	// Both on: stored and shown.
@@ -115,7 +138,7 @@ func TestReadReceiptsAreMutual(t *testing.T) {
 		t.Fatalf("both on: %+v", v)
 	}
 	r.s.queueReadReceipt(r.ch, 0, 5)
-	if len(r.s.pendingReads) != 1 {
+	if len(r.reads()) != 1 {
 		t.Fatal("read receipt not queued while on")
 	}
 
@@ -123,7 +146,7 @@ func TestReadReceiptsAreMutual(t *testing.T) {
 	if err := r.s.SetReadReceiptsEnabled(false); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.s.pendingReads) != 0 {
+	if len(r.reads()) != 0 {
 		t.Fatal("pending read receipts survived switching off")
 	}
 	v = r.s.mustReceipts(t, r.ch)[m1.ID]
@@ -150,21 +173,21 @@ func TestTurningReadReceiptsOnDoesNotBackfill(t *testing.T) {
 	if _, err := r.s.MarkRead(r.ch, time.Now().Add(-time.Hour).UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.s.pendingReads) != 0 {
+	if len(r.reads()) != 0 {
 		t.Fatal("receipt queued while off")
 	}
 	prior, _ := r.s.store.ReadMark(r.ch)
 	if err := r.s.SetReadReceiptsEnabled(true); err != nil {
 		t.Fatal(err)
 	}
-	if len(r.s.pendingReads) != 0 {
+	if len(r.reads()) != 0 {
 		t.Fatal("switching on queued a receipt for what was already read")
 	}
 	next := time.Now().Add(-time.Minute).UnixMilli()
 	if _, err := r.s.MarkRead(r.ch, next); err != nil {
 		t.Fatal(err)
 	}
-	span := r.s.pendingReads[r.ch]
+	span := r.reads()[r.ch]
 	if span[0] != prior || span[1] != next {
 		t.Fatalf("span = %v, want [%d %d]: only what was read after switching on", span, prior, next)
 	}

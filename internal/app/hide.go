@@ -115,7 +115,7 @@ func (s *Service) queueHide(r store.HideRec) {
 		s.pendingHide = map[string]store.HideRec{}
 	}
 	s.pendingHide[r.ID] = r
-	if s.hideTimer == nil {
+	if s.hideTimer == nil && !s.beatsStopped.Load() {
 		s.hideTimer = time.AfterFunc(800*time.Millisecond, s.flushHides)
 	}
 	s.hideMu.Unlock()
@@ -129,7 +129,7 @@ func (s *Service) flushHides() {
 	s.pendingHide = nil
 	s.hideTimer = nil
 	s.hideMu.Unlock()
-	if len(ops) == 0 {
+	if len(ops) == 0 || s.beatsStopped.Load() {
 		return
 	}
 	notes, ok := s.findNotesDM()

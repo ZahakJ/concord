@@ -400,6 +400,11 @@ type Service struct {
 	receiptTimer   *time.Timer
 	onReceipts     []func(string)
 
+	// beatsStopped is set by Close (stopBeats). The coalescing timers for
+	// receipts, hides and read markers are not armed after it, and a flush
+	// that fires anyway publishes nothing.
+	beatsStopped atomic.Bool
+
 	// gameSearchOn and gifSearchOn mirror the two off-device search switches
 	// (see offdevice.go), guarded by mu. They are read at the top of the two
 	// Service methods that would otherwise send what the user is typing to
@@ -2674,6 +2679,7 @@ func (s *Service) closeNow() {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	s.stopBeats()
 	s.stopOfferGaps()
 	if s.peers != nil {
 		// Flush past the write throttle: everything learned in the last few
@@ -2690,6 +2696,24 @@ func (s *Service) closeNow() {
 	}
 	if s.store != nil {
 		_ = s.store.Close()
+	}
+}
+
+// stopBeats stops the coalescing timers (receipts, hides, read markers) and
+// keeps them from being armed again. A timer left running would fire after
+// Close, into a service whose store and engine are gone.
+func (s *Service) stopBeats() {
+	s.beatsStopped.Store(true)
+	for _, b := range []struct {
+		mu *sync.Mutex
+		t  **time.Timer
+	}{{&s.receiptMu, &s.receiptTimer}, {&s.hideMu, &s.hideTimer}, {&s.readMarkMu, &s.readMarkTimer}} {
+		b.mu.Lock()
+		if *b.t != nil {
+			(*b.t).Stop()
+			*b.t = nil
+		}
+		b.mu.Unlock()
 	}
 }
 
