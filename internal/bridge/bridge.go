@@ -307,6 +307,11 @@ type GuildView struct {
 	// sync banner stop claiming to be waiting for someone to come online when
 	// there is no longer anyone who could come.
 	Alone bool `json:"alone,omitempty"`
+	// CannotRepair: this device fell behind members it can see, and it is the
+	// guild's only possible committer, so no re-add can ever reach it. The
+	// banner says so instead of offering "Continue from here", which ResolveSync
+	// refuses in this state.
+	CannotRepair bool `json:"cannotRepair,omitempty"`
 	// LastActivity is the newest message time (UnixNano) across the guild's
 	// channels — the UI sorts DM conversations by it, most recent first.
 	LastActivity int64 `json:"lastActivity,omitempty"`
@@ -2861,8 +2866,7 @@ func (b *Bridge) ResolveSync(guildID string) error {
 	if err != nil {
 		return err
 	}
-	svc.ResolveStranding(guildID)
-	return nil
+	return svc.ResolveStranding(guildID)
 }
 
 // seenAs is how someone else's presence is SHOWN. "Invisible" is a promise to
@@ -3340,6 +3344,7 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
 		Evicted: svc.EvictedFrom(g.ID), EvictedReason: svc.EvictedReason(g.ID),
 		Alone:        svc.AloneInGuild(g.ID),
+		CannotRepair: svc.CannotRepairHere(g.ID),
 		LastActivity: lastActivity,
 		MyMutedUntil: svc.MutedUntil(g.ID, svc.Fingerprint()),
 	}

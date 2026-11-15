@@ -48,6 +48,8 @@ If **Settings → Connection** warns that **the fixed port wasn't free when Conc
 
 **A guild shows Waiting for someone with the missing updates to come online.** Nobody online right now has what this device is missing. It clears when one of them connects. If you are the only member left, the banner says so and offers **Continue from here**.
 
+**A guild says This copy fell behind and cannot be repaired from here.** This device is behind the other members, and only you can add people to the guild, so nobody can bring it back. It can happen to an owner's device restored from a backup taken before it last added someone. The other members are not affected. Start a new guild and invite the same people.
+
 **Messages sent while you were offline never show up.** With a rendezvous set, each message is also left, encrypted, in the rendezvous mailbox of every member device that was offline when it was sent, and collected when that device reconnects. The mailbox is a safety net, not storage:
 
 - it holds messages for 14 days and up to 200 per device;

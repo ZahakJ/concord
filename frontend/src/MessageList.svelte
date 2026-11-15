@@ -48,6 +48,7 @@
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
   import { evictedCopy } from "./lib/evicted.js";
+  import { syncBannerActions, cannotRepairText } from "./lib/syncbanner.js";
   import { plainSnippet } from "./lib/snippet.js";
   import { recordText } from "./lib/callflow.js";
   import { gameAt, isGameToken } from "./lib/games.js";
@@ -1425,6 +1426,7 @@
        warning the app raises. When there is nothing to wait for, say that
        instead, and offer the only honest action left. -->
   {@const alone = activeGuild()?.alone}
+  {@const acts = syncBannerActions({ alone, cannotRepair: activeGuild()?.cannotRepair, retriedInVain })}
   <div class="oos-banner" class:waiting={!syncPeers && !alone} class:settled={alone}>
     <span class="oos-dot" class:spin={syncPeers > 0 && !alone}></span>
     <span class="oos-text">
@@ -1437,13 +1439,14 @@
         Waiting for someone with the missing updates to come online
       {/if}
     </span>
-    {#if alone}
-      <button class="oos-act" onclick={continueFromHere}>Continue from here</button>
-    {:else}
+    {#if acts.retry}
       <button class="oos-act" onclick={retrySync}>Retry now</button>
-      {#if retriedInVain}
-        <button class="oos-act" onclick={continueFromHere}>Continue from here</button>
-      {/if}
+    {/if}
+    {#if acts.cannotRepair}
+      <span class="oos-stuck">{cannotRepairText}</span>
+    {/if}
+    {#if acts.continueHere}
+      <button class="oos-act" onclick={continueFromHere}>Continue from here</button>
     {/if}
   </div>
 {/if}
@@ -1964,6 +1967,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* The one sentence that replaces "Continue from here" when nothing here can
+     repair the copy: it must be read whole, so it wraps rather than truncates. */
+  .oos-stuck {
+    flex: 1;
+    min-width: 0;
   }
   .oos-dot {
     width: 7px;

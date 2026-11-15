@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -112,7 +113,7 @@ func (s *Service) recoverOutOfSync(guildID string) {
 	// they had just emptied watched that bar for forty-five minutes. Whatever is
 	// still in the stash was written on a branch this guild has left behind.
 	if s.aloneInGuild(guildID) {
-		s.ResolveStranding(guildID)
+		s.resolveStranding(guildID)
 		return
 	}
 	// Evidence first: a fork verdict against a peer that has since gone offline
@@ -189,7 +190,73 @@ func (s *Service) AloneInGuild(guildID string) bool { return s.aloneInGuild(guil
 // that has been spinning since breakfast. What it does NOT do is weaken any of
 // the evidence rules above: the fork verdict is still latched only against a
 // peer strictly ahead of us, and is still the only thing that routes a re-add.
-func (s *Service) ResolveStranding(guildID string) {
+//
+// It refuses with ErrBehindOnlyCommitter when CannotRepairHere holds: there the
+// stranding is not unobtainable updates but a copy that fell off the guild, and
+// continuing from it makes a private guild that looks healthy.
+func (s *Service) ResolveStranding(guildID string) error {
+	if s.CannotRepairHere(guildID) {
+		return ErrBehindOnlyCommitter
+	}
+	s.resolveStranding(guildID)
+	return nil
+}
+
+// ErrBehindOnlyCommitter refuses "Continue from here" on a device that is its
+// guild's only possible committer while members stand ahead of it.
+var ErrBehindOnlyCommitter = errors.New("app: this copy fell behind and cannot be repaired from here; start a new guild with the same people")
+
+// CannotRepairHere reports that this device's copy of a guild is behind its
+// members and that nobody can bring it back: peers it can reach stand strictly
+// ahead of its epoch (the fork evidence) and no other account may commit, so no
+// re-add will ever come. Continuing from here would fork the guild for good —
+// every member this device then admitted or kicked would be admitted to, or
+// kicked from, a copy only it and its newcomers can see. The guild's view
+// carries this so the banner can say it instead of offering to continue.
+func (s *Service) CannotRepairHere(guildID string) bool {
+	if s.aloneInGuild(guildID) || len(s.forkedWith(guildID)) == 0 {
+		return false
+	}
+	return s.onlyPossibleCommitter(guildID)
+}
+
+// onlyPossibleCommitter reports whether this account is the only one that may
+// commit membership changes in the guild: it is the effective owner, no other
+// account holds manage-members (see authorizedCommitter), and no heir stands
+// ready to claim ownership. Anyone else in those seats could re-admit us.
+func (s *Service) onlyPossibleCommitter(guildID string) bool {
+	mine := s.id.Fingerprint()
+	roster := s.guildMemberFingerprints(guildID)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.guilds[guildID]; !ok {
+		return false
+	}
+	owner := s.effectiveOwnerLocked(guildID)
+	if owner != mine {
+		return false
+	}
+	st := s.govState[guildID]
+	seated := func(f string) bool { return f != "" && f != mine && !st.Removed[f] && !st.Banned[f] }
+	if seated(st.Heir()) {
+		return false
+	}
+	for f := range st.MemberRoles {
+		if seated(f) && st.Can(owner, f, PermManageMembers) {
+			return false
+		}
+	}
+	for _, f := range roster {
+		if seated(f) && st.Can(owner, f, PermManageMembers) {
+			return false
+		}
+	}
+	return true
+}
+
+// resolveStranding is ResolveStranding without the guard, for the case the
+// recovery loop proves itself: nobody else is left in the guild.
+func (s *Service) resolveStranding(guildID string) {
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte
