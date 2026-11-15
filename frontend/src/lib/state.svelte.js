@@ -299,6 +299,9 @@ export const S = $state({
     // a chime for something you are looking at is a notification nobody asked
     // for, and it is only right for the person who deliberately turns it on.
     soundOnArrive: false,
+    // A tick on every message you send. OFF: the plane animation already says
+    // it went, and a sound on the most frequent action in the app grates.
+    soundOnSend: false,
     themePack: "", // curated full-palette skin ("" = default palette)
     // Stackable visual effect, drawn over the app on top of whatever pack is
     // active (lib/themefx.js for the catalogue, FxOverlay.svelte for the

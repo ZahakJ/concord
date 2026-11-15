@@ -922,14 +922,13 @@
       flashSlot("slowmode", `Slow mode — you can send in ${slowLeft}s`, "info");
       return;
     }
-    // Plane animation + a two-note tick, every platform. Deliberately NO
-    // vibration: sending is the single most frequent action in the app and it
-    // is already confirmed twice over — a buzz on every send does not read as
-    // feedback, it reads as the phone twitching in your hand. Haptics are for
-    // what you cannot see or cannot undo. (The tick rides the global sound
-    // mute like every other chime.)
+    // Plane animation, every platform. Deliberately NO vibration: sending is
+    // the single most frequent action in the app and it is already confirmed
+    // on screen. A buzz on every send reads as the phone twitching in your
+    // hand. The two-note tick is off unless the soundOnSend pref is on, for
+    // the same reason: a sound on every message sent grates.
     playLaunch();
-    playSend();
+    if (S.prefs.soundOnSend) playSend();
     const chId = S.activeChannelId;
     // The message itself ends the line on every receiver (lib/typing.js).
     lastTypingSent = 0;
