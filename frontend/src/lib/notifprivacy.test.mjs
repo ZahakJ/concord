@@ -1,0 +1,36 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { redactNotification, normalizeNotifyMode, DEFAULT_NOTIFY_MODE } from "./notifprivacy.js";
+
+const sample = {
+  message: { title: "Ada in #general · Dee Guild", body: "lunch at 12?" },
+  mention: { title: "@ Ada in #general · Dee Guild", body: "@me lunch?" },
+  request: { title: "Ada", body: "hi, it's Ada" },
+  call: { title: "Ada", body: "is calling" },
+};
+
+for (const kind of Object.keys(sample)) {
+  const generic = kind === "call" ? "Incoming call" : "New message";
+  test(`${kind}: full shows everything`, () => {
+    assert.deepEqual(redactNotification("full", kind, sample[kind]), sample[kind]);
+  });
+  test(`${kind}: name keeps the title only`, () => {
+    assert.deepEqual(redactNotification("name", kind, sample[kind]), { title: sample[kind].title, body: generic });
+  });
+  test(`${kind}: nothing is generic and leaks no text`, () => {
+    const r = redactNotification("nothing", kind, sample[kind]);
+    assert.deepEqual(r, { title: "Concord", body: generic });
+    assert.ok(!JSON.stringify(r).includes("Ada"));
+  });
+  test(`${kind}: missing or unknown falls back to nothing`, () => {
+    for (const v of [undefined, null, "", "bogus", 3]) {
+      assert.deepEqual(redactNotification(v, kind, sample[kind]), { title: "Concord", body: generic });
+    }
+  });
+}
+
+test("default is nothing", () => {
+  assert.equal(DEFAULT_NOTIFY_MODE, "nothing");
+  assert.equal(normalizeNotifyMode(undefined), "nothing");
+  assert.equal(normalizeNotifyMode("name"), "name");
+});

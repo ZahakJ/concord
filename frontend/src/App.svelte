@@ -1,5 +1,6 @@
 <script>
   import { own } from "./lib/lookup.js";
+  import { setNotifyMode } from "./lib/notifprivacy.js";
   import { cycleRegion } from "./lib/regions.js";
   // App.svelte is the shell: login gate, the four-column layout, voice
   // lifecycle, global shortcuts, and modal routing. All shared state and the
@@ -938,6 +939,14 @@
   $effect(() => {
     const on = S.prefs.appLock === true;
     window.Capacitor?.Plugins?.ConcordCore?.setSecure?.({ secure: on }).catch(() => {});
+  });
+
+  // ---- what notifications show (lib/notifprivacy.js) ----
+  // JS doors read the module copy; the Android side keeps its own persisted
+  // copy because it posts DM notifications while no JavaScript is running.
+  $effect(() => {
+    const mode = setNotifyMode(S.prefs.notifyShows);
+    window.Capacitor?.Plugins?.ConcordCore?.setNotifyPrivacy?.({ mode }).catch(() => {});
   });
 
   // ---- keep the screen awake during a call ----

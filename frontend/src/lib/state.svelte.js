@@ -277,6 +277,9 @@ export const S = $state({
     // when you were online. The generated gradient covers are the fallback and
     // were designed to stand on their own, so off costs nothing but the art.
     gameCovers: false,
+    // What an OS notification shows: "nothing" | "name" | "full"
+    // (lib/notifprivacy.js). Device-local; anything else reads as "nothing".
+    notifyShows: "nothing",
     showDeleted: false, // off = deleted messages vanish; on = leave a faint marker
     // "Not now" on the notification rationale bar. Sticky, because the whole
     // point of asking late is to ask once; Settings -> Notifications is where

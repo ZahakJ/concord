@@ -7,6 +7,7 @@
 // a notification for the eyes reading this window, so a backend copy firing
 // with no window open would alert no one.
 import { api } from "./api.js";
+import { redactNotification, getNotifyMode } from "./notifprivacy.js";
 import { S, flash, jumpToChannel, clockOpts } from "./state.svelte.js";
 
 const SKEY = "concord.scheduled"; // legacy queue — drained into the backend once
@@ -113,6 +114,11 @@ async function migrateLocalScheduled() {
 // doubling both is the fastest way to teach people to revoke the permission.
 // Degrades silently when Notification is absent or denied.
 export function localNotify(title, body, channelId, tag) {
+  // Reminders quote a message and the radar names a guild: both obey the
+  // "Notification shows" setting. Only "full" keeps the quoted text.
+  const mode = getNotifyMode();
+  ({ title, body } =
+    mode === "full" ? { title, body } : redactNotification(mode, "message", { title, body }));
   try {
     if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
       const n = new Notification(title, { body, tag });

@@ -385,6 +385,13 @@ public class ConcordCorePlugin extends Plugin {
         String label() {
             return failed ? "Not sent: " + text : text;
         }
+
+        // What the tray may show for this line. An own reply is the user's own
+        // words, so unless the setting is "full" it is not echoed either.
+        String shown(boolean full) {
+            if (full || sender != null) return label();
+            return failed ? "Not sent" : "Reply sent";
+        }
     }
 
     /** Swiped away, tapped, or marked read: the stack is done with. */
@@ -439,6 +446,15 @@ public class ConcordCorePlugin extends Plugin {
     // other instead of stacking. Both paths therefore carry the same actions,
     // Reply included, without either knowing about them.
     static void postMessageNotification(Context ctx, String title, String body, String tag, String id) {
+        // The "Notification shows" setting, applied here as well as in JS: the
+        // native DM path (NativeNotifier) posts with no JavaScript running, so
+        // this is the one place both routes pass. Idempotent on text JS has
+        // already redacted. Mirrors lib/notifprivacy.js.
+        String mode = notifyMode(ctx);
+        if (!MODE_FULL.equals(mode)) {
+            if (MODE_NOTHING.equals(mode)) title = GENERIC_TITLE;
+            body = GENERIC_BODY;
+        }
         long now = System.currentTimeMillis();
         ArrayDeque<MsgLine> lines = appendLine(tag, new MsgLine(title, body, now, false, id));
         if (lines == null) return;
@@ -530,12 +546,14 @@ public class ConcordCorePlugin extends Plugin {
         // The newest line someone ELSE wrote titles the notification; an own
         // reply is never the headline. Absent one (the stack aged out, or the
         // process restarted under a stale tray), the app's name.
+        final String mode = notifyMode(ctx);
+        final boolean full = MODE_FULL.equals(mode);
         String title = "Concord";
         String text = "";
         boolean lastFailed = false;
         for (MsgLine l : lines) {
             if (l.sender != null) title = l.sender;
-            text = l.label();
+            text = l.shown(full);
             lastFailed = l.failed;
         }
         if (lastFailed) text = "Reply not sent. Open Concord to send it.";
@@ -547,12 +565,12 @@ public class ConcordCorePlugin extends Plugin {
             style = new Notification.MessagingStyle(new Person.Builder().setName("You").build());
             for (MsgLine l : lines) {
                 style.addMessage(new Notification.MessagingStyle.Message(
-                    l.label(), l.at,
+                    l.shown(full), l.at,
                     l.sender == null ? null : new Person.Builder().setName(l.sender).build()));
             }
         } else {
             style = new Notification.MessagingStyle("You");
-            for (MsgLine l : lines) style.addMessage(l.label(), l.at, l.sender);
+            for (MsgLine l : lines) style.addMessage(l.shown(full), l.at, l.sender);
         }
 
         // Swipe-away (and tap, via autoCancel) must clear the stacked history,
@@ -581,6 +599,26 @@ public class ConcordCorePlugin extends Plugin {
             .setOnlyAlertOnce(quiet)
             .setAutoCancel(true)
             .setPriority(Notification.PRIORITY_HIGH);
+        // Lock screen. "Full" is VISIBILITY_PRIVATE: on a secured lock screen
+        // the system swaps in the public version, which says what "Nothing"
+        // says, so message text and names appear only once unlocked. "Name
+        // only" and "Nothing" already carry no text, so they are PUBLIC — the
+        // user chose to show what they show. The public version is a separate
+        // Notification the system holds and shows only when it applies.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            if (full) {
+                Notification.Builder pub = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    ? new Notification.Builder(ctx, MSG_CHANNEL_ID)
+                    : new Notification.Builder(ctx);
+                pub.setContentTitle(GENERIC_TITLE)
+                    .setContentText(GENERIC_BODY)
+                    .setSmallIcon(R.drawable.ic_stat_concord)
+                    .setColor(BRAND_TEAL);
+                b.setVisibility(Notification.VISIBILITY_PRIVATE).setPublicVersion(pub.build());
+            } else {
+                b.setVisibility(Notification.VISIBILITY_PUBLIC);
+            }
+        }
         Notification.Action reply = replyAction(ctx, tag);
         if (reply != null) b.addAction(reply);
         b.addAction(new Notification.Action.Builder(
@@ -643,6 +681,29 @@ public class ConcordCorePlugin extends Plugin {
     // restart there is no page to ask.
     private static final String PREFS = "concord_native";
     private static final String PREF_APP_LOCK = "appLock";
+
+    // "Notification shows": "nothing" (default) | "name" | "full". Persisted for
+    // the same reason as App Lock; anything unrecognised reads as "nothing".
+    private static final String PREF_NOTIFY = "notifyShows";
+    static final String MODE_NOTHING = "nothing";
+    static final String MODE_NAME = "name";
+    static final String MODE_FULL = "full";
+    static final String GENERIC_TITLE = "Concord";
+    static final String GENERIC_BODY = "New message";
+
+    static String notifyMode(Context ctx) {
+        String v = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(PREF_NOTIFY, MODE_NOTHING);
+        return MODE_NAME.equals(v) || MODE_FULL.equals(v) ? v : MODE_NOTHING;
+    }
+
+    @PluginMethod
+    public void setNotifyPrivacy(PluginCall call) {
+        String v = call.getString("mode", MODE_NOTHING);
+        if (!MODE_NAME.equals(v) && !MODE_FULL.equals(v)) v = MODE_NOTHING;
+        getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(PREF_NOTIFY, v).apply();
+        call.resolve();
+    }
 
     private static boolean appLockOn(Context ctx) {
         return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_APP_LOCK, false);

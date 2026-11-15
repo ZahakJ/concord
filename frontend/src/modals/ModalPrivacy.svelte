@@ -5,6 +5,8 @@
   // reason it's set that way. These used to sit in the main Settings list with
   // their paragraphs attached, which is what made that list a wall.
   import { onMount } from "svelte";
+  import Select from "../Select.svelte";
+  import { NOTIFY_MODES, normalizeNotifyMode } from "../lib/notifprivacy.js";
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import ModalWipeDevice from "./ModalWipeDevice.svelte";
@@ -217,6 +219,21 @@
       disabled={!richPresenceSupported}
       onclick={toggleRichPresence}
     />
+  </SettingGroup>
+
+  <SettingGroup label="Notifications">
+    <SettingRow
+      icon="bell"
+      title="Notification shows"
+      sub="What a notification shows on your lock screen and in the notification shade. Concord can only hide what it writes; your phone may still show that Concord sent something."
+    >
+      <Select
+        label="Notification shows"
+        value={normalizeNotifyMode(S.prefs.notifyShows)}
+        onPick={(v) => setPref("notifyShows", v)}
+        options={NOTIFY_MODES.map((o) => ({ value: o.id, label: o.label }))}
+      />
+    </SettingRow>
   </SettingGroup>
 
   <SettingGroup label="Deleted messages">

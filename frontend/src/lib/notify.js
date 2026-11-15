@@ -12,6 +12,7 @@
 
 import { plainSnippet } from "./snippet.js";
 import { shouldNotify, notificationTitle } from "./notifs.js";
+import { redactNotification, getNotifyMode } from "./notifprivacy.js";
 
 // The native notification bridge (Android/iOS), or null on web/desktop.
 function nativeNotifier() {
@@ -151,18 +152,20 @@ export function notify(m, { selfFpr, direct = false, mention = false, where = {}
   // so the same gate covers "the phone's screen is elsewhere".)
   if (!shouldNotify({ hidden: document.hidden, focused: document.hasFocus(), mobile, direct })) return;
 
-  const title = notificationTitle({ sender: m.senderName || m.sender.slice(0, 9), mention, ...where });
-  // plainSnippet, not previewText: this string is read out by the OS and
-  // there is no second chance to render it. previewText only knows about
-  // attachments, so a disappearing timer, a send effect, a sealed timestamp, a
-  // game, a doodle or a fenced code block all arrived as their source.
-  const body = plainSnippet(m.content, 120);
-
+  const full = {
+    title: notificationTitle({ sender: m.senderName || m.sender.slice(0, 9), mention, ...where }),
+    // plainSnippet, not previewText: this string is read out by the OS and
+    // there is no second chance to render it.
+    body: plainSnippet(m.content, 120),
+  };
+  // The one place the "Notification shows" setting is applied (lib/notifprivacy.js).
+  const mode = getNotifyMode();
+  const { title, body } = redactNotification(mode, mention ? "mention" : "message", full);
   // Mobile: post to the OS tray through the native plugin. Tapping opens the
   // app (deep-link to the channel is a later refinement).
   const native = nativeNotifier();
   if (native?.postNotification) {
-    native.postNotification({ title, body, tag: m.channelId, id: m.id || "" }).catch(() => {});
+    native.postNotification({ title, body, tag: m.channelId, id: m.id || "", mode }).catch(() => {});
     return;
   }
 
