@@ -79,7 +79,7 @@ import {
 } from "./notifs.js";
 import { reducedMotion, motionMode, onOsMotionChange } from "./motion.js";
 import { customEmojiTable } from "./customemoji.js";
-import { ANIMATED_PACKS, groundOf, migratePrefs } from "./packs.js";
+import { ANIMATED_PACKS, groundOf, migratePrefs, packIdOrDefault } from "./packs.js";
 
 // The saved prefs, brought up to this build before anything reads them: a
 // removed theme pack becomes the kept one closest to it, and so on (see
@@ -2665,7 +2665,7 @@ export { ANIMATED_PACKS };
 let packsCSS = null;
 let packsLoaded = false;
 export function themePacksReady() {
-  if (!S.prefs.themePack) return Promise.resolve();
+  if (!packIdOrDefault(S.prefs.themePack)) return Promise.resolve();
   if (!packsCSS) packsCSS = import("../themepacks.css").catch(() => {});
   return packsCSS;
 }
@@ -2675,7 +2675,7 @@ export function themePacksReady() {
 // while a theme pack's stylesheet is still on its way: the default palette on
 // screen in that moment is not the one the user chose.
 function rememberBootPaint() {
-  if (S.prefs.themePack && !packsLoaded) return;
+  if (packIdOrDefault(S.prefs.themePack) && !packsLoaded) return;
   requestAnimationFrame(() => {
     try {
       const bg = getComputedStyle(document.body).backgroundColor;
@@ -2698,7 +2698,8 @@ export function applyAppearance() {
   // than on nothing — a pref written by a newer build must not leave the feed
   // with no density at all.
   el.dataset.density = DENSITIES.has(S.prefs.density) ? S.prefs.density : "cozy";
-  const pack = S.prefs.themePack;
+  // A pack this build does not have (a newer build's) draws as the default.
+  const pack = packIdOrDefault(S.prefs.themePack);
   if (pack && !packsLoaded) {
     // Not yet: keep the default palette on screen and come back when the pack
     // stylesheet lands. main.js waits for this before the first mount, so the

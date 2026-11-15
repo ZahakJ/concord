@@ -16,6 +16,7 @@ import {
   PREFS_VERSION,
   groundOf,
   migratePrefs,
+  packIdOrDefault,
 } from "./packs.js";
 import { THEME_FX, validFx, resolveFx, seasonFx } from "./themefx.js";
 
@@ -155,7 +156,15 @@ const EXPECT = {
   for (const id of PACK_IDS) eq(migratePrefs({ themePack: id, prefsV: 2 }).prefs.themePack, id, `kept pack ${id}`);
   eq(migratePrefs({ themePack: "", theme: "light", prefsV: 2 }).prefs, { themePack: "", theme: "light", prefsV: 2 }, "no pack");
   // Anything unknown goes to the default palette, theme untouched.
-  eq(migratePrefs({ themePack: "vaporwave", theme: "light" }).prefs.themePack, "", "an unknown pack");
+  // R1: an id this build did not REMOVE is not this build's to rewrite. It may
+  // be a pack a newer build added; it stays saved and draws as the default.
+  for (const id of ["vaporwave2026", "constructor", "toString", "__proto__"]) {
+    const { prefs } = migratePrefs({ themePack: id, theme: "light", prefsV: 2 });
+    eq(prefs.themePack, id, `an unknown pack "${id}" is kept in storage`);
+    eq(prefs.theme, "light", `an unknown pack "${id}" leaves the theme`);
+    eq(packIdOrDefault(id), "", `an unknown pack "${id}" draws as the default`);
+  }
+  for (const id of PACK_IDS) eq(packIdOrDefault(id), id, `kept pack ${id} draws as itself`);
   eq(migratePrefs({ themePack: 7 }).prefs.themePack, "", "a non-string pack");
 }
 
@@ -168,8 +177,12 @@ const EXPECT = {
   eq(migratePrefs({ themeShine: true, prefsV: 2 }).prefs.themeShine, true, "an explicit on after the flip");
   eq(migratePrefs({ prefsV: 2 }).changed, false, "an up-to-date profile is not rewritten");
   // Seasonal touches → the Seasonal effect, unless an effect was already on.
-  eq(migratePrefs({ seasonal: true }).prefs.themeFx, "seasonal", "seasonal on");
-  eq(migratePrefs({ seasonal: true, themeFx: "rain" }).prefs.themeFx, "rain", "seasonal on, rain on");
+  // R2: it only ever drew on the Rail layout, so only Rail users get it.
+  eq(migratePrefs({ seasonal: true, navModel: "rail" }).prefs.themeFx, "seasonal", "seasonal on, Rail");
+  eq(migratePrefs({ seasonal: true }).prefs.themeFx, undefined, "seasonal on, Sidebar (never saw it)");
+  eq(migratePrefs({ seasonal: true, navModel: "sidebar", themeFx: "" }).prefs.themeFx, "", "seasonal on, Sidebar, no effect");
+  eq(migratePrefs({ seasonal: true, navModel: "rail", themeFx: "rain" }).prefs.themeFx, "rain", "seasonal on, Rail, rain kept");
+  eq(migratePrefs({ seasonal: true, navModel: "rail", themeFx: "crt" }).prefs.themeFx, "crt", "an effect picked is never replaced");
   eq("seasonal" in migratePrefs({ seasonal: false }).prefs, false, "the seasonal key goes");
   // Layout › Compact → Sidebar; density and the panel already say the rest.
   eq(migratePrefs({ layout: "compact", density: "compact", memberPanel: false }).prefs, {
@@ -183,7 +196,7 @@ const EXPECT = {
   const d = migratePrefs({ colChannels: 220, colMembers: 260, guildAccents: true, sidebarW: 300 }).prefs;
   eq([d.colChannels, d.colMembers, d.guildAccents, d.sidebarW], [undefined, undefined, undefined, 300], "dead keys");
   // Idempotent, and safe on junk.
-  const once = migratePrefs({ themePack: "porcelain", theme: "dark", seasonal: true, layout: "compact" }).prefs;
+  const once = migratePrefs({ themePack: "porcelain", theme: "dark", seasonal: true, navModel: "rail", layout: "compact" }).prefs;
   eq(migratePrefs(once).prefs, once, "migrating twice");
   eq(migratePrefs(once).changed, false, "migrating twice changes nothing");
   for (const junk of [null, undefined, 3, "x", []]) eq(migratePrefs(junk).prefs.prefsV, 2, `junk ${JSON.stringify(junk)}`);
@@ -202,7 +215,7 @@ const EXPECT = {
   const V0602_LAYOUTS = new Set(["sidebar", "compact"]); // + navModel "rail"
   const samples = [
     ...V0602_PACKS.map((id) => ({ themePack: id, theme: "dark" })),
-    { seasonal: true },
+    { seasonal: true, navModel: "rail" },
     { layout: "compact", density: "compact" },
     { themeShine: true },
   ];

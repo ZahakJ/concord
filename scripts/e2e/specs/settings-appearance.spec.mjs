@@ -36,7 +36,7 @@ test("a removed theme pack opens as the kept one closest to it", async ({ world,
   await shot(a, "porcelain to light");
 
   step("Synthwave under Light → Dracula: its own dark ground, its own fields");
-  await seed(a, { theme: "light", themePack: "synthwave", seasonal: true, layout: "compact", prefsV: 1 });
+  await seed(a, { theme: "light", themePack: "synthwave", seasonal: true, navModel: "rail", prefsV: 1 });
   await a.reload();
   await waitFor(async () => (await root(a)).pack === "dracula", { message: "the dracula pack stamped" });
   r = await root(a);
@@ -46,9 +46,16 @@ test("a removed theme pack opens as the kept one closest to it", async ({ world,
   const input = await a.page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--bg-input").trim());
   assert.notEqual(input.toLowerCase(), "#ffffff", "the field fill is the pack's, not the light theme's white");
   p = await saved(a);
-  assert.equal(p.themeFx, "seasonal", "Seasonal touches became the Seasonal effect");
-  assert.equal(p.layout, "sidebar", "the Compact layout became the sidebar");
+  assert.equal(p.themeFx, "seasonal", "on Rail, Seasonal touches became the Seasonal effect");
   assert.equal("seasonal" in p, false);
+
+  step("Seasonal touches on the Sidebar (where it never drew) and the Compact layout");
+  await seed(a, { theme: "dark", seasonal: true, layout: "compact", prefsV: 1 });
+  await a.reload();
+  await waitFor(async () => (await saved(a)).prefsV === 2, { message: "migrated" });
+  p = await saved(a);
+  assert.ok(!p.themeFx, "no effect switched on for someone who never saw one");
+  assert.equal(p.layout, "sidebar", "the Compact layout became the sidebar");
 
   step("Paper under Dark: a light pack is a light ground whatever the theme");
   await seed(a, { theme: "dark", themePack: "paper", prefsV: 2 });
@@ -61,11 +68,12 @@ test("a removed theme pack opens as the kept one closest to it", async ({ world,
   await a.reload();
   await waitFor(async () => (await root(a)).pack === "paper", { message: "atrium arrives as paper" });
 
-  step("an id nobody ever shipped → the default palette, theme kept");
-  await seed(a, { theme: "dark", themePack: "vaporwave", prefsV: 2 });
+  step("a pack this build does not know (a newer build's) draws as the default and stays saved");
+  await seed(a, { theme: "light", themePack: "vaporwave2026", prefsV: 2 });
   await a.reload();
-  await waitFor(async () => (await saved(a)).themePack === "", { message: "the unknown pack cleared" });
-  assert.deepEqual(await root(a), { theme: "dark", pack: "", ground: "dark", shine: "off" });
+  await waitFor(async () => (await root(a)).theme === "light", { message: "the light theme" });
+  assert.deepEqual(await root(a), { theme: "light", pack: "", ground: "light", shine: "off" });
+  assert.equal((await saved(a)).themePack, "vaporwave2026", "the newer build's choice survives this one");
   assert.deepEqual(a.errors, [], a.errors.join("\n"));
 });
 

@@ -3228,8 +3228,8 @@
   /* Selected: the fill alone is 1.13:1 in the light theme, so a 2px ink bar
      on the start edge is the cue. It is a short straight mark set 3px in,
      painted as a background layer, not an inset shadow along the whole edge:
-     on a pack with pill-shaped rows (Atrium's 24px radius) the shadow bent
-     round the curve into a half-moon. */
+     on pill-shaped rows (Corners › Round, or a pack with a big radius) the
+     shadow bent round the curve into a half-moon. */
   .channel-row.active {
     background: var(--sel-bar), var(--bg-3);
   }

@@ -58,6 +58,10 @@ export const ANIMATED_PACKS = new Set(PACKS.filter((p) => p.live).map((p) => p.i
 
 export const packById = (id) => PACKS.find((p) => p.id === id) || null;
 
+// The pack to DRAW for a saved id: a pack this build has, or "" (the default
+// palette) for one it does not know, which stays saved untouched.
+export const packIdOrDefault = (id) => (typeof id === "string" && PACK_IDS.has(id) ? id : "");
+
 // groundOf answers "is the app painted on a light or a dark ground", for the
 // base theme as resolved ("light" | "dark", System already decided) and the
 // pack actually stamped on the document ("" when none, or when its stylesheet
@@ -135,13 +139,14 @@ export function migratePrefs(raw) {
   const p = raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
   const before = JSON.stringify(p);
 
-  if (typeof p.themePack === "string" && p.themePack && !PACK_IDS.has(p.themePack)) {
+  // Only the ids this build REMOVED are rewritten. Any other unknown id is
+  // left where it is: it may be a pack a newer build added, and a device that
+  // runs this build between two newer ones must not lose that choice. Until
+  // then it draws as the default palette (packIdOrDefault, applyAppearance).
+  if (typeof p.themePack === "string" && Object.hasOwn(PACK_MIGRATION, p.themePack)) {
     const to = PACK_MIGRATION[p.themePack];
-    // Anything else — a typo, a pack from a build that never shipped — goes to
-    // the default palette under the theme already chosen, which is always
-    // readable.
-    p.themePack = to ? to.pack : "";
-    if (to?.theme) p.theme = to.theme;
+    p.themePack = to.pack;
+    if (to.theme) p.theme = to.theme;
   } else if (p.themePack != null && typeof p.themePack !== "string") {
     p.themePack = "";
   }
@@ -150,8 +155,11 @@ export function migratePrefs(raw) {
   // panel closed. Density and the panel already hold what it set.
   if (p.layout === "compact") p.layout = "sidebar";
 
-  // Seasonal touches became one of the Effects.
-  if (p.seasonal === true && !p.themeFx) p.themeFx = "seasonal";
+  // Seasonal touches became one of the Effects. It only ever drew on the Rail
+  // layout's guild column, so only someone on Rail ever saw it: they get the
+  // Seasonal effect, unless they already picked an effect, which is never
+  // replaced. Everyone else never saw it, and gets nothing new.
+  if (p.seasonal === true && p.navModel === "rail" && !p.themeFx) p.themeFx = "seasonal";
   delete p.seasonal;
 
   // Keys nothing reads (see the inventory, settings-keep-remove.md).

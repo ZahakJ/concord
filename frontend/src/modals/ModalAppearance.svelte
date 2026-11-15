@@ -15,7 +15,7 @@
   import SettingGroup from "./SettingGroup.svelte";
   import FxOverlay from "../FxOverlay.svelte";
   import { THEME_FX, seasonFx } from "../lib/themefx.js";
-  import { PACKS, packById } from "../lib/packs.js";
+  import { PACKS, packById, packIdOrDefault } from "../lib/packs.js";
   import { S, setAppearance } from "../lib/state.svelte.js";
   import { LAYOUTS, currentLayout, setLayout } from "../lib/layout.js";
   import { ACCENT_PROFILE, profileAccent } from "../lib/guildaccent.js";
@@ -53,7 +53,8 @@
   const clock = $derived(S.prefs.clock || "system");
   const uiScale = $derived(Number(S.prefs.uiScale) || 1);
   const profileColor = $derived(profileAccent(S.identity.color) || "#14a394");
-  const themePack = $derived(S.prefs.themePack || "");
+  // A saved pack this build does not know is drawn, and shown, as none.
+  const themePack = $derived(packIdOrDefault(S.prefs.themePack));
   const currentPack = $derived(packById(themePack));
   // The first swatch is "no accent of my own": the brand teal, or under a pack
   // the pack's own accent — which is what is on screen, so that is what the
