@@ -119,6 +119,14 @@ if (typeof document !== "undefined" && nativeNotifier()) {
   });
 }
 
+// sendNativePolicy hands the native notifier the page's decision for the time
+// it runs alone (lib/notifs.js nativePolicy). No-op off Android.
+export function sendNativePolicy(policy) {
+  const native = nativeNotifier();
+  if (!native?.setNotifyPolicy) return;
+  native.setNotifyPolicy(policy).catch(() => {});
+}
+
 // openSystemSettings takes the user to this app's OS settings page — the only
 // recovery from a hard deny. Resolves false where there's nowhere to go.
 export async function openSystemSettings() {

@@ -13,6 +13,10 @@ import {
   shouldNotify,
   notificationTitle,
   chimeFor,
+  chimeGate,
+  nativePolicy,
+  CHIME_GAP_MS,
+  CHATTER_GAP_MS,
 } from "./notifs.js";
 
 let failures = 0;
@@ -139,6 +143,36 @@ eq(chimeFor({ ...away, alert: false }), null, "nothing a level silenced makes a 
 eq(chimeFor({ ...here, alert: false, background: true }), null, "nor in the background");
 eq(chimeFor({ ...away, background: true, trayCarries: true }), null, "the Android tray's own sound is not doubled");
 eq(chimeFor({ ...away, background: false, trayCarries: true }), "message", "a tray in the foreground does not silence the app");
+
+// ---- the gate: one sound per burst, the louder kind wins, chatter is paced ----
+{
+  const g = {};
+  assert(chimeGate(g, "message", "c1", 0), "the first note plays");
+  assert(chimeGate(g, "dm", "d1", 100), "a DM right after a note still chimes");
+  assert(!chimeGate(g, "mention", "c2", 200), "a mention inside the DM's burst does not");
+  assert(!chimeGate(g, "dm", "d1", 300), "nor a second DM in the same burst");
+  assert(chimeGate(g, "dm", "d1", 300 + CHIME_GAP_MS), "after the gap a DM chimes again");
+  const h = {};
+  assert(chimeGate(h, "message", "busy", 0), "a busy channel's first note plays");
+  assert(!chimeGate(h, "message", "busy", 2000), "the same channel two seconds later is quiet");
+  assert(chimeGate(h, "message", "other", 4000), "another channel is not held back by it");
+  assert(chimeGate(h, "message", "busy", CHATTER_GAP_MS + 1), "the busy channel sounds again after the chatter gap");
+  assert(chimeGate(h, "mention", "busy", CHATTER_GAP_MS + 100), "a mention in it is not paced as chatter");
+  assert(!chimeGate({}, null, "x", 0), "no kind, no sound");
+}
+
+// ---- what the Android notifier is told ----
+{
+  const notifs = { channels: { d2: "none", d3: "mentions" }, guilds: { gdm4: "none" } };
+  const dms = [
+    { channelId: "d1", guildId: "gdm1" },
+    { channelId: "d2", guildId: "gdm2" },
+    { channelId: "d3", guildId: "gdm3" },
+    { channelId: "d4", guildId: "gdm4" },
+  ];
+  eq(nativePolicy({ notifs, dms }), { dnd: false, quiet: ["d2", "d3", "d4"] }, "DMs at Nothing or Only @mentions, set or inherited, are left to the page");
+  eq(nativePolicy({ notifs: EMPTY, dms, dnd: true }), { dnd: true, quiet: [] }, "Do Not Disturb travels");
+}
 
 if (failures) {
   console.error(`\n${failures} notifs test(s) failed`);

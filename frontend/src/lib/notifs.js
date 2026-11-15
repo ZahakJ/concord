@@ -146,6 +146,42 @@ export function chimeFor({ alert, dm = false, mention = false, onScreen = false,
   return dm ? "dm" : mention ? "mention" : "message";
 }
 
+// nativePolicy is what the Android side is told before the page goes to the
+// background. It posts direct messages on its own (NativeNotifier) when no
+// page is running to decide, and it cannot read the levels, so it gets the
+// decision instead: Do Not Disturb, and the DM channels it must leave alone.
+// A DM at "Nothing" never alerts. One at "Only @mentions" alerts for a mention,
+// which only the page can recognise, so the native side leaves those to the
+// page as well. `dms` is [{ channelId, guildId }].
+export function nativePolicy({ notifs, dms = [], dnd = false }) {
+  const quiet = dms.filter(({ channelId, guildId }) => resolve(notifs, channelId, guildId) !== "all").map((d) => d.channelId);
+  return { dnd: !!dnd, quiet };
+}
+
+// chimeGate decides whether a sound chimeFor named actually plays, and records
+// it in `gate` ({ at, rank, byChannel }, start it as {}):
+//
+//   • a burst is one sound: within CHIME_GAP_MS of the last sound, only a
+//     louder kind gets through (dm > mention > message), so a DM or a mention
+//     arriving just after chatter is never swallowed by the quieter note;
+//   • chatter is not a metronome: a plain message sounds at most once per
+//     channel per CHATTER_GAP_MS, so a busy channel at "All messages" gives
+//     one note when it wakes up rather than one every second and a half.
+export const CHIME_GAP_MS = 1500;
+export const CHATTER_GAP_MS = 10000;
+const RANK = { message: 1, mention: 2, dm: 3 };
+export function chimeGate(gate, kind, channelId, now) {
+  const rank = RANK[kind];
+  if (!rank) return false;
+  gate.byChannel ||= {};
+  if (kind === "message" && now - (gate.byChannel[channelId] ?? -Infinity) < CHATTER_GAP_MS) return false;
+  if (now - (gate.at ?? -Infinity) < CHIME_GAP_MS && rank <= (gate.rank || 0)) return false;
+  gate.at = now;
+  gate.rank = rank;
+  if (kind === "message") gate.byChannel[channelId] = now;
+  return true;
+}
+
 // notificationTitle says who AND where, because the OS shows nothing else:
 // "Ada" alone was the same for a DM and for chatter in a guild.
 //   DM:        "Ada (direct message)"

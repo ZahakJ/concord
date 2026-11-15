@@ -20,9 +20,10 @@ import concord.Node;
  *
  * Scope is deliberately DMs only. Guild traffic is governed by per-channel
  * notification levels that live in the WebView's storage, which this side
- * can't read; guessing would notify for channels the user muted. A DM is the
- * one conversation kind where "someone wrote to you personally" is always
- * worth a tray line. (Guild @mention wakes are a separate, planned feature.)
+ * can't read; guessing would notify for channels the user muted. For DMs the
+ * page hands over its decision each time it goes to the background
+ * (NotifyPolicy): Do Not Disturb, and the DMs whose level keeps them quiet.
+ * (Guild @mention wakes are a separate, planned feature.)
  *
  * Both this path and the JS path post under tag=channelId with the same
  * notification id, so a race between them replaces rather than duplicates.
@@ -79,6 +80,9 @@ final class NativeNotifier implements concord.EventSink {
             String chId = m.optString("channelId", "");
             Map<String, String> dms = dmChannelMap();
             if (dms == null || !dms.containsKey(chId)) return;
+            // The levels and Do Not Disturb, as the page last decided them: a
+            // DM set to "Nothing" stays silent here too.
+            if (!NotifyPolicy.allows(app, chId)) return;
 
             String title = m.optString("senderName", "");
             if (title.isEmpty()) title = sender.length() > 9 ? sender.substring(0, 9) : sender;

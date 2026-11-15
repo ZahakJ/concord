@@ -59,7 +59,7 @@ Alert words are stored on this device only. They are never sent anywhere, never 
 | **Call ringtone** | Classic | The ringtone for incoming calls: Classic, Digital, Chime, Marimba or Pulse. Picking one plays it. |
 | **Test the speakers** | — | Plays a chime and checks that it reached your speakers. |
 
-A message that would notify you (see the levels above) makes a sound when it arrives in another channel or direct message, or while Concord is in the background: direct messages play their own chime, mentions and alert words a ping, and other messages a soft note. The channel on screen stays silent unless **Blip on every message** is on. Several messages at once play one sound. On Android in the background, the sound is the notification's own, set in the **Messages** notification channel. Sending a message makes no sound.
+A message that would notify you (see the levels above) makes a sound when it arrives in another channel or direct message, or while Concord is in the background: direct messages play their own chime, mentions and alert words a ping, and other messages a soft note. The channel on screen stays silent unless **Blip on every message** is on, and that blip plays only while Concord is in the foreground. Several messages at once play one sound, but a direct message or a mention still sounds right after a quieter note. A busy channel sounds at most once every ten seconds. On Android in the background, the sound is the notification's own, set in the **Messages** notification channel, and each conversation sounds at most once every ten seconds. Sending a message makes no sound.
 
 ## Desktop notifications
 
@@ -100,8 +100,8 @@ Messages stack by conversation, up to six lines each. Tap one to open the channe
 The published builds use no push service: the phone's own connection receives each message, and the notification is made on the phone.
 
 - **Concord on screen:** no notifications. The in-app sounds and badges say what arrived.
-- **In the background:** the interface posts a notification for every message the levels above allow. Direct messages are also posted by the connection itself, which cannot read the levels, so a direct message notifies even when its level or Do Not Disturb would have kept it quiet.
-- **Interface closed by Android, or the app swiped away:** the connection keeps running under **Stay connected**, and only direct messages notify.
+- **In the background:** the interface posts a notification for every message the levels above allow. Direct messages are also posted by the connection itself. It follows your **Do Not Disturb** status in Concord and each direct message's level as they stood when Concord went to the background. A direct message set to **Only @mentions** is left to the interface, because only the interface can tell a mention.
+- **Interface closed by Android, or the app swiped away:** the connection keeps running under **Stay connected**, and only direct messages notify, under the same rule.
 - **Process killed by Android:** the Stay connected service starts it again, the connection reconnects, and direct messages notify.
 - **Force stopped, or Stay connected off once the process has gone:** nothing arrives until you open Concord. Messages wait in your rendezvous's mailbox.
 

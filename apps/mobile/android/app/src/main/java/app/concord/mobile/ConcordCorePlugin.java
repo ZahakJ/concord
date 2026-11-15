@@ -25,8 +25,11 @@ import androidx.core.app.NotificationManagerCompat;
 import java.io.OutputStream;
 import java.util.ArrayDeque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
@@ -389,6 +392,32 @@ public class ConcordCorePlugin extends Plugin {
         synchronized (HISTORY) {
             HISTORY.remove(tag);
         }
+        synchronized (LAST_ALERT) {
+            LAST_ALERT.remove(tag); // dismissed: the next message may sound
+        }
+    }
+
+    // When each conversation's tray entry last sounded (AlertRules.shouldAlert).
+    private static final Map<String, Long> LAST_ALERT = new HashMap<>();
+
+    /**
+     * The page's notification decision for the native side: the user's Do Not
+     * Disturb status in Concord, and the direct messages whose level means the
+     * native side must not post them ({dnd, quiet: [channelId]}). Sent each
+     * time the page goes to the background; see NativeNotifier.
+     */
+    @PluginMethod
+    public void setNotifyPolicy(PluginCall call) {
+        Set<String> quiet = new HashSet<>();
+        JSArray arr = call.getArray("quiet");
+        if (arr != null) {
+            for (int i = 0; i < arr.length(); i++) {
+                String id = arr.optString(i, "");
+                if (!id.isEmpty()) quiet.add(id);
+            }
+        }
+        NotifyPolicy.save(getContext(), Boolean.TRUE.equals(call.getBoolean("dnd", false)), quiet);
+        call.resolve();
     }
 
     @PluginMethod
@@ -410,8 +439,17 @@ public class ConcordCorePlugin extends Plugin {
     // other instead of stacking. Both paths therefore carry the same actions,
     // Reply included, without either knowing about them.
     static void postMessageNotification(Context ctx, String title, String body, String tag, String id) {
-        ArrayDeque<MsgLine> lines = appendLine(tag, new MsgLine(title, body, System.currentTimeMillis(), false, id));
-        if (lines != null) render(ctx, tag, lines, false);
+        long now = System.currentTimeMillis();
+        ArrayDeque<MsgLine> lines = appendLine(tag, new MsgLine(title, body, now, false, id));
+        if (lines == null) return;
+        // A burst in one conversation sounds once: inside the gap the entry is
+        // updated with setOnlyAlertOnce, no sound and no second heads-up.
+        boolean quiet;
+        synchronized (LAST_ALERT) {
+            quiet = !AlertRules.shouldAlert(LAST_ALERT.get(tag), now);
+            if (!quiet) LAST_ALERT.put(tag, now);
+        }
+        render(ctx, tag, lines, quiet);
     }
 
     /**
@@ -458,10 +496,10 @@ public class ConcordCorePlugin extends Plugin {
         }
     }
 
-    // quiet: an update to a notification the user is already looking at (the
-    // result of their own reply) — re-render without sound, vibration or a
-    // second heads-up. Only that one post carries the flag, so the next real
-    // message in the conversation still alerts.
+    // quiet: re-render without sound, vibration or a second heads-up. Set for
+    // an update the user is already looking at (the result of their own
+    // reply), and for a message inside its conversation's alert gap
+    // (AlertRules.ALERT_GAP_MS), so a burst sounds once.
     private static void render(Context ctx, String tag, ArrayDeque<MsgLine> lines, boolean quiet) {
         NotificationManager nm =
             (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);

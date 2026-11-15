@@ -5,7 +5,7 @@ import { tick } from "svelte";
 import { closeGuildSwitcher } from "./guildswitch.svelte.js";
 import { MOM } from "./momentsunseen.svelte.js";
 import { api, on, onTransportHealth, probeCore } from "./api.js";
-import { notify, wantsPermissionPrompt, trayPosts } from "./notify.js";
+import { notify, wantsPermissionPrompt, trayPosts, asksLazily, sendNativePolicy } from "./notify.js";
 import { draftIn, noteDraft } from "./drafts.svelte.js";
 import { containsMention } from "./markdown.js";
 import { clampAccent, resolveAccent } from "./guildaccent.js";
@@ -32,9 +32,8 @@ import {
 // Per-sender soundboard rate limit (last accepted press, ms). Module-local:
 // nothing else needs to react to it.
 const sfxLast = {};
-// The last received-message sound (ms), so a burst plays one.
-let lastChimeAt = 0;
-const CHIME_GAP_MS = 1500;
+// The received-message sound's gate (lib/notifs.js chimeGate).
+const chimeGateState = {};
 import { micReason } from "./devices.js";
 import { PERM, has } from "./perms.js";
 import { plur } from "./plural.js";
@@ -74,6 +73,8 @@ import {
   setGuild as setGuildNotif,
   wantsAlert,
   chimeFor,
+  chimeGate,
+  nativePolicy,
   showsBadge,
 } from "./notifs.js";
 import { reducedMotion, motionMode, onOsMotionChange } from "./motion.js";
@@ -1005,6 +1006,24 @@ export function isMuted(channelId, guildId) {
 function saveNotifs(next) {
   S.notifs = next;
   saveJSON("concord.notifs", next);
+  pushNativePolicy();
+}
+
+// The Android notifier posts DMs by itself while the page is in the background
+// or gone, so it is told the levels and Do Not Disturb as they stand: whenever
+// a level changes, and each time the page goes to the background (which is
+// also after any change of status).
+function pushNativePolicy() {
+  if (!asksLazily()) return;
+  const dms = S.guilds
+    .filter((g) => g.kind === "dm")
+    .flatMap((g) => (g.channels || []).map((c) => ({ channelId: c.id, guildId: g.id })));
+  sendNativePolicy(nativePolicy({ notifs: S.notifs, dms, dnd: S.identity?.presence === "dnd" }));
+}
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) pushNativePolicy();
+  });
 }
 
 // level = null puts the channel back to following its guild.
@@ -4080,8 +4099,13 @@ function initEvents() {
         // the app had nothing at all for a message arriving in the channel you
         // are looking at. Live, from somebody else, and never for the
         // bookkeeping a game move is.
+        // In the foreground only: in the background the channel on screen gets
+        // the received-message sound (chimeFor), or on Android the tray's, and
+        // the blip on top of it would be the same news twice.
         if (
           S.prefs.soundOnArrive &&
+          !document.hidden &&
+          (S.isMobile || document.hasFocus()) &&
           firstSeen &&
           isLive &&
           countsAsChat(m) &&
@@ -4160,9 +4184,9 @@ function initEvents() {
       background: document.hidden || (!S.isMobile && !document.hasFocus()),
       trayCarries: document.hidden && trayPosts(),
     });
-    // A burst (a sync catching up, a lively channel) is one sound, not ten.
-    if (chime && Date.now() - lastChimeAt > CHIME_GAP_MS) {
-      lastChimeAt = Date.now();
+    // A burst (a sync catching up, a lively channel) is one sound, not ten,
+    // and a louder kind is never swallowed by a quieter one before it.
+    if (chime && chimeGate(chimeGateState, chime, m.channelId, Date.now())) {
       if (chime === "dm") playDM();
       else if (chime === "mention") playMention();
       else playMessage();
