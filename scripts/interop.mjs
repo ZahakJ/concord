@@ -79,6 +79,25 @@ function plantedJpeg() {
 
 // ---------------------------------------------------------------- plumbing
 
+// A link card exactly as internal/app/linkcard.go writes one: a masked link
+// whose text is the title (markdown escaped), then a v2 image token with the
+// card bit (2) whose description is "<site> · <duration>". The picture is a
+// real sealed blob, borrowed from an ordinary attachment NEW sent first, so
+// OLD has something genuine to fetch. No network: the card is the bytes.
+async function cardBody(st, title) {
+  const blobId = await rpc(NEW, "SendAttachment", [st.newGuildChanNew, PNG_1PX, 1, 1, "", false, "", ""]);
+  const msg = (await messagesIn(NEW, st.newGuildChanNew)).find((m) => (m.content || "").includes(blobId));
+  const a = parseAttach(msg.content);
+  // Exactly what a sender's core writes for a YouTube link: the title, the
+  // domain after it for readers like OLD, and the channel as the caption (no
+  // length: YouTube's oEmbed has none).
+  const desc = Buffer.from("Rick Astley", "utf8").toString("base64url");
+  return (
+    `[${title} \\(Official Video\\)](https://www.youtube.com/watch?v=dQw4w9WgXcQ) · youtube.com\n` +
+    `![image](concord://attach/v2/${a.blobID}/${a.keys}/${a.subtype}/1x1/2//${desc})`
+  );
+}
+
 function loadState() {
   return existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : { lanes: [] };
 }
@@ -796,6 +815,32 @@ async function phaseOnline() {
     return { evidence: ev };
   });
 
+  // --- L9: link cards ----------------------------------------------------------
+  // A card is ordinary markdown plus an ordinary image token, so it rides in
+  // Content, under the author's signature. OLD must store the bytes untouched
+  // (a re-encode would break the signature for everyone it later serves them
+  // to), must not flag them, and must be able to fetch the card's picture.
+  await lane("L9a", "a link card from NEW reaches OLD byte-for-byte and signed", async () => {
+    const body = await cardBody(st, "CARD-LIVE Never Gonna Give You Up");
+    await rpc(NEW, "SendMessage", [st.newGuildChanNew, body, ""]);
+    const got = await waitFor("OLD receives the card", () => findMessage(OLD, st.newGuildChanOld, "CARD-LIVE"));
+    if (got.content !== body) throw new Error(`card mangled:\n  sent: ${body}\n  recv: ${got.content}`);
+    if (got.unverified) throw new Error("OLD flagged NEW's card message as unsigned");
+    const fetched = await tryRpc(OLD, "FetchAttachment", attachArgs(got.content, st.newGuildChanOld));
+    if (!fetched.ok || !String(fetched.result || "").startsWith("data:image/")) {
+      throw new Error(`OLD could not fetch the card picture: ${fetched.error || fetched.result}`);
+    }
+    return { evidence: [`OLD holds: ${got.content}`, `OLD fetched the picture: ${String(fetched.result).slice(0, 30)}…`] };
+  });
+
+  await lane("L9d", "a hand-typed masked link from OLD reaches NEW intact", async () => {
+    const body = "MASKED-OLD log in here: [paypal.com](https://evil.example/login)";
+    await rpc(OLD, "SendMessage", [st.oldGuildChanOld, body, ""]);
+    const got = await waitFor("NEW receives the masked link", () => findMessage(NEW, st.oldGuildChanNew, "MASKED-OLD"));
+    if (got.content !== body) throw new Error(`masked link mangled: ${got.content}`);
+    return { evidence: [`NEW holds: ${got.content}`] };
+  });
+
   await lane("U1", "nothing OLD sent live is marked unsigned on NEW", () => noneMarked(st, "live"));
 
   st.lanes = (st.lanes || []).concat(results);
@@ -888,6 +933,8 @@ async function phaseWhileOldDown() {
     await rpc(NEW, "SendMessage", [st.newGuildChanNew, `OFFLINE-CATCHUP-${i}`, ""]);
   }
   await rpc(NEW, "SendAttachment", [st.newGuildChanNew, PNG_1PX, 1, 1, "", false, "", ""]);
+  st.offlineCard = await cardBody(st, "CARD-OFFLINE Never Gonna Give You Up");
+  await rpc(NEW, "SendMessage", [st.newGuildChanNew, st.offlineCard, ""]);
   st.offlineCount = 3;
   saveState(st);
   console.log("  posted 3 messages + 1 attachment from NEW while OLD was down");
@@ -913,6 +960,14 @@ async function phaseOldCameBack() {
       .filter((m) => (m.content || "").includes("OFFLINE-CATCHUP"))
       .map((m) => m.content);
     return { evidence: [`OLD now has: ${JSON.stringify(bodies)}`] };
+  });
+  await lane("L9e", "a card posted while OLD was offline catches up byte-for-byte and signed", async () => {
+    const got = await waitFor("OLD catches up on the card", () => findMessage(OLD, st.newGuildChanOld, "CARD-OFFLINE"), {
+      timeout: 90000,
+    });
+    if (got.content !== st.offlineCard) throw new Error(`card mangled in catch-up:\n  sent: ${st.offlineCard}\n  recv: ${got.content}`);
+    if (got.unverified) throw new Error("OLD flagged the caught-up card as unsigned");
+    return { evidence: [`OLD holds: ${got.content}`, `unverified=${!!got.unverified}`] };
   });
   st.lanes = (st.lanes || []).concat(results);
   saveState(st);
