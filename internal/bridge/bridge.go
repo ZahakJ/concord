@@ -2453,6 +2453,16 @@ func (b *Bridge) RevealDeleted(channelID, messageID string) (string, error) {
 	return svc.RevealDeleted(channelID, messageID)
 }
 
+// MessageVersions returns a message's edit history, oldest first, as
+// [{content, at}]. Empty for a message that was never edited.
+func (b *Bridge) MessageVersions(channelID, messageID string) ([]appsvc.MessageVersion, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.MessageVersions(channelID, messageID)
+}
+
 // CallIceServers returns ICE config (STUN + optional TURN with fresh creds) for
 // starting a call. See internal/app/ice.go.
 func (b *Bridge) CallIceServers() (appsvc.IceConfig, error) {
@@ -4113,6 +4123,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SetNickname(argStr(args, 0), argStr(args, 1))
 	case "CallIceServers":
 		return b.CallIceServers()
+	case "MessageVersions":
+		return b.MessageVersions(argStr(args, 0), argStr(args, 1))
 	case "RevealDeleted":
 		return b.RevealDeleted(argStr(args, 0), argStr(args, 1))
 	case "PurgeMessages":

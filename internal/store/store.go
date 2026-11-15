@@ -226,6 +226,14 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS message_versions (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id  TEXT NOT NULL,
+  content_enc BLOB NOT NULL,
+  nonce       BLOB NOT NULL,
+  at          INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_message_versions ON message_versions(message_id, seq);
 CREATE TABLE IF NOT EXISTS reactions (
   message_id  TEXT NOT NULL,
   fingerprint TEXT NOT NULL,
@@ -901,6 +909,9 @@ func (s *Store) DeleteChannel(channelID string) error {
 	if _, err := tx.Exec(`DELETE FROM hidden_messages WHERE channel_id=?`, channelID); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`DELETE FROM message_versions WHERE message_id IN (SELECT id FROM messages WHERE channel_id=?)`, channelID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM messages WHERE channel_id=?`, channelID); err != nil {
 		return err
 	}
@@ -1309,6 +1320,9 @@ func (s *Store) DeleteGuild(guildID string) error {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM hidden_messages WHERE channel_id = ?`, ch); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM message_versions WHERE message_id IN (SELECT id FROM messages WHERE channel_id = ?)`, ch); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM messages WHERE channel_id = ?`, ch); err != nil {
@@ -2407,8 +2421,9 @@ func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) 
 // edit set it back to per-line": both arrive as an empty newDir, and only one
 // of them should overwrite what is stored.
 func (s *Store) UpdateContent(id string, bySender []byte, newContent string, newSig []byte, newDir string, setDir bool) (bool, error) {
-	var sender []byte
-	err := s.rd().QueryRow(`SELECT sender FROM messages WHERE id = ?`, id).Scan(&sender)
+	var sender, oldEnc, oldNonce []byte
+	var sent int64
+	err := s.rd().QueryRow(`SELECT sender, content_enc, nonce, sent FROM messages WHERE id = ?`, id).Scan(&sender, &oldEnc, &oldNonce, &sent)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
@@ -2433,6 +2448,9 @@ func (s *Store) UpdateContent(id string, bySender []byte, newContent string, new
 	args = append(args, id)
 	if _, err := s.db.Exec(q, args...); err != nil {
 		return false, err
+	}
+	if old, oerr := s.open(oldEnc, oldNonce); oerr == nil {
+		_ = s.recordVersion(s.db, id, old, sent, newContent, time.Now().UnixNano())
 	}
 	return true, nil
 }
@@ -2463,6 +2481,11 @@ func (s *Store) MarkDeleted(id string, bySender []byte, force bool) (domain.Mess
 		return domain.Message{}, false, err
 	}
 	_, _ = s.db.Exec(`DELETE FROM hidden_messages WHERE message_id = ?`, id) // a tombstone needs no hide
+	// Delete for everyone (and a disappearing message's expiry, which runs this
+	// too) takes every earlier version with it, not just the current body.
+	if err := dropVersions(s.db, id); err != nil {
+		return domain.Message{}, false, err
+	}
 	m.ID = id
 	m.ChannelID = chID
 	m.Deleted = true
@@ -2485,7 +2508,10 @@ func (s *Store) EraseContent(id string) error {
 		`UPDATE messages SET content_enc = ?, nonce = ? WHERE id = ?`,
 		sealed, nonce[:], id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return dropVersions(s.db, id)
 }
 
 // MessageContent returns one message's decrypted body (empty if the row is
@@ -2611,6 +2637,9 @@ func (s *Store) pruneMessagesChunk(channelIDs []string, cutoff int64) (int, erro
 	}
 	if _, err := tx.Exec(`DELETE FROM msg_receipts WHERE message_id IN (`+victims+`)`, args...); err != nil {
 		return 0, fmt.Errorf("store: prune receipts: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM message_versions WHERE message_id IN (`+victims+`)`, args...); err != nil {
+		return 0, fmt.Errorf("store: prune versions: %w", err)
 	}
 	res, err := tx.Exec(`DELETE FROM messages WHERE id IN (`+victims+`)`, args...)
 	if err != nil {
@@ -3168,6 +3197,9 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 			); err != nil {
 				return false, err
 			}
+			if err := dropVersions(q, m.ID); err != nil {
+				return false, err
+			}
 			changed = true
 		} else if remoteUpdated > curUpdated && curDeleted == 0 {
 			var nonce [nonceSize]byte
@@ -3181,6 +3213,16 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 				nilIfEmpty(m.Sig), boolToInt(m.Unverified), m.ID,
 			); err != nil {
 				return false, err
+			}
+			// A trusted peer served a newer body for a row we already hold: that
+			// is an edit we are only now hearing about, and the body it replaced
+			// is text we had already received.
+			if old, oerr := s.open(curEnc, curNonce); oerr == nil {
+				at := remoteUpdated
+				if at == 0 {
+					at = time.Now().UnixNano()
+				}
+				_ = s.recordVersion(q, m.ID, old, curSent, m.Content, at)
 			}
 			changed = true
 		}

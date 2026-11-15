@@ -1849,6 +1849,39 @@ func (s *Service) applyEdit(targetID, newContent string, bySender []byte, rowSig
 	}
 }
 
+// MessageVersion is one body a message has held and when it took effect.
+type MessageVersion struct {
+	Content string    `json:"content"`
+	At      time.Time `json:"at"`
+}
+
+// MessageVersions returns a message's edit history, oldest first (the original
+// first, the current text last). An unedited message returns an empty list.
+//
+// It is read from this device's own copy: versions are recorded as edits
+// arrive, so history only ever shows text this member already received. A
+// member who joined later, or caught up by sync, holds the latest body and
+// builds history from there; there is deliberately no way to ask a peer for
+// versions we missed.
+func (s *Service) MessageVersions(channelID, messageID string) ([]MessageVersion, error) {
+	m, ok, err := s.store.MessageByID(messageID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || m.ChannelID != channelID || m.Deleted {
+		return []MessageVersion{}, nil
+	}
+	vs, err := s.store.MessageVersions(messageID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MessageVersion, 0, len(vs))
+	for _, v := range vs {
+		out = append(out, MessageVersion{Content: v.Content, At: v.At})
+	}
+	return out, nil
+}
+
 // mayPin reports whether fpr may toggle a pin in the guild a channel belongs to.
 // A guild's pinned strip is shared state that every member sees, so pinning
 // rides ManageMessages exactly as deleting anyone else's message does — the bit

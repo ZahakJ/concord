@@ -629,6 +629,7 @@ export const api = {
   voiceHeldElsewhere: () => call("VoiceHeldElsewhere", isNativeShell() ? "" : clientID),
   relaySignal: (toPeerID, data) => call("RelaySignal", toPeerID, data),
   callIceServers: () => call("CallIceServers"),
+  messageVersions: (channelID, messageID) => call("MessageVersions", channelID, messageID),
   revealDeleted: (channelID, messageID) => call("RevealDeleted", channelID, messageID),
   sendTyping: (channelID) => call("SendTyping", channelID),
   stopTyping: (channelID) => call("StopTyping", channelID),

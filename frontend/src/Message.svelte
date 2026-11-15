@@ -18,6 +18,7 @@
   // avatar/header, hover timestamp). The action bar is keyboard-reachable
   // (focus-within) with labelled icon buttons.
   import Icon from "./Icon.svelte";
+  import EditHistory from "./EditHistory.svelte";
   import { showUnsignedMark, UNSIGNED_TIP, UNSIGNED_LABEL } from "./lib/unsigned.js";
   import { applyFormat as formatField, chordFor } from "./lib/mdformat.js";
   import { uneditableReason } from "./lib/tokenbody.js";
@@ -1613,9 +1614,7 @@
                 </span>
               {/if}
             </button>
-          {/if}{@html bodyHtml}{#if m.edited}<span
-              class="edited-tag">(edited)</span
-            >{/if}{#if ownInDM}<ReceiptTick id={m.id} />{/if}{#if unsignedMark && (compact || gameAside)}<span
+          {/if}{@html bodyHtml}{#if m.edited}<EditHistory channelId={m.channelId} messageId={m.id} />{/if}{#if ownInDM}<ReceiptTick id={m.id} />{/if}{#if unsignedMark && (compact || gameAside)}<span
               class="unsigned-mark trailing"
               role="img"
               use:tooltip={UNSIGNED_TIP}
@@ -1684,7 +1683,7 @@
              message whose whole content is an attachment token had nowhere to
              show it — and editing a meme in place changes the PICTURE, which is
              exactly the case where a reader deserves to be told. -->
-        <span class="edited-tag att-edited">(edited)</span>
+        <EditHistory channelId={m.channelId} messageId={m.id} block />
       {/if}
       {#if ownInDM && !bodyText && (atts.length || files.length)}<ReceiptTick id={m.id} />{/if}
       {#if richEmbed}
