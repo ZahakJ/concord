@@ -474,6 +474,7 @@
       // (an edit-in-place textarea lives inside the row), and a live selection
       // means the finger is about to adjust handles, not swipe.
       if (e.target.closest?.("textarea, input")) return;
+      if (selecting) return; // the finger is selecting words, not swiping
       const sel = window.getSelection?.();
       if (sel && !sel.isCollapsed) return;
       sx = e.touches[0].clientX;
@@ -732,6 +733,31 @@
     holdKeyboard(document.querySelector("textarea.draft"));
     keepInView(rowEl());
   }
+  // Select text (phone): the row lets the system select its words until a tap
+  // lands somewhere else. The long-press menu and the row's user-select:none
+  // both stand down for it (lib/touch.js, the styles below).
+  let selecting = $state(false);
+  // On touch the row's menu is the long-press, so the browser's own context
+  // menu is suppressed here, except where it is the system's text handling: in
+  // the edit box (where cancelling it took select and paste with it) and in a
+  // row opened with Select text.
+  function quietContextMenu(e) {
+    if (selecting || e.target.closest?.("textarea, input")) return;
+    e.preventDefault();
+  }
+  function startSelecting() {
+    selecting = true;
+    flash("Press and hold the words to select them", "info");
+  }
+  $effect(() => {
+    if (!selecting) return;
+    const row = rowEl();
+    const off = (e) => {
+      if (!row?.contains(e.target)) selecting = false;
+    };
+    window.addEventListener("pointerdown", off, true);
+    return () => window.removeEventListener("pointerdown", off, true);
+  });
   function rowEl() {
     return document.querySelector(`.msg[data-msg-id="${CSS.escape(m.id)}"]`);
   }
@@ -1121,6 +1147,10 @@
       { label: "Add reaction", icon: "smile", onClick: () => (S.pickerTarget = m) },
       { sep: true },
       { label: "Copy text", icon: "copy", onClick: () => copy(copyText, "Copied text") },
+      // Copy text takes all of it. On a phone a held finger opens this menu,
+      // so the system's own word selection never got a turn: this hands the
+      // next press on the words back to it, handles and Copy included.
+      coarse && copyText && { label: "Select text", icon: "edit", onClick: startSelecting },
       {
         label: "Copy link",
         icon: "link",
@@ -1260,10 +1290,11 @@
   class:alerts-me={!mentionsMe && !!alertHit}
   style:--av="{avSize}px"
   data-msg-id={m.id}
+  data-selecting={selecting || undefined}
   data-menu-row
   tabindex={tabbable ? 0 : -1}
   onkeydown={onRowKey}
-  oncontextmenu={coarse ? (e) => e.preventDefault() : messageMenu}
+  oncontextmenu={coarse ? (e) => quietContextMenu(e) : messageMenu}
   use:longpress={{ handler: messageMenu }}
   use:fxOnView
   use:swipeReply
@@ -2918,10 +2949,18 @@
   @media (pointer: coarse) {
     /* Long-press opens the action sheet — don't let the WebView start a text
        selection under it, which would fight the gesture and leave selection
-       handles over the sheet. Copy Text / Copy Link / Copy Code cover copying. */
+       handles over the sheet. Copy text / Copy link / Copy code cover copying,
+       and Select text hands one row back to the system for a part of it. */
     .msg {
       -webkit-user-select: none;
       user-select: none;
+    }
+    /* ...except where text is the point: the edit box, and a row opened with
+       Select text. */
+    .msg :global(:is(textarea, input)),
+    .msg[data-selecting] .body {
+      -webkit-user-select: text;
+      user-select: text;
     }
     /* Duplicate of the who-reacted sheet that long-press already opens, and a
        harmful one: Chromium latches :hover after a tap, so toggling a reaction

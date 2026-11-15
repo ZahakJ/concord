@@ -73,6 +73,13 @@ export function longpress(node, { handler, duration = 400, moveTolerance = 10 } 
   function onStart(e) {
     const t = e.touches[0];
     if (!t) return;
+    // A held finger in a text field is the system's: it selects a word and
+    // raises Cut / Copy / Paste. The message row's menu used to open over it
+    // at 400ms, before the system's own long-press, so an edit box inside a
+    // row could not select or paste at all.
+    if (e.target.closest?.("textarea, input, [contenteditable]")) return;
+    // A message opened for selecting (Select text) hands the press over too.
+    if (e.target.closest?.("[data-selecting]")) return;
     startX = t.clientX;
     startY = t.clientY;
     // Press feedback only once the finger has proven it is STAYING. Applying it
