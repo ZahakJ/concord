@@ -86,7 +86,7 @@ Read state syncs to your other linked devices and to nobody else.
 
 ### Permission
 
-Android 13 and later need permission to post notifications. Concord does not ask at startup. The first time you would have been notified, a bar appears: **You just missed a message.** Choose **Enable** to grant permission. You can also grant it under **Settings → Notifications & sounds → Show notifications**, which opens the system settings if you blocked it earlier.
+Android 13 and later need permission to post notifications. Concord does not ask at startup, because Android stops offering its prompt after it has been dismissed twice. The first time a message would have notified you, a bar appears above the channel list: **You just missed a message.** **Turn on** opens Android's prompt; **Not now** hides the bar for good. The same permission is under **Settings → Notifications & sounds → System → Show notifications**, which reads **Allowed**, **Allow…** or **Blocked**. Tapping it asks again while Android still allows that, and otherwise opens Concord's page in Android's settings.
 
 ### Message notifications
 
@@ -95,7 +95,15 @@ Messages stack by conversation, up to six lines each. Tap one to open the channe
 - **Reply** answers from the notification. It needs the phone unlocked on Android 12 and later, and is not offered when **App lock** is on.
 - **Mark read** marks the conversation read on all your devices and clears the notification.
 
-The levels above decide what notifies for as long as the interface is running. Once Android has closed the interface but the connection is still running, only **direct messages** notify, because the guild and channel levels live in the interface's own storage.
+### What delivers them
+
+The published builds use no push service: the phone's own connection receives each message, and the notification is made on the phone.
+
+- **Concord on screen:** no notifications. The in-app sounds and badges say what arrived.
+- **In the background:** the interface posts a notification for every message the levels above allow. Direct messages are also posted by the connection itself, which cannot read the levels, so a direct message notifies even when its level or Do Not Disturb would have kept it quiet.
+- **Interface closed by Android, or the app swiped away:** the connection keeps running under **Stay connected**, and only direct messages notify.
+- **Process killed by Android:** the Stay connected service starts it again, the connection reconnects, and direct messages notify.
+- **Force stopped, or Stay connected off once the process has gone:** nothing arrives until you open Concord. Messages wait in your rendezvous's mailbox.
 
 The Android notification channels are **Messages** (new messages and mentions), **Connection** (the Stay connected service) and **Calls** (shown during a call, with a **Hang up** action). You can tune each one in Android's own app settings.
 
