@@ -117,5 +117,22 @@ test("phone: pasting an image into the composer stages it as an attachment", asy
     message: "the pasted image to be staged",
   });
   assert.equal(await a.composer().inputValue(), "", "no text was pasted alongside");
+
+  // The picker's guards hold for a paste too: an empty image says so, and an
+  // image that will not decode is staged as a file rather than dropped.
+  const paste = (name, b64) =>
+    a.composer().evaluate((el, [name, b64]) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const dt = new DataTransfer();
+      dt.items.add(new File([bytes], name, { type: "image/png" }));
+      el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, [name, b64]);
+  await paste("empty.png", "");
+  await a.page.getByText("empty.png is empty", { exact: false }).first().waitFor({ timeout: 10000 });
+  await paste("broken.png", btoa("this is not a picture at all"));
+  await waitFor(async () => (await a.page.locator(".attach-tray .att-chip").count()) === 2, {
+    timeout: 10000,
+    message: "the undecodable image to be staged as a file",
+  });
   assert.deepEqual(a.errors, [], a.errors.join("\n"));
 });

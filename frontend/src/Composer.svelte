@@ -1451,7 +1451,9 @@
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
     if (item) {
       e.preventDefault();
-      stageImage(item.getAsFile());
+      // The picker's door, guards included: an empty image says so, and one
+      // that will not decode goes on as a file instead of vanishing.
+      attachFile(item.getAsFile());
       return;
     }
     const text = e.clipboardData?.getData("text/plain") ?? "";
