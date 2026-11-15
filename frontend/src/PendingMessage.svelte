@@ -16,6 +16,9 @@
   import { stripTimestamp } from "./lib/timestamp.js";
   import { stripLinkEmbed } from "./lib/linkembed.js";
   import { retry, discard } from "./lib/outbox.svelte.js";
+  import { parseCard, restForDisplay, LINK_CARDS } from "./lib/linkcard.js";
+  import { linkDomain } from "./lib/regdomain.js";
+  import LinkPreview from "./LinkPreview.svelte";
 
   let { entry, first = false } = $props();
 
@@ -42,12 +45,25 @@
 
   // The same two strips the feed applies before rendering a body, so the
   // pending row shows the message and not the tokens that ride in front of it.
+  //
+  // A link card. While the row waits for one (entry.held) the card's place is
+  // held under the words, with the real domain, which is known before anything
+  // is fetched. Once the card came, the row draws it as the feed will: its
+  // picture is this device's own sealed blob, so drawing it contacts nobody.
+  // Either way the URL is dropped or printed short exactly as the feed prints
+  // it, so the row does not change shape when the real one replaces it.
+  const card = $derived(LINK_CARDS && entry.kind === "text" && !failed ? parseCard(entry.body || "") : null);
+  const cardUrl = $derived(card?.url || (entry.held ? entry.cardUrl : ""));
   const bodyText = $derived(
-    entry.kind === "text" ? stripLinkEmbed(stripTimestamp(stripEphemeral(entry.body || ""))) : "",
+    entry.kind === "text"
+      ? stripLinkEmbed(stripTimestamp(stripEphemeral(card ? card.rest : entry.body || "")))
+      : "",
   );
+  const linkOnly = $derived(!!cardUrl && (card ? !bodyText.trim() : bodyText.trim() === cardUrl));
+  const shown = $derived(linkOnly ? "" : cardUrl ? restForDisplay(bodyText, cardUrl) : bodyText);
   // Deliberately no mention table and no link previews: a row that is not a
   // message yet must not ping anybody or fetch anything on its behalf.
-  const html = $derived(bodyText ? renderMarkdown(bodyText, [], null, null) : "");
+  const html = $derived(shown ? renderMarkdown(shown, [], null, null, cardUrl ? { cardUrl } : null) : "");
   // The feed draws an emoji-only message jumbo; so does this row, or the
   // emoji would jump in size the moment the message is stored.
   const jumbo = $derived(!!bodyText && emojiOnly(bodyText));
@@ -96,8 +112,17 @@
     {:else if html}
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
       <div class="pbody" class:jumbo>{@html html}</div>
-    {:else}
+    {:else if !linkOnly}
       <div class="pbody muted">{previewText(entry.body || "")}</div>
+    {/if}
+    {#if card}
+      <LinkPreview {card} channelId={entry.channelId} />
+    {:else if cardUrl}
+      <div class="pcard" aria-label="Preparing a preview of {linkDomain(cardUrl)}">
+        <span class="pcard-line"></span>
+        <span class="pcard-line short"></span>
+        <span class="pcard-dom" dir="ltr">{linkDomain(cardUrl)}</span>
+      </div>
     {/if}
     {#if failed}
       <div class="pfail" role="status" class:waiting={waitLeft > 0}>
@@ -123,6 +148,44 @@
 </div>
 
 <style>
+  /* The card's place while it is fetched: two shimmering lines for the title
+     and site, and the real domain. */
+  .pcard {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 6px;
+    max-width: min(420px, 100%);
+    padding: var(--sp-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--bg-1);
+  }
+  .pcard-line {
+    height: 10px;
+    width: 78%;
+    border-radius: 5px;
+    background: linear-gradient(90deg, var(--bg-2), var(--bg-3, var(--bg-2)) 50%, var(--bg-2));
+    background-size: 200% 100%;
+    animation: pcard-shimmer 1.2s linear infinite;
+  }
+  .pcard-line.short {
+    width: 46%;
+  }
+  .pcard-dom {
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+  @keyframes pcard-shimmer {
+    to {
+      background-position: -200% 0;
+    }
+  }
+  :global(:root[data-motion="reduced"]) .pcard-line {
+    animation: none;
+  }
   /* Geometry copied from .msg deliberately, not shared: the gutter is 38px
      because that is the avatar's width, and a pending row that does not line up
      with the row it is about to become makes the feed step sideways on

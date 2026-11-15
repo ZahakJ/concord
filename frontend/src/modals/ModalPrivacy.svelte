@@ -7,6 +7,7 @@
   import { onMount } from "svelte";
   import Select from "../Select.svelte";
   import { NOTIFY_MODES, normalizeNotifyMode } from "../lib/notifprivacy.js";
+  import { LINK_CARDS, sendingCards } from "../lib/linkcard.js";
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import ModalWipeDevice from "./ModalWipeDevice.svelte";
@@ -125,14 +126,16 @@
     label="What leaves this device"
     info="Two things about your messages in DMs and group DMs are shared, and only there (never in guild channels). Delivered ticks are always on: when a device of the person you wrote to has received and decrypted your message, it tells your devices so, inside the same end-to-end encrypted conversation. Which channels you have read, and when, still stays on your own devices unless you switch on Read receipts below."
   >
-    <SettingRow
-      icon="screen"
-      title="Add previews to links you send"
-      sub="Your device fetches the page once, when you write the message"
-      info="Off by default. When on, your device loads the linked page (and its picture) while you compose, which shows that site your IP address and that someone is linking to it. The title, description and a small cleaned copy of the picture are then sent inside your encrypted message. People who receive it load nothing: no request is ever made from their device because of a link you send, and none is made from yours because of a link someone sends you."
-      checked={S.prefs.sendLinkPreviews}
-      onclick={() => setPref("sendLinkPreviews", !S.prefs.sendLinkPreviews)}
-    />
+    {#if LINK_CARDS}
+      <SettingRow
+        icon="screen"
+        title="Preview cards for links you send"
+        sub="Your device fetches the page once, when you send"
+        info="When on, your device loads a link's page once, at the moment you send it: for YouTube and Vimeo their oEmbed service, for other sites the page and the host of its picture. They see your IP address, as if you had opened the link. The title, the site's name and a small cleaned copy of the picture go inside your encrypted, signed message. People who read it contact nobody: the picture comes from other members like any attachment, and nothing is fetched while you type."
+        checked={sendingCards(S.prefs.sendLinkPreviews)}
+        onclick={() => setPref("sendLinkPreviews", !sendingCards(S.prefs.sendLinkPreviews))}
+      />
+    {/if}
     <SettingRow
       icon="search"
       title="Game title search"

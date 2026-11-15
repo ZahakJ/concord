@@ -36,19 +36,40 @@
 //
 // Only FAILED rows are persisted. A row still in flight at unload may well have
 // landed — the core stores before it answers — so writing it down as something
-// to retry is how you send the same message twice.
+// to retry is how you send the same message twice. A row still waiting for its
+// link card is the exception (`held`): the core has never seen it, so it is
+// written down as not sent, and goes out by itself once the core is back.
+//
+// LINK CARDS. A message with a link waits up to CARD_WAIT_MS for the card this
+// device fetches for it, and goes out the moment the card comes. The wait is
+// never a queue (lib/cardgate.js): any other send into the channel, and the
+// app going to the background, end it, and the message goes out first,
+// without its card.
 import { S, flash, scrollSoon, humanError, slowModeWait } from "./state.svelte.js";
-import { api, onTransportHealth } from "./api.js";
+import { api, onTransportHealth, onBeforeSend } from "./api.js";
 import { unsettled, alreadySaid, toFlush, unheard } from "./outbox.js";
+import { makeCardGate } from "./cardgate.js";
+import { CARD_WAIT_MS, cardLink, wantsThumb, withCard, sendingCards } from "./linkcard.js";
 
 let seq = 0;
+
+const gate = makeCardGate({ waitMs: CARD_WAIT_MS });
+onBeforeSend((channelId) => gate.release(channelId));
+if (typeof document !== "undefined") {
+  // Hidden is the last moment a phone app reliably runs: swiped away, it is
+  // killed without another event. The waiting message is handed over now.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") gate.releaseAll();
+  });
+  window.addEventListener("pagehide", () => gate.releaseAll());
+}
 
 const STORE_KEY = "concord.outbox";
 
 function persist() {
   try {
     const keep = S.outbox
-      .filter((e) => e.state === "failed" && e.kind === "text" && e.body)
+      .filter((e) => (e.state === "failed" || e.held) && e.kind === "text" && e.body)
       .map((e) => ({
         id: e.id,
         kind: "text",
@@ -59,12 +80,14 @@ function persist() {
         match: e.match,
         seen: e.seen,
         state: "failed",
-        error: e.error || "",
+        // A row that was waiting for its card when the app died: the core never
+        // had it, so it is "not sent" and flushes by itself (outbox.js toFlush).
+        error: e.held ? "Not sent" : e.error || "",
         // A wall-clock moment survives the reload the same way it survives the
         // next second: a slow-mode wait that expired while the app was closed
         // comes back already expired, which is the truth.
         retryAt: e.retryAt || 0,
-        offline: !!e.offline,
+        offline: !!e.offline || !!e.held,
         at: e.at,
       }));
     if (keep.length) localStorage.setItem(STORE_KEY, JSON.stringify(keep));
@@ -162,6 +185,10 @@ function patch(id, fields) {
 // caller, because that is the string the core will store and therefore the
 // string the echo check has to compare against.
 export function sendText(channelId, body, replyTo, dir) {
+  // Whatever waits for a card here goes first (also done by api.js for every
+  // send; done here as well so the order does not hang on that hook).
+  gate.release(channelId);
+  const cardUrl = sendingCards(S.prefs.sendLinkPreviews) ? cardLink(body) : "";
   const entry = add({
     id: `o${++seq}`,
     kind: "text",
@@ -174,9 +201,33 @@ export function sendText(channelId, body, replyTo, dir) {
     // echo check can tell a NEW arrival from an old one you happened to repeat.
     seen: alreadySaid(S.messages, S.identity.fingerprint, body),
     state: "sending",
+    // The link whose card this row is waiting for (PendingMessage draws the
+    // card's place), and whether it is still waiting.
+    cardUrl,
+    held: !!cardUrl,
     at: Date.now(),
   });
-  return run(entry);
+  if (!cardUrl) return run(entry);
+  persist();
+  return new Promise((resolve) => {
+    gate.hold(
+      channelId,
+      () => api.linkCard(cardUrl, wantsThumb(body)).then((c) => c?.block || ""),
+      (block) => {
+        const final = block ? withCard(body, cardUrl, block) : body;
+        // The words that come back from the core are these, so this is what
+        // the echo check has to look for.
+        patch(entry.id, {
+          body: final,
+          match: final,
+          seen: alreadySaid(S.messages, S.identity.fingerprint, final),
+          held: false,
+        });
+        const now = S.outbox.find((e) => e.id === entry.id);
+        resolve(now ? run(now) : false);
+      },
+    );
+  });
 }
 
 // sendAttachment: the staged chip, with its thumbnail carried into the pending
@@ -185,6 +236,7 @@ export function sendText(channelId, body, replyTo, dir) {
 // text is what rides in the same message (attachText: caption plus stamps);
 // caption is the bare words, for the pending row and the clipboard.
 export function sendAttachment(channelId, att, replyTo, text = "", dir = "", caption = "") {
+  gate.release(channelId);
   const entry = add({
     id: `o${++seq}`,
     kind: "att",

@@ -30,7 +30,7 @@
   import { scheduleMessage } from "./lib/scheduled.svelte.js";
   import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
   import { stampTimestamp } from "./lib/timestamp.js";
-  import { createPreviewPrep, withPreviews } from "./lib/linkembed.js";
+  import { askAboutCards, cardLink, CARD_QUESTION } from "./lib/linkcard.js";
   import { playSend } from "./lib/sounds.js";
   import { resampleEnvelope, voiceFileName } from "./lib/voicemsg.js";
   import { encodeFx, FX_EFFECTS } from "./lib/fxtoken.js";
@@ -46,15 +46,16 @@
   import { isPttKey } from "./lib/shortcuts.js";
 
   let draft = $state("");
-  // "Add previews to links you send": when on, this device fetches the linked
-  // page once, debounced while you type, and the result rides inside the
-  // message. Off (the default), nothing is fetched.
-  const linkPrep = createPreviewPrep((t) => api.prepareLinkPreviews(t), {
-    enabled: () => !!S.prefs.sendLinkPreviews,
-  });
-  $effect(() => {
-    linkPrep.update(draft);
-  });
+  // Link cards are fetched when a message is SENT (lib/outbox.svelte.js), never
+  // while it is typed: a fetch per pause in typing spent one-time links (a
+  // magic sign-in link is used up by the GET) and told sites about URLs nobody
+  // sent, half-typed prefixes included. With SEND_DEFAULT "ask", the first
+  // link sent before any choice goes out as typed and raises this question.
+  let cardAsk = $state(false);
+  function answerCardAsk(yes) {
+    cardAsk = false;
+    setPref("sendLinkPreviews", yes);
+  }
   // The draft's BASE DIRECTION, when the writer has asked for one: "" (decide
   // per line, the default and almost always right), "rtl", or "ltr".
   //
@@ -977,12 +978,11 @@
       // written and the other way as it is read is not the message anyone
       // wrote — and the reader's client has no way to recover the intent,
       // because the per-line rule is exactly what the writer overrode.
-      // Sender-built link previews: whatever the debounced prep has READY for
-      // exactly these links rides inside the message; if it is not ready the
-      // message goes out now without one — sending never waits on a website.
-      const lp = linkPrep.take(text);
-      linkPrep.reset();
-      body = stampEphemeral(chId, withPreviews(sealed, lp));
+      // A link card, if this device sends them, is fetched by the outbox when
+      // a text message is sent, which waits for it briefly and never holds up
+      // what is sent next. A caption under pictures gets no card: the message
+      // already carries its pictures.
+      body = stampEphemeral(chId, sealed);
       sealNext = false;
     }
     atts.forEach((a, i) => {
@@ -991,7 +991,10 @@
       else outSendAttachment(chId, a, nextReply());
     });
     if (text) {
-      if (!atts.length) outSendText(chId, body, nextReply(), dirMode);
+      if (!atts.length) {
+        outSendText(chId, body, nextReply(), dirMode);
+        if (askAboutCards(S.prefs.sendLinkPreviews) && cardLink(body)) cardAsk = true;
+      }
       if (chId === S.activeChannelId) armSlowMode();
     }
   }
@@ -1868,6 +1871,18 @@
         <span class="eph-change">change</span>
       </button>
     {/if}
+    {#if cardAsk}
+      <!-- Asked once, after the first link you send while undecided. That link
+           went out as typed; the answer applies from the next one, and
+           Settings › Privacy changes it later. -->
+      <div class="card-ask" role="dialog" aria-label="Preview cards for links you send">
+        <span>{CARD_QUESTION}</span>
+        <span class="ca-btns">
+          <button type="button" class="ca-yes" onclick={() => answerCardAsk(true)}>Yes</button>
+          <button type="button" class="ca-no" onclick={() => answerCardAsk(false)}>Not now</button>
+        </span>
+      </div>
+    {/if}
     {#if wrapOffer}
       <!-- Beside the paste, not on top of it: the text is already in the box
            and sending it as-is stays the default. -->
@@ -2341,6 +2356,44 @@
 {/if}
 
 <style>
+  .card-ask {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-2) var(--sp-3);
+    padding: var(--sp-2) var(--sp-3);
+    margin-bottom: var(--sp-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-2);
+    color: var(--text);
+    font-size: var(--fs-compact);
+    line-height: 1.4;
+  }
+  .card-ask > span:first-child {
+    flex: 1 1 16em;
+  }
+  .ca-btns {
+    display: inline-flex;
+    gap: var(--sp-2);
+    margin-left: auto;
+  }
+  .ca-yes,
+  .ca-no {
+    min-height: 30px;
+    padding: 4px 12px;
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-compact);
+  }
+  .ca-yes {
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-weight: 600;
+  }
+  .ca-no {
+    background: var(--bg-3);
+    color: var(--text);
+  }
   .wrap-offer {
     display: flex;
     align-items: center;

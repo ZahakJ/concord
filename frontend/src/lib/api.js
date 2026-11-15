@@ -71,6 +71,22 @@ export function onTransportHealth(cb) {
   return () => healthWatchers.delete(cb);
 }
 
+// beforeSend: told the channel of every message about to be handed to the
+// core, whoever sends it (the composer, a poll, a doodle, a forward). The
+// outbox uses it to end a link message's wait for its card first, so that
+// message is stored before anything sent after it (lib/cardgate.js).
+let beforeSend = null;
+export function onBeforeSend(cb) {
+  beforeSend = cb;
+}
+function sending(channelID) {
+  try {
+    beforeSend?.(channelID);
+  } catch {
+    /* never stop a send */
+  }
+}
+
 function reportTransport(up) {
   if (up === transportUp) return;
   transportUp = up;
@@ -508,10 +524,14 @@ export const api = {
   // per-line heuristic every message used before the composer could override
   // it. Bounded again on the Go side (domain.ValidDir), so this is a hint, not
   // a trust boundary.
-  sendMessage: (channelID, content, replyTo = "", dir = "") =>
-    call("SendMessage", channelID, stampFor(channelID, content), replyTo, dir),
-  sendCallNotice: (channelID, kind, content) =>
-    call("SendCallNotice", channelID, kind, content),
+  sendMessage: (channelID, content, replyTo = "", dir = "") => {
+    sending(channelID);
+    return call("SendMessage", channelID, stampFor(channelID, content), replyTo, dir);
+  },
+  sendCallNotice: (channelID, kind, content) => {
+    sending(channelID);
+    return call("SendCallNotice", channelID, kind, content);
+  },
   // A call record for this device only — "ended:<secs>" or "missed:<fpr>".
   noteCall: (channelID, content) => call("NoteCall", channelID, content),
   // Send-later queue, held by the Go service so it fires without this window.
@@ -524,8 +544,10 @@ export const api = {
   // recipe by it. Everything else ignores the return.
   // text rides in the SAME message as the picture: a caption, and the
   // channel's disappearing timer (stampFor).
-  sendAttachment: (channelID, dataURL, w, h, replyTo = "", spoiler = false, name = "", desc = "", text = "", dir = "") =>
-    call("SendAttachment", channelID, dataURL, w, h, replyTo, spoiler, name, desc, stampFor(channelID, text), dir),
+  sendAttachment: (channelID, dataURL, w, h, replyTo = "", spoiler = false, name = "", desc = "", text = "", dir = "") => {
+    sending(channelID);
+    return call("SendAttachment", channelID, dataURL, w, h, replyTo, spoiler, name, desc, stampFor(channelID, text), dir);
+  },
   // Re-point one of your own image messages at a freshly sealed picture, in
   // place. Also resolves to the new blob id. NOT sendAttachment + delete: that
   // leaves a tombstone where the original was.
@@ -533,13 +555,16 @@ export const api = {
     call("EditAttachment", channelID, messageID, dataURL, w, h),
   fetchAttachment: (channelID, blobID, keys, subtype) =>
     call("FetchAttachment", channelID, blobID, keys, subtype),
-  sendFile: (channelID, dataURL, filename, replyTo = "", text = "", dir = "") =>
-    call("SendFile", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir),
+  sendFile: (channelID, dataURL, filename, replyTo = "", text = "", dir = "") => {
+    sending(channelID);
+    return call("SendFile", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir);
+  },
   fetchFile: (channelID, blobID, keys, mime) =>
     call("FetchFile", channelID, blobID, keys, mime),
-  // Built on THIS device for a message being composed; returns the rider token
-  // (or ""). Nothing fetches a preview for a received message.
-  prepareLinkPreviews: (text) => call("PrepareLinkPreviews", text),
+  // Sender side only, at send time: the card for one link of a message this
+  // device is sending (internal/app/linkcard.go). Readers never fetch anything
+  // for a card; it travels inside the message.
+  linkCard: (url, withThumb = true) => call("LinkCard", url, withThumb),
   checkForUpdate: () => call("CheckForUpdate"),
   checkPeerUpdate: () => call("CheckPeerUpdate"),
   applyPeerUpdate: () => call("ApplyPeerUpdate"),
