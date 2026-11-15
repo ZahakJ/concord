@@ -5,6 +5,7 @@
   import Icon from "./Icon.svelte";
   import Kbd from "./Kbd.svelte";
   import Badge from "./Badge.svelte";
+  import { isNotesLike } from "./lib/notes.js";
   import Avatar from "./Avatar.svelte";
   import GroupAvatar from "./GroupAvatar.svelte";
   import {
@@ -113,12 +114,12 @@
         });
     }
     const g = activeGuild();
-    const place = g && !g.evicted && (g.kind !== "dm" || g.dmNotes);
+    const place = g && !g.evicted && (g.kind !== "dm" || isNotesLike(g));
     list.push({
       id: "newevent",
       label: "New event",
       icon: "calendar",
-      sub: place ? (g.dmNotes ? "private" : `in ${g.name}`) : "pick where",
+      sub: place ? (isNotesLike(g) ? "private" : `in ${g.name}`) : "pick where",
       run: () => (S.modal = place ? { kind: "events", guildId: g.id, compose: true } : { kind: "myCalendar", pick: true }),
     });
     const meet = callMeetingGuild() || (g?.kind === "meeting" ? g : null);
@@ -297,7 +298,7 @@
     <span class="hit-icon">
       {#if item.kind === "dm" && (item.g.dmMembers ?? 2) > 2}
         <GroupAvatar faces={item.g.dmFaces || []} size={20} />
-      {:else if item.kind === "dm" && !item.g.dmNotes}
+      {:else if item.kind === "dm" && !isNotesLike(item.g)}
         <Avatar name={item.label} image={item.g.dmPeerAvatar || item.g.dmFaces?.[0]?.avatar || item.g.icon} size={20} />
       {:else if item.kind === "person"}
         <Avatar name={item.label} image={item.avatar || ""} color={item.color || ""} emoji={item.emoji || ""} size={20} />

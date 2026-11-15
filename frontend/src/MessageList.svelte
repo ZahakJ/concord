@@ -3,6 +3,7 @@
   // attachments, pins/search panels, and the out-of-sync banner.
   import { feedTabs } from "./lib/feedtabs.js";
   import Icon from "./Icon.svelte";
+  import { isNotesLike } from "./lib/notes.js";
   import EmptyState from "./EmptyState.svelte";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import Message from "./Message.svelte";
@@ -284,7 +285,7 @@
   // Notes and DMs get personal copy; guild channels get "start of #channel".
   const emptyInfo = $derived.by(() => {
     const g = activeGuild();
-    if (g?.dmNotes)
+    if (isNotesLike(g))
       return {
         icon: "edit",
         title: "Your private notes",
@@ -326,7 +327,7 @@
   const startInfo = $derived.by(() => {
     const g = activeGuild();
     if (postParentOf(S.activeChannelId)) return { icon: "forum", title: "This is the start of the discussion", body: "" };
-    if (g?.dmNotes) return { icon: "edit", title: "This is the start of your notes", body: "" };
+    if (isNotesLike(g)) return { icon: "edit", title: "This is the start of your notes", body: "" };
     if (g?.kind === "dm") return { icon: "smile", title: "This is the start of your conversation", body: "" };
     return { icon: emptyInfo.icon, title: emptyInfo.title, body: activeChannel()?.topic || "" };
   });

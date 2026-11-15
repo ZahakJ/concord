@@ -35,6 +35,7 @@
   import { noteDraft } from "./lib/drafts.svelte.js";
   import { stashStaged, takeStaged, addStaged, isBlankText } from "./lib/compose.js";
   import Avatar from "./Avatar.svelte";
+  import { isNotesLike } from "./lib/notes.js";
   import { stagedImage, dataUrlBytes } from "./lib/attachopts.js";
   import { displayFileName } from "./lib/attachments.js";
   import { fmtBytes } from "./lib/chronicle.js";
@@ -85,7 +86,7 @@
     // thing that knew, and the refusal arrived afterwards from the core.
     if (slowLeft > 0) return `Slow mode — you can send in ${slowLeft}s`;
     const g = activeGuild();
-    if (g?.dmNotes) return "Write a note to yourself";
+    if (isNotesLike(g)) return "Write a note to yourself";
     if (g?.kind === "dm") return `Message ${g.name || "your friend"}`;
     // A post is not a channel you message: "Message #Weekly meetup logistics
     // thread…" put a channel sigil on a sentence and then truncated it. What

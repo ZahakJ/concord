@@ -73,6 +73,24 @@ assert(JSON.stringify(fuzzy("Your calendar", "yc").idx) === "[0,5]", "initials a
   assert(r.includes("workshop") && r.includes("wobbly-pots") && !r.includes("wide orbit"), `runs only when there are runs: ${r}`);
 }
 assert(fuzzy("abc", "x") === null, "no match is null");
+// Another copy of Notes: one holding notes is offered as yours ("only you",
+// the notes glyph), never as a direct message; an empty one is not offered.
+{
+  const d = buildDests([
+    { id: "c1", kind: "dm", name: "Notes (other copy)", dmNotesCopy: true, dmMembers: 1, channels: [{ id: "c1n", name: "notes" }] },
+    { id: "c2", kind: "dm", name: "Notes (other copy)", dmNotesCopy: true, dmNotesCopyEmpty: true, dmMembers: 1, channels: [{ id: "c2n", name: "notes" }] },
+  ]);
+  const c1 = d.find((x) => x.key === "dm:c1");
+  const late = (cond, msg) => {
+    if (!cond) {
+      console.error("FAIL:", msg);
+      process.exitCode = 1;
+    }
+  };
+  late(c1 && c1.sub === "only you" && c1.icon === "edit", "an other copy holding notes is offered as yours");
+  late(!d.some((x) => x.key === "dm:c2"), "an empty other copy is not offered");
+}
+
 console.log("switcher highlight ok");
 
 // A forum post is listed as a post, with the forum glyph, not as a "#" channel.

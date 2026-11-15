@@ -7,9 +7,11 @@
 // open Notes) only shows while no channel is open, so the way to show it is to
 // open nothing.
 
+import { isNotesLike } from "./notes.js";
+
 // landsOnWelcome: with nothing remembered, a guild list holding no guild and no
-// conversation with anybody — only Notes, or nothing at all — opens on the
-// welcome rather than inside Notes.
+// conversation with anybody — only Notes (and any other copy of it), or
+// nothing at all — opens on the welcome rather than inside Notes.
 export function landsOnWelcome(guilds) {
-  return !(guilds || []).some((g) => g.kind !== "dm" || !g.dmNotes);
+  return !(guilds || []).some((g) => !isNotesLike(g));
 }

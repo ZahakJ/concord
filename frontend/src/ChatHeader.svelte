@@ -3,6 +3,7 @@
   import Icon from "./Icon.svelte";
   import OwnerMark from "./OwnerMark.svelte";
   import { ownsPlace, ownerLabel } from "./lib/ownermark.js";
+  import { isNotesLike } from "./lib/notes.js";
   import Menu from "./Menu.svelte";
   import {
     S,
@@ -337,7 +338,7 @@
       <!-- In a call somewhere else: the sidebar's call line and the floating
            window say which and take you back. A "Start a call" here would
            mean leaving that one, so it waits. -->
-    {:else if ch && !g?.dmNotes && !g?.evicted && (g?.kind === "dm" || g?.kind === "meeting" || ch.type === "voice")}
+    {:else if ch && !isNotesLike(g) && !g?.evicted && (g?.kind === "dm" || g?.kind === "meeting" || ch.type === "voice")}
       <!-- A guild text channel shows no call button: a speaker glyph there
            read as "join voice" and started a call in the text channel
            instead. Starting one is still in ⋯.
@@ -411,7 +412,7 @@
           <button class="menu-item" onclick={() => openCallStage()}>
             <Icon name="speaker" size={14} /> Open {callLabel || "the call"}
           </button>
-        {:else if packed && ch && !g?.dmNotes && !g?.evicted}
+        {:else if packed && ch && !isNotesLike(g) && !g?.evicted}
           <button class="menu-item" onclick={() => onJoinVoice()}>
             <Icon name="speaker" size={14} /> Start a call
           </button>
@@ -423,7 +424,7 @@
           </button>
         {/if}
         <div class="menu-sep"></div>
-        {#if ch && !g.dmNotes}
+        {#if ch && !isNotesLike(g)}
           <!-- First in ⋯, as the channel's own menu has it: the level in force
                ticked, and "Use guild default" as its own answer. Flat, because
                menus here have no fly-outs. -->
@@ -447,7 +448,7 @@
           {/each}
           <div class="menu-sep"></div>
         {/if}
-        {#if !packed && ch && !g.dmNotes && !g.evicted && g.kind !== "dm" && g.kind !== "meeting" && ch.type !== "voice" && !S.voice && !peerInCall}
+        {#if !packed && ch && !isNotesLike(g) && !g.evicted && g.kind !== "dm" && g.kind !== "meeting" && ch.type !== "voice" && !S.voice && !peerInCall}
           <button class="menu-item" onclick={() => onJoinVoice()}>
             <Icon name="speaker" size={14} /> Start a call in this channel
           </button>
@@ -466,7 +467,7 @@
           </button>
         {/if}
         <button class="menu-item" onclick={() => (S.modal = { kind: "events" })}>
-          <Icon name="calendar" size={14} /> {g.dmNotes ? "Private events" : "Events"}
+          <Icon name="calendar" size={14} /> {isNotesLike(g) ? "Private events" : "Events"}
         </button>
         {#if g.canManage && g.kind !== "dm"}
           <button class="menu-item" onclick={showInvite}>

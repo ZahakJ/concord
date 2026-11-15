@@ -26,6 +26,7 @@ import { EV, loadAllEvents } from "./events.svelte.js";
 import { happeningNow } from "./eventtime.js";
 import { localNotify } from "./scheduled.svelte.js";
 import { goneLive, liveDestination, unseenCount, snapshot, pruneFired } from "./radar.js";
+import { isNotesLike } from "./notes.js";
 
 const FIRED_KEY = "concord.eventRadar.fired"; // occurrence key -> firedAt ms
 const SEEN_KEY = "concord.eventRadar.seen"; // guildId -> { ts, sigs }
@@ -99,7 +100,7 @@ function scanLive() {
       const isDM = g.kind === "dm";
       // Same rule as EventCard's Join: a guild voice channel enters its call,
       // and a DM's single channel doubles as its call.
-      const voice = ch.type === "voice" || (isDM && !g.dmNotes);
+      const voice = ch.type === "voice" || (isDM && !isNotesLike(g));
       const where = isDM ? g.name : `${voice ? "🔊 " : "#"}${ch.name}`;
       pushNudge(
         { kind: "live", title: ev.title, sub: `is live in ${where}`, guildId: g.id, channelId: ch.id, voice },
@@ -162,7 +163,7 @@ function scanNew() {
       if (known.has(k)) continue;
       known.add(k);
       if (!primed) continue; // startup snapshot, not an arrival
-      if (ev.createdBy === S.identity.fingerprint || g.dmNotes) continue; // own plans aren't news
+      if (ev.createdBy === S.identity.fingerprint || isNotesLike(g)) continue; // own plans aren't news
       if ((ev.endUnix || ev.startUnix + 3600) <= RADAR.now) continue; // synced history
       if (guildNotifLevel(g.id) === "none" || dnd()) continue; // quiet guilds stay quiet
       pushNudge(
@@ -188,7 +189,7 @@ function recount() {
   const me = S.identity?.fingerprint || "";
   const next = {};
   for (const g of S.guilds) {
-    if (g.dmNotes) continue; // Notes is you scheduling at yourself
+    if (isNotesLike(g)) continue; // Notes is you scheduling at yourself
     const n = unseenCount(EV.byGuild[g.id], seen[g.id], me, RADAR.now);
     if (n) next[g.id] = n;
   }

@@ -11,6 +11,7 @@
   import Modal from "./Modal.svelte";
   import Segmented from "../Segmented.svelte";
   import Icon from "../Icon.svelte";
+  import { isNotesLike } from "../lib/notes.js";
   import EmptyState from "../EmptyState.svelte";
   import EventCard from "../EventCard.svelte";
   import { fly } from "svelte/transition";
@@ -97,7 +98,7 @@
   // wears the same deterministic tint as its rail badge, a DM/chat dot is
   // accent (the srctag.dm color), Private is a hollow ring — the agenda's
   // source-tag language, shrunk to grid scale.
-  const srcOf = (g) => (g.dmNotes ? "notes" : g.kind === "dm" ? "dm" : "guild");
+  const srcOf = (g) => (isNotesLike(g) ? "notes" : g.kind === "dm" ? "dm" : "guild");
   let month = $state(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   let pageDir = $state(1); // which way the fresh month slides in from
   const monthName = $derived(month.toLocaleDateString([], { month: "long" }));
@@ -218,7 +219,7 @@
 
   // Where an entry comes from, masthead-voiced: a guild is a place ("in"), a
   // DM is people ("with"), Notes is nobody's business but yours ("private").
-  const srcPhrase = (g) => (g.dmNotes ? "private" : g.kind === "dm" ? `with ${g.name}` : `in ${g.name}`);
+  const srcPhrase = (g) => (isNotesLike(g) ? "private" : g.kind === "dm" ? `with ${g.name}` : `in ${g.name}`);
 
   // Open the guild's own calendar to plan — from here you pick WHERE first.
   function planIn(g) {
@@ -273,7 +274,7 @@
           {#if nextUp.kind === "now"}
             <span class="mn-dot"></span>Now: {nextUp.ev.title} — {srcPhrase(nextUp.g)}
           {:else}
-            Next: {nextUp.ev.title} — {relSoon(nextUp.ev.startUnix)} · {nextUp.g.dmNotes ? "private" : nextUp.g.name}
+            Next: {nextUp.ev.title} — {relSoon(nextUp.ev.startUnix)} · {isNotesLike(nextUp.g) ? "private" : nextUp.g.name}
           {/if}
         </div>
       {:else if upcoming.length}

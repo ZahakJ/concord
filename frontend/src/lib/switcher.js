@@ -14,6 +14,8 @@
 //     person, "!" for a voice channel, "*" for a guild — matched nothing,
 //     because they were taken as part of the name.
 
+import { isNotesLike, listedNotesCopy } from "./notes.js";
+
 // parseQuery splits a leading mode prefix off what was typed.
 export function parseQuery(raw) {
   const t = (raw || "").trimStart();
@@ -31,8 +33,11 @@ export function buildDests(guilds, people = [], self = "") {
   const dmWith = new Set();
   for (const g of guilds || []) {
     if (g.kind === "dm") {
+      // An empty other copy of Notes is not listed anywhere, so not here.
+      if (g.dmNotesCopy && !listedNotesCopy(g)) continue;
       if (g.dmPeer) dmWith.add(g.dmPeer);
-      out.push({ kind: "dm", key: `dm:${g.id}`, label: g.name, sub: g.dmNotes ? "only you" : (g.dmMembers ?? 2) > 2 ? "group" : "direct message", g, channelId: g.channels?.[0]?.id || "", icon: g.dmNotes ? "edit" : "user" });
+      const mine = isNotesLike(g);
+      out.push({ kind: "dm", key: `dm:${g.id}`, label: g.name, sub: mine ? "only you" : (g.dmMembers ?? 2) > 2 ? "group" : "direct message", g, channelId: g.channels?.[0]?.id || "", icon: mine ? "edit" : "user" });
       continue;
     }
     out.push({ kind: "guild", key: `g:${g.id}`, label: g.name, sub: "guild", g, icon: "diamond" });

@@ -18,6 +18,7 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import GroupAvatar from "./GroupAvatar.svelte";
+  import { isPersonDM } from "./lib/notes.js";
   import Badge from "./Badge.svelte";
   import GuildMark from "./GuildMark.svelte";
   import OwnerMark from "./OwnerMark.svelte";
@@ -139,7 +140,7 @@
   const guildById = $derived(new Map(allGuilds.map((s) => [s.id, s])));
   // The classic rail's floating DM faces: unread conversations and the open one.
   const dms = $derived(
-    S.guilds.filter((x) => x.kind === "dm" && !x.dmNotes && (guildUnread(x).count > 0 || x.id === S.activeGuildId)),
+    S.guilds.filter((x) => isPersonDM(x) && (guildUnread(x).count > 0 || x.id === S.activeGuildId)),
   );
 
   // Keep the persisted layout in step with the live guild set. Guilds it has
@@ -483,7 +484,7 @@
   // accepted must not be able to make the app look like a friend is waiting).
   const dmMarks = $derived.by(() => {
     let count = 0;
-    for (const d of dmList()) if (!d.dmNotes) count += guildUnread(d).attention;
+    for (const d of dmList()) if (isPersonDM(d)) count += guildUnread(d).attention;
     return { count, dot: !count && S.requests.length > 0 };
   });
 

@@ -55,6 +55,7 @@
     markRead,
   } from "./lib/state.svelte.js";
   import { LEVELS } from "./lib/notifs.js";
+  import { isNotesLike, isPersonDM } from "./lib/notes.js";
   import { untrack } from "svelte";
   import { pushLayer, syncLayer } from "./lib/navstack.svelte.js";
   import { openGuildSwitcher } from "./lib/guildswitch.svelte.js";
@@ -365,7 +366,7 @@
   const dmUnread = $derived.by(() => {
     let count = 0;
     for (const d of dmList()) {
-      if (d.dmNotes) continue;
+      if (!isPersonDM(d)) continue;
       count += guildUnread(d).count;
     }
     return count;
@@ -422,14 +423,14 @@
         },
         { label: "Mark as read", icon: "check", onClick: () => markRead(S.activeChannelId) },
         S.voice && !S.callStage && { label: "Open the call", icon: "screen", onClick: () => openCallStage() },
-        !g.dmNotes &&
+        !isNotesLike(g) &&
           (inCall
             ? { label: dm ? "End call" : "Leave the call", icon: "door", onClick: () => onLeaveVoice() }
             : { label: dm ? "Start a call" : "Join voice", icon: "speaker", onClick: () => onJoinVoice() }),
         !dm && { sep: true },
         !dm && { label: "Guild settings", icon: "gear", onClick: openGuildHub },
-        !g.dmNotes && { sep: true },
-        !g.dmNotes && {
+        !isNotesLike(g) && { sep: true },
+        !isNotesLike(g) && {
           label: leaveGuildLabel(g),
           icon: g.isOwner ? "trash" : "door",
           danger: true,

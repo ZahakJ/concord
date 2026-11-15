@@ -8,6 +8,7 @@
   // into ⋯.
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
+  import { isNotesLike } from "./lib/notes.js";
   import { S, nameFor, memberByFpr, flash, openContextMenu, selectGuild, refreshGuilds, jumpToChannel } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
@@ -131,7 +132,7 @@
   // joins like a voice room here. Notes is a DM of one — no call to join, so
   // it never takes the call arm (and Notes events carry no channel anyway).
   const isDM = $derived(g?.kind === "dm");
-  const isNotes = $derived(!!g?.dmNotes);
+  const isNotes = $derived(isNotesLike(g));
   const locIsCall = $derived(locIsVoice || (isDM && !isNotes && !!locCh));
 
   async function joinChannelLoc() {

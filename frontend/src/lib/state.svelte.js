@@ -44,6 +44,7 @@ import { isGameToken } from "./games.js";
 import { plainSnippet } from "./snippet.js";
 import { typistsAfter } from "./typing.js";
 import { landsOnWelcome } from "./firstrun.js";
+import { isPersonDM, listedNotesCopy } from "./notes.js";
 import { momentsPlaylist } from "./moments.js";
 import { insertBySent, compareSent } from "./feedorder.js";
 import { createFeedCache, reconcileFeed } from "./feedcache.js";
@@ -2062,7 +2063,7 @@ export function guildUnread(g) {
   let count = 0;
   let mentions = 0;
   let attn = 0;
-  const dm = g.kind === "dm" && !g.dmNotes;
+  const dm = isPersonDM(g);
   for (const c of g.channels) {
     const u = S.unread[c.id];
     if (!u || isMuted(c.id, g.id)) continue;
@@ -3147,14 +3148,34 @@ export async function selectGuild(id, { browse = false } = {}) {
   await refreshRightPanel();
 }
 
-// selectNotes ensures the personal self-DM exists, then opens it.
-export async function selectNotes({ browse = false } = {}) {
+// selectNotes ensures the personal self-DM exists, then opens it, and says
+// whether it did.
+//
+// Opening Notes can take a while on a device that does not hold one yet: it
+// joins the Notes another of the account's devices offered, a round trip that
+// can run to the dial timeout. A quiet "Opening Notes…" says so if it is not
+// instant. For a few seconds after unlocking, a linked device that has heard
+// nothing from its other devices answers "notes-arriving" rather than start a
+// second Notes; that is not a failure, so it is told without the error sound,
+// and `quiet` leaves the telling to the caller.
+export async function selectNotes({ browse = false, quiet = false } = {}) {
+  let pending = null;
+  const slow = setTimeout(() => (pending = flashSlot("notes-open", "Opening Notes…")), 700);
   try {
     const notes = await api.notesDM();
     if (!S.guilds.some((g) => g.id === notes.id)) await refreshGuilds();
     await selectGuild(notes.id, { browse });
+    return { ok: true };
   } catch (err) {
+    if (err?.code === "notes-arriving") {
+      if (!quiet) flashSlot("notes-open", err.message);
+      return { ok: false, arriving: err.message };
+    }
     flash(err);
+    return { ok: false };
+  } finally {
+    clearTimeout(slow);
+    if (pending !== null) dismissToast(pending);
   }
 }
 
@@ -3169,9 +3190,9 @@ export async function selectNotes({ browse = false } = {}) {
 export function dmList() {
   // Hide empty pending DMs — a freshly-created invite nobody has joined yet
   // (just you) is noise until a peer redeems it and it gets a name/avatar.
-  // A second Notes group holding notes (dmNotesCopy) stays listed, under its
-  // own name, so those notes are never out of reach.
-  const list = S.guilds.filter((x) => x.kind === "dm" && (x.dmNotes || x.dmNotesCopy || (x.dmMembers ?? 2) >= 2));
+  // Another copy of Notes holding notes stays listed, under its own name, so
+  // those notes are never out of reach; an empty one is not.
+  const list = S.guilds.filter((x) => x.kind === "dm" && (x.dmNotes || listedNotesCopy(x) || (isPersonDM(x) && (x.dmMembers ?? 2) >= 2)));
   list.sort(
     (a, b) => (a.dmNotes ? -1 : b.dmNotes ? 1 : 0) || (b.lastActivity || 0) - (a.lastActivity || 0),
   );
@@ -3189,7 +3210,14 @@ export async function openDMs({ browse = false } = {}) {
   const resume = list.find((d) => d.id === (lastPlace.dm || lastPlace.guildId) && !guildUnread(d).count);
   const target = resume || list.find((d) => d.dmNotes);
   if (!target || target.id === "__notes__") {
-    await selectNotes({ browse });
+    const r = await selectNotes({ browse, quiet: true });
+    if (r.ok || !r.arriving) return;
+    // This device's Notes has not come from the account's other device yet.
+    // Entering the DM area must not hinge on it: the newest conversation
+    // with somebody instead, and only with none at all, a quiet word.
+    const other = list.find((d) => isPersonDM(d));
+    if (other) await selectGuild(other.id, { browse });
+    else flashSlot("notes-open", r.arriving);
     return;
   }
   await selectGuild(target.id, { browse });
@@ -5190,7 +5218,7 @@ export function clearCallState(channelId) {
 // The DM (or group DM) that owns a channel, or null for a guild channel.
 function dmOf(channelId) {
   const g = S.guilds.find((x) => x.channels?.some((c) => c.id === channelId));
-  return g?.kind === "dm" && !g.dmNotes && g.name !== "Notes" ? g : null;
+  return isPersonDM(g) && g.name !== "Notes" ? g : null;
 }
 const isGroupDM = (g) => (g?.dmMembers ?? 2) > 2;
 

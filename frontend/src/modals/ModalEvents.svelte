@@ -9,6 +9,7 @@
   // Notes self-DM (private to you) — see the isDM/isNotes derivations below.
   import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
+  import { isNotesLike } from "../lib/notes.js";
   import EmptyState from "../EmptyState.svelte";
   import Select from "../Select.svelte";
   import Switch from "../Switch.svelte";
@@ -56,7 +57,7 @@
   // call. Notes is the degenerate case: a single-member DM (just you), so its
   // events are private reminders — no call, no guests, only words.
   const isDM = $derived(g?.kind === "dm");
-  const isNotes = $derived(!!g?.dmNotes);
+  const isNotes = $derived(isNotesLike(g));
   const dmChannel = $derived(isDM ? g?.channels?.[0] || null : null);
   // "you both" for a 1:1, "everyone" once it's a group DM.
   const dmEveryone = $derived((g?.dmMembers ?? 2) > 2 ? "everyone" : "you both");

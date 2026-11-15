@@ -12,6 +12,7 @@
   import Icon from "./Icon.svelte";
   import OwnerMark from "./OwnerMark.svelte";
   import { ownsPlace, ownerLabel } from "./lib/ownermark.js";
+  import { isNotesLike, isPersonDM } from "./lib/notes.js";
   import GuildMark from "./GuildMark.svelte";
   import Badge from "./Badge.svelte";
   import Nudge from "./Nudge.svelte";
@@ -291,7 +292,7 @@
   // when they are read, so nothing jumps under the pointer.
   let dmOrder = $state([]);
   $effect(() => {
-    const unread = dmList().filter((d) => !d.dmNotes && guildUnread(d).count > 0);
+    const unread = dmList().filter((d) => isPersonDM(d) && guildUnread(d).count > 0);
     const ids = new Set(unread.map((d) => d.id));
     const kept = dmOrder.filter((id) => ids.has(id));
     const fresh = unread
@@ -543,7 +544,7 @@
   // said it twice. A group DM gets no prefix either: the backend reports only
   // whether the last line was ours, and naming one of five would be a guess.
   function dmSaid(dm) {
-    return dm.dmPreviewMine && !dm.dmNotes ? "You: " : "";
+    return dm.dmPreviewMine && isPersonDM(dm) ? "You: " : "";
   }
 
   // A conversation's clock: the time today, the weekday this week, a date
@@ -979,7 +980,10 @@
               danger: true,
               onClick: () => blockUser(dm.dmPeer, dm.name),
             }),
-      {
+      // Never on a copy of Notes (it has no menu at all, like Notes): closing
+      // one hid its notes, and nothing on this build writes into a copy to
+      // bring it back.
+      !isNotesLike(dm) && {
         label: (dm.dmMembers ?? 2) > 2 ? "Leave group" : "Close DM",
         icon: "door",
         danger: true,
@@ -1266,7 +1270,7 @@
       {/if}
       {#each dms as dm (dm.id)}
         {@const active = dm.id === S.activeGuildId}
-        {@const unread = dm.dmNotes ? { count: 0, attention: 0 } : guildUnread(dm)}
+        {@const unread = isNotesLike(dm) ? { count: 0, attention: 0 } : guildUnread(dm)}
         {@const draft = draftIn(dm.channels?.[0]?.id)}
         <button
           class="dm-item"
@@ -1274,10 +1278,10 @@
           class:active
           class:unread={unread.count > 0}
           onclick={() => (dm.dmNotes ? selectNotes() : selectGuild(dm.id))}
-          oncontextmenu={dm.dmNotes ? undefined : coarse ? (e) => e.preventDefault() : (e) => dmMenu(e, dm)}
-          use:longpress={{ handler: (e) => !dm.dmNotes && dmMenu(e, dm) }}
+          oncontextmenu={isNotesLike(dm) ? undefined : coarse ? (e) => e.preventDefault() : (e) => dmMenu(e, dm)}
+          use:longpress={{ handler: (e) => !isNotesLike(dm) && dmMenu(e, dm) }}
         >
-          {#if dm.dmNotes}
+          {#if isNotesLike(dm)}
             <span class="dm-notes-icon"><Icon name="bubble" size={17} /></span>
           {:else if (dm.dmMembers ?? 2) > 2}
             <GroupAvatar faces={dm.dmFaces || []} size={36} />
@@ -1294,12 +1298,12 @@
             <span class="dm-top">
               <span class="dm-name">{dm.dmNotes ? "Notes (you)" : dm.name}</span>
               {#if ownsPlace(dm)}<OwnerMark size={11} label={ownerLabel(dm)} />{/if}
-              {#if !dm.dmNotes && liveChannels.has(dm.channels?.[0]?.id)}
+              {#if isPersonDM(dm) && liveChannels.has(dm.channels?.[0]?.id)}
                 <!-- A DM-located event is live: the conversation IS the meeting. -->
                 <span class="ch-live" use:tooltip={"A scheduled event is live in this conversation"}>
                   <i class="ch-live-dot"></i>LIVE
                 </span>
-              {:else if !dm.dmNotes && RADAR.unseen[dm.id]}
+              {:else if isPersonDM(dm) && RADAR.unseen[dm.id]}
                 <!-- They put something on your shared calendar — same nudge the
                      guild pill wears in the rail. Cleared by opening the calendar. -->
                 <span
@@ -1322,7 +1326,7 @@
               {:else if dm.dmPreview}
                 {#if dmSaid(dm)}<span class="dm-said">{dmSaid(dm)}</span>{/if}{dm.dmPreview}
               {:else}
-                <span class="dm-quiet">{dm.dmNotes ? "Anything you want to keep" : "No messages yet"}</span>
+                <span class="dm-quiet">{isNotesLike(dm) ? "Anything you want to keep" : "No messages yet"}</span>
               {/if}
             </span>
           </span>
@@ -1333,7 +1337,7 @@
           {/if}
         </button>
       {/each}
-      {#if !dms.some((d) => !d.dmNotes)}
+      {#if !dms.some((d) => isPersonDM(d))}
         <div class="empty-block">
           <span class="empty-ic"><Icon name="smile" size={18} /></span>
           <p class="muted">
