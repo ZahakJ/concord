@@ -31,6 +31,7 @@
   import { parseAttachTokens, parseFileTokens, stripAttachTokens } from "./lib/attachments.js";
   import { splitPlaceholders } from "./lib/chronicle.js";
   import { S, customEmojiMap, openContextMenu, flash, clockOpts, tintFor } from "./lib/state.svelte.js";
+  import { reactionImage } from "./lib/customemoji.js";
   import { longpress } from "./lib/touch.js";
 
   // `m` is a ChronicleMessageView: author and avatar already resolved from the
@@ -176,7 +177,7 @@
            pressable and isn't is worse than a number. -->
       <div class="arc-reactions">
         {#each Object.entries(m.reactions) as [emoji, count] (emoji)}
-          {@const cimg = /^:([a-z0-9_]{2,32}):$/.test(emoji) ? cemoji[emoji.slice(1, -1)] : null}
+          {@const cimg = reactionImage(cemoji, emoji)}
           <span class="arc-reaction">
             {#if cimg}<img class="cemoji" src={cimg} alt={emoji} />{:else}<span>{emoji}</span>{/if}
             <span class="rcount">{count}</span>
