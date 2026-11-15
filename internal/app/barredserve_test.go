@@ -38,9 +38,16 @@ func TestBarredCopyDeclinesSyncAndCreatesNothing(t *testing.T) {
 		t.Fatal("setup: a healthy copy declined a member's catch-up")
 	}
 
-	latch(t, u, gid)
 	start := time.Now().Add(24 * time.Hour).Unix()
+	guestEv, err := u.CreateEvent(gid, "guest event", "", start, start+3600, "", "", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	latch(t, u, gid)
 	refusals := map[string]error{}
+	_, refusals["open event guests"] = u.OpenEventGuests(gid, guestEv.ID, false)
+	_, refusals["revoke event guests"] = u.RevokeEventGuests(gid, guestEv.ID)
 	_, refusals["event"] = u.CreateEvent(gid, "dead-copy event", "details", start, start+3600, "", "", "", 0)
 	refusals["nickname"] = u.SetNickname(gid, "dead-copy nick")
 	refusals["channel links"] = u.SetChannelLinks(gid, ch, []string{"https://example.org/"})
@@ -50,7 +57,7 @@ func TestBarredCopyDeclinesSyncAndCreatesNothing(t *testing.T) {
 			t.Errorf("%s on a barred copy: err=%v, want ErrBehindOnlyCommitter", what, err)
 		}
 	}
-	if evs, _ := u.Events(gid); len(evs) != 0 {
+	if evs, _ := u.Events(gid); len(evs) != 1 {
 		t.Errorf("the barred copy stored an event: %v", evs)
 	}
 	if raw := ask(); len(raw) != 0 {

@@ -155,6 +155,9 @@ func eventGuestRoomName(title string) string {
 // returns the SAME link — a link the host pasted into invitations must never
 // silently rotate — updating only the door choice.
 func (s *Service) OpenEventGuests(guildID, eventID string, autoAdmit bool) (domain.Event, error) {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return domain.Event{}, err
+	}
 	groupID, ok := s.eventGroup(guildID)
 	if !ok {
 		return domain.Event{}, fmt.Errorf("app: unknown guild %s", guildID)
@@ -332,6 +335,9 @@ func (s *Service) stampEventGuest(groupID []byte, ev domain.Event, url, code str
 // outlives (a moderator who wants it gone can delete the event, which tears
 // the room down on the host's node through the same hook).
 func (s *Service) RevokeEventGuests(guildID, eventID string) (domain.Event, error) {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return domain.Event{}, err
+	}
 	groupID, ok := s.eventGroup(guildID)
 	if !ok {
 		return domain.Event{}, fmt.Errorf("app: unknown guild %s", guildID)
