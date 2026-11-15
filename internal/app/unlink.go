@@ -549,11 +549,17 @@ func eraseRevokedDevice(dir string, account, device ed25519.PublicKey) error {
 //
 // A keystore that names no account in the clear (written before builds
 // recorded it), one that cannot be parsed (it names no one), and none at all
-// (an erase that stopped part-way) leave the marker to decide.
+// (an erase that stopped part-way) leave the marker to decide. No keystore
+// and no account data at all is a device already erased (by a start that
+// ran the erase first, say): nil, and the erase has nothing left to do.
 func thisDeviceHere(dataDir string, account, device ed25519.PublicKey) error {
 	pub, err := identity.ReadAccountPub(keystorePathIn(dataDir))
 	switch {
-	case errors.Is(err, fs.ErrNotExist), errors.Is(err, identity.ErrDamagedKeystore):
+	case errors.Is(err, fs.ErrNotExist):
+		if !hasAccountData(dataDir) {
+			return nil
+		}
+	case errors.Is(err, identity.ErrDamagedKeystore):
 	case err != nil:
 		return fmt.Errorf("nothing was erased yet: the keystore cannot be read, so whose it is cannot be told: %w", err)
 	case pub != nil && !ed25519Equal(pub, account):

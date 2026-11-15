@@ -207,3 +207,24 @@ func TestResetIdentityIfRefusesWithoutACheck(t *testing.T) {
 		t.Fatal("an erase with no check deleted something")
 	}
 }
+
+// An attempt that finds the device already erased (by the start that ran the
+// erase first, say) has nothing left to do: it reports the erase done, not
+// "another account is here".
+func TestARevokeWipeAttemptAfterTheDeviceIsErasedReportsItDone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	s := revokedLinkedDevice(t, ctx, dir)
+	account, device := s.id.PublicKey(), s.id.DevicePublicKey()
+	_ = s.Close()
+	if err := eraseRevokedDevice(dir, account, device); err != nil {
+		t.Fatalf("first attempt: %v", err)
+	}
+	if HasIdentity(dir) || hasAccountData(dir) {
+		t.Fatal("setup: the first attempt left something")
+	}
+	if err := eraseRevokedDevice(dir, account, device); err != nil {
+		t.Fatalf("an attempt on a device already erased: %v, want nil", err)
+	}
+}
