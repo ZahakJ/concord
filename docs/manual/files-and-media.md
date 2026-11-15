@@ -6,6 +6,8 @@ How images, videos, voice messages and other files are sent, encrypted and fetch
 
 Click **Attach a file** beside the composer, paste a file, or drop it onto the conversation. On a phone, use **+** → **Photo or file** or **Camera**. Attachments are staged above the text box and nothing is sent until you send the message.
 
+An edit changes only a message's text, so pasting an image while you edit a message does nothing. Send the image as a new message.
+
 | Kind | Limit | How it shows |
 |---|---|---|
 | Images | 5 MB | Inline, in a grid when there are several. Click to open the viewer: click or scroll to zoom, drag to pan, `Esc` to close. |
