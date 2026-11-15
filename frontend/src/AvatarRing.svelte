@@ -6,6 +6,7 @@
   // thickness). One component, 80+ rings, one short id on the wire.
   import { ringsTable } from "./lib/cosmetics.svelte.js";
   import FxLayer from "./FxLayer.svelte";
+  import { own } from "./lib/lookup.js";
 
   let { ring = "", size = 32, style = null, color = "", color2 = "" } = $props();
 
@@ -18,9 +19,9 @@
   const r = $derived(
     tbl && ring ? tbl.ringArt(ring, color, color2, style?.sat || "", style?.pal || "") : null,
   );
-  const dur = $derived(SPEED_MS[style?.speed] || SPEED_MS.normal);
+  const dur = $derived(own(SPEED_MS, style?.speed) || SPEED_MS.normal);
   const cw = $derived(style?.dir !== "ccw");
-  const glow = $derived(GLOW_PX[style?.glow] ?? GLOW_PX.soft);
+  const glow = $derived(own(GLOW_PX, style?.glow) ?? GLOW_PX.soft);
   const w = $derived(Math.min(5, Math.max(1, style?.width || 2)));
   const dot = $derived(Math.max(3, w + 1.5));
   // Effects are tuned for a banner-sized canvas; shrink them for tiny avatars.

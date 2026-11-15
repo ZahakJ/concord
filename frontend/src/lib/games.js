@@ -37,6 +37,7 @@
 
 import { b64urlEncode, b64urlDecode } from "./b64url.js";
 import { fourInARow } from "./fourinarow.js";
+import { own } from "./lookup.js";
 
 export const GAME_RE = /\[game\]\(concord:\/\/game\/v1\/([A-Za-z0-9_-]+)\)/;
 
@@ -99,7 +100,7 @@ export function parseGame(content) {
   if (!t || typeof t !== "object" || typeof t.i !== "string" || !ID_RE.test(t.i)) return null;
   switch (t.k) {
     case "new": {
-      if (typeof t.g !== "string" || !GAMES[t.g]) return null;
+      if (typeof t.g !== "string" || !own(GAMES, t.g)) return null;
       const out = { k: "new", i: t.i, g: t.g };
       // An opponent is a fingerprint, and a fingerprint is only ever compared
       // against the member list — never displayed from the token and never
@@ -130,7 +131,7 @@ export function stripGame(content) {
 // ---- the fold ---------------------------------------------------------------
 
 function fresh(tok, by, at) {
-  const rules = GAMES[tok.g];
+  const rules = own(GAMES, tok.g);
   return {
     id: tok.i,
     game: tok.g,

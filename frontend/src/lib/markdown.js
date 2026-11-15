@@ -7,6 +7,8 @@
 // - / 1. lists, bare + [masked](url) links, ![image](data:image/...) attachments,
 // @mentions.
 
+import { own } from "./lookup.js";
+
 // Named colors for {name|text}, mapped to fixed hex values so nothing but a
 // vetted color string ever reaches an inline style. Chosen to read on both the
 // dark and light themes.
@@ -161,7 +163,7 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
   // attribute and inject script. The name charset ([a-z0-9_]) can't break out.
   if (customEmoji) {
     s = s.replace(/:([a-z0-9_]{2,32}):/g, (whole, name) => {
-      const img = customEmoji[name];
+      const img = own(customEmoji, name);
       return img
         ? `<img class="cemoji" src="${escapeHtml(img)}" alt=":${name}:" title=":${name}:" />`
         : whole;
@@ -210,7 +212,7 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
   // rest of this file relies on). Runs after emphasis so **bold** inside a
   // color still works. The text is already HTML-escaped.
   s = s.replace(/\{(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}|[a-z]{3,10})\|([^{}]+)\}/g, (whole, color, text) => {
-    const hex = COLOR_NAMES[color.toLowerCase()] || (/^#[0-9a-fA-F]{3,6}$/.test(color) ? color : null);
+    const hex = own(COLOR_NAMES, color.toLowerCase()) || (/^#[0-9a-fA-F]{3,6}$/.test(color) ? color : null);
     return hex ? `<span style="color:${hex}">${text}</span>` : whole;
   });
   // Every span generated below is stashed as a placeholder and only restored at

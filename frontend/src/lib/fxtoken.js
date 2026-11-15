@@ -7,6 +7,7 @@
 // view — seeded by the message id, so every peer watches the same sky.
 
 import { confettiBurst, fireworksBurst } from "./burst.js";
+import { own } from "./lookup.js";
 
 export const FX_RE = /\[fx\]\(concord:\/\/fx\/v1\/([a-z]+)\)/;
 
@@ -45,7 +46,7 @@ export function encodeFx(name) {
 // stance as the poll token's versioned path).
 export function fxEffect(content) {
   const m = content?.match(FX_RE);
-  return m && FX_EFFECTS[m[1]] ? m[1] : "";
+  return m && own(FX_EFFECTS, m[1]) ? m[1] : "";
 }
 
 export function stripFx(content) {
@@ -92,5 +93,5 @@ export function playFxOnce(messageId, name, sentAt, host = null) {
     /* private mode / quota: the in-memory set still holds for this session */
   }
   if (!(age >= 0 && age < FX_MAX_AGE_MS)) return;
-  FX_EFFECTS[name]?.play(messageId, host);
+  own(FX_EFFECTS, name)?.play(messageId, host);
 }

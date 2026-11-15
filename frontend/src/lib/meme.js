@@ -7,6 +7,8 @@
 // on a 300px preview lands in the same spot when the same meme is rendered at
 // full size for sending.
 
+import { own } from "./lookup.js";
+
 // The faces the app already ships in public/fonts (OFL, served from our own
 // bundle — never a font host). A meme font has to be *there*: naming Impact and
 // hoping is how the classic look silently degrades to Helvetica on the Linux
@@ -112,8 +114,8 @@ export function newCaption(text = "", over = {}) {
 // `??` and not `||` for stroke and uppercase: 0 and false are meaningful
 // choices, and `||` would quietly discard both.
 export function resolve(cap) {
-  const base = STYLES[cap.style] || STYLES.impact;
-  const font = FONTS[cap.font] || FONTS[base.font] || FONTS.classic;
+  const base = own(STYLES, cap.style) || STYLES.impact;
+  const font = own(FONTS, cap.font) || own(FONTS, base.font) || FONTS.classic;
   return {
     family: font.family,
     weight: font.weight,

@@ -17,6 +17,10 @@ const maxEmojiBytes = 256 << 10 // 256 KiB per emoji image
 
 var emojiNameRe = regexp.MustCompile(`^[a-z0-9_]{2,32}$`)
 
+// validEmojiName admits a custom emoji name: the charset above, and not a
+// name the clients' lookups reserve (see reservedID).
+func validEmojiName(name string) bool { return emojiNameRe.MatchString(name) && !reservedID(name) }
+
 // emojiImageRe pins the image to a strict base64 data-URI whitelist. This is a
 // security control, not just format hygiene: the image string is rendered into
 // an <img src="…"> in the client's markdown renderer, so a value containing a
@@ -46,7 +50,7 @@ func (s *Service) AddCustomEmoji(guildID, name, dataURI string) error {
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
 	name = strings.ToLower(strings.TrimSpace(name))
-	if !emojiNameRe.MatchString(name) {
+	if !validEmojiName(name) {
 		return fmt.Errorf("app: emoji name must be 2–32 chars, lowercase letters/numbers/underscore")
 	}
 	if !validEmojiImage(dataURI) {
@@ -116,7 +120,7 @@ func (s *Service) applyCustomEmoji(guildID string, e domain.CustomEmoji) {
 	// Same strict validation as a local add — a malicious peer must not be able
 	// to plant an emoji whose image string breaks out of the client's <img src>
 	// (stored XSS). See emojiImageRe.
-	if !emojiNameRe.MatchString(e.Name) || !validEmojiImage(e.Image) {
+	if !validEmojiName(e.Name) || !validEmojiImage(e.Image) {
 		return
 	}
 	_ = s.store.SaveCustomEmoji(emojiRow(guildID, e))

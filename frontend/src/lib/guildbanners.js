@@ -23,6 +23,7 @@
 // member's sidebar shows.
 import { isPreset, presetId } from "./banners.js";
 import { isSafeImageDataURI } from "./images.js";
+import { table } from "./lookup.js";
 
 // How hard the header's legibility scrim presses at the TEXT line, per ink.
 // Banner.svelte paints the gradient; the test composites this alpha over every
@@ -313,7 +314,7 @@ export const GUILD_BANNERS = [
   },
 ];
 
-export const GUILD_BANNER_BY_ID = Object.fromEntries(GUILD_BANNERS.map((b) => [b.id, b]));
+export const GUILD_BANNER_BY_ID = table(Object.fromEntries(GUILD_BANNERS.map((b) => [b.id, b])));
 
 // The picker's shelves, in the order a guild owner is likely to shop them.
 export const GUILD_BANNER_GROUPS = [

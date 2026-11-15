@@ -23,6 +23,7 @@
   } from "./lib/state.svelte.js";
   import { haptic } from "./lib/touch.js";
   import { tooltip } from "./lib/tooltip.js";
+  import { own } from "./lib/lookup.js";
   import { gameJoin, gameMove, gameResign, discColors } from "./lib/games.js";
   import { hueOfCss } from "./lib/forum.js";
 
@@ -33,7 +34,7 @@
   let busy = $state(false);
   let showLog = $state(false);
   const me = $derived(S.identity.fingerprint);
-  const Board = $derived(BOARDS[game.game] || null);
+  const Board = $derived(own(BOARDS, game.game) || null);
   const mySeat = $derived(game.seats[0] === me ? 0 : game.seats[1] === me ? 1 : -1);
   const canJoin = $derived(!game.seats[1] && !game.invited && mySeat < 0 && !game.over);
   const myTurn = $derived(!game.over && mySeat >= 0 && game.turn === mySeat && !!game.seats[1]);

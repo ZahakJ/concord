@@ -654,7 +654,7 @@ func validFrame(f string) bool {
 	if f == "" {
 		return true
 	}
-	if len(f) > 32 {
+	if len(f) > 32 || reservedID(f) {
 		return false
 	}
 	for _, r := range f {
@@ -768,7 +768,7 @@ func validID(id string) bool {
 	if id == "" {
 		return true
 	}
-	if len(id) > 32 {
+	if len(id) > 32 || reservedID(id) {
 		return false
 	}
 	for _, r := range id {
@@ -777,6 +777,20 @@ func validID(id string) bool {
 		}
 	}
 	return true
+}
+
+// reservedID reports an id that is a member name of every JavaScript object.
+// The clients look cosmetic ids up in tables keyed by id, so an id is only
+// ever meaningful when it names an entry, and none of these ever will.
+// Compared case-insensitively: some lookups lowercase first.
+func reservedID(id string) bool {
+	switch strings.ToLower(id) {
+	case "constructor", "__proto__", "tostring", "valueof", "hasownproperty",
+		"isprototypeof", "propertyisenumerable", "tolocalestring",
+		"__definegetter__", "__definesetter__", "__lookupgetter__", "__lookupsetter__":
+		return true
+	}
+	return false
 }
 
 // validImageDataURI enforces a STRICT data-URI shape: a known raster image type
@@ -822,7 +836,7 @@ func validBanner(b string) bool {
 		return validImageDataURI(b, maxProfileBannerBytes)
 	}
 	id, ok := strings.CutPrefix(b, "preset:")
-	if !ok || id == "" || len(id) > 32 {
+	if !ok || id == "" || len(id) > 32 || reservedID(id) {
 		return false
 	}
 	for _, r := range id {
@@ -1173,7 +1187,15 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// of fingerprint-only names right after unlock).
 	if rows, err := st.Profiles(); err == nil {
 		for _, r := range rows {
-			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, Birthday: r.Birthday, MailboxPub: r.MailboxPub, Games: decodeGames(r.Games), Color2: r.Color2, Frame: r.Frame, Effect: r.Effect, Style: decodeStyle(r.Style)}
+			p := Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, Birthday: r.Birthday, MailboxPub: r.MailboxPub, Games: decodeGames(r.Games), Color2: r.Color2, Frame: r.Frame, Effect: r.Effect, Style: decodeStyle(r.Style)}
+			// A stored copy is held to today's rules, not the ones it was
+			// stored under: a field an older build accepted is dropped here,
+			// field by field, exactly as learnProfile would drop it now.
+			if len(p.Banner) > maxProfileBannerBytes || !validBanner(p.Banner) {
+				p.Banner = ""
+			}
+			sanitizeProfileExtras(&p)
+			s.profiles[r.Fingerprint] = p
 		}
 	}
 

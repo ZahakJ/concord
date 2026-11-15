@@ -1,6 +1,8 @@
 // emoji.js — Concord's emoji system: a curated shortcode map powering
 // :colon: autocompletion in the composer, the emoji picker, and reactions.
 
+import { own } from "./lookup.js";
+
 export const EMOJI = {
   // smileys
   smile: "😄", grin: "😁", joy: "😂", rofl: "🤣", sweat_smile: "😅",
@@ -265,7 +267,7 @@ export function emojiCategories() {
 
 // The char for a shortcode, curated first.
 export function emojiChar(name) {
-  return EMOJI[name] || FULL?.byName.get(name) || "";
+  return own(EMOJI, name) || FULL?.byName.get(name) || "";
 }
 
 // Whether a skin tone applies. The curated list is a hand-picked set of hands
@@ -339,7 +341,7 @@ export function searchEmoji(query, limit = 8, custom = null) {
 export function replaceShortcodes(text) {
   return text.replace(
     /:([a-z0-9_+-]+):/gi,
-    (match, name) => EMOJI[name.toLowerCase()] || FULL?.byName.get(name.toLowerCase()) || match,
+    (match, name) => own(EMOJI, name.toLowerCase()) || FULL?.byName.get(name.toLowerCase()) || match,
   );
 }
 

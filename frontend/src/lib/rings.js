@@ -13,6 +13,8 @@
 // (AvatarRing.svelte). var(--c1)/var(--c2) are the wearer's own two profile
 // colors, so the "yours" rings adapt to whoever wears them.
 
+import { table } from "./lookup.js";
+
 const conic = (...stops) => `conic-gradient(from 0deg, ${stops.join(", ")})`;
 
 // PALETTES — the colorways for the Gradient ring. These used to be twenty
@@ -51,7 +53,7 @@ export const PALETTES = [
   { id: "synth", name: "Synthwave", stops: ["#2b0a4a", "#ff3cc8 30%", "#ffa63d 55%", "#2b0a4a"] },
   { id: "vapor", name: "Vaporwave", stops: ["#ff9ae0", "#a48bff 45%", "#6ee7ff", "#ff9ae0"] },
 ];
-export const PAL_BY_ID = Object.fromEntries(PALETTES.map((p) => [p.id, p]));
+export const PAL_BY_ID = table(Object.fromEntries(PALETTES.map((p) => [p.id, p])));
 
 export const RINGS = [
   { id: "", name: "None", kind: "none" },
@@ -124,7 +126,7 @@ export const RINGS = [
   { id: "sparkline", name: "Dashes", art: "repeating-conic-gradient(from 0deg, transparent 0 12deg, #fff2a8 12deg 15deg)" },
 ];
 
-export const RING_BY_ID = Object.fromEntries(RINGS.map((r) => [r.id, r]));
+export const RING_BY_ID = table(Object.fromEntries(RINGS.map((r) => [r.id, r])));
 
 // The picker's shelves.
 export const RING_GROUPS = [
@@ -148,23 +150,23 @@ export const SATELLITES = [
 
 // Rings saved before the orbiting-friends presets collapsed into one Orbit ring
 // with a rider config. Old profiles keep their cow.
-const LEGACY_RIDER = {
+const LEGACY_RIDER = table({
   "orbit-cow": "🐄", "orbit-penguin": "🐧", "orbit-car": "🚗", "orbit-rocket": "🚀",
   "orbit-ufo": "🛸", "orbit-duck": "🦆", "orbit-cat": "🐈", "orbit-pizza": "🍕",
   "orbit-shark": "🦈", "orbit-dino": "🦖", "orbit-ghost": "👻", "orbit-crown": "👑",
   "orbit-bee": "🐝", "orbit-skull": "💀", "orbit-moon": "🌙", "orbit-custom": "",
-};
+});
 
 // Rings saved when each colorway was its own preset ("gold" → the Gradient ring
 // wearing the gold palette).
-const LEGACY_PAL = {
+const LEGACY_PAL = table({
   gold: "gold", silver: "silver", bronze: "bronze", platinum: "platinum",
   "rose-gold": "rose-gold", obsidian: "obsidian", gem: "gem", ruby: "ruby",
   emerald: "emerald", sapphire: "sapphire", amethyst: "amethyst", topaz: "topaz",
   opal: "opal", frost: "frost", glacier: "glacier", magma: "magma", ember: "ember",
   storm: "storm", voltage: "voltage", aurora: "aurora", rainbow: "rainbow",
   "nebula-ring": "nebula", neon: "neon", synth: "synth", vapor: "vapor",
-};
+});
 
 export const hasRider = (id) => !!RING_BY_ID[id]?.orbit;
 export const hasPalette = (id) => !!RING_BY_ID[id]?.palette;

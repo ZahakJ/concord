@@ -7,6 +7,7 @@
 // cannot, and says so nowhere.
 
 import { decodeRecipe, SFX_WAVES } from "./sfxrecipe.js";
+import { own } from "./lookup.js";
 
 let ctx = null;
 let enabled = load();
@@ -905,8 +906,11 @@ const SFX = {
 // (lib/state.svelte.js), which knows who pressed it.
 export function playSfx(id) {
   if (!enabled || !boardOn) return;
-  withAudio((ac) => SFX[id]?.(ac));
+  withAudio((ac) => own(SFX, id)?.(ac));
 }
+
+// Whether an id names one of the built-in effects above.
+export const isBuiltinSfx = (id) => typeof own(SFX, id) === "function";
 
 // ---- sounds people made up --------------------------------------------------
 //
@@ -1021,7 +1025,7 @@ export function playRecipe(recipe, { force = false } = {}) {
 // behind does with a recipe it has never heard of.
 export function playSfxTrigger(target) {
   if (!enabled || !boardOn) return;
-  if (SFX[target]) return playSfx(target);
+  if (isBuiltinSfx(target)) return playSfx(target);
   playRecipe(decodeRecipe(target));
 }
 
