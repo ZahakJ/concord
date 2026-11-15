@@ -7,7 +7,7 @@
 // a notification for the eyes reading this window, so a backend copy firing
 // with no window open would alert no one.
 import { api } from "./api.js";
-import { redactNotification, getNotifyMode } from "./notifprivacy.js";
+import { redactNotification, getNotifyMode, trackNotification } from "./notifprivacy.js";
 import { S, flash, jumpToChannel, clockOpts } from "./state.svelte.js";
 
 const SKEY = "concord.scheduled"; // legacy queue — drained into the backend once
@@ -121,7 +121,7 @@ export function localNotify(title, body, channelId, tag) {
     mode === "full" ? { title, body } : redactNotification(mode, "message", { title, body }));
   try {
     if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
-      const n = new Notification(title, { body, tag });
+      const n = trackNotification(new Notification(title, { body, tag }));
       n.onclick = () => {
         window.focus();
         if (channelId) jumpToChannel(channelId);
