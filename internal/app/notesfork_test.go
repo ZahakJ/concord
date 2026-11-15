@@ -444,13 +444,23 @@ func TestCanonicalNotesIsTheEarliest(t *testing.T) {
 	if !ok {
 		t.Fatal("no Notes")
 	}
-	// A later copy, as a second device's mint would arrive.
-	later := domain.NewGuild(notesGuildName, []byte("other-group"), s.PublicKey())
+	// A later copy, as a second device's mint would arrive. Each copy is a
+	// real group seating only this device: a Notes is a group whose every
+	// leaf is a device of this account (findNotesDM).
+	group := func() []byte {
+		t.Helper()
+		gid, err := s.mls.CreateGroup(s.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return gid
+	}
+	later := domain.NewGuild(notesGuildName, group(), s.PublicKey())
 	later.Kind = "dm"
 	later.Channels[0].Name = "notes"
 	later.Created = first.Created.Add(time.Hour)
 	// And one created in the same nanosecond, to exercise the id tie-break.
-	tie := domain.NewGuild(notesGuildName, []byte("tie-group"), s.PublicKey())
+	tie := domain.NewGuild(notesGuildName, group(), s.PublicKey())
 	tie.Kind = "dm"
 	tie.Channels[0].Name = "notes"
 	tie.Created = first.Created
