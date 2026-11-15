@@ -108,7 +108,7 @@
     gap: var(--sp-5);
     width: 100%;
     min-height: 58px;
-    padding: 10px 0;
+    padding: var(--sp-2) 0;
     background: transparent;
     border: none;
     border-radius: 0;

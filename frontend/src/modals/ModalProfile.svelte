@@ -429,7 +429,17 @@
   {/if}
 
   <label class="field">
-    <span class="muted">Display name</span>
+    <!-- Save greys out without a name; the hint says why, and says the limit
+         the field otherwise enforces by silently dropping the 33rd character.
+         It shares the label's line, so the field below it keeps the same air
+         as every other field whether or not there is anything to say. -->
+    <span class="lab-row">
+      <span class="muted">Display name</span>
+      <span id="name-hint" class="hint" class:bad={!nameOk}>
+        <!-- The count appears near the limit (80%), not as a permanent "4/32". -->
+        {#if !nameOk}A name needs at least one visible character.{:else if [...name].length >= 26}{[...name].length}/32{/if}
+      </span>
+    </span>
     <input
       dir="auto"
       bind:value={name}
@@ -438,12 +448,6 @@
       aria-invalid={!nameOk ? "true" : undefined}
       aria-describedby="name-hint"
     />
-    <!-- Save greys out without a name; this says why, and says the limit the
-         field otherwise enforces by silently dropping the 33rd character. -->
-    <span id="name-hint" class="hint" class:bad={!nameOk}>
-      <!-- The count appears near the limit (80%), not as a permanent "4/32". -->
-      {#if !nameOk}A name needs at least one visible character.{:else if [...name].length >= 26}{[...name].length}/32{/if}
-    </span>
   </label>
   <div class="field">
     <span class="muted">Availability</span>
@@ -681,15 +685,19 @@
 </RailShell>
 
 <style>
+  .lab-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+  }
   .hint {
-    min-height: 1.2em;
+    margin-inline-start: auto;
     font-size: var(--fs-small);
     color: var(--text-faint);
     text-align: end;
   }
   .hint.bad {
     color: var(--danger-text);
-    text-align: start;
   }
   .draft-note {
     margin-inline-end: auto;

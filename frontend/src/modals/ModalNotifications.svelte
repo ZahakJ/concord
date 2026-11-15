@@ -416,11 +416,12 @@
     color: var(--text);
   }
 
+  /* On the rows' own edge, like every other block in a settings pane. */
   .words {
     display: flex;
     flex-direction: column;
     gap: var(--sp-2);
-    padding: var(--sp-3);
+    padding: var(--sp-3) 0;
   }
   .say {
     margin: 0;

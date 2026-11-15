@@ -300,10 +300,9 @@
     background: var(--bg-3);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    padding: 8px 10px;
+    /* Padding and height are the app's one field (app.css input). */
     color: var(--text);
     font-size: var(--fs-compact);
-    min-height: var(--tap-min, 34px);
   }
   .fin:focus {
     outline: none;

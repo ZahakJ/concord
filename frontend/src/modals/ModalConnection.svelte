@@ -298,7 +298,7 @@
     width: 108px;
     font-family: var(--mono-font);
     font-size: var(--fs-compact);
-    padding: 7px 10px;
+    /* The app's one field height (app.css input): no padding of its own. */
     border-radius: var(--radius-md);
     text-align: right;
   }

@@ -1,6 +1,6 @@
-// Appearance → Layout offers Sidebar, Rail and Compact; the choice holds
-// across a reload, Rail puts the column of guilds beside the list, and the
-// palette offers the same three.
+// Appearance → Layout offers Sidebar and Rail; the choice holds across a
+// reload, Rail puts the column of guilds beside the list, and the palette
+// offers the same two. Compact is a density now, not a layout.
 import { test } from "../harness.mjs";
 
 test("a layout picked in Appearance holds across a reload", async ({ world, assert, step, waitFor, shot }) => {
@@ -23,12 +23,21 @@ test("a layout picked in Appearance holds across a reload", async ({ world, asse
   await a.reload();
   assert.equal(await model(), "rail");
 
-  step("the palette's Layout: Compact");
+  step("the palette offers the two layouts and no Compact");
   await a.page.keyboard.press("Control+k");
-  await a.page.keyboard.type("layout compact");
-  await a.page.getByRole("option", { name: /Layout: Compact/ }).first().click();
+  await a.page.keyboard.type("layout");
+  await a.page.getByRole("option", { name: /Layout: Sidebar/ }).first().waitFor();
+  assert.equal(await a.page.getByRole("option", { name: /Layout: Compact/ }).count(), 0, "no Compact layout");
+  await a.page.getByRole("option", { name: /Layout: Sidebar/ }).first().click();
   await waitFor(async () => (await model()) === "sidebar", { message: "back to the sidebar model" });
-  assert.equal(await a.page.evaluate(() => document.documentElement.dataset.density), "compact");
+
+  step("Compact lives in Density, and holds");
+  const d = await a.openSettings("Appearance");
+  await d.getByRole("radiogroup", { name: "Message density" }).getByRole("radio", { name: "Compact" }).click();
+  await waitFor(async () => (await a.page.evaluate(() => document.documentElement.dataset.density)) === "compact", {
+    message: "compact density",
+  });
+  await a.closeModals();
   await a.reload();
   assert.equal(await a.page.evaluate(() => document.documentElement.dataset.density), "compact");
   await shot(a, "compact");

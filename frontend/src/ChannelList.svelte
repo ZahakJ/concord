@@ -267,9 +267,18 @@
   // the queue, so it never stands in front of anything that matters. Not on a
   // touch screen: a phone on its side is wide enough for this layout, and there
   // the card took half of a 390px-tall list to offer arrangements for a mouse.
-  const layoutHint = $derived(!S.isMobile && !coarse && !S.prefs.layoutHintSeen && !!g);
+  //
+  // Once means once: it is marked seen the first time it is actually on
+  // screen, not when somebody answers it, so it never comes back on the next
+  // launch to ask again. It stays up for the rest of this session.
+  let layoutHintLive = $state(!S.prefs.layoutHintSeen);
+  const layoutHint = $derived(!S.isMobile && !coarse && layoutHintLive && !!g);
   function layoutHintDone() {
+    layoutHintLive = false;
     setPref("layoutHintSeen", true);
+  }
+  function markLayoutHintSeen() {
+    if (!S.prefs.layoutHintSeen) setPref("layoutHintSeen", true);
   }
   const nudgeNow = $derived(
     S.prefs.backupPending && !phraseLater.on
@@ -1248,7 +1257,7 @@
         </Nudge>
       </div>
     {:else if nudgeNow === "layout"}
-      <div class="nudge-row">
+      <div class="nudge-row" {@attach markLayoutHintSeen}>
         <Nudge
           icon="grid4"
           action="Choose"
@@ -1259,7 +1268,7 @@
           dismissLabel="Not now"
           onDismiss={layoutHintDone}
         >
-          <strong>Prefer a different layout?</strong> Sidebar, Rail or Compact.
+          <strong>Prefer a different layout?</strong> Sidebar or Rail, and three densities.
         </Nudge>
       </div>
     {:else if nudgeNow === "update"}

@@ -92,7 +92,7 @@
   .rail {
     display: flex;
     flex-direction: column;
-    padding: var(--sp-4) 10px var(--sp-4);
+    padding: var(--sp-4) var(--sp-3);
     background: color-mix(in srgb, var(--bg-1) 55%, var(--bg-elevated));
     border-right: 1px solid var(--hairline);
     overflow-y: auto;
@@ -101,8 +101,8 @@
   .who {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: var(--sp-1) var(--sp-2) 6px;
+    gap: var(--sp-3);
+    padding: var(--sp-1) var(--sp-2) var(--sp-2);
     min-width: 0;
     flex: none;
   }
@@ -130,7 +130,7 @@
     flex: none;
   }
   .glabel {
-    padding: 14px var(--sp-2) var(--sp-1);
+    padding: var(--sp-3) var(--sp-2) var(--sp-1);
     font-size: var(--fs-small);
     font-weight: 600;
     color: var(--text-muted);
@@ -139,7 +139,7 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--sp-2);
     width: 100%;
     min-height: 32px;
     padding: 0 var(--sp-2);

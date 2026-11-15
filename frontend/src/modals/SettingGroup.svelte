@@ -21,12 +21,12 @@
 
 <style>
   /* A group is a label and its rows — no box around them. Groups are told
-     apart by the label and 18px of air; rows by a hairline. */
+     apart by the label and --sp-5 of air; rows by a hairline. */
   .grp {
     display: flex;
     flex-direction: column;
     text-align: start;
-    margin-top: 6px;
+    margin-top: var(--sp-5);
   }
   .grp:first-child {
     margin-top: 0;
@@ -38,7 +38,6 @@
     font-size: var(--fs-compact);
     font-weight: 600;
     color: var(--text);
-    padding-top: 2px;
   }
   .card {
     display: flex;

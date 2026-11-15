@@ -19,7 +19,8 @@
 
 export const SETTINGS_GROUPS = [
   {
-    label: "You",
+    // Not "You": on a phone this list sits under a page already titled You.
+    label: "Personal",
     items: [
       {
         // The landing page, and the reason the desktop dialog opens on
@@ -39,7 +40,7 @@ export const SETTINGS_GROUPS = [
         kind: "appearance",
         title: "Appearance",
         icon: "palette",
-        sub: "Theme, colour, shape & font",
+        sub: "Theme, colour, type, layout & effects",
       },
     ],
   },

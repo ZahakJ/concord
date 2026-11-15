@@ -1132,15 +1132,18 @@
     line-height: 0;
   }
   /* Advanced disclosure: quiet until you want it. */
+  /* A row like every other settings row — a hairline above it, no box (the
+     settings panes draw no cards). */
   .disclose {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
     width: 100%;
-    padding: 10px 12px;
+    padding: var(--sp-3) 0;
     background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border: none;
+    border-top: 1px solid var(--hairline);
+    border-radius: 0;
     color: var(--text);
     font-size: var(--fs-ui);
     font-weight: 600;
@@ -1149,9 +1152,10 @@
       border-color var(--dur-quick) ease,
       background var(--dur-quick) ease;
   }
-  .disclose:hover {
-    background: var(--bg-1);
-    border-color: var(--accent);
+  @media (pointer: fine) {
+    .disclose:hover {
+      background: color-mix(in srgb, var(--bg-3) 60%, transparent);
+    }
   }
   .disclose-chev {
     color: var(--text-faint);
@@ -1171,7 +1175,7 @@
   .adv {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--sp-3);
   }
   .reveal {
     display: flex;
