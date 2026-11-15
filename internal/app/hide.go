@@ -4,11 +4,9 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/store"
 )
 
@@ -146,10 +144,7 @@ func (s *Service) flushHides() {
 		n := min(len(recs), hidePageSize)
 		chunk := recs[:n]
 		recs = recs[n:]
-		payload, _ := json.Marshal(guildMeta{Type: "hide_marker", Hides: chunk})
-		if ct, err := s.mls.Encrypt(s.ctx, notes.GroupID, payload); err == nil {
-			_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(notes.GroupID), ct)
-		}
+		s.publishMeta(notes.GroupID, guildMeta{Type: "hide_marker", Hides: chunk})
 		for _, p := range s.host.Peers() {
 			if s.ownDevice(p) && s.revocationFor(p) == nil {
 				go s.sayHides(p, chunk)

@@ -3,11 +3,8 @@ package app
 import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"encoding/json"
 	"strconv"
 	"time"
-
-	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // The typing switch is account state, not device state: it follows the
@@ -83,10 +80,7 @@ func (s *Service) broadcastTypingPref(on bool, at int64) {
 	if !ok {
 		return
 	}
-	payload, _ := json.Marshal(guildMeta{Type: "typing_pref", TypingOn: &on, UpdatedAt: at})
-	if ct, err := s.mls.Encrypt(s.ctx, notes.GroupID, payload); err == nil {
-		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(notes.GroupID), ct)
-	}
+	s.publishMeta(notes.GroupID, guildMeta{Type: "typing_pref", TypingOn: &on, UpdatedAt: at})
 }
 
 // typingOfferFor returns the typing choice to put in a hello for p, setting

@@ -1,14 +1,12 @@
 package app
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/store"
 )
 
@@ -221,10 +219,7 @@ func (s *Service) broadcastChatPrefs(recs map[string]store.ChatPref) {
 	if !ok {
 		return
 	}
-	payload, _ := json.Marshal(guildMeta{Type: "chat_prefs", ChatPrefs: recs})
-	if ct, err := s.mls.Encrypt(s.ctx, notes.GroupID, payload); err == nil {
-		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(notes.GroupID), ct)
-	}
+	s.publishMeta(notes.GroupID, guildMeta{Type: "chat_prefs", ChatPrefs: recs})
 	for _, p := range s.host.Peers() {
 		if !s.ownDevice(p) || s.revocationFor(p) != nil {
 			continue

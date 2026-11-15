@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"encoding/json"
 	"strconv"
 	"time"
 
@@ -140,10 +139,7 @@ func (s *Service) broadcastReceiptsPref(p receiptsPref) {
 	if !ok {
 		return
 	}
-	payload, _ := json.Marshal(guildMeta{Type: "receipts_pref", Receipts: &p})
-	if ct, err := s.mls.Encrypt(s.ctx, notes.GroupID, payload); err == nil {
-		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(notes.GroupID), ct)
-	}
+	s.publishMeta(notes.GroupID, guildMeta{Type: "receipts_pref", Receipts: &p})
 }
 
 // receiptGuild returns the DM that owns channelID when it is one receipts
@@ -256,10 +252,8 @@ func (s *Service) publishReceipt(channelID string, m guildMeta) {
 	if !ok || s.mls == nil || s.ps == nil {
 		return
 	}
-	payload, _ := json.Marshal(m)
-	if ct, err := s.mls.Encrypt(s.ctx, g.GroupID, payload); err == nil {
-		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(g.GroupID), ct)
-	}
+	// publishMeta sends nothing from a copy that CannotRepairHere.
+	s.publishMeta(g.GroupID, m)
 }
 
 // receiveReceipt handles an inbound "delivered" or "read_receipt" frame. actor

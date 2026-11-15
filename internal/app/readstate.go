@@ -8,7 +8,6 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/store"
 )
 
@@ -177,10 +176,7 @@ func (s *Service) flushReadMarkers() {
 	}
 	// In batches no larger than a receiver takes from one message (takeMarks).
 	for _, batch := range splitMarks(markers, helloReadMarks) {
-		payload, _ := json.Marshal(guildMeta{Type: "read_marker", Markers: batch})
-		if ct, err := s.mls.Encrypt(s.ctx, notes.GroupID, payload); err == nil {
-			_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(notes.GroupID), ct)
-		}
+		s.publishMeta(notes.GroupID, guildMeta{Type: "read_marker", Markers: batch})
 		s.pushReadMarksToDevices(batch)
 	}
 }
