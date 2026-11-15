@@ -77,8 +77,8 @@ assert(fuzzy("abc", "x") === null, "no match is null");
 // the notes glyph), never as a direct message; an empty one is not offered.
 {
   const d = buildDests([
-    { id: "c1", kind: "dm", name: "Notes (other copy)", dmNotesCopy: true, dmMembers: 1, channels: [{ id: "c1n", name: "notes" }] },
-    { id: "c2", kind: "dm", name: "Notes (other copy)", dmNotesCopy: true, dmNotesCopyEmpty: true, dmMembers: 1, channels: [{ id: "c2n", name: "notes" }] },
+    { id: "c1", kind: "dm", name: "Notes (copy from Nov 12, 09:30)", dmNotesCopy: true, dmMembers: 1, channels: [{ id: "c1n", name: "notes" }] },
+    { id: "c2", kind: "dm", name: "Notes (copy from Nov 12, 09:30)", dmNotesCopy: true, dmNotesCopyEmpty: true, dmMembers: 1, channels: [{ id: "c2n", name: "notes" }] },
   ]);
   const c1 = d.find((x) => x.key === "dm:c1");
   const late = (cond, msg) => {

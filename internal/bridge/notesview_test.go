@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"testing"
+	"time"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/domain"
@@ -12,7 +13,8 @@ import (
 // The copy is never Notes (not pinned, not what opening Notes opens) and
 // never a person's DM; only a copy that holds notes is listed.
 func TestNotesViewOf(t *testing.T) {
-	notes := domain.Guild{Kind: "dm", Name: "Notes"}
+	made := time.Date(2026, time.November, 12, 9, 30, 0, 0, time.Local)
+	notes := domain.Guild{Kind: "dm", Name: "Notes", Created: made}
 	peerDM := domain.Guild{Kind: "dm", Name: "Direct message"}
 	guild := domain.Guild{Kind: "", Name: "Notes"}
 	cases := []struct {
@@ -23,8 +25,8 @@ func TestNotesViewOf(t *testing.T) {
 	}{
 		{"the Notes", notes, false, true, notesView{notes: true}},
 		{"the Notes, empty", notes, false, false, notesView{notes: true}},
-		{"a copy holding notes", notes, true, true, notesView{copy: true}},
-		{"an empty copy", notes, true, false, notesView{copy: true, copyEmpty: true}},
+		{"a copy holding notes", notes, true, true, notesView{copy: true, name: "Notes (copy from Nov 12, 09:30)"}},
+		{"an empty copy", notes, true, false, notesView{copy: true, copyEmpty: true, name: "Notes (copy from Nov 12, 09:30)"}},
 		{"a DM with a person", peerDM, false, true, notesView{}},
 		{"a guild named Notes", guild, false, true, notesView{}},
 	}
@@ -33,8 +35,16 @@ func TestNotesViewOf(t *testing.T) {
 			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
 		}
 	}
-	if notesCopyName == "Notes" {
-		t.Error("a copy is named exactly like the Notes")
+	// Two copies made on different days read differently, and neither reads
+	// as the Notes.
+	other := notes
+	other.Created = made.AddDate(0, 0, 2)
+	a, b := notesViewOf(notes, true, true).name, notesViewOf(other, true, true).name
+	if a == b || a == "Notes" || b == "Notes" {
+		t.Errorf("copies are not told apart: %q and %q", a, b)
+	}
+	if got := notesCopyName(time.Time{}); got != "Notes (other copy)" {
+		t.Errorf("a copy with no creation time is named %q", got)
 	}
 }
 

@@ -10,7 +10,7 @@ const check = (what, ok) => {
 };
 
 const notes = { kind: "dm", dmNotes: true, dmMembers: 1 };
-const copy = { kind: "dm", name: "Notes (other copy)", dmNotesCopy: true, dmMembers: 1 };
+const copy = { kind: "dm", name: "Notes (copy from Nov 12, 09:30)", dmNotesCopy: true, dmMembers: 1 };
 const emptyCopy = { ...copy, dmNotesCopyEmpty: true };
 const dm = { kind: "dm", name: "Bashir", dmMembers: 2 };
 const guild = { kind: "", name: "Keyboarders" };

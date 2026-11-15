@@ -252,7 +252,7 @@ func (s *Service) ensureNotesDM() (domain.Guild, error) {
 // ErrNotesArriving: this device holds no Notes yet, and for a few seconds
 // after it starts it waits for its other devices to hand it the account's
 // rather than starting a second. Only the user's own "open Notes" sees it.
-var ErrNotesArriving = errors.New("Your notes have not come from your other device yet. If they have not come by fifteen seconds after unlocking, this device starts a Notes of its own, and the two are shown side by side once the other device is online")
+var ErrNotesArriving = errors.New("Your notes are still coming from your other device. Try again in a few seconds.")
 
 // notesGrace is how long after Start a linked device that holds no Notes, and
 // has heard nothing from its siblings, waits before it starts a Notes of its

@@ -3077,14 +3077,22 @@ func (b *Bridge) RedeemLinkCode(code, passphrase, confirm string) (string, error
 
 // ---- mapping helpers ----
 
-// notesCopyName is what another copy of Notes is called in the list.
-const notesCopyName = "Notes (other copy)"
+// notesCopyName is what another copy of Notes is called in the list: by when
+// it was made, in the short form the meeting rooms' names use, so that two
+// copies can be told apart.
+func notesCopyName(created time.Time) string {
+	if created.IsZero() {
+		return "Notes (other copy)"
+	}
+	return "Notes (copy from " + created.Local().Format("Jan 2, 15:04") + ")"
+}
 
 // notesView is how a guild reads as Notes in the views.
 type notesView struct {
-	notes     bool // the Notes (pinned, opened by NotesDM)
-	copy      bool // another Notes group of this account
-	copyEmpty bool // a copy holding no message, so not listed
+	notes     bool   // the Notes (pinned, opened by NotesDM)
+	copy      bool   // another Notes group of this account
+	copyEmpty bool   // a copy holding no message, so not listed
+	name      string // the copy's name in the list; "" keeps the guild's
 }
 
 // notesViewOf decides it. An account can hold more than one Notes group
@@ -3097,7 +3105,7 @@ func notesViewOf(g domain.Guild, isCopy, hasMessages bool) notesView {
 		return notesView{}
 	}
 	if isCopy {
-		return notesView{copy: true, copyEmpty: !hasMessages}
+		return notesView{copy: true, copyEmpty: !hasMessages, name: notesCopyName(g.Created)}
 	}
 	return notesView{notes: g.Name == "Notes"}
 }
@@ -3309,8 +3317,8 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 		dmPreview, dmPreviewMine, dmPreviewAt = svc.LastSaid(g.Channels[0].ID)
 	}
 	nv := notesViewOf(g, g.Kind == "dm" && svc.NotesCopy(g.ID), dmPreviewAt > 0)
-	if nv.copy {
-		name = notesCopyName
+	if nv.name != "" {
+		name = nv.name
 	}
 
 	return GuildView{
