@@ -123,3 +123,34 @@ test("phone: a DM from a profile card and a conversation with a draft open with 
   assert.equal(caret[0], caret[1], "the caret waits after the draft");
   assert.deepEqual(a.errors, [], a.errors.join("\n"));
 });
+
+// The stand-in that holds the keyboard while a DM opens must let go if the DM
+// never does, and must not be an unnamed hidden field while it holds focus.
+test("phone: a DM start that never answers gives focus back", async ({ world, assert, waitFor }) => {
+  const [alice, bashir] = await world.peers(2);
+  const g = await world.guild({ name: "Stall", members: [alice, bashir] });
+  const ch = g.allChannels[0];
+  await bashir.send(ch.id, "tap my face");
+  const a = await alice.open({ viewport: "phone" });
+  await a.openChannel(ch.name, "Stall");
+  const p = a.page;
+  // StartDM reaches the core and never comes back.
+  await p.route("**/rpc", (route) => {
+    if ((route.request().postData() || "").includes('"StartDM"')) return; // left hanging
+    return route.continue();
+  });
+  await a.messageRow("tap my face").getByRole("button", { name: "View profile" }).first().tap();
+  await p.getByRole("button", { name: "Send message", exact: true }).tap();
+  const held = await p.evaluate(() => {
+    const el = document.activeElement;
+    return { keeper: el?.classList.contains("kb-keeper"), hidden: el?.getAttribute("aria-hidden"), label: el?.getAttribute("aria-label") };
+  });
+  assert.ok(held.keeper, "the stand-in holds focus while the DM starts");
+  assert.equal(held.hidden, null, "a focused field must not be aria-hidden");
+  assert.equal(held.label, "Message");
+  await waitFor(() => p.evaluate(() => !document.activeElement?.classList.contains("kb-keeper")), {
+    timeout: 8000,
+    message: "the stand-in to let go",
+  });
+  assert.deepEqual(a.errors, [], a.errors.join("\n"));
+});

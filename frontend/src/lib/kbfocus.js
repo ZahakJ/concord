@@ -19,7 +19,9 @@ function keeperEl() {
   if (keeper?.isConnected) return keeper;
   keeper = document.createElement("textarea");
   keeper.className = "kb-keeper";
-  keeper.setAttribute("aria-hidden", "true");
+  // Named, not aria-hidden: it holds focus for a moment, and a screen reader
+  // announces what has focus. "Message" is what is about to be there.
+  keeper.setAttribute("aria-label", "Message");
   keeper.tabIndex = -1;
   // 16px: a smaller font makes iOS zoom the page to the field.
   Object.assign(keeper.style, {
@@ -38,15 +40,30 @@ function keeperEl() {
   return keeper;
 }
 
+// If the field never arrives (a DM start that hangs), the stand-in lets go
+// after this long rather than keep swallowing what is typed into it.
+export const HOLD_MS = 5000;
+let holdTimer = 0;
+
 // holdKeyboard: call inside the tap. Focuses `el` if given, else the stand-in.
 export function holdKeyboard(el) {
-  (el || keeperEl()).focus({ preventScroll: true });
+  if (el) {
+    el.focus({ preventScroll: true });
+    return;
+  }
+  const k = keeperEl();
+  k.focus({ preventScroll: true });
+  clearTimeout(holdTimer);
+  holdTimer = setTimeout(() => {
+    if (document.activeElement === k) landKeyboard(null);
+  }, HOLD_MS);
 }
 
 // landKeyboard moves focus to the field the stand-in was holding for, with the
 // caret at the end, and carries over anything typed in the meantime. With no
 // field to land on, the stand-in lets go and the keyboard goes down.
 export function landKeyboard(el) {
+  clearTimeout(holdTimer);
   const held = keeper && document.activeElement === keeper ? keeper.value : "";
   if (keeper) keeper.value = "";
   if (!el) {
