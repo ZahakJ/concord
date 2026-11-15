@@ -99,11 +99,10 @@ final class NativeNotifier implements concord.EventSink {
     }
 
     // The plain-words body: content tokens ([image](concord://...)) collapse to
-    // their labels, mirroring what previewText does for the JS notifications.
+    // their labels, mirroring what previewText does for the JS notifications
+    // (NotificationText).
     private static String preview(String content) {
-        String s = content.replaceAll("\\[([^\\]]*)\\]\\(concord://[^)]*\\)", "$1").trim();
-        if (s.length() > 300) s = s.substring(0, 300) + "…";
-        return s.isEmpty() ? "Sent you something" : s;
+        return NotificationText.preview(content);
     }
 
     private String self() {
