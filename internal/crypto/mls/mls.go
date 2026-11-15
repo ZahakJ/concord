@@ -61,6 +61,15 @@ func (g GroupID) String() string { return fmt.Sprintf("%x", []byte(g)) }
 type Message struct {
 	Plaintext []byte
 	SenderID  []byte
+	// SenderLeaf and SenderKey name the leaf that sent the message: its index
+	// and the signature key that leaf holds in our current tree. SenderKey is
+	// empty when the leaf could not be read back.
+	SenderLeaf uint32
+	SenderKey  []byte
+	// SenderLeafID is the credential the sender's leaf node carries in our
+	// current tree. It differs from SenderID only when a commit has replaced
+	// that leaf's credential since the leaf was added.
+	SenderLeafID []byte
 }
 
 // Engine is Concord's group-encryption abstraction. The MLS implementation is
@@ -151,6 +160,9 @@ type Engine interface {
 	// exactly which commits one of them is missing (the basis of history sync's
 	// commit backfill).
 	Epoch(ctx context.Context, gid GroupID) (uint64, error)
+
+	// leafEngine: single leaves of the current tree (leaves.go).
+	leafEngine
 
 	// Close releases engine resources.
 	Close() error
@@ -506,7 +518,12 @@ func (e *mlsEngine) Decrypt(ctx context.Context, gid GroupID, ciphertext []byte)
 	if err != nil {
 		return nil, fmt.Errorf("mls: decrypt: %w", err)
 	}
-	return &Message{Plaintext: rm.Plaintext, SenderID: rm.SenderIdentity}, nil
+	m := &Message{Plaintext: rm.Plaintext, SenderID: rm.SenderIdentity, SenderLeaf: rm.SenderLeafIdx}
+	if l, ok, lErr := e.c.TreeLeafAt(ctx, gid, rm.SenderLeafIdx); lErr == nil && ok {
+		m.SenderKey = l.SignatureKey
+		m.SenderLeafID = l.Credential
+	}
+	return m, nil
 }
 
 func (e *mlsEngine) Members(ctx context.Context, gid GroupID) ([][]byte, error) {
