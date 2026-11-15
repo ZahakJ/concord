@@ -83,21 +83,29 @@ func (s *Service) ReadReceiptsEnabled() bool { return s.receiptsOn.Load() }
 // SetReadReceiptsEnabled flips the setting for the whole account: it is stamped,
 // stored, and sent to the account's other devices.
 func (s *Service) SetReadReceiptsEnabled(on bool) error {
-	return s.applyReceiptsPref(receiptsPref{On: on, At: time.Now().UnixMilli()}, true)
+	return s.applyReceiptsPref(receiptsPref{On: on}, true)
 }
 
 // applyReceiptsPref stores p if it is newer than what we hold. local marks a
 // change made here, which is then broadcast; a remote one never is.
+//
+// A local change is stamped after the stamp held (stampAfter), read under the
+// same lock. A sibling's clock may run up to readSkew ahead, and a later
+// choice made here must still win everywhere.
 func (s *Service) applyReceiptsPref(p receiptsPref, local bool) error {
 	s.receiptsPrefMu.Lock()
 	defer s.receiptsPrefMu.Unlock()
 	cur, _ := s.store.GetSetting(readReceiptsAtKey)
 	curAt, _ := strconv.ParseInt(cur, 10, 64)
-	if !local && p.At <= curAt {
-		return nil
-	}
-	if p.At > time.Now().Add(readSkew).UnixMilli() {
-		p.At = time.Now().UnixMilli() // a clock in the future must not freeze the setting
+	if local {
+		p.At = stampAfter(curAt)
+	} else {
+		if p.At <= curAt {
+			return nil
+		}
+		if p.At > time.Now().Add(readSkew).UnixMilli() {
+			p.At = time.Now().UnixMilli() // a clock in the future must not freeze the setting
+		}
 	}
 	val := "0"
 	if p.On {
