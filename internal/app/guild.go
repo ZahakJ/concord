@@ -2187,6 +2187,8 @@ func (s *Service) trackGuildFromDisk(g *domain.Guild) {
 			// only became itself after a restart. The roster is already in hand
 			// here; re-reading it is cheap and commits are rare.
 			s.relearnDevices(groupID)
+			// A new device of a contact is news now, not on the next heal tick.
+			go s.noteDeviceLeaves()
 			// Membership just moved, which is rememberMembers' whole trigger: the
 			// peer we could not place a moment ago may be a member now. Off the
 			// gossip callback's goroutine — it writes contacts and flushes the

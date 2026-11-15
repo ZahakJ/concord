@@ -911,6 +911,8 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 			// joined while we were away stays a stranger until the next restart.
 			// See the same call on the control topic.
 			s.relearnDevices(guild.GroupID)
+			// A new device of a contact is news now, not on the next heal tick.
+			go s.noteDeviceLeaves()
 			s.clearDisprovedEviction(guildID, guild.GroupID)
 			s.emitGuildUpdate()
 			// The epoch moved: messages that arrived too early for it may be

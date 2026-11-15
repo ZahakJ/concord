@@ -4,8 +4,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // "A device was added to this account" — the half of safety numbers Concord was
@@ -19,11 +22,18 @@ import (
 // checkmark stays green, which is precisely the move safety numbers exist to
 // catch. A coerced or borrowed link is the adversary here.
 //
-// So we notice, and we say so, but we do NOT drop verification the way Signal
-// does on a safety-number change: nothing about their identity changed, and
-// un-verifying every contact each time a friend pairs a phone would train
-// people to click through the one alert that matters. The notice says what
-// actually happened and leaves the checkmark alone.
+// So we notice, and we say so, but we do NOT drop verification: nothing about
+// their identity changed, and un-verifying every contact each time a friend
+// pairs a phone would train people to click through the one alert that
+// matters. The notice says what actually happened, offers to verify again, and
+// leaves the checkmark alone.
+//
+// There is no "safety number changed" counterpart to this, because an account's
+// fingerprint is the hash of its account key (identity.FingerprintOf) and the
+// verified mark is keyed by that fingerprint: a different key is a different
+// fingerprint, i.e. a different contact with no verified mark, not a changed
+// one. Nothing in the design rotates an account key or links an old one to a
+// new one, so there is no event to detect.
 //
 // It is written locally, into the 1:1 with that person, as kind "device" —
 // a non-"" kind, so it never pings, never counts unread, and (like
@@ -75,6 +85,45 @@ func (s *Service) persistDeviceRoster() {
 	}
 }
 
+// newDevice is one device we had not seen behind a contact's account.
+type newDevice struct {
+	fpr     string
+	account []byte
+	name    string
+	issued  int64
+}
+
+// foldDevices merges a scan (account fingerprint -> device key -> credential)
+// into the known roster, in place, and returns the devices that are new. The
+// first sight of an account seeds silently, and a device already in the roster
+// is never returned again — that is the exactly-once guarantee, so callers must
+// hold the lock that guards known.
+func foldDevices(known map[string]map[string]bool, seen map[string]map[string][]byte) (fresh []newDevice, changed bool) {
+	for fpr, keys := range seen {
+		set, first := known[fpr], known[fpr] == nil
+		if first {
+			set = map[string]bool{}
+			known[fpr] = set
+		}
+		for k, cred := range keys {
+			if set[k] {
+				continue
+			}
+			set[k] = true
+			changed = true
+			if first {
+				continue
+			}
+			d := newDevice{fpr: fpr, account: accountKeyOf(cred)}
+			if cert, ok := identity.ParseDeviceCert(cred); ok {
+				d.name, d.issued = cert.DeviceName, cert.IssuedAt
+			}
+			fresh = append(fresh, d)
+		}
+	}
+	return fresh, changed
+}
+
 // noteDeviceLeaves folds every shared group's member leaves into the per-contact
 // device roster and reports the ones that are new. Runs at startup (to seed) and
 // on the heal tick, which is the only cadence this needs: a device that joins an
@@ -87,7 +136,7 @@ func (s *Service) noteDeviceLeaves() {
 	}
 	s.mu.RUnlock()
 
-	// account fingerprint -> device key hex -> account public key
+	// account fingerprint -> device key hex -> that leaf's credential
 	seen := map[string]map[string][]byte{}
 	for _, groupID := range ids {
 		creds, err := s.mls.Members(s.ctx, groupID)
@@ -102,42 +151,12 @@ func (s *Service) noteDeviceLeaves() {
 			if seen[fpr] == nil {
 				seen[fpr] = map[string][]byte{}
 			}
-			seen[fpr][hex.EncodeToString(mailboxKeyOf(c))] = accountKeyOf(c)
+			seen[fpr][hex.EncodeToString(mailboxKeyOf(c))] = c
 		}
 	}
 
-	type newDevice struct {
-		fpr     string
-		account []byte
-		total   int
-	}
-	var fresh []newDevice
-	changed := false
 	s.mu.Lock()
-	for fpr, keys := range seen {
-		known, first := s.devices[fpr], s.devices[fpr] == nil
-		if first {
-			known = map[string]bool{}
-			s.devices[fpr] = known
-		}
-		var addedFor []byte
-		for k, accountPub := range keys {
-			if known[k] {
-				continue
-			}
-			known[k] = true
-			changed = true
-			addedFor = accountPub
-		}
-		// First sight of an account seeds silently — we have no idea which of
-		// their devices are old, and "Alice has 2 devices" is not news the first
-		// time you meet Alice. Otherwise one notice per account per scan, with
-		// the count taken after the whole account is folded in so two devices
-		// arriving together don't report a stale total.
-		if !first && addedFor != nil {
-			fresh = append(fresh, newDevice{fpr: fpr, account: addedFor, total: len(known)})
-		}
-	}
+	fresh, changed := foldDevices(s.devices, seen)
 	s.mu.Unlock()
 
 	if !changed {
@@ -145,26 +164,70 @@ func (s *Service) noteDeviceLeaves() {
 	}
 	s.persistDeviceRoster()
 	for _, d := range fresh {
-		s.announceNewDevice(d.fpr, d.account, d.total)
+		s.announceNewDevice(d.fpr, d.account, d.name, d.issued)
 	}
+}
+
+// deviceNoticeText is the calm one-liner for a contact's new device:
+// "Ann added a new device (iPhone, 11-14). If this wasn't Ann, verify."
+// who is the contact's display name ("" falls back to "They"); device is the
+// cert's DeviceName and issued its IssuedAt (unix seconds, 0 = unknown). The
+// device label is attacker-supplied text, so it is flattened and capped.
+func deviceNoticeText(who, device string, issued int64) string {
+	subject := who
+	if subject == "" {
+		subject = "They"
+	}
+	device = cleanDeviceLabel(device)
+	var parts []string
+	if device != "" {
+		parts = append(parts, device)
+	}
+	if issued > 0 {
+		parts = append(parts, time.Unix(issued, 0).Local().Format("01-02"))
+	}
+	detail := ""
+	if len(parts) > 0 {
+		detail = " (" + strings.Join(parts, ", ") + ")"
+	}
+	ref := who
+	if ref == "" {
+		ref = "them"
+	}
+	return fmt.Sprintf("%s added a new device%s. If this wasn't %s, verify.", subject, detail, ref)
+}
+
+// cleanDeviceLabel drops control characters and caps the label at 32 runes.
+func cleanDeviceLabel(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, s)
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > 32 {
+		s = string(r[:32])
+	}
+	return s
 }
 
 // announceNewDevice writes the local notice into the 1:1 with that person —
 // the one place the growth actually matters, and the place they'd look. A
 // contact we only share a server with gets no notice: it would be a line in a
 // channel everyone else can see, about someone else's phone.
-func (s *Service) announceNewDevice(fingerprint string, accountPub []byte, total int) {
+func (s *Service) announceNewDevice(fingerprint string, accountPub []byte, device string, issued int64) {
 	dm := s.findPeerDM(fingerprint)
 	if dm == nil || len(dm.Channels) == 0 {
 		return
 	}
-	msg, err := domain.NewMessage(dm.Channels[0].ID, accountPub, fmt.Sprintf(
-		"linked another device — %d now sign in to this account. Their safety number hasn't changed, so this is only worth asking about if it wasn't them.", total))
+	name := s.ProfileName(fingerprint)
+	msg, err := domain.NewMessage(dm.Channels[0].ID, accountPub, deviceNoticeText(name, device, issued))
 	if err != nil {
 		return
 	}
 	msg.Kind = "device"
-	msg.Name = s.ProfileName(fingerprint)
+	msg.Name = name
 	if _, err := s.store.SaveMessage(msg); err != nil {
 		return
 	}

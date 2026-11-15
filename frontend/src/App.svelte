@@ -186,6 +186,7 @@
     guildInvite: () => import("./modals/ModalGuildInvite.svelte"),
     invite: () => import("./modals/ModalInvite.svelte"),
     confirm: () => import("./modals/ConfirmDialog.svelte"),
+    verify: () => import("./modals/ModalVerify.svelte"),
   };
 
   // The component for whatever S.modal names, or null while it is arriving.
@@ -2495,6 +2496,8 @@
       <ModalView invite={S.modal.invite} onClose={() => (S.modal = null)} />
     {:else if modalLoadedKind === "invite"}
       <ModalView code={S.modal.code} onCopy={copy} onClose={() => (S.modal = null)} />
+    {:else if modalLoadedKind === "verify"}
+      <ModalView fingerprint={S.modal.fingerprint} name={S.modal.name} onClose={() => (S.modal = null)} />
     {:else if modalLoadedKind === "confirm"}
       <ModalView
         title={S.modal.title}

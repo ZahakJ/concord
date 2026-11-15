@@ -1824,13 +1824,23 @@
       </div>
     {:else if it.row.m.kind === "device"}
       <!-- Written locally when a contact links a device (internal/app/
-           devicewatch.go). It never travelled: the sync ingest drops every kind
-           but ""/"system", so our observation stays on this machine. -->
+           devicewatch.go), as a system line rather than a message from them.
+           It never travelled: the sync ingest drops every kind but ""/"system",
+           so our observation stays on this machine. -->
       <div class="system-msg device-note" class:enter={it.row.m.id === animateId}>
         <span>
           <span class="dev-ic"><Icon name="devices" size={11} /></span>
-          <strong>{it.row.m.senderName || it.row.m.sender.slice(0, 9)}</strong>
           {it.row.m.content}
+          <button
+            type="button"
+            class="dev-verify"
+            onclick={() =>
+              (S.modal = {
+                kind: "verify",
+                fingerprint: it.row.m.sender,
+                name: it.row.m.senderName || nameFor(it.row.m.sender),
+              })}>Verify</button
+          >
         </span>
       </div>
     {:else}
@@ -2458,6 +2468,17 @@
   }
   /* A contact's new device: worth noticing, not worth alarming. The warn tint
      says "read this" without claiming their identity changed — it didn't. */
+  .device-note .dev-verify {
+    margin-left: 6px;
+    padding: 0 8px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--accent, inherit);
+    background: none;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    cursor: pointer;
+  }
   .device-note .dev-ic {
     display: inline-grid;
     place-items: center;

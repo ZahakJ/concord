@@ -2,7 +2,10 @@ package app
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"github.com/ZahakJ/concord/internal/identity"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,4 +193,79 @@ func feedSync(t *testing.T, s *Service, guildID, channelID string, m domain.Mess
 		t.Fatalf("encrypt sync payload: %v", err)
 	}
 	s.applySyncPayload(guildID, g.GroupID, ct, s.Fingerprint())
+}
+
+func TestDeviceNoticeText(t *testing.T) {
+	issued := time.Date(2026, 11, 14, 12, 0, 0, 0, time.Local).Unix()
+	cases := []struct {
+		who, dev string
+		at       int64
+		want     string
+	}{
+		{"Ann", "iPhone", issued, "Ann added a new device (iPhone, 11-14). If this wasn't Ann, verify."},
+		{"Ann", "", issued, "Ann added a new device (11-14). If this wasn't Ann, verify."},
+		{"Ann", "iPhone", 0, "Ann added a new device (iPhone). If this wasn't Ann, verify."},
+		{"Ann", "", 0, "Ann added a new device. If this wasn't Ann, verify."},
+		{"", "Pixel 7", issued, "They added a new device (Pixel 7, 11-14). If this wasn't them, verify."},
+		{"Ann", "Phone\n\x00 two", 0, "Ann added a new device (Phone two). If this wasn't Ann, verify."},
+	}
+	for _, c := range cases {
+		if got := deviceNoticeText(c.who, c.dev, c.at); got != c.want {
+			t.Errorf("deviceNoticeText(%q,%q,%d) = %q, want %q", c.who, c.dev, c.at, got, c.want)
+		}
+	}
+	long := strings.Repeat("x", 100)
+	if got := cleanDeviceLabel(long); len(got) != 32 {
+		t.Errorf("label length %d, want 32", len(got))
+	}
+	for _, banned := range []string{"linked another", "now sign in"} {
+		if strings.Contains(deviceNoticeText("Ann", "x", 1), banned) {
+			t.Errorf("notice still carries old jargon %q", banned)
+		}
+	}
+}
+
+func TestFoldDevicesDedupe(t *testing.T) {
+	acct, _ := identity.Generate()
+	mk := func(name string, at int64) []byte {
+		dev, _ := identity.Generate()
+		return acct.IssueDeviceCertFor(dev.PublicKey(), name, at).Marshal()
+	}
+	known := map[string]map[string]bool{}
+	old := mk("Desktop", 100)
+	seen := func(creds ...[]byte) map[string]map[string][]byte {
+		m := map[string][]byte{}
+		for _, c := range creds {
+			m[hex.EncodeToString(mailboxKeyOf(c))] = c
+		}
+		return map[string]map[string][]byte{"fpr": m}
+	}
+	// First sight seeds silently.
+	if fresh, ch := foldDevices(known, seen(old)); len(fresh) != 0 || !ch {
+		t.Fatalf("first sight: fresh=%d changed=%v, want 0,true", len(fresh), ch)
+	}
+	// Nothing new: no notice, no change.
+	if fresh, ch := foldDevices(known, seen(old)); len(fresh) != 0 || ch {
+		t.Fatalf("rescan: fresh=%d changed=%v, want 0,false", len(fresh), ch)
+	}
+	// Two devices arrive together: one notice each, with their own cert data.
+	a, b := mk("iPhone", 200), mk("iPad", 300)
+	fresh, _ := foldDevices(known, seen(old, a, b))
+	if len(fresh) != 2 {
+		t.Fatalf("got %d notices, want 2", len(fresh))
+	}
+	names := map[string]int64{}
+	for _, d := range fresh {
+		names[d.name] = d.issued
+		if string(d.account) != string(acct.PublicKey()) {
+			t.Error("notice carries the wrong account key")
+		}
+	}
+	if names["iPhone"] != 200 || names["iPad"] != 300 {
+		t.Errorf("cert data lost: %v", names)
+	}
+	// Exactly once.
+	if fresh, _ := foldDevices(known, seen(old, a, b)); len(fresh) != 0 {
+		t.Fatalf("repeat scan re-announced %d devices", len(fresh))
+	}
 }

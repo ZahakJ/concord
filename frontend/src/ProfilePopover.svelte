@@ -778,7 +778,16 @@
           <p class="hint muted">Compare this with them over a call; if it matches, verify.</p>
           <!-- Verify lives behind the reveal on purpose: you cannot honestly
                confirm a number you haven't looked at. -->
-          <button class="primary verify-btn" onclick={verify}>Verify identity</button>
+          <button
+            class="primary verify-btn"
+            onclick={() => {
+              const fingerprint = mem.fingerprint;
+              const name = mem.name;
+              closeProfilePopover();
+              S.modal = { kind: "verify", fingerprint, name };
+            }}>Show my code / Scan theirs</button
+          >
+          <button class="ghost verify-btn" onclick={verify}>It matches, verify</button>
         {/if}
       {/if}
 
