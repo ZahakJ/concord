@@ -175,11 +175,51 @@ func (s *Service) flushReadMarkers() {
 	if !ok {
 		return
 	}
-	payload, _ := json.Marshal(guildMeta{Type: "read_marker", Markers: markers})
-	if ct, err := s.mls.Encrypt(s.ctx, notes.GroupID, payload); err == nil {
-		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(notes.GroupID), ct)
+	// In batches no larger than a receiver takes from one message (takeMarks).
+	for _, batch := range splitMarks(markers, helloReadMarks) {
+		payload, _ := json.Marshal(guildMeta{Type: "read_marker", Markers: batch})
+		if ct, err := s.mls.Encrypt(s.ctx, notes.GroupID, payload); err == nil {
+			_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(notes.GroupID), ct)
+		}
+		s.pushReadMarksToDevices(batch)
 	}
-	s.pushReadMarksToDevices(markers)
+}
+
+// maxMarkIDLen is far above any channel id; a longer key is not one.
+const maxMarkIDLen = 128
+
+// takeMarks applies at most helloReadMarks marks from one message, skipping
+// keys no channel could have. Our own devices are the only senders, and they
+// split larger sets (splitMarks), so this only bounds a misbehaving one.
+func takeMarks(marks map[string]int64, apply func(string, int64)) {
+	n := 0
+	for ch, at := range marks {
+		if n == helloReadMarks {
+			return
+		}
+		if ch == "" || len(ch) > maxMarkIDLen || at <= 0 {
+			continue
+		}
+		apply(ch, at)
+		n++
+	}
+}
+
+// splitMarks cuts marks into maps of at most n entries.
+func splitMarks(marks map[string]int64, n int) []map[string]int64 {
+	var out []map[string]int64
+	cur := map[string]int64{}
+	for ch, at := range marks {
+		if len(cur) == n {
+			out = append(out, cur)
+			cur = map[string]int64{}
+		}
+		cur[ch] = at
+	}
+	if len(cur) > 0 {
+		out = append(out, cur)
+	}
+	return out
 }
 
 // helloReadMarks bounds how many marks one hello carries: the newest ones,
@@ -213,11 +253,7 @@ func (s *Service) adoptOfferedReadMarks(from peer.ID, marks map[string]int64) {
 	if len(marks) == 0 || !s.ownDevice(from) || s.revocationFor(from) != nil {
 		return
 	}
-	for ch, at := range marks {
-		if ch != "" && at > 0 {
-			s.applyRemoteReadMarker(ch, at)
-		}
-	}
+	takeMarks(marks, s.applyRemoteReadMarker)
 }
 
 // newestMarks keeps the n most recent marks.

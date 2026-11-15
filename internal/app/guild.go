@@ -1774,6 +1774,11 @@ func (s *Service) sendAsWith(channelID, content, kind, replyTo, guestName, dir s
 		return domain.Message{}, err
 	}
 	s.emitMessage(msg)
+	// Writing in a chat means having read it up to here: our own message must
+	// not sit past our own read mark, here or on our other devices.
+	if guestName == "" {
+		_, _ = s.MarkRead(channelID, msg.Sent.UnixMilli())
+	}
 	return msg, nil
 }
 
@@ -3532,14 +3537,13 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if actor != s.id.Fingerprint() {
 			return
 		}
+		if notes, ok := s.findNotesDM(); !ok || notes.ID != guildID {
+			return
+		}
 		if m.ChannelID != "" {
 			s.applyRemoteReadMarker(m.ChannelID, m.At)
 		}
-		for ch, at := range m.Markers {
-			if ch != "" {
-				s.applyRemoteReadMarker(ch, at)
-			}
-		}
+		takeMarks(m.Markers, s.applyRemoteReadMarker)
 		return
 	case "hide_marker":
 		// "Delete for me" travels only the Notes self-group, and only from a
