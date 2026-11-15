@@ -98,6 +98,65 @@ async function cardBody(st, title) {
   );
 }
 
+// oldUIShots posts the card shapes a 0.61 sender writes, with a real picture,
+// into NEW's guild, then photographs OLD's own (shipped) UI reading them.
+async function oldUIShots(st) {
+  const dir = process.env.INTEROP_SHOTS;
+  const tag = process.env.INTEROP_OLD_TAG || "old";
+  try {
+    const png = readFileSync(join(import.meta.dirname, "../docs/media/feature-graphic.png"));
+    const w = png.readUInt32BE(16);
+    const h = png.readUInt32BE(20);
+    const blobId = await rpc(NEW, "SendAttachment", [st.newGuildChanNew, `data:image/png;base64,${png.toString("base64")}`, w, h, "", false, "", ""]);
+    const msg = (await messagesIn(NEW, st.newGuildChanNew)).find((m) => (m.content || "").includes(blobId));
+    const a = parseAttach(msg.content);
+    const tok = (desc) =>
+      `![image](concord://attach/v2/${a.blobID}/${a.keys}/${a.subtype}/${w}x${h}/2//${Buffer.from(desc, "utf8").toString("base64url")})`;
+    const YT = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    const yt = `[Never Gonna Give You Up \\(Official Video\\)](${YT}) · youtube.com\n${tok("Rick Astley")}`;
+    for (const body of [
+      yt,
+      `this one is a classic ${YT} honestly\n${yt}`,
+      `[Concord: chat that stays yours](https://concord.example.org/) · example.org\n${tok("Concord")}`,
+      "log in here: [paypal.com](https://evil.example/login)",
+    ]) {
+      await rpc(NEW, "SendMessage", [st.newGuildChanNew, body, ""]);
+    }
+    await waitFor("OLD has the showcase", () => findMessage(OLD, st.newGuildChanOld, "log in here: [paypal.com]"));
+    const { loadChromium } = await import("./playwright.mjs");
+    const chromium = await loadChromium();
+    const browser = await chromium.launch({ headless: true, executablePath: existsSync("/usr/bin/chromium") ? "/usr/bin/chromium" : undefined });
+    const guild = st.newGuildName || "NewMadeGuild";
+    for (const [name, viewport, mobile] of [
+      ["1280", { width: 1280, height: 900 }, false],
+      ["390", { width: 390, height: 844 }, true],
+    ]) {
+      const ctx = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 2 : 1 });
+      const page = await ctx.newPage();
+      await page.goto(`${OLD}/?t=${process.env.CONCORD_API_TOKEN}`, { waitUntil: "domcontentloaded" });
+      const pass = page.locator('input[placeholder="Passphrase"]');
+      await pass.waitFor({ timeout: 30000 }).catch(() => {});
+      if (await pass.isVisible().catch(() => false)) {
+        await pass.fill(PASS_OLD);
+        await pass.press("Enter");
+      }
+      await page.waitForTimeout(3000);
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.getByRole("button", { name: guild, exact: true }).first().click({ timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(800);
+      await page.locator(".channel").first().click({ timeout: 10000 }).catch(() => {});
+      await page.getByText("log in here").first().waitFor({ timeout: 20000 }).catch(() => {});
+      await page.waitForTimeout(2500);
+      await page.screenshot({ path: join(dir, `${tag}-reads-cards-${name}.png`) });
+      await ctx.close();
+    }
+    await browser.close();
+    console.log(`  saved ${tag} UI captures in ${dir}`);
+  } catch (e) {
+    console.log(`  (OLD UI captures skipped: ${e.message || e})`);
+  }
+}
+
 function loadState() {
   return existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : { lanes: [] };
 }
@@ -840,6 +899,13 @@ async function phaseOnline() {
     if (got.content !== body) throw new Error(`masked link mangled: ${got.content}`);
     return { evidence: [`NEW holds: ${got.content}`] };
   });
+
+  // --- what OLD's own UI draws (optional) -------------------------------------
+  // INTEROP_SHOTS=<dir> opens OLD's shipped web UI headless, at a desktop and a
+  // phone width, on the channel the cards went to, and saves what it shows.
+  // Needs playwright-core (scripts/playwright.mjs). A failure here is noted and
+  // never fails the run: it is a picture, the lanes above are the proof.
+  if (process.env.INTEROP_SHOTS) await oldUIShots(st);
 
   await lane("U1", "nothing OLD sent live is marked unsigned on NEW", () => noneMarked(st, "live"));
 
