@@ -21,11 +21,22 @@ func TestOnlyCommitterBehindCannotContinue(t *testing.T) {
 	if testing.Short() {
 		t.Skip("network integration test")
 	}
-	t.Run("sole committer is refused", func(t *testing.T) { runContinueGuard(t, false) })
-	t.Run("another committer exists", func(t *testing.T) { runContinueGuard(t, true) })
+	t.Run("sole committer is refused", func(t *testing.T) { runContinueGuard(t, guardSole) })
+	t.Run("another committer exists", func(t *testing.T) { runContinueGuard(t, guardOtherCommitter) })
+	t.Run("a committer who left does not count", func(t *testing.T) { runContinueGuard(t, guardCommitterLeft) })
+	t.Run("the owner's other device can repair", func(t *testing.T) { runContinueGuard(t, guardLinkedDevice) })
 }
 
-func runContinueGuard(t *testing.T, grantP bool) {
+type guardCase int
+
+const (
+	guardSole guardCase = iota
+	guardOtherCommitter
+	guardCommitterLeft
+	guardLinkedDevice
+)
+
+func runContinueGuard(t *testing.T, c guardCase) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	boot := testRendezvous(t, ctx)
@@ -41,16 +52,29 @@ func runContinueGuard(t *testing.T, grantP bool) {
 		}
 		return svc
 	}
-	uDir, pDir, qDir := t.TempDir(), t.TempDir(), t.TempDir()
+	uDir, pDir, qDir, tDir := t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir()
 	u, p := start(uDir), start(pDir)
-	var q, r *Service
+	var q, r, tab *Service
 	defer func() {
-		for _, s := range []*Service{u, p, q, r} {
+		for _, s := range []*Service{u, p, q, r, tab} {
 			if s != nil {
 				_ = s.Close()
 			}
 		}
 	}()
+	members := 2
+	if c == guardLinkedDevice {
+		// U's tablet, linked into U's account before the guild exists.
+		code, err := u.LinkOffer()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := RedeemLink(ctx, tDir, code, "test-pass", ""); err != nil {
+			t.Fatalf("link U's tablet: %v", err)
+		}
+		tab = start(tDir)
+		members = 3
+	}
 
 	g, err := u.CreateGuild("guarded")
 	if err != nil {
@@ -63,10 +87,16 @@ func runContinueGuard(t *testing.T, grantP bool) {
 	if _, err := p.JoinViaInvite(code); err != nil {
 		t.Fatalf("P join: %v", err)
 	}
-	waitMemberCount(t, 90*time.Second, g.ID, 2, u, p)
-	if grantP {
-		// R holds manage-members, so U is not the only possible committer. R is
-		// offline when U comes back, so nobody re-admits U before the test asks.
+	waitMemberCount(t, 90*time.Second, g.ID, members, u, p)
+	if c == guardLinkedDevice {
+		// The tablet is offline when U comes back, so it re-admits U only when
+		// the test brings it back.
+		_ = tab.Close()
+		tab = nil
+	}
+	if c == guardOtherCommitter || c == guardCommitterLeft {
+		// R holds manage-members. R is offline when U comes back, so nobody
+		// re-admits U before the test asks.
 		r = start(t.TempDir())
 		code, err := u.InviteCode(g.ID)
 		if err != nil {
@@ -86,12 +116,16 @@ func runContinueGuard(t *testing.T, grantP bool) {
 		waitFor(t, 60*time.Second, func() bool {
 			return u.memberHasPerm(g.ID, r.Fingerprint(), PermManageMembers)
 		}, "the manage-members grant never landed")
+		if c == guardCommitterLeft {
+			if err := r.LeaveGuild(g.ID); err != nil {
+				t.Fatal(err)
+			}
+			waitMemberCount(t, 90*time.Second, g.ID, 2, u, p)
+		} else {
+			members = 3
+		}
 		_ = r.Close()
 		r = nil
-	}
-	members := 2
-	if grantP {
-		members = 3
 	}
 
 	// The backup: U's data dir as it stood before it admitted Q.
@@ -123,26 +157,60 @@ func runContinueGuard(t *testing.T, grantP bool) {
 		return u.OutOfSync(g.ID) && len(u.forkedWith(g.ID)) > 0
 	}, "the restored owner never saw its members ahead of it")
 
-	err = u.ResolveStranding(g.ID)
-	if grantP {
+	switch c {
+	case guardOtherCommitter:
 		// R could re-admit U: today's behaviour stands.
-		if err != nil {
+		if err := u.ResolveStranding(g.ID); err != nil {
 			t.Fatalf("ResolveStranding with another committer in the guild: %v", err)
 		}
 		if u.OutOfSync(g.ID) || u.CannotRepairHere(g.ID) {
 			t.Fatal("Continue from here left the guild flagged although another committer exists")
 		}
 		return
+	case guardLinkedDevice:
+		if !u.behindLatched(g.ID) {
+			t.Fatal("U saw its members ahead but did not latch it")
+		}
+		if u.CannotRepairHere(g.ID) {
+			t.Fatal("the view says nothing can repair U although U's own tablet can re-admit it")
+		}
+		// The tablet comes back and re-admits U: the copy is genuinely repaired.
+		tab = start(tDir)
+		waitFor(t, 120*time.Second, func() bool { return !u.OutOfSync(g.ID) }, "U's tablet never re-admitted it")
+		assertBehindCleared(t, u, g.ID)
+		return
 	}
-	if !errors.Is(err, ErrBehindOnlyCommitter) {
-		t.Fatalf("ResolveStranding on a sole committer's dead copy: err=%v, want ErrBehindOnlyCommitter", err)
+
+	refused := func(when string) {
+		t.Helper()
+		if err := u.ResolveStranding(g.ID); !errors.Is(err, ErrBehindOnlyCommitter) {
+			t.Fatalf("%s: ResolveStranding on a sole committer's dead copy: err=%v, want ErrBehindOnlyCommitter", when, err)
+		}
+		if !u.OutOfSync(g.ID) {
+			t.Fatalf("%s: the refused Continue cleared the flag", when)
+		}
+		if !u.CannotRepairHere(g.ID) {
+			t.Fatalf("%s: the guild's view does not say the copy cannot be repaired here", when)
+		}
 	}
-	if !u.OutOfSync(g.ID) || len(u.forkedWith(g.ID)) == 0 {
-		t.Fatal("the refused Continue still cleared the flag or the fork evidence")
+	refused("with members online")
+	if c != guardSole {
+		return
 	}
-	if !u.CannotRepairHere(g.ID) {
-		t.Fatal("the guild's view does not say the copy cannot be repaired here")
-	}
+	// The members who are ahead close the app. The recovery pass drops the
+	// fork evidence against peers that went away; the refusal must not go with it.
+	_ = p.Close()
+	p = nil
+	_ = q.Close()
+	q = nil
+	waitFor(t, 30*time.Second, func() bool { return len(u.host.Peers()) <= 1 }, "the members never disconnected")
+	u.recoverOutOfSync(g.ID)
+	refused("after the members went offline")
+	// And a restart keeps it.
+	_ = u.Close()
+	u = nil
+	u = start(uDir)
+	refused("after a restart")
 }
 
 // copyDataDir copies a stopped device's data directory, the way restoring a
@@ -174,5 +242,18 @@ func copyDataDir(t *testing.T, src, dst string) {
 	})
 	if err != nil {
 		t.Fatalf("copy %s: %v", src, err)
+	}
+}
+
+// assertBehindCleared checks that a device that genuinely caught up no longer
+// carries the "seen behind" verdict.
+func assertBehindCleared(t *testing.T, s *Service, guildID string) {
+	t.Helper()
+	waitFor(t, 30*time.Second, func() bool { return !s.behindLatched(guildID) }, "a device that caught up still carries the seen-behind latch")
+	if v, _ := s.store.GetSetting(behindSeenPrefix + guildID); v != "" {
+		t.Fatalf("the persisted seen-behind latch survived the catch-up: %q", v)
+	}
+	if s.CannotRepairHere(guildID) {
+		t.Fatal("a device that caught up still says it cannot be repaired")
 	}
 }

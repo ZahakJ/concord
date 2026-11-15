@@ -530,10 +530,14 @@ func (s *Service) clearForkedPeer(guildID string, p peer.ID) bool {
 // clearForkEvidence drops every fork verdict for a guild. Used after a re-add
 // heal, whose Join replaces our group state outright: nothing we believed about
 // our old tree survives it.
+//
+// It also drops the "seen behind" latch. Its callers are the three events that
+// end the latch: a heal Join, an accepted ResolveStranding, and eviction.
 func (s *Service) clearForkEvidence(guildID string) {
 	s.mu.Lock()
 	delete(s.forkedPeers, guildID)
 	s.mu.Unlock()
+	s.clearBehind(guildID)
 }
 
 // forkedWith lists the peers a guild's fork verdict currently rests on.
@@ -877,6 +881,9 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 		if resp.EpochGap {
 			// Nobody reachable can bridge us; surface it rather than dropping
 			// messages silently. A later successful sync clears the flag.
+			if cur, err := s.mls.Epoch(s.ctx, guild.GroupID); err == nil && resp.Epoch > cur {
+				s.noteBehind(guildID, resp.Epoch)
+			}
 			s.setOutOfSync(guildID, true)
 			return nil
 		}
@@ -901,6 +908,7 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 			// wiped seconds later by somebody on ours, the flag never latched,
 			// and no heal was ever attempted. Withdraw the evidence against this
 			// peer, and clear the guild only when none stands.
+			s.clearBehindIfLevel(guildID, guild.GroupID, resp.Epoch)
 			if !s.clearForkedPeer(guildID, p) {
 				s.setOutOfSync(guildID, false)
 			}
@@ -924,6 +932,7 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 				// BEHIND can strand us, so only that verdict is kept; the equal
 				// case stays the transient flag it has always been, and the next
 				// commit on either branch breaks the tie.
+				s.noteBehind(guildID, resp.Epoch)
 				s.noteForkedPeer(guildID, p)
 			} else {
 				s.setOutOfSync(guildID, true)

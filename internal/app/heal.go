@@ -1,9 +1,11 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -207,51 +209,158 @@ func (s *Service) ResolveStranding(guildID string) error {
 var ErrBehindOnlyCommitter = errors.New("app: this copy fell behind and cannot be repaired from here; start a new guild with the same people")
 
 // CannotRepairHere reports that this device's copy of a guild is behind its
-// members and that nobody can bring it back: peers it can reach stand strictly
-// ahead of its epoch (the fork evidence) and no other account may commit, so no
-// re-add will ever come. Continuing from here would fork the guild for good —
-// every member this device then admitted or kicked would be admitted to, or
-// kicked from, a copy only it and its newcomers can see. The guild's view
-// carries this so the banner can say it instead of offering to continue.
+// members and that nobody can bring it back: a member was seen strictly ahead
+// of it where it could not follow (the "seen behind" latch, which outlives that
+// member going offline and a restart) and no other account or device may
+// commit, so no re-add will ever come. Continuing from here would fork the
+// guild for good: every member this device then admitted or kicked would be
+// admitted to, or kicked from, a copy only it and its newcomers can see. The
+// guild's view carries this so the banner can say it instead of offering to
+// continue.
 func (s *Service) CannotRepairHere(guildID string) bool {
-	if s.aloneInGuild(guildID) || len(s.forkedWith(guildID)) == 0 {
+	if s.aloneInGuild(guildID) || !s.behindLatched(guildID) {
 		return false
 	}
 	return s.onlyPossibleCommitter(guildID)
 }
 
-// onlyPossibleCommitter reports whether this account is the only one that may
-// commit membership changes in the guild: it is the effective owner, no other
-// account holds manage-members (see authorizedCommitter), and no heir stands
-// ready to claim ownership. Anyone else in those seats could re-admit us.
+// onlyPossibleCommitter reports whether this device is the only one that may
+// commit membership changes in the guild: its account is the effective owner,
+// no other device of that account is in the group (authorizedCommitter accepts
+// any of them), and no other account still in the group holds manage-members or
+// stands as heir ready to claim ownership. Anyone in those seats could re-admit
+// us. A seat held by someone who has left the group counts for nothing.
 func (s *Service) onlyPossibleCommitter(guildID string) bool {
 	mine := s.id.Fingerprint()
-	roster := s.guildMemberFingerprints(guildID)
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if _, ok := s.guilds[guildID]; !ok {
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if !ok || len(groupID) == 0 {
 		return false
 	}
+	creds, err := s.mls.Members(s.ctx, groupID)
+	if err != nil || len(creds) == 0 {
+		return false // an unreadable roster proves nothing
+	}
+	inGroup := map[string]bool{}
+	for _, c := range creds {
+		f := accountFingerprintOf(c)
+		if f == mine && !bytes.Equal(c, s.myCredential) {
+			return false // another device of this account
+		}
+		inGroup[f] = true
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	owner := s.effectiveOwnerLocked(guildID)
 	if owner != mine {
 		return false
 	}
 	st := s.govState[guildID]
-	seated := func(f string) bool { return f != "" && f != mine && !st.Removed[f] && !st.Banned[f] }
+	seated := func(f string) bool {
+		return f != "" && f != mine && inGroup[f] && !st.Removed[f] && !st.Banned[f]
+	}
 	if seated(st.Heir()) {
 		return false
 	}
-	for f := range st.MemberRoles {
-		if seated(f) && st.Can(owner, f, PermManageMembers) {
-			return false
-		}
-	}
-	for _, f := range roster {
+	for f := range inGroup {
 		if seated(f) && st.Can(owner, f, PermManageMembers) {
 			return false
 		}
 	}
 	return true
+}
+
+// behindSeenPrefix keys the persisted "seen behind" latch: the epoch a member
+// stood at when this device, behind it, could not follow.
+const behindSeenPrefix = "behind_seen:"
+
+// noteBehind latches that a member stood at epoch, strictly ahead of this
+// device, and this device could not be bridged there: a fork verdict, or an
+// EpochGap from a peer ahead. It is kept until the device is level again with a
+// readable answer, a heal Join replaces its group state, ResolveStranding is
+// accepted, or the device is evicted. Losing the ahead member, or restarting,
+// does not clear it; that is what lets the guard in ResolveStranding hold once
+// the members who are ahead close their apps.
+func (s *Service) noteBehind(guildID string, epoch uint64) {
+	s.mu.Lock()
+	if epoch <= s.behindSeen[guildID] {
+		s.mu.Unlock()
+		return
+	}
+	s.behindSeen[guildID] = epoch
+	s.mu.Unlock()
+	_ = s.store.SetSetting(behindSeenPrefix+guildID, strconv.FormatUint(epoch, 10))
+	s.emitGuildUpdate()
+}
+
+// behindLatched reports whether the "seen behind" latch stands for a guild.
+func (s *Service) behindLatched(guildID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.behindSeen[guildID] > 0
+}
+
+// clearBehindIfLevel drops the latch after a readable answer from a peer at or
+// past the latched epoch, once this device stands there too. A readable answer
+// from a member at an older epoch proves nothing about the branch that was ahead.
+func (s *Service) clearBehindIfLevel(guildID string, groupID []byte, peerEpoch uint64) {
+	s.mu.RLock()
+	seen := s.behindSeen[guildID]
+	s.mu.RUnlock()
+	if seen == 0 || peerEpoch < seen {
+		return
+	}
+	if cur, err := s.mls.Epoch(s.ctx, groupID); err != nil || cur < seen {
+		return
+	}
+	s.clearBehind(guildID)
+}
+
+// clearBehind drops the latch and its persisted copy.
+func (s *Service) clearBehind(guildID string) {
+	s.mu.Lock()
+	if s.behindSeen[guildID] == 0 {
+		s.mu.Unlock()
+		return
+	}
+	delete(s.behindSeen, guildID)
+	s.mu.Unlock()
+	_ = s.store.SetSetting(behindSeenPrefix+guildID, "")
+	s.emitGuildUpdate()
+}
+
+// loadBehindSeen restores the latch at startup, and with it the out-of-sync
+// flag: the group state on disk still reads as a healthy guild, so without this
+// a restart would lower the banner, re-enable admissions, and offer nothing to
+// say the copy is behind until a member who is ahead happened to answer.
+func (s *Service) loadBehindSeen() {
+	s.mu.RLock()
+	ids := make([]string, 0, len(s.guilds))
+	for id := range s.guilds {
+		ids = append(ids, id)
+	}
+	s.mu.RUnlock()
+	for _, id := range ids {
+		v, err := s.store.GetSetting(behindSeenPrefix + id)
+		if err != nil || v == "" {
+			continue
+		}
+		epoch, err := strconv.ParseUint(v, 10, 64)
+		if err != nil || epoch == 0 {
+			continue
+		}
+		s.mu.Lock()
+		s.behindSeen[id] = epoch
+		if s.evicted[id] == "" {
+			s.outOfSync[id] = true
+		}
+		s.mu.Unlock()
+	}
 }
 
 // resolveStranding is ResolveStranding without the guard, for the case the

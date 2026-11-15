@@ -1443,7 +1443,7 @@
       <button class="oos-act" onclick={retrySync}>Retry now</button>
     {/if}
     {#if acts.cannotRepair}
-      <span class="oos-stuck">{cannotRepairText}</span>
+      <span class="oos-stuck">{cannotRepairText(activeGuild()?.kind)}</span>
     {/if}
     {#if acts.continueHere}
       <button class="oos-act" onclick={continueFromHere}>Continue from here</button>

@@ -267,6 +267,11 @@ type Service struct {
 	// it erased the verdict a member on the other branch had just set, and the
 	// two halves sat apart with nobody flagged. See sync.go and heal.go.
 	forkedPeers map[string]map[peer.ID]bool
+	// behindSeen is, per guild, the highest epoch a member stood at while this
+	// device, strictly behind it, could not be bridged there. Unlike forkedPeers
+	// it does not lapse when that member goes offline, and it is persisted: it
+	// is what CannotRepairHere reads. Guarded by mu. See heal.go.
+	behindSeen map[string]uint64
 	// lastReciprocal throttles the catch-up we start when a member tells us, in
 	// its own sync request, that it stands ahead of us (see handleSyncRequest),
 	// keyed guildID|peerID.
@@ -1176,6 +1181,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		evicted:          map[string]string{},
 		evictedReason:    map[string]string{},
 		forkedPeers:      map[string]map[peer.ID]bool{},
+		behindSeen:       map[string]uint64{},
 		lastReciprocal:   map[string]time.Time{},
 		lastHealed:       map[string]time.Time{},
 		blocked:          map[string]bool{},
@@ -1473,6 +1479,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// the epoch we were removed at — and the client goes back to asking to be
 	// re-added instead of saying what happened.
 	s.loadEvicted()
+	s.loadBehindSeen()
 	s.loadBlocked()
 	s.loadPendingMembers()
 	s.loadMessageRequests()
