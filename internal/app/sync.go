@@ -489,6 +489,20 @@ func (s *Service) coalesceSync(key string, fn func() error) error {
 	}
 }
 
+// ownLostCommit reports whether a commit that this device could not apply is
+// one its own leaf made at its current epoch: sent by this device's own
+// credential, and verifying against its tree (mls VerifyCommit). That is the
+// only commit a device can be stuck on for good, since it holds no path secret
+// for its own lost commit; another committer's it can apply. It is the proof
+// noteBehind requires, and only this device's key can produce it.
+func (s *Service) ownLostCommit(groupID, commit []byte) bool {
+	sender, err := s.mls.CommitSender(s.ctx, groupID, commit)
+	if err != nil || !bytes.Equal(sender, s.myCredential) {
+		return false
+	}
+	return s.mls.VerifyCommit(s.ctx, groupID, commit) == nil
+}
+
 // noteForkedPeer records that p served a payload we could not read while
 // standing strictly ahead of our epoch, and flags the guild. See the call site
 // for why "strictly ahead" is the whole of the evidence.
@@ -857,11 +871,11 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 		}
 
 		applied := 0
-		// proven is set when a commit for our own current epoch, from a
-		// committer we authorize, verifies against our tree and still cannot
-		// be applied: the one thing a peer cannot make up about being ahead of
-		// us (see noteBehind). The epoch numbers in this response are only the
-		// peer's word.
+		// proven is set when a commit our own leaf made at our current epoch
+		// verifies against our tree and still cannot be applied
+		// (ownLostCommit): the one thing a peer cannot make up about being
+		// ahead of us (see noteBehind). The epoch numbers in this response are
+		// only the peer's word.
 		proven := false
 		for _, c := range resp.Commits {
 			// Same governance gate as the live control topic: a peer serving us
@@ -881,7 +895,7 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 				return nil
 			}
 			if err := s.mls.ApplyCommit(s.ctx, guild.GroupID, c); err != nil {
-				proven = s.mls.VerifyCommit(s.ctx, guild.GroupID, c) == nil
+				proven = s.ownLostCommit(guild.GroupID, c)
 				break
 			}
 			s.logCommit(guild.GroupID, c)

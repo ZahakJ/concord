@@ -320,11 +320,12 @@ const behindSeenPrefix = "behind_seen:"
 
 // noteBehind latches, on PROOF, that the guild stands at epoch, strictly ahead
 // of this device, and this device could not be bridged there. The proof is a
-// commit for this device's own current epoch, from a committer this device
-// itself authorizes, that verifies against this device's tree (signature and
-// membership tag, mls VerifyCommit) and that it still could not apply: the
-// guild moved on from where this copy stands, by a commit this copy cannot
-// follow. A peer's word for its epoch is not proof; see noteBehindClaim.
+// commit for this device's own current epoch, made by this device's own leaf,
+// that verifies against this device's tree (signature and membership tag, mls
+// VerifyCommit) and that it still could not apply (ownLostCommit): the guild
+// moved on from where this copy stands, by a commit this copy cannot follow.
+// Another committer's commit is not proof: that one it could apply. A peer's
+// word for its epoch is not proof either; see noteBehindClaim.
 //
 // The proven latch is kept until the device is level again with a readable
 // answer, a heal Join replaces its group state, ResolveStranding is accepted,
