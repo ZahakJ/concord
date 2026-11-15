@@ -147,6 +147,8 @@
 // "comet" is a name both libraries chose, and for one commit a wearer of the
 // gradient comet got a drawn one.
 
+import { table } from "./lookup.js";
+
 const P = (d, o = {}) => ({ d, z: "front", fill: "ink", ...o });
 
 // ── polar geometry ──────────────────────────────────────────────────────────
@@ -3181,9 +3183,7 @@ export const DECORATIONS = [
   },
 ];
 
-export const DECORATION_BY_ID = Object.fromEntries(
-  DECORATIONS.map((d) => [d.id, d]),
-);
+export const DECORATION_BY_ID = table(Object.fromEntries(DECORATIONS.map((d) => [d.id, d])));
 
 export const DECORATION_GROUPS = [
   ...new Set(DECORATIONS.map((d) => d.group)),
@@ -3261,7 +3261,7 @@ export const COLORWAYS = [
   { id: "amethyst", name: "Amethyst", c: ["#8a5cd8", "#c4a5f3"] },
 ];
 
-export const COLORWAY_BY_ID = Object.fromEntries(COLORWAYS.map((c) => [c.id, c]));
+export const COLORWAY_BY_ID = table(Object.fromEntries(COLORWAYS.map((c) => [c.id, c])));
 
 // decorColors resolves what a decoration is actually painted in: the pair of
 // base colours the ramp expands. Fails CLOSED in the only direction that is

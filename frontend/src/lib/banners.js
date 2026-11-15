@@ -11,6 +11,8 @@
 // live preview and everyone else's profile card all use — so what you pick is
 // exactly what they see.
 
+import { table } from "./lookup.js";
+
 export const BANNERS = [
   // ---------- cosmic ----------
   {
@@ -299,7 +301,7 @@ export const BANNERS = [
   { id: "paper", name: "Paper", group: "Calm", base: "linear-gradient(160deg, #f5f0e6 0%, #ded5c4 100%)" },
 ];
 
-export const BANNER_BY_ID = Object.fromEntries(BANNERS.map((b) => [b.id, b]));
+export const BANNER_BY_ID = table(Object.fromEntries(BANNERS.map((b) => [b.id, b])));
 export const BANNER_GROUPS = ["Cosmic", "Weather", "Nature", "Cyber", "Vibes", "Calm"];
 
 export const isPreset = (banner = "") => banner.startsWith("preset:");

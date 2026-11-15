@@ -23,6 +23,8 @@
 //   keyColon   an identifier or string followed by ':' is a key, not a value
 //   lines      for the "lines" scanner: [prefix, kind] in priority order
 
+import { own } from "./lookup.js";
+
 const set = (s) => new Set(s.split(" "));
 
 // The four string shapes that cover everything in the table below.
@@ -278,7 +280,7 @@ const ALIASES = {
 export function tableFor(label) {
   if (!label) return null;
   const key = String(label).toLowerCase();
-  return TABLES[key] || TABLES[ALIASES[key]] || null;
+  return own(TABLES, key) || own(TABLES, own(ALIASES, key)) || null;
 }
 
 // The languages the app claims to know, for anything that wants to list them.

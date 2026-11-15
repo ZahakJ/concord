@@ -4050,7 +4050,7 @@ const presetPrefix = "preset:"
 // peer's guild metadata is learned, because a remote peer's string is no more
 // trustworthy than a local one.
 func validPresetID(id string) bool {
-	if id == "" || len(id) > 32 {
+	if id == "" || len(id) > 32 || reservedID(id) {
 		return false
 	}
 	for _, r := range id {
