@@ -102,6 +102,10 @@ type helloFrame struct {
 	// reached it. Merged like any remote marker (max, capped by readSkew).
 	// Older builds neither send nor read it.
 	ReadMarks map[string]int64 `json:"readMarks,omitempty"`
+	// Receipts is the account's read-receipts setting with its change stamp,
+	// ONLY to and from a proven device of our own account, so a device linked
+	// later learns it without waiting for the next change. Newest stamp wins.
+	Receipts *receiptsPref `json:"receipts,omitempty"`
 	// ProfileAt is the edit stamp of the profile record we could hand this
 	// peer's account over the profile stream (profilerecord.go): our own stamp
 	// to a device of our account, and to a member the stamp of the record they
@@ -184,6 +188,7 @@ func (s *Service) greet(p peer.ID) {
 		Left:         s.leftGuildsFor(p),
 		Arrived:      s.arrivalsFor(p),
 		ReadMarks:    s.readMarksFor(p),
+		Receipts:     s.receiptsPrefFor(p),
 		ProfileAt:    hint,
 	})
 	if err != nil {
@@ -281,6 +286,7 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	out.Left = s.leftGuildsFor(from)
 	out.Arrived = s.arrivalsFor(from)
 	out.ReadMarks = s.readMarksFor(from)
+	out.Receipts = s.receiptsPrefFor(from)
 	out.ProfileAt = s.profileHintFor(from)
 	if out.Revoked == nil && s.canPlace(from) {
 		out.Credential, out.Name = s.myCredential, s.deviceLabel()
@@ -467,6 +473,7 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 			s.fetchOwnProfile(from, f.ProfileAt)
 		}()
 		go s.adoptOfferedReadMarks(from, f.ReadMarks)
+		go s.adoptOfferedReceiptsPref(from, f.Receipts)
 	}()
 	// A revocation naming THIS device is the one thing we act on before anything
 	// else, since acting on it means we stop existing.

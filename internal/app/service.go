@@ -357,6 +357,16 @@ type Service struct {
 	// by mu — it is read on every keystroke's publish and on every inbound hint.
 	typingOn bool
 
+	// Receipts (see receipts.go). receiptsOn mirrors the read-receipts setting;
+	// the rest is the coalescing queue for outbound acks and read receipts.
+	receiptsOn     atomic.Bool
+	receiptsPrefMu sync.Mutex
+	receiptMu      sync.Mutex
+	pendingAcks    map[string][]string
+	pendingReads   map[string][2]int64
+	receiptTimer   *time.Timer
+	onReceipts     []func(string)
+
 	// gameSearchOn and gifSearchOn mirror the two off-device search switches
 	// (see offdevice.go), guarded by mu. They are read at the top of the two
 	// Service methods that would otherwise send what the user is typing to
@@ -1531,6 +1541,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	s.loadPendingMembers()
 	s.loadMessageRequests()
 	s.loadTypingPref()
+	s.loadReceiptsPref()
 	s.loadOffDeviceSearchPrefs()
 	// Seed the per-contact device roster before anything can raise an alert, so
 	// a restart doesn't report every device we already knew about as new.

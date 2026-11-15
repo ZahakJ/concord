@@ -92,6 +92,9 @@ type Bridge struct {
 	OnGuildUpdate   func()
 	OnGuildInvite   func(appsvc.GuildInvite)
 	OnReadState     func(ReadStateView)
+	// OnReceipts fires as the "receipts" event when delivery/read ticks for a
+	// DM channel changed (ChannelID "" = the read-receipts setting changed).
+	OnReceipts func(ReceiptsView)
 	// OnStory fires as the "story" event when a guild's stories change
 	// (GuildID "" = the expiry sweep; recheck every guild).
 	OnStory func(StoryUpdate)
@@ -122,6 +125,11 @@ type StoryUpdate struct {
 type ReadStateView struct {
 	ChannelID string `json:"channelId"`
 	At        int64  `json:"at"`
+}
+
+// ReceiptsView names the DM channel whose message ticks changed.
+type ReceiptsView struct {
+	ChannelID string `json:"channelId"`
 }
 
 // TypingInfo reports that a peer is typing in a channel.
@@ -950,6 +958,11 @@ func (b *Bridge) Login(passphrase string) error {
 	svc.OnReadState(func(channelID string, at int64) {
 		if b.OnReadState != nil {
 			b.OnReadState(ReadStateView{ChannelID: channelID, At: at})
+		}
+	})
+	svc.OnReceipts(func(channelID string) {
+		if b.OnReceipts != nil {
+			b.OnReceipts(ReceiptsView{ChannelID: channelID})
 		}
 	})
 	svc.OnStory(func(guildID string) {
@@ -1902,6 +1915,35 @@ func (b *Bridge) DeclineMessageRequest(fingerprint string, block bool) error {
 		return err
 	}
 	return svc.DeclineMessageRequest(fingerprint, block)
+}
+
+// Receipts returns delivery/read ticks for our messages in a DM channel.
+func (b *Bridge) Receipts(channelID string) (map[string]appsvc.ReceiptView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.Receipts(channelID)
+}
+
+// ReadReceiptsEnabled reports whether read receipts are exchanged (off by
+// default; mutual).
+func (b *Bridge) ReadReceiptsEnabled() (bool, error) {
+	svc, err := b.service()
+	if err != nil {
+		return false, nil
+	}
+	return svc.ReadReceiptsEnabled(), nil
+}
+
+// SetReadReceiptsEnabled turns read receipts on or off, in both directions,
+// for every device of the account.
+func (b *Bridge) SetReadReceiptsEnabled(on bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetReadReceiptsEnabled(on)
 }
 
 // TypingEnabled reports whether typing indicators are exchanged (reciprocal).
@@ -4208,6 +4250,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.AcceptMessageRequest(argStr(args, 0))
 	case "DeclineMessageRequest":
 		return nil, b.DeclineMessageRequest(argStr(args, 0), argBool(args, 1))
+	case "Receipts":
+		return b.Receipts(argStr(args, 0))
+	case "ReadReceiptsEnabled":
+		return b.ReadReceiptsEnabled()
+	case "SetReadReceiptsEnabled":
+		return nil, b.SetReadReceiptsEnabled(argBool(args, 0))
 	case "TypingEnabled":
 		return b.TypingEnabled()
 	case "SetTypingEnabled":

@@ -269,6 +269,15 @@ CREATE TABLE IF NOT EXISTS attachments (
   created   INTEGER NOT NULL,
   last_used INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS msg_receipts (
+  message_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  account    TEXT NOT NULL,
+  delivered  INTEGER NOT NULL DEFAULT 0,
+  read       INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (message_id, account)
+);
+CREATE INDEX IF NOT EXISTS idx_msg_receipts_channel ON msg_receipts(channel_id);
 CREATE TABLE IF NOT EXISTS read_state (
   channel_id TEXT PRIMARY KEY,
   at         INTEGER NOT NULL
@@ -875,6 +884,9 @@ func (s *Store) DeleteChannel(channelID string) error {
 	if _, err := tx.Exec(`DELETE FROM reactions WHERE message_id IN (SELECT id FROM messages WHERE channel_id=?)`, channelID); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`DELETE FROM msg_receipts WHERE channel_id=?`, channelID); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM messages WHERE channel_id=?`, channelID); err != nil {
 		return err
 	}
@@ -1277,6 +1289,9 @@ func (s *Store) DeleteGuild(guildID string) error {
 
 	for _, ch := range chIDs {
 		if _, err := tx.Exec(`DELETE FROM reactions WHERE message_id IN (SELECT id FROM messages WHERE channel_id = ?)`, ch); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM msg_receipts WHERE channel_id = ?`, ch); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM messages WHERE channel_id = ?`, ch); err != nil {
@@ -2569,6 +2584,9 @@ func (s *Store) pruneMessagesChunk(channelIDs []string, cutoff int64) (int, erro
 
 	if _, err := tx.Exec(`DELETE FROM reactions WHERE message_id IN (`+victims+`)`, args...); err != nil {
 		return 0, fmt.Errorf("store: prune reactions: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM msg_receipts WHERE message_id IN (`+victims+`)`, args...); err != nil {
+		return 0, fmt.Errorf("store: prune receipts: %w", err)
 	}
 	res, err := tx.Exec(`DELETE FROM messages WHERE id IN (`+victims+`)`, args...)
 	if err != nil {

@@ -2252,6 +2252,13 @@ type guildMeta struct {
 	ChannelID string           `json:"channelId,omitempty"`
 	At        int64            `json:"at,omitempty"`
 	Markers   map[string]int64 `json:"markers,omitempty"`
+	// delivered: ids (in ChannelID) the sender has received and applied.
+	// read_receipt: our messages in ChannelID sent after Since and up to At
+	// (both UnixMilli) have been read. receipts_pref (Notes only): the
+	// account's read-receipts setting. See receipts.go.
+	MsgIDs   []string      `json:"msgIds,omitempty"`
+	Since    int64         `json:"since,omitempty"`
+	Receipts *receiptsPref `json:"receipts,omitempty"`
 
 	// forum_tags: replace the tag palette of the forum named by ChannelID.
 	// Its own type rather than a field on channel_updated, because that message
@@ -3450,6 +3457,20 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		}
 		s.emitGuildUpdate()
 		return
+	case "delivered", "read_receipt":
+		s.receiveReceipt(guildID, actor, m)
+		return
+	case "receipts_pref":
+		// The account's own setting, from one of its own devices, over the
+		// Notes group only.
+		if actor != s.id.Fingerprint() || m.Receipts == nil {
+			return
+		}
+		if g, ok := s.findNotesDM(); !ok || g.ID != guildID {
+			return
+		}
+		_ = s.applyReceiptsPref(*m.Receipts, false)
+		return
 	case "read_marker":
 		// Read markers only ever travel the Notes self-group, and only OUR OWN
 		// account's devices may move our read cursor — a marker authored by
@@ -4066,6 +4087,7 @@ func (s *Service) deliverMessage(m domain.Message, senderID []byte) {
 		return // otherwise stay silent
 	}
 	s.emitMessage(m)
+	s.noteDelivered(m)
 	// A message landing in a closed DM reopens the conversation (closing
 	// behavior: closing hides it, new activity surfaces it again) — unless the
 	// person on the other end is blocked, in which case reopening would hand

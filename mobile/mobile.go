@@ -188,6 +188,13 @@ func (n *Node) SetEventSink(sink EventSink) {
 		}
 		emit("read-state", r)
 	}
+	prevReceipts := b.OnReceipts
+	b.OnReceipts = func(r bridge.ReceiptsView) {
+		if prevReceipts != nil {
+			prevReceipts(r)
+		}
+		emit("receipts", r)
+	}
 	prevStory := b.OnStory
 	b.OnStory = func(u bridge.StoryUpdate) {
 		if prevStory != nil {

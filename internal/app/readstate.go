@@ -77,11 +77,13 @@ func (s *Service) MarkRead(channelID string, at int64) (int64, error) {
 		return 0, nil
 	}
 	at = capReadMark(at, time.Now())
+	prior, _ := s.store.ReadMark(channelID)
 	advanced, err := s.store.AdvanceReadState(channelID, at)
 	if err != nil {
 		return 0, err
 	}
 	if advanced {
+		s.queueReadReceipt(channelID, prior, at)
 		s.emitReadState(channelID, at)
 		s.broadcastReadMarker(channelID, at)
 	}

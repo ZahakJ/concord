@@ -1287,6 +1287,9 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 			// lane a row arrived by is not the answer.
 			full.Backfill = !news[full.ID]
 			s.emitMessage(full)
+			if !full.Backfill {
+				s.noteDelivered(full)
+			}
 		}
 	}
 	refusedMessages.note(refused, "backfilled messages", srcFpr)
