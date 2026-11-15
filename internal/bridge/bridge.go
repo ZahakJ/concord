@@ -3203,32 +3203,61 @@ func (b *Bridge) RedeemLinkCode(code, passphrase, confirm string) (string, error
 	// not the device's — carry them over so contacts verified on the old device
 	// stay verified here.
 	svc.ImportVerifiedFingerprints(res.Verified)
-	// Join each shared guild so the new device sees existing groups. Best-effort:
-	// history also converges via sync, so a transient failure isn't fatal.
-	// JoinLinkedInvite, not JoinViaInvite: this loop is machine-driven adoption,
+	// Join each shared guild so the new device sees existing groups.
+	// AdoptLinkedGuilds, not JoinViaInvite: this is machine-driven adoption,
 	// and it must honour a leave-tombstone on THIS device (a re-link handing
 	// over a guild the user deleted here must not resurrect it), where
-	// JoinViaInvite is the human's own paste and clears that tombstone.
-	// Notes first: each join is a round trip that can cost a dial timeout,
-	// and Notes is the one a device would otherwise start a copy of.
-	for _, ic := range appsvc.NotesFirst(res.GuildInvites) {
-		svc.JoinLinkedInvite(ic)
+	// JoinViaInvite is the human's own paste and clears that tombstone. It
+	// joins Notes first, reports every guild it could not join, and keeps
+	// retrying those in the background.
+	failed := svc.AdoptLinkedGuilds(res.GuildInvites)
+	return linkWarning(res.MissingGuilds, failed), nil
+}
+
+// linkWarning is what the link says when not every guild came across: the
+// guilds the issuer could not hand over at all, and the ones handed over that
+// this device could not join. "" when everything arrived.
+//
+// Guilds the issuer belongs to but does not administer can't be handed over
+// from there when it cannot reach their owner. A device that looks linked and
+// is quietly missing guilds is the failure this replaces.
+func linkWarning(missing []string, failed []appsvc.LinkJoinFailure) string {
+	var parts []string
+	if n := len(failed); n > 0 {
+		names := make([]string, 0, n)
+		refused := false
+		for _, f := range failed {
+			name := f.Name
+			if name == "" {
+				name = "a guild"
+			}
+			names = append(names, name)
+			refused = refused || f.Refused
+		}
+		noun := "guild"
+		if n != 1 {
+			noun = "guilds"
+		}
+		msg := fmt.Sprintf("this device couldn't join %d %s yet (%s). Concord keeps trying for the next hour while this device and the device that admits it are both online",
+			n, noun, strings.Join(names, ", "))
+		if refused {
+			msg += "; if one still doesn't appear, the device that admits it may hold an earlier copy of this device and need a newer Concord to replace it"
+		}
+		parts = append(parts, msg+".")
 	}
-	// Guilds the issuer belongs to but does not administer can't be handed over
-	// from here — it has no authority to invite anyone to them. Saying so is the
-	// whole point of tracking them: a device that looks linked and is quietly
-	// missing guilds is the failure this replaces, and the fix is for a human
-	// to accept the new device from a machine that can.
-	if n := len(res.MissingGuilds); n > 0 {
+	if n := len(missing); n > 0 {
 		noun, they := "guild", "it"
 		if n != 1 {
 			noun, they = "guilds", "each"
 		}
-		return fmt.Sprintf("Linked — but %d %s couldn't be handed over from that device (%s). "+
+		parts = append(parts, fmt.Sprintf("%d %s couldn't be handed over from that device (%s). "+
 			"Ask an admin of %s to invite you, or link again from a device that administers them.",
-			n, noun, strings.Join(res.MissingGuilds, ", "), they), nil
+			n, noun, strings.Join(missing, ", "), they))
 	}
-	return "", nil
+	if len(parts) == 0 {
+		return ""
+	}
+	return "Linked — but " + strings.Join(parts, " Also, ")
 }
 
 // ---- mapping helpers ----

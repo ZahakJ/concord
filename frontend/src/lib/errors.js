@@ -86,6 +86,11 @@ const KNOWN = [
   // Joining.
   [/invite rejected: you are banned/i, "",
     "You can't join this guild. An admin has removed you from it."],
+  // The committer turned the join down without saying why. On a current
+  // committer this is rare; on an older one it is what a device linked again
+  // gets while its earlier copy is still in the guild.
+  [/invite rejected: invite failed/i, "",
+    "The guild's admin device couldn't add this device. If you linked this device again, that device may still hold its earlier copy and need a newer Concord to replace it."],
   [/^bad invite code|invalid invite code/i, "",
     "That isn't a complete invite code. Paste the whole code — codes are long and easy to clip."],
   // Sending.

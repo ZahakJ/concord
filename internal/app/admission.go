@@ -1,9 +1,13 @@
 package app
 
 import (
+	"bytes"
+	"errors"
 	"log"
+	"sync/atomic"
 	"time"
 
+	"github.com/ZahakJ/concord/internal/crypto/mls"
 	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -213,7 +217,13 @@ func (s *Service) commitAdmissions(g *domain.Guild, tickets []*admissionTicket) 
 		// folded into a batch that also re-adds the same signature key, since
 		// the tree would hold it twice mid-commit — but it is rare, and the
 		// re-add it enables rides the batch below.
-		rmCommit, err := s.mls.Remove(s.ctx, g.GroupID, t.req.Credential)
+		var rmCommit []byte
+		var err error
+		if staleLeafByCredential.Load() {
+			rmCommit, err = s.mls.Remove(s.ctx, g.GroupID, t.req.Credential)
+		} else {
+			rmCommit, err = s.evictStaleLeaf(g, t.req.KeyPackage)
+		}
 		if err != nil {
 			continue
 		}
@@ -241,6 +251,43 @@ func (s *Service) commitAdmissions(g *domain.Guild, tickets []*admissionTicket) 
 	// correct count.
 	s.rememberMembers()
 	s.emitGuildUpdate()
+}
+
+// staleLeafByCredential makes this build's committers evict a stale leaf the
+// way builds before it do, by exact credential bytes, so a test can meet an
+// older committer. Nothing in the product ever sets it.
+var staleLeafByCredential atomic.Bool
+
+// errNoStaleLeaf: no leaf in the tree holds the joiner's signature key, so
+// there is nothing of theirs to evict.
+var errNoStaleLeaf = errors.New("app: no leaf holds the joiner's key")
+
+// evictStaleLeaf removes the leaf whose signature key is the one in the
+// joiner's key package, and returns the commit. That key is what blocks the
+// add (a tree holds each signature key once), and the key package is checked
+// to be signed by it, so the leaf removed is one whose private key the joiner
+// holds.
+//
+// It matches on the key and nothing else. It used to remove by credential
+// bytes; a device linked again keeps its key but gets a new certificate with
+// a new issue time, so its old leaf carried other bytes, the removal found
+// nothing, and the join failed with "invite failed" for good. Matching on the
+// account instead would let one device of an account evict a sibling.
+func (s *Service) evictStaleLeaf(g *domain.Guild, keyPackage []byte) ([]byte, error) {
+	key, err := mls.VerifiedKeyPackageKey(keyPackage)
+	if err != nil {
+		return nil, err
+	}
+	leaves, err := s.mls.Leaves(s.ctx, g.GroupID)
+	if err != nil {
+		return nil, err
+	}
+	for _, l := range leaves {
+		if bytes.Equal(l.Key, key) {
+			return s.mls.RemoveLeaf(s.ctx, g.GroupID, l.Index, key)
+		}
+	}
+	return nil, errNoStaleLeaf
 }
 
 // admitRound runs one batch commit and fills in the welcome for every ticket

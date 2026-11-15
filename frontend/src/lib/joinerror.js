@@ -57,6 +57,13 @@ export function joinFailure(err) {
       field: false,
     };
   }
+  if (has("invite failed", "couldn't add this device")) {
+    return {
+      title: "The guild's admin device couldn't add this device.",
+      detail: "If you linked this device again, that device may still hold its earlier copy and need a newer Concord to replace it. A new code won't change that.",
+      field: false,
+    };
+  }
   if (has("offline", "connection failed", "dial", "timeout", "deadline", "no addresses", "context canceled", "unreachable", "couldn't reach")) {
     return {
       title: "The code is fine, but its owner isn't reachable.",

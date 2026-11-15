@@ -100,6 +100,11 @@ func (s *Service) CancelLinkOffer() {
 	s.linkMu.Unlock()
 }
 
+// linkCertTime is the issue time written into a device certificate. A
+// variable only so a test can make two links of one device carry different
+// times without waiting for the clock's second to turn.
+var linkCertTime = func() int64 { return time.Now().Unix() }
+
 // handleLinkRequest is the issuer-side stream responder: verify the joiner's
 // proof, then return the account material with a freshly-issued device cert.
 func (s *Service) handleLinkRequest(_ context.Context, _ peer.ID, reqBytes []byte) ([]byte, error) {
@@ -121,7 +126,7 @@ func (s *Service) handleLinkRequest(_ context.Context, _ peer.ID, reqBytes []byt
 	if err != nil {
 		return nil, err
 	}
-	cert := s.id.IssueDeviceCertFor(req.DevicePub, req.DeviceName, time.Now().Unix())
+	cert := s.id.IssueDeviceCertFor(req.DevicePub, req.DeviceName, linkCertTime())
 	// Keep a copy: we are the only peer that can state this mapping from
 	// authority rather than hearsay, and without it the new device is only
 	// recognisable through the group rosters it manages to join. See

@@ -969,9 +969,16 @@ func (s *Service) healthyMembership(guildID string) (domain.Guild, bool) {
 // re-join loop that churned the guild epoch several times a second and
 // stranded every member who dropped one commit frame).
 func (s *Service) joinOfferedInvite(code string) {
+	_ = s.joinOfferedInviteErr(code)
+}
+
+// joinOfferedInviteErr is joinOfferedInvite that returns why a join that was
+// attempted failed. nil when the guild was joined, was already held, or was
+// declined here without asking anyone (a leave-tombstone, a malformed code).
+func (s *Service) joinOfferedInviteErr(code string) error {
 	ic, err := decodeInviteCode(strings.TrimSpace(code))
 	if err != nil || !s.admitsInviteGuild(ic.GuildID) {
-		return
+		return nil
 	}
 	// Leave-tombstone veto, enforced RECEIVE-side: this path runs on nothing
 	// but another device's say-so, and a guild the user deliberately left must
@@ -979,7 +986,7 @@ func (s *Service) joinOfferedInvite(code string) {
 	// tombstone.
 	if s.store.GuildIsLeft(ic.GuildID) {
 		s.noteOfferedRetry(ic.GuildID, "")
-		return
+		return nil
 	}
 	s.noteNotesOffer(code, ic)
 	release := s.claimJoin(ic.GuildID)
@@ -989,7 +996,7 @@ func (s *Service) joinOfferedInvite(code string) {
 	s.mu.RUnlock()
 	if already && s.guildHasMember(ic.GuildID, s.id.Fingerprint()) {
 		s.noteOfferedRetry(ic.GuildID, "")
-		return
+		return nil
 	}
 	_, err = s.joinViaInviteLocked(ic)
 	// A failure here used to be the end of it. The offer arrives once per
@@ -1002,6 +1009,7 @@ func (s *Service) joinOfferedInvite(code string) {
 	} else {
 		s.noteOfferedRetry(ic.GuildID, "")
 	}
+	return err
 }
 
 // offeredJoinWorthRetrying separates a join that may well work later from a

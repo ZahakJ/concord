@@ -39,6 +39,12 @@ assert(!other.title.includes("app:") && !other.detail.includes("app:"), "no raw 
 assert(/banned/.test(joinFailure(humanError("app: invite rejected: you are banned from this guild")).title), "mapped ban");
 assert(joinFailure(humanError("app: bad invite code")).field === true, "mapped bad code is the field's fault");
 
+// A committer that turns the join down without a reason ("invite failed")
+// gets its own sentence, raw or through humanError, not the generic fallback.
+const refused = joinFailure("app: invite rejected: invite failed");
+assert(/couldn't add this device/.test(refused.title) && /earlier copy/.test(refused.detail), "a refused join is not 'that code didn't get you in'");
+assert(/couldn't add this device/.test(joinFailure(humanError("app: invite rejected: invite failed")).title), "mapped refused join");
+
 if (failures) {
   console.error(`\n${failures} joinerror test(s) failed`);
   process.exit(1);
