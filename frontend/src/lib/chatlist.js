@@ -7,13 +7,15 @@
 // account's own and never leave its devices. Pure functions; no state.
 
 import { isNotesLike } from "./notes.js";
+import { own } from "./lookup.js";
 
 // Notes, its copies, and the placeholder the list shows before Notes exists.
 const notesish = (d) => !!d?.dmNotes || isNotesLike(d);
 export const MAX_PINS = 10;
 
 export const chatIdOf = (dm) => dm?.channels?.[0]?.id || "";
-const rec = (prefs, dm) => (prefs && prefs[chatIdOf(dm)]) || null;
+// Chat ids are channel ids a DM's creator chose: read by own property only.
+const rec = (prefs, dm) => own(prefs, chatIdOf(dm)) || null;
 export const isPinned = (prefs, dm) => !!rec(prefs, dm)?.p;
 export const isArchived = (prefs, dm) => !!rec(prefs, dm)?.a;
 

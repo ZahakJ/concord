@@ -41,6 +41,13 @@ assert.deepEqual(movePin(pins, "c", -1), ["a", "c", "b"]);
 assert.deepEqual(movePin(pins, "a", -1), ["a", "b", "c"]);
 assert.deepEqual(movePin(pins, "c", 1), ["a", "b", "c"]);
 
+// Chat ids are chosen by a DM's creator: only the record map's own entries
+// count, never one it inherits.
+const inherited = Object.create({ e: { p: true, k: 1 }, f: { a: true } });
+r = arrange([notes, dm("e"), dm("f"), dm("constructor"), dm("__proto__")], inherited);
+assert.equal(ids(r.main), "notes,e,f,constructor,__proto__");
+assert.equal(r.archived.length, 0);
+
 // Archived unread total.
 assert.equal(archivedUnread([dm("a"), dm("b")], (d) => (chatIdOf(d) === "a" ? 3 : 0)), 3);
 console.log("chatlist.test.mjs ok");

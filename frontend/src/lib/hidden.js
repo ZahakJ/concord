@@ -1,6 +1,11 @@
 // hidden.js — pure logic for "Delete for me" (hiding a message on this
 // account's devices only). The core filters hidden messages out of every read;
 // this is what the UI does with the news that one more was hidden or restored.
+//
+// Message ids come from peers (a reply names any id its author chose), so the
+// hidden-id set is read and written by own property only.
+
+import { own, put } from "./lookup.js";
 
 // dropMessage removes one message from a feed. Returns the SAME array when the
 // message is not in it, so callers can skip a reassignment (and a re-render).
@@ -14,8 +19,8 @@ export function dropMessage(messages, id) {
 // object (state is replaced, not mutated, so readers re-derive).
 export function withHidden(set, id, hidden) {
   const next = { ...set };
-  if (hidden) next[id] = true;
-  else delete next[id];
+  if (hidden) put(next, id, true);
+  else if (typeof id === "string" && Object.hasOwn(next, id)) delete next[id];
   return next;
 }
 
@@ -27,7 +32,7 @@ export function withHidden(set, id, hidden) {
 // Hidden wins over everything: a hidden message's content is never shown, even
 // if a stale copy is still in memory.
 export function replyState(replyTo, ref, hiddenIds) {
-  if (replyTo && hiddenIds && hiddenIds[replyTo]) return "hidden";
+  if (replyTo && own(hiddenIds, replyTo) === true) return "hidden";
   if (!ref) return "missing";
   if (ref.deleted) return "deleted";
   return "ok";

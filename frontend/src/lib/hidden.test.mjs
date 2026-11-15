@@ -25,5 +25,17 @@ assert.equal(replyState("x", { id: "x", content: "secret" }, { x: true }), "hidd
 assert.equal(replyState("x", null, { x: true }), "hidden");
 assert.equal(replyState("", null, { x: true }), "missing");
 
+// A reply names any id its author chose: names every object answers for are
+// not hidden ids, and a hidden id is one this user hid, nothing inherited.
+for (const id of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+  assert.equal(replyState(id, null, {}), "missing", `${id} reads as hidden`);
+  assert.equal(replyState(id, null, withHidden({}, "a", true)), "missing", `${id} reads as hidden`);
+}
+assert.equal(replyState("x", null, Object.create({ x: true })), "missing", "an inherited entry is not a hidden id");
+let odd = withHidden({}, "__proto__", true);
+assert.equal(Object.getPrototypeOf(odd), Object.prototype, "a hide cannot change the set's prototype");
+odd = withHidden(withHidden({}, "constructor", true), "constructor", false);
+assert.equal(replyState("constructor", null, odd), "missing");
+
 assert.match(HIDE_BODY, /your devices only\. Others still see it\./);
 console.log("ok");
