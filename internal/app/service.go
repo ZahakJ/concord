@@ -2084,6 +2084,10 @@ func (s *Service) profileStamp() int64 {
 // bumpProfileStamp advances the edit stamp to now, strictly past the previous
 // value — two edits inside one clock tick (or across skewed device clocks)
 // must never tie, or the second edit loses last-writer-wins.
+//
+// Every profile writer must hold profileMu, write its fields first and call
+// this last: SelfProfile reads the stamp before the fields and relies on that
+// order to never report a stamp newer than the fields it returns.
 func (s *Service) bumpProfileStamp() int64 {
 	at := time.Now().UnixMilli()
 	if prev := s.profileStamp(); at <= prev {
