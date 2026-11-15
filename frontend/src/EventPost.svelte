@@ -8,7 +8,7 @@
   // purely so a peer whose event lane has not caught up yet can still say what
   // the announcement was about instead of drawing an empty box.
   import Icon from "./Icon.svelte";
-  import { own, listFor } from "./lib/lookup.js";
+  import { listFor } from "./lib/lookup.js";
   import EventCard from "./EventCard.svelte";
   import { S, activeGuild, joinVoiceChannel } from "./lib/state.svelte.js";
   import { EV, loadEvents } from "./lib/events.svelte.js";

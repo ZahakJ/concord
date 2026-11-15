@@ -1,5 +1,5 @@
 <script>
-  import { own, listFor } from "../lib/lookup.js";
+  import { listFor } from "../lib/lookup.js";
   // The guild calendar: agenda list + month grid (toggle), day drill-down,
   import Segmented from "../Segmented.svelte";
   // and the create/edit form. The agenda leads on phones — a month grid is a

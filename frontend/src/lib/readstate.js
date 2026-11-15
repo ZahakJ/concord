@@ -25,7 +25,7 @@
 // mark further ahead of its own clock than readSkew allows (readstate.go), so a
 // skewed sender's message can only push a mark that far either.
 
-import { own } from "./lookup.js";
+import { own, put } from "./lookup.js";
 
 // isReading answers rule 1–3. Every input is plain data so the rule can be
 // tested without a DOM; state.svelte.js supplies the live values.
@@ -98,8 +98,8 @@ export function mergeUnreadChunk(prev, chunk, rows, tally) {
     if (!rows || !Object.hasOwn(rows, id)) continue;
     const msgs = own(rows, id);
     const u = tally(Array.isArray(msgs) ? msgs : [], id);
-    if (u) next[id] = u;
-    else delete next[id];
+    if (u) put(next, id, u);
+    else if (Object.hasOwn(next, id)) delete next[id];
   }
   return next;
 }

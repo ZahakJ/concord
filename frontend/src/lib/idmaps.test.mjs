@@ -30,6 +30,10 @@ const good = "0123456789abcdef0123456789abcdef";
     ok(r.v && r.v[good]?.count === 2, `a real channel is still counted beside "${id}"`);
     ok(r.v && !Object.hasOwn(r.v, id), `channel "${id}" the core did not answer for is left alone`);
   }
+  // A row the core answers under "__proto__" must not change the map's prototype.
+  const odd = mergeUnreadChunk({}, ["__proto__", good], JSON.parse(`{"__proto__": [{}], "${good}": [{}]}`), tally);
+  ok(Object.getPrototypeOf(odd) === Object.prototype, "an answered __proto__ row changed the unread map's prototype");
+  ok(odd[good]?.count === 1, "the real channel beside it is still counted");
   const kept = mergeUnreadChunk({ [good]: { count: 5 } }, [good], {}, tally);
   ok(kept[good].count === 5, "a channel the core left out keeps its badge");
   const cleared = mergeUnreadChunk({ [good]: { count: 5 } }, [good], { [good]: [] }, tally);

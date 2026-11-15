@@ -79,7 +79,7 @@ import {
 } from "./notifs.js";
 import { reducedMotion, motionMode, onOsMotionChange } from "./motion.js";
 import { customEmojiTable } from "./customemoji.js";
-import { own } from "./lookup.js";
+import { own, put } from "./lookup.js";
 import { ANIMATED_PACKS, groundOf, migratePrefs, packIdOrDefault } from "./packs.js";
 
 // The saved prefs, brought up to this build before anything reads them: a
@@ -1649,7 +1649,7 @@ async function recomputeUnread() {
   for (const g of S.guilds) {
     for (const c of g.channels) {
       if (c.id === S.activeChannelId && readingNow()) continue;
-      since[c.id] = own(lastRead, c.id) || "";
+      put(since, c.id, own(lastRead, c.id) || "");
     }
   }
   let counts = null;
@@ -1683,7 +1683,7 @@ async function recomputeUnread() {
   for (let i = 0; i < refine.length && batched; i += 40) {
     const chunk = refine.slice(i, i + 40);
     const ask = {};
-    for (const id of chunk) ask[id] = own(lastRead, id) || "";
+    for (const id of chunk) put(ask, id, own(lastRead, id) || "");
     let rows;
     try {
       rows = (await api.unreadMessages(ask)) || {};
@@ -1992,7 +1992,7 @@ function armCatchUp(guildId) {
   // A copy of the marks as they were, so the counts are asked for against the
   // moment you arrived rather than against whatever reading has done since.
   const marks = {};
-  for (const c of g.channels) marks[c.id] = own(lastRead, c.id) || "";
+  for (const c of g.channels) put(marks, c.id, own(lastRead, c.id) || "");
   pending = { guildId, sinceMs: since, atMs: Date.now(), marks };
   // Deferred by a microtask rather than called straight through. selectGuild
   // sets S.activeGuildId immediately AFTER this returns, and settleCatchUp's
@@ -2027,7 +2027,7 @@ export async function settleCatchUp() {
   const mentions = {};
   for (const e of S.inbox.entries) {
     if (e.guildId !== p.guildId || e.at <= p.sinceMs) continue;
-    mentions[e.channelId] = (own(mentions, e.channelId) || 0) + 1;
+    put(mentions, e.channelId, (own(mentions, e.channelId) || 0) + 1);
   }
   const unread = {};
   for (const [id, n] of Object.entries(counts || {})) {
@@ -4112,7 +4112,7 @@ function initEvents() {
       !(m.channelId === S.activeChannelId && readingNow())
     ) {
       // Genuinely-new (first-seen) message in an unread channel bumps the badge.
-      const since = lastRead[m.channelId];
+      const since = own(lastRead, m.channelId);
       // An alert word counts towards the mention badge as well as the plain
       // count: the point of the setting is that those messages reach you the way
       // your own name does, and a badge that stayed grey would be the first
@@ -4552,7 +4552,7 @@ function initEvents() {
     if (S.voice) {
       const r = ghostsToReap(
         [...S.voice.mesh.peers.keys()],
-        S.voiceRosters[S.voice.channelId] || {},
+        own(S.voiceRosters, S.voice.channelId) || {},
         ghostSeen,
         now,
       );
@@ -4811,7 +4811,7 @@ export function callHealth() {
   // A DM call nobody has answered is not a connected call, and the clock does
   // not run for it. "Voice connected" in green with ring time counting up was
   // what every surface but the stage said while the other phone was ringing.
-  const dial = S.calls[S.voice.channelId];
+  const dial = own(S.calls, S.voice.channelId);
   if (dial?.phase === "reconnecting") return { state: "reconnecting", ...CALL_STATE.reconnecting, live: false };
   if (isRinging(dial)) {
     return { state: "ringing", ...(dial.phase === "unreachable" ? CALL_STATE.unreachable : CALL_STATE.ringing), live: false };
@@ -4970,9 +4970,9 @@ function restoreLocks() {
     const locks = {}, by = {}, adm = {};
     for (const [ch, v] of Object.entries(raw)) {
       if (!ch || !v) continue;
-      locks[ch] = true;
-      by[ch] = String(v.by || "");
-      adm[ch] = Array.isArray(v.admitted) ? v.admitted.map(String) : [];
+      put(locks, ch, true);
+      put(by, ch, String(v.by || ""));
+      put(adm, ch, Array.isArray(v.admitted) ? v.admitted.map(String) : []);
     }
     S.callLocks = locks;
     S.callLockBy = by;

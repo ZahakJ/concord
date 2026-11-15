@@ -1,4 +1,5 @@
 <script>
+  import { own } from "./lib/lookup.js";
   // Ctrl+K command palette: fuzzy jump to any channel / DM / guild, plus app
   // actions. A leading ">" or "/" filters to actions only; otherwise actions
   // rank alongside destinations under their own section header.
@@ -229,7 +230,7 @@
   // Channels read their own counter; guild/DM rows aggregate like the rail.
   function unreadFor(item) {
     if (!item) return null;
-    if (item.kind === "channel") return S.unread[item.c.id] || null;
+    if (item.kind === "channel") return own(S.unread, item.c.id) || null;
     if (item.kind === "guild" || item.kind === "dm") {
       const u = guildUnread(item.g);
       return u.count ? u : null;

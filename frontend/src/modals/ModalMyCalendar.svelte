@@ -1,5 +1,5 @@
 <script>
-  import { own, listFor } from "../lib/lookup.js";
+  import { listFor } from "../lib/lookup.js";
   // "Your calendar": ONE river across everything you're part of — guild
   // events, DM plans, and your private Notes reminders — the per-user blend.
   // A masthead answers "what's my day?" in one glance (weekday, date, the

@@ -22,3 +22,11 @@ export const listFor = (o, key) => {
   const v = own(o, key);
   return Array.isArray(v) ? v : [];
 };
+
+// put writes `o[key] = value` for a string key that is an ordinary property
+// name; "__proto__" is not one (as a write it changes the object's prototype)
+// and is skipped.
+export const put = (o, key, value) => {
+  if (typeof key === "string" && key !== "__proto__") o[key] = value;
+  return o;
+};

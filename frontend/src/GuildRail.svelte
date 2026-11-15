@@ -179,7 +179,7 @@
     if (m.count) parts.push(plural(m.count, "mention"));
     else if (m.dot) parts.push("unread");
     if (m.muted) parts.push("muted");
-    if (MOM.unseen[gg.id]) parts.push("new moments");
+    if (own(MOM.unseen, gg.id)) parts.push("new moments");
     if (ownsPlace(gg)) parts.push("you own this guild");
     return parts.join(" · ");
   }
@@ -192,7 +192,7 @@
     if (m.count) parts.push(plural(m.count, "mention"));
     else if (m.dot) parts.push("unread");
     if (m.muted) parts.push("muted");
-    if (MOM.unseen[gg.id]) parts.push("new moments");
+    if (own(MOM.unseen, gg.id)) parts.push("new moments");
     return parts.join(" · ");
   }
 
@@ -686,7 +686,7 @@
                 class:muted={m.muted}
                 class:gone={!!gg.evicted}
                 class:hasicon={!!gg.icon}
-                class:moments={MOM.unseen[gg.id] > 0}
+                class:moments={own(MOM.unseen, gg.id) > 0}
                 style={gg.icon ? undefined : faceStyle(gg)}
                 data-cap={capLabel(gg)}
                 aria-label={gg.name}
@@ -851,7 +851,7 @@
             class:hasicon={sv.icon}
             class:muted={m.muted}
             class:gone={!!sv.evicted}
-            class:moments={MOM.unseen[sv.id] > 0}
+            class:moments={own(MOM.unseen, sv.id) > 0}
             class:combine={dropHint?.k === "combine" && dropHint.id === sv.id}
             style={sv.icon ? undefined : faceStyle(sv)}
             use:tooltip={{ ...railTip, text: tileLabel(sv) }}
@@ -882,7 +882,7 @@
             <span class="corner fail" title="A message in {sv.name} didn't send — open it to retry"></span>
           {:else if liveGuilds.has(sv.id)}
             <span class="corner live" title="A scheduled event is live in {sv.name}"></span>
-          {:else if RADAR.unseen[sv.id]}
+          {:else if own(RADAR.unseen, sv.id)}
             <span class="corner ev" title="New event in {sv.name} — open its calendar"></span>
           {/if}
         </div>
@@ -961,7 +961,7 @@
                     class:hasicon={gg.icon}
                     class:muted={m.muted}
                     class:gone={!!gg.evicted}
-                    class:moments={MOM.unseen[gg.id] > 0}
+                    class:moments={own(MOM.unseen, gg.id) > 0}
                     style={gg.icon ? undefined : faceStyle(gg)}
                     use:tooltip={{ ...railTip, text: tileLabel(gg) }}
                     aria-label={gg.name}

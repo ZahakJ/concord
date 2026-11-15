@@ -1333,7 +1333,7 @@
                 <span class="ch-live" use:tooltip={"A scheduled event is live in this conversation"}>
                   <i class="ch-live-dot"></i>LIVE
                 </span>
-              {:else if isPersonDM(dm) && RADAR.unseen[dm.id]}
+              {:else if isPersonDM(dm) && own(RADAR.unseen, dm.id)}
                 <!-- They put something on your shared calendar — same nudge the
                      guild pill wears in the rail. Cleared by opening the calendar. -->
                 <span

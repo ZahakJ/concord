@@ -403,7 +403,7 @@ export function installShortcuts() {
       const el = document.activeElement;
       if (el?.classList?.contains("draft") && !el.value) {
         e.preventDefault();
-        if (!e.shiftKey && S.activeChannelId && S.unread[S.activeChannelId]) {
+        if (!e.shiftKey && S.activeChannelId && own(S.unread, S.activeChannelId)) {
           markRead(S.activeChannelId);
           return;
         }

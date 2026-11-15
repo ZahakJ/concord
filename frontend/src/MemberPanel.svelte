@@ -1,4 +1,5 @@
 <script>
+  import { own } from "./lib/lookup.js";
   // Right panel: guild members (with the fingerprint-verification card) and
   // the "local peers" network log. Rows are proper buttons; the owner's kick
   // control is its own sibling button (no more button-in-button nesting).
@@ -62,7 +63,7 @@
 
   // Someone already in the call we're in doesn't need inviting.
   const inThisCall = (fpr) =>
-    Object.values(S.voiceRosters[S.voice?.channelId] || {}).some((p) => p.fingerprint === fpr);
+    Object.values(own(S.voiceRosters, S.voice?.channelId) || {}).some((p) => p.fingerprint === fpr);
 
   // ONE moderation menu. Right-clicking a member is the natural gesture and it
   // used to be the INCOMPLETE surface: no ban, no mute, while the full set hid
