@@ -316,7 +316,18 @@ func (s *Service) nextGovSeq(guildID string) uint64 {
 // issueGovOp fills in seq/signer/time, signs, records, and broadcasts an op.
 // Callers set Type and the op-specific fields. Replay re-validates authority on
 // every peer, so a caller that shouldn't have issued it changes nothing.
+//
+// Nothing is issued from a copy that CannotRepairHere (mintBarred). Its Seq
+// comes from a log that stopped at the backup, and a signed op stays valid for
+// good: once any path brings the copy back, its log is served to the guild and
+// the op folds in at a position from the past (see the sync-path note in
+// ingestGovOps). The bar is here, not at the call sites, so that no op type can
+// be missed; the public actions also ask first, so that a refused op does not
+// leave its unsigned half (a channel renamed on the meta lane) applied.
 func (s *Service) issueGovOp(guildID string, o govOp) error {
+	if err := s.mintBarred(guildID); err != nil {
+		return err
+	}
 	o.Seq = s.nextGovSeq(guildID)
 	o.Signer = s.id.PublicKey()
 	o.Time = time.Now().UnixNano()

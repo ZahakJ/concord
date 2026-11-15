@@ -253,7 +253,9 @@ var ErrBehindOnlyCommitter = errors.New("app: this copy fell behind and cannot b
 // guild's view carries this so the banner can say it instead of offering to
 // continue.
 func (s *Service) CannotRepairHere(guildID string) bool {
-	if s.aloneInGuild(guildID) || !s.behindLatched(guildID) {
+	// The latch first: it is a map read, and it is down on almost every guild
+	// almost always. Every governance op asks this (mintBarred).
+	if !s.behindLatched(guildID) || s.aloneInGuild(guildID) {
 		return false
 	}
 	return s.onlyPossibleCommitter(guildID)
@@ -427,8 +429,8 @@ func (s *Service) loadBehindSeen() {
 	}
 }
 
-// mintBarred refuses any membership commit, or governance act standing in for
-// one, from a copy that CannotRepairHere: the latch, not the out-of-sync flag,
+// mintBarred refuses any membership commit and any governance op (issueGovOp)
+// from a copy that CannotRepairHere. The latch, not the out-of-sync flag,
 // is the guard, because the flag has more than one way down. Without new
 // commits of its own, this device's epoch can reach the latched one only by
 // applying the real guild's commits, which is what lets a readable answer at

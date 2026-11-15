@@ -438,6 +438,9 @@ func (s *Service) MemberCount(guildID string) (int, error) {
 
 // RenameGuild changes a guild's name (owner only) and syncs it to all members.
 func (s *Service) RenameGuild(guildID, name string) error {
+	if err := s.mintBarred(guildID); err != nil { // see issueGovOp
+		return err
+	}
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return fmt.Errorf("app: guild name is empty")
@@ -471,6 +474,9 @@ func (s *Service) RenameGuild(guildID, name string) error {
 // them to members. Icon/banner are data-URI images (an animated GIF banner just
 // works). Requires ManageGuild.
 func (s *Service) SetGuildProfile(guildID, name, icon, banner, description string) error {
+	if err := s.mintBarred(guildID); err != nil { // see issueGovOp
+		return err
+	}
 	if !s.hasPerm(guildID, PermManageGuild) {
 		return fmt.Errorf("app: you don't have permission to manage this guild")
 	}
@@ -2539,6 +2545,9 @@ func (s *Service) SetNickname(guildID, nick string) error {
 // the other members so they add it too. ctype is "" (text), "voice", or
 // "announcement"; category is a category ID or "".
 func (s *Service) CreateChannel(guildID, name, ctype, category string) (domain.Channel, error) {
+	if err := s.mintBarred(guildID); err != nil { // see issueGovOp
+		return domain.Channel{}, err
+	}
 	if !s.hasPerm(guildID, PermManageChannels) {
 		return domain.Channel{}, fmt.Errorf("app: you don't have permission to manage channels")
 	}
@@ -2615,6 +2624,9 @@ func (s *Service) logGuildOp(guildID, kind, name string) {
 
 // CreateCategory adds a sidebar category and announces it to members.
 func (s *Service) CreateCategory(guildID, name string) (domain.Category, error) {
+	if err := s.mintBarred(guildID); err != nil { // see issueGovOp
+		return domain.Category{}, err
+	}
 	if !s.hasPerm(guildID, PermManageChannels) {
 		return domain.Category{}, fmt.Errorf("app: you don't have permission to manage channels")
 	}
@@ -2648,6 +2660,9 @@ func (s *Service) CreateCategory(guildID, name string) (domain.Category, error) 
 // id and orphans every channel pointing at the old one on any peer that had
 // not yet applied the removal.
 func (s *Service) RenameCategory(guildID, categoryID, name string) error {
+	if err := s.mintBarred(guildID); err != nil { // see issueGovOp
+		return err
+	}
 	if !s.hasPerm(guildID, PermManageChannels) {
 		return fmt.Errorf("app: you don't have permission to manage channels")
 	}
@@ -2689,6 +2704,9 @@ func (s *Service) RenameCategory(guildID, categoryID, name string) error {
 
 // DeleteChannel removes a channel for everyone. Requires ManageChannels.
 func (s *Service) DeleteChannel(guildID, channelID string) error {
+	if err := s.mintBarred(guildID); err != nil { // see issueGovOp
+		return err
+	}
 	// A forum POST is member content — CreateThread needs no permission, so
 	// requiring one to remove it would let anyone start a thread nobody but a
 	// moderator could ever take back. Its author may delete it; so may a
@@ -2812,6 +2830,9 @@ func (s *Service) applyChannelRemoved(guildID, channelID string) {
 // DeleteCategory removes a category (its channels stay, un-categorized).
 // Requires ManageChannels.
 func (s *Service) DeleteCategory(guildID, categoryID string) error {
+	if err := s.mintBarred(guildID); err != nil { // see issueGovOp
+		return err
+	}
 	if !s.hasPerm(guildID, PermManageChannels) {
 		return fmt.Errorf("app: you don't have permission to manage channels")
 	}
@@ -2907,6 +2928,9 @@ func validChannelType(t string) bool {
 }
 
 func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, position int, topic string) error {
+	if err := s.mintBarred(guildID); err != nil { // see issueGovOp
+		return err
+	}
 	if !s.hasPerm(guildID, PermManageChannels) {
 		return fmt.Errorf("app: you don't have permission to manage channels")
 	}
@@ -2974,6 +2998,9 @@ func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, pos
 // its own meta type — channel_updated deliberately carries a bare four-field
 // Channel, so folding the name in there would erase it on every move.
 func (s *Service) RenameChannel(guildID, channelID, name string) error {
+	if err := s.mintBarred(guildID); err != nil { // see issueGovOp
+		return err
+	}
 	if !s.hasPerm(guildID, PermManageChannels) {
 		return fmt.Errorf("app: you don't have permission to manage channels")
 	}
