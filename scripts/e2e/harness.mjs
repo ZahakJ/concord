@@ -658,6 +658,9 @@ export class App {
     await this.cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
     await sleep(ms);
     await this.cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    // The app eats the click a lifted long-press can synthesize for 600 ms
+    // after the menu opens; a person does not tap the menu inside that.
+    await sleep(350);
   }
 
   // ---- calls (open the page with { watchMedia: true })

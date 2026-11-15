@@ -3,8 +3,9 @@
 // they appear, and a revisit is painted from memory; a keystroke reaches the
 // screen within a frame or two with a long history loaded; a long feed keeps
 // its DOM bounded however far back you scroll; nothing animates or polls at
-// idle; a dialog, the palette and a context menu arrive in 100 ms or less; and
-// a busy guild in the background costs the page next to nothing per message.
+// idle; a dialog, the palette and a context menu arrive in 100 ms or less;
+// a busy guild in the background costs the page next to nothing per message;
+// and on a phone, Reply raises the keyboard inside the tap and quickly.
 //
 // The budgets are generous for a loaded machine (and scale with
 // E2E_TIMEOUT_SCALE) but each is set to fail on the regression it is named
@@ -406,4 +407,54 @@ test("a guild switch paints the rows quickly, and the sidebar follows", async ({
   log(`guild switch to rows p50 ${pct(times, 50).toFixed(0)} ms, p95 ${pct(times, 95).toFixed(0)} ms`);
   assert.ok(pct(times, 50) < 100 * SCALE, `guild switch p50 ${pct(times, 50).toFixed(0)} ms is over 100 ms`);
   assert.ok(pct(times, 95) < 250 * SCALE, `guild switch p95 ${pct(times, 95).toFixed(0)} ms is over 250 ms`);
+});
+
+// On a phone, Reply in the long-press sheet puts the caret in the composer
+// inside the tap (the only focus a mobile browser raises the keyboard for) and
+// the reply banner is on screen within a frame or two. Headless has no
+// keyboard, so "keyboard up" is the composer holding focus when the tap's
+// click has been handled.
+test("phone: tap Reply to keyboard up is inside the tap and quick", async ({ world, assert, step, log }) => {
+  const [alice, bashir] = await world.peers(2);
+  const g = await world.guild({ name: "Thumb", members: [alice, bashir] });
+  const ch = g.allChannels[0];
+  for (let i = 0; i < 40; i++) await bashir.sendRaw(ch.id, `thumb line ${i} with a little text`);
+  await bashir.waitForMessage(ch.id, "thumb line 39 with a little text");
+  const a = await alice.open({ viewport: "phone" });
+  await a.openChannel(ch.name, "Thumb");
+  await a.waitForMessage("thumb line 39");
+  const p = a.page;
+  step("Six replies from the sheet, each timed from the tap's click");
+  const times = [];
+  for (let i = 0; i < 6; i++) {
+    await a.longPress(a.message(`thumb line ${39 - i * 2} `));
+    await p.evaluate(() => {
+      window.__reply = null;
+      window.addEventListener(
+        "click",
+        (e) => {
+          const t0 = e.timeStamp;
+          const inTap = document.activeElement?.matches?.("textarea.draft") || false;
+          const tick = () => {
+            const ok = document.activeElement?.matches?.("textarea.draft") && document.querySelector(".reply-banner");
+            if (ok) window.__reply = { inTap, ms: performance.now() - t0 };
+            else if (performance.now() - t0 < 5000) requestAnimationFrame(tick);
+            else window.__reply = { inTap, ms: -1 };
+          };
+          requestAnimationFrame(tick);
+        },
+        { once: true },
+      );
+    });
+    await p.getByRole("menuitem", { name: "Reply", exact: true }).first().tap();
+    const r = await p.waitForFunction(() => window.__reply).then((h) => h.jsonValue());
+    assert.ok(r.inTap, "the composer took focus inside the tap");
+    assert.ok(r.ms > 0, "the reply banner and the focused composer appeared");
+    times.push(r.ms);
+    await p.getByRole("button", { name: "Cancel reply" }).first().tap();
+    await p.evaluate(() => document.activeElement?.blur());
+    await sleep(300);
+  }
+  log(`tap Reply to keyboard up p50 ${pct(times, 50).toFixed(0)} ms, max ${Math.max(...times).toFixed(0)} ms`);
+  assert.ok(pct(times, 95) < 100 * SCALE, `tap Reply to keyboard up p95 ${pct(times, 95).toFixed(0)} ms is over 100 ms`);
 });

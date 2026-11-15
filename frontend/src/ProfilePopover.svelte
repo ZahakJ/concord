@@ -11,6 +11,8 @@
   // rect}); positions itself above the anchor (or below when there's no room),
   // clamped to the viewport. Rendered once at the app root so nothing clips it.
   import { popoverFocus } from "./lib/popoverfocus.js";
+  import { tick } from "svelte";
+  import { holdKeyboard, landKeyboard } from "./lib/kbfocus.js";
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import GameShelf, { coverStyle, gameHue } from "./GameShelf.svelte";
@@ -94,11 +96,21 @@
     dmBusy = true;
     const text = dmText;
     dmText = "";
+    // On a phone the conversation opens ready to type in, keyboard up. The DM
+    // only exists after a round trip to the core, and a focus made after that
+    // await raises no keyboard, so a stand-in takes focus inside this tap and
+    // hands it to the DM's composer once it is there (lib/kbfocus.js).
+    if (S.isMobile) holdKeyboard();
     try {
       await startDM(mem.fingerprint, text);
       closeProfilePopover();
+      if (S.isMobile) {
+        await tick();
+        landKeyboard(document.querySelector("textarea.draft"));
+      }
     } catch (err) {
       dmText = text;
+      if (S.isMobile) landKeyboard(null);
       flash(err);
     } finally {
       dmBusy = false;

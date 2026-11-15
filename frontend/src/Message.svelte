@@ -49,7 +49,7 @@
   import { sealedAt, stripTimestamp, sealShort, sealFull, sealAgo, shortWhen } from "./lib/timestamp.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
-  import { untrack, tick } from "svelte";
+  import { untrack, tick, flushSync } from "svelte";
   import { renderMarkdown, emojiOnly, animatedEmojiSrc, twemojiCode } from "./lib/markdown.js";
   import { markInHtml } from "./lib/alertwords.js";
   import { animateInView, animateOnHover } from "./lib/anemoji.js";
@@ -99,6 +99,7 @@
   import { rectOf, viewport } from "./lib/place.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
   import { longpress, haptic } from "./lib/touch.js";
+  import { holdKeyboard, keepInView } from "./lib/kbfocus.js";
   import { PERM, has } from "./lib/perms.js";
   import {
     recentEmoji,
@@ -520,7 +521,7 @@
         // A claimed drag ending over a link would still synthesize a click on
         // it — same ghost-click the shell and longpress both eat.
         if (e.cancelable) e.preventDefault();
-        if (dx <= -SWIPE_COMMIT) S.replyingTo = m;
+        if (dx <= -SWIPE_COMMIT) replyHere();
       }
       settle();
     }
@@ -709,6 +710,30 @@
       return;
     }
     S.editing = m;
+    if (!coarse) return;
+    // On a phone the keyboard comes up only for a focus made inside the tap,
+    // so the box is mounted now and focused now, not by the effect above a
+    // frame later (lib/kbfocus.js).
+    flushSync();
+    if (editEl) {
+      holdKeyboard(editEl);
+      const end = editEl.value.length;
+      editEl.setSelectionRange(end, end);
+    }
+    keepInView(rowEl());
+  }
+
+  // Reply: on a phone, the composer takes focus inside the tap so the keyboard
+  // comes up with it, and the message being answered is kept in view while the
+  // feed shrinks above the keyboard.
+  function replyHere() {
+    S.replyingTo = m;
+    if (!S.isMobile) return;
+    holdKeyboard(document.querySelector("textarea.draft"));
+    keepInView(rowEl());
+  }
+  function rowEl() {
+    return document.querySelector(`.msg[data-msg-id="${CSS.escape(m.id)}"]`);
   }
 
   // The formatting bar and chords, applied to the edit box. Editing is where
@@ -1083,7 +1108,7 @@
       (link || pre) && { sep: true },
       // Groups, in the order a reader reaches for them: answer it, pass it
       // on, keep it, change it, and the two that need care last.
-      { label: "Reply", icon: "reply", kbd: "R", onClick: () => (S.replyingTo = m) },
+      { label: "Reply", icon: "reply", kbd: "R", onClick: replyHere },
       canThread && {
         label: "Start a thread",
         icon: "forum",

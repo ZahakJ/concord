@@ -9,7 +9,9 @@
   // The sidebar (§2.3): the place header, the shortcut strip, the jump row,
   // the one nudge, the place's list (channels by category, or your
   // conversations), the unread-messages block, the call dock and you.
+  import { tick } from "svelte";
   import Icon from "./Icon.svelte";
+  import { holdKeyboard, landKeyboard } from "./lib/kbfocus.js";
   import OwnerMark from "./OwnerMark.svelte";
   import { ownsPlace, ownerLabel } from "./lib/ownermark.js";
   import { isNotesLike, isPersonDM } from "./lib/notes.js";
@@ -613,7 +615,25 @@
       if (!S.callStage) openCallStage();
       return;
     }
-    selectChannel(c.id);
+    openWithKeyboard(() => selectChannel(c.id), !!draftIn(c.id));
+  }
+
+  // A draft is a message you were in the middle of. On a phone, tapping the
+  // place it waits in opens it ready to finish: composer focused, keyboard up.
+  // The keyboard rises only for a focus made inside the tap, and the composer
+  // is not there until the place has opened, so a stand-in holds focus across
+  // the wait (lib/kbfocus.js).
+  async function openWithKeyboard(open, hasDraft) {
+    const kb = S.isMobile && hasDraft;
+    if (kb) holdKeyboard();
+    try {
+      await open();
+    } finally {
+      if (kb) {
+        await tick();
+        landKeyboard(document.querySelector("textarea.draft"));
+      }
+    }
   }
 
   function channelMenu(e, c) {
@@ -1277,7 +1297,7 @@
           data-menu-row
           class:active
           class:unread={unread.count > 0}
-          onclick={() => (dm.dmNotes ? selectNotes() : selectGuild(dm.id))}
+          onclick={() => openWithKeyboard(() => (dm.dmNotes ? selectNotes() : selectGuild(dm.id)), !!draft)}
           oncontextmenu={isNotesLike(dm) ? undefined : coarse ? (e) => e.preventDefault() : (e) => dmMenu(e, dm)}
           use:longpress={{ handler: (e) => !isNotesLike(dm) && dmMenu(e, dm) }}
         >
