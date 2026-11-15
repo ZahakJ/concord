@@ -2311,6 +2311,16 @@ func (b *Bridge) FetchAttachment(channelID, blobID, keys, subtype string) (strin
 	return svc.FetchAttachment(channelID, blobID, keys, subtype)
 }
 
+// SetChatTimer sets a chat's disappearing timer in seconds (0 = off), kept by
+// the core and synced to this account's other devices.
+func (b *Bridge) SetChatTimer(chatID string, secs int64) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetChatTimer(chatID, secs)
+}
+
 // SweepUnstampedAttachments counts (apply false) or repairs (apply true) the
 // pictures and files sent into disappearing chats without a deadline; see
 // app/stampsweep.go. Run it dry first: the counts are all it returns.
@@ -4102,6 +4112,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.FetchAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "SendFile":
 		return nil, b.SendFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5))
+	case "SetChatTimer":
+		return nil, b.SetChatTimer(argStr(args, 0), int64(argInt(args, 1)))
 	case "SweepUnstampedAttachments":
 		return b.SweepUnstampedAttachments(argBool(args, 0))
 	case "FetchFile":

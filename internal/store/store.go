@@ -296,7 +296,9 @@ CREATE TABLE IF NOT EXISTS chat_prefs (
   pin_key  REAL    NOT NULL DEFAULT 0,
   pin_at   INTEGER NOT NULL DEFAULT 0,
   archived INTEGER NOT NULL DEFAULT 0,
-  arch_at  INTEGER NOT NULL DEFAULT 0
+  arch_at  INTEGER NOT NULL DEFAULT 0,
+  timer    INTEGER NOT NULL DEFAULT 0,
+  timer_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS blocked (
   fingerprint TEXT PRIMARY KEY,
@@ -510,6 +512,9 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 		return err
 	}
 	if err := s.migrateExpires(); err != nil {
+		return err
+	}
+	if err := s.migrateChatTimer(); err != nil {
 		return err
 	}
 	if err := s.migrateProfileRecords(); err != nil {

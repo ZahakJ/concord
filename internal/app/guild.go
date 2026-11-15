@@ -1680,6 +1680,11 @@ func (s *Service) sendAsWith(channelID, content, kind, replyTo, guestName, dir s
 		return domain.Message{}, fmt.Errorf("app: this post is closed")
 	}
 
+	// Whatever sent it, a message into a chat with a disappearing timer
+	// carries the timer (chattimer.go).
+	if kind == "" || kind == "guest" {
+		content = s.withChatTimer(channelID, content)
+	}
 	msg, err := domain.NewMessage(channelID, s.PublicKey(), content)
 	if err != nil {
 		return domain.Message{}, err

@@ -1,7 +1,7 @@
 <script>
-  // Pick a disappearing-messages timer for one conversation (this device's
-  // choice — see lib/ephemeral). Messages you send here after this carry an
-  // expiry and erase on every side when it passes.
+  // Pick a disappearing-messages timer for one conversation (your choice, on
+  // all your devices — see lib/ephemeral). Messages you send here after this
+  // carry an expiry and erase on every side when it passes.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import { S, flash } from "../lib/state.svelte.js";
@@ -12,8 +12,13 @@
   const channelId = $derived(S.modal?.channelId || S.activeChannelId);
   const current = $derived(channelTTL(channelId));
 
-  function pick(secs) {
-    setChannelTTL(channelId, secs);
+  async function pick(secs) {
+    try {
+      await setChannelTTL(channelId, secs);
+    } catch (e) {
+      flash(`Couldn't change the timer: ${e?.message || e}`, "error");
+      return;
+    }
     flash(secs ? `Messages now disappear after ${TTL_OPTIONS.find((o) => o.secs === secs)?.label}` : "Disappearing messages off", "success");
     onClose();
   }

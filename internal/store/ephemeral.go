@@ -195,10 +195,11 @@ type StampSweepRow struct {
 
 // DisappearingChats returns, per channel that holds at least one row with a
 // deadline, its live ordinary messages oldest first, bodies opened.
+// Rows whose sender is not proven yet take no part: the sweep pairs by sender.
 func (s *Store) DisappearingChats() (map[string][]StampSweepRow, error) {
 	rows, err := s.rd().Query(
 		`SELECT channel_id, id, sender, sent, expires, content_enc, nonce FROM messages
-		 WHERE deleted = 0 AND kind = '' AND channel_id IN (SELECT DISTINCT channel_id FROM messages WHERE expires > 0)
+		 WHERE deleted = 0 AND kind = '' AND unverified = 0 AND channel_id IN (SELECT DISTINCT channel_id FROM messages WHERE expires > 0)
 		 ORDER BY channel_id, sent`)
 	if err != nil {
 		return nil, err

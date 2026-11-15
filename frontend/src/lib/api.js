@@ -435,6 +435,7 @@ export const api = {
   unhideMessage: (channelID, messageID) => call("UnhideMessage", channelID, messageID),
   // Pins and archive state — this account's own devices only, never sent to anyone.
   chatPrefs: () => call("ChatPrefs"),
+  setChatTimer: (chatID, secs) => call("SetChatTimer", chatID, secs),
   setChatPinned: (chatID, pinned) => call("SetChatPinned", chatID, pinned),
   setChatArchived: (chatID, archived) => call("SetChatArchived", chatID, archived),
   setChatPinOrder: (chatIDs) => call("SetChatPinOrder", chatIDs),

@@ -26,29 +26,51 @@ export function ttlLabel(secs) {
   return (TTL_OPTIONS.find((o) => o.secs === secs) || { label: `${secs}s` }).label;
 }
 
-// Per-channel timer, persisted. Reactive so the composer banner + header button
-// update the moment you change it.
-const TKEY = "concord.disappear";
-let timers = $state(loadTimers());
-function loadTimers() {
-  try {
-    return JSON.parse(localStorage.getItem(TKEY) || "{}") || {};
-  } catch {
-    return {};
-  }
-}
+// Per-chat timer: kept by the core as a chat setting, synced between this
+// account's own devices (app/chattimer.go), and mirrored here in S.chatPrefs.
+// The core stamps it on everything sent into the chat; the stamp below is a
+// second line for content built in this window.
 export function channelTTL(channelId) {
-  return own(timers, channelId) || 0;
+  return own(S.chatPrefs, channelId)?.t || 0;
 }
-export function setChannelTTL(channelId, secs) {
-  if (secs) timers[channelId] = secs;
-  else delete timers[channelId];
+export async function setChannelTTL(channelId, secs) {
+  await api.setChatTimer(channelId, secs);
+  S.chatPrefs = (await api.chatPrefs()) || {};
+}
+
+// Older builds kept the timers in this window's localStorage. Once the core
+// answers, each is handed to it, unless the core already holds a choice for
+// that chat (made on another device, or since), and the old copy goes.
+const TKEY = "concord.disappear";
+async function adoptLocalTimers() {
+  let old;
   try {
-    localStorage.setItem(TKEY, JSON.stringify(timers));
+    old = JSON.parse(localStorage.getItem(TKEY) || "null");
   } catch {
-    /* storage blocked */
+    return;
+  }
+  if (!old || typeof old !== "object") return;
+  try {
+    const prefs = (await api.chatPrefs()) || {};
+    for (const [ch, secs] of Object.entries(old)) {
+      if (own(prefs, ch)?.ta) continue;
+      await api.setChatTimer(ch, Number(secs) || 0).catch(() => {});
+    }
+    localStorage.removeItem(TKEY);
+    S.chatPrefs = (await api.chatPrefs()) || {};
+  } catch {
+    /* core not answering yet: try again next start */
   }
 }
+$effect.root(() => {
+  let done = false;
+  $effect(() => {
+    if (S.ready && !done) {
+      done = true;
+      adoptLocalTimers();
+    }
+  });
+});
 
 // Prepend an expiry token to content when the channel has a timer set.
 export function stampEphemeral(channelId, content) {

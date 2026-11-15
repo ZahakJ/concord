@@ -127,3 +127,67 @@ func TestChatPrefSweepAndBounds(t *testing.T) {
 		t.Fatal("a full table refused a change to a chat it holds")
 	}
 }
+
+func TestChatTimerMergesNewestWinsAndTakesOnlyOfferedValues(t *testing.T) {
+	s, _ := openTestStore(t)
+	now := time.Now()
+	at := now.UnixMilli()
+	if _, _, err := s.MergeChatPref("c", ChatPref{Timer: 3600, TimerAt: at}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.MergeChatPref("c", ChatPref{Timer: 300, TimerAt: at - 1000}, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.ChatTimer("c"); got != 3600 {
+		t.Fatalf("an older timer beat a newer one: %d", got)
+	}
+	if _, _, err := s.MergeChatPref("c", ChatPref{Timer: 7, TimerAt: at + 1000}, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.ChatTimer("c"); got != 3600 {
+		t.Fatalf("a timer the app does not offer was taken: %d", got)
+	}
+	if _, _, err := s.MergeChatPref("c", ChatPref{Timer: 0, TimerAt: at + 2000}, now); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.ChatTimer("c"); got != 0 {
+		t.Fatalf("turning the timer off did not stick: %d", got)
+	}
+	// Pins on the same chat are untouched by timer changes.
+	if _, _, err := s.MergeChatPref("c", ChatPref{Pinned: true, PinKey: 1, PinAt: at}, now); err != nil {
+		t.Fatal(err)
+	}
+	if p := (mustPrefs(t, s))["c"]; !p.Pinned || p.TimerAt != at+2000 {
+		t.Fatalf("pin and timer interfered: %+v", p)
+	}
+}
+
+func TestChatTimerColumnsAreAddedToAnOlderTable(t *testing.T) {
+	s, _ := openTestStore(t)
+	for _, col := range []string{"timer", "timer_at"} {
+		if _, err := s.db.Exec(`ALTER TABLE chat_prefs DROP COLUMN ` + col); err != nil {
+			t.Fatalf("drop %s: %v", col, err)
+		}
+	}
+	if err := s.migrateChatTimer(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := s.migrateChatTimer(); err != nil {
+		t.Fatalf("a second migrate must be a no-op: %v", err)
+	}
+	if _, _, err := s.MergeChatPref("c", ChatPref{Timer: 300, TimerAt: time.Now().UnixMilli()}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if s.ChatTimer("c") != 300 {
+		t.Fatal("timer not kept after migration")
+	}
+}
+
+func mustPrefs(t *testing.T, s *Store) map[string]ChatPref {
+	t.Helper()
+	m, err := s.ChatPrefs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}

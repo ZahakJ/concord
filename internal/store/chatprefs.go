@@ -18,6 +18,10 @@ type ChatPref struct {
 	PinAt    int64   `json:"pa,omitempty"`
 	Archived bool    `json:"a,omitempty"`
 	ArchAt   int64   `json:"aa,omitempty"`
+	// Timer is the chat's disappearing-messages timer in seconds (0 = off),
+	// which the core stamps on every message sent into it (app/chattimer.go).
+	Timer   int64 `json:"t,omitempty"`
+	TimerAt int64 `json:"ta,omitempty"`
 }
 
 // ChatPrefSkew bounds how far ahead of the local clock a stamp may sit, so one
@@ -36,6 +40,13 @@ func pinWins(a, b ChatPref) bool {
 		return a.Pinned
 	}
 	return a.PinKey > b.PinKey
+}
+
+func timerWins(a, b ChatPref) bool {
+	if a.TimerAt != b.TimerAt {
+		return a.TimerAt > b.TimerAt
+	}
+	return a.Timer > b.Timer
 }
 
 func archWins(a, b ChatPref) bool {
@@ -58,6 +69,12 @@ func (s *Store) MergeChatPref(chatID string, in ChatPref, now time.Time) (ChatPr
 	if in.ArchAt > lim {
 		in.ArchAt = lim
 	}
+	if in.TimerAt > lim {
+		in.TimerAt = lim
+	}
+	if !ValidChatTimer(in.Timer) {
+		in.Timer, in.TimerAt = 0, 0 // not a timer anyone offered: take no part of it
+	}
 	chatPrefMu.Lock()
 	defer chatPrefMu.Unlock()
 	cur, err := s.chatPref(chatID)
@@ -70,6 +87,9 @@ func (s *Store) MergeChatPref(chatID string, in ChatPref, now time.Time) (ChatPr
 	}
 	if in.ArchAt > 0 && (cur.ArchAt == 0 || archWins(in, cur)) {
 		next.Archived, next.ArchAt = in.Archived, in.ArchAt
+	}
+	if in.TimerAt > 0 && (cur.TimerAt == 0 || timerWins(in, cur)) {
+		next.Timer, next.TimerAt = in.Timer, in.TimerAt
 	}
 	if next == cur {
 		return cur, false, nil
@@ -84,11 +104,12 @@ func (s *Store) MergeChatPref(chatID string, in ChatPref, now time.Time) (ChatPr
 		}
 	}
 	_, err = s.db.Exec(
-		`INSERT INTO chat_prefs (chat_id, pinned, pin_key, pin_at, archived, arch_at)
-		 VALUES (?, ?, ?, ?, ?, ?)
+		`INSERT INTO chat_prefs (chat_id, pinned, pin_key, pin_at, archived, arch_at, timer, timer_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(chat_id) DO UPDATE SET pinned=excluded.pinned, pin_key=excluded.pin_key,
-		   pin_at=excluded.pin_at, archived=excluded.archived, arch_at=excluded.arch_at`,
-		chatID, b2i(next.Pinned), next.PinKey, next.PinAt, b2i(next.Archived), next.ArchAt)
+		   pin_at=excluded.pin_at, archived=excluded.archived, arch_at=excluded.arch_at,
+		   timer=excluded.timer, timer_at=excluded.timer_at`,
+		chatID, b2i(next.Pinned), next.PinKey, next.PinAt, b2i(next.Archived), next.ArchAt, next.Timer, next.TimerAt)
 	if err != nil {
 		return cur, false, fmt.Errorf("store: merge chat pref: %w", err)
 	}
@@ -106,8 +127,8 @@ func (s *Store) chatPref(chatID string) (ChatPref, error) {
 	var p ChatPref
 	var pn, ar int
 	err := s.db.QueryRow(
-		`SELECT pinned, pin_key, pin_at, archived, arch_at FROM chat_prefs WHERE chat_id = ?`,
-		chatID).Scan(&pn, &p.PinKey, &p.PinAt, &ar, &p.ArchAt)
+		`SELECT pinned, pin_key, pin_at, archived, arch_at, timer, timer_at FROM chat_prefs WHERE chat_id = ?`,
+		chatID).Scan(&pn, &p.PinKey, &p.PinAt, &ar, &p.ArchAt, &p.Timer, &p.TimerAt)
 	if err == sql.ErrNoRows {
 		return ChatPref{}, nil
 	}
@@ -118,7 +139,7 @@ func (s *Store) chatPref(chatID string) (ChatPref, error) {
 // ChatPrefs returns every chat's record (cleared ones included: they carry the
 // stamps that make a late older change lose).
 func (s *Store) ChatPrefs() (map[string]ChatPref, error) {
-	rows, err := s.rd().Query(`SELECT chat_id, pinned, pin_key, pin_at, archived, arch_at FROM chat_prefs`)
+	rows, err := s.rd().Query(`SELECT chat_id, pinned, pin_key, pin_at, archived, arch_at, timer, timer_at FROM chat_prefs`)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +149,7 @@ func (s *Store) ChatPrefs() (map[string]ChatPref, error) {
 		var id string
 		var p ChatPref
 		var pn, ar int
-		if err := rows.Scan(&id, &pn, &p.PinKey, &p.PinAt, &ar, &p.ArchAt); err != nil {
+		if err := rows.Scan(&id, &pn, &p.PinKey, &p.PinAt, &ar, &p.ArchAt, &p.Timer, &p.TimerAt); err != nil {
 			return nil, err
 		}
 		p.Pinned, p.Archived = pn != 0, ar != 0
@@ -144,6 +165,38 @@ func (s *Store) DeleteChatPrefs(chatIDs []string) error {
 	for _, id := range chatIDs {
 		if _, err := s.db.Exec(`DELETE FROM chat_prefs WHERE chat_id = ?`, id); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// chatTimers are the disappearing timers the app offers, in seconds.
+var chatTimers = map[int64]bool{0: true, 300: true, 3600: true, 28800: true, 86400: true, 604800: true}
+
+// ValidChatTimer reports whether secs is one of them (0 = off).
+func ValidChatTimer(secs int64) bool { return chatTimers[secs] }
+
+// ChatTimer returns a chat's disappearing timer in seconds, 0 when off.
+func (s *Store) ChatTimer(chatID string) int64 {
+	p, err := s.chatPref(chatID)
+	if err != nil {
+		return 0
+	}
+	return p.Timer
+}
+
+// migrateChatTimer adds the timer columns to a chat_prefs table made before
+// them.
+func (s *Store) migrateChatTimer() error {
+	for _, col := range []string{"timer", "timer_at"} {
+		var n int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('chat_prefs') WHERE name = ?`, col).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := s.db.Exec(`ALTER TABLE chat_prefs ADD COLUMN ` + col + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -176,7 +229,7 @@ func (s *Store) SweepChatPrefs(have func(chatID string) bool, now time.Time) (in
 		if have(id) {
 			continue
 		}
-		if last := max(p.PinAt, p.ArchAt); last < cut {
+		if last := max(p.PinAt, p.ArchAt, p.TimerAt); last < cut {
 			gone = append(gone, id)
 		}
 	}
