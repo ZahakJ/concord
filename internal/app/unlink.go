@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"log"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -381,8 +383,10 @@ func (s *Service) pushRevocation(p peer.ID, rev *identity.DeviceRevocation) {
 // and say so — without it the app keeps a closed service around and every
 // action fails with a database error, which is a confusing way to learn you
 // were unlinked. err is nil when the erase completed, and otherwise
-// ErrDeviceUnlinkedNotErased naming what is still here: the shell must not say
-// the device was erased when it was not.
+// ErrDeviceUnlinkedNotErased naming what is still here (with
+// ErrDeviceUnlinkedReplaced when another account is here now): the shell must
+// not say the device was erased when it was not. An erase that did not finish
+// is retried in the background, and fn is called again with how that ended.
 func (s *Service) OnUnlinked(fn func(err error)) {
 	s.mu.Lock()
 	s.onUnlinked = append(s.onUnlinked, fn)
@@ -394,8 +398,13 @@ func (s *Service) OnUnlinked(fn func(err error)) {
 // names OUR device key. Both halves are required: the first means only the
 // account holder can trigger it, the second means a revocation for a sibling
 // device passes straight through.
+//
+// A revocation of this device key, signed by this account, on an install
+// whose device marker cannot be read now is acted on too: whether it is for
+// this install cannot be told, and the erase checks again, under the lock,
+// before anything goes (thisDeviceHere).
 func (s *Service) applyRevocation(rev *identity.DeviceRevocation) {
-	if !s.revokesUs(rev) {
+	if ok, err := s.revocationApplies(rev); !ok && err == nil {
 		return
 	}
 	s.saveRevocations(append(s.revocations(), rev))
@@ -405,36 +414,53 @@ func (s *Service) applyRevocation(rev *identity.DeviceRevocation) {
 // revokesUs is the whole safety check for the self-erase, kept in one place and
 // deliberately strict.
 func (s *Service) revokesUs(rev *identity.DeviceRevocation) bool {
+	ok, err := s.revocationApplies(rev)
+	return ok && err == nil
+}
+
+// revocationApplies is revokesUs that also says when it cannot tell: the
+// revocation is this account's, for this device key, and the device marker
+// that says whether this install is that linked device cannot be read (err).
+// That is not "not linked", and a caller must not treat this install as
+// unrevoked on the strength of it.
+func (s *Service) revocationApplies(rev *identity.DeviceRevocation) (bool, error) {
 	if rev == nil || !rev.Verify() {
-		return false
+		return false, nil
 	}
 	if !ed25519Equal(rev.AccountPub, s.id.PublicKey()) {
-		return false
+		return false, nil
 	}
 	// Our device key is the key our libp2p host runs on. An install that was
 	// never linked has no device key of its own — its host key IS the account
 	// key — and revoking the account key is not something this path will ever do.
 	dev := s.id.DevicePublicKey()
-	if len(dev) == 0 {
-		return false
+	if len(dev) == 0 || !bytes.Equal(rev.DevicePub, dev) {
+		return false, nil
 	}
-	if _, linked := loadDeviceMarker(s.dataDir, s.id.PublicKey(), dev); !linked {
-		return false
+	_, linked, err := readDeviceMarker(s.dataDir, s.id.PublicKey(), dev)
+	if err != nil {
+		return false, err
 	}
-	return bytes.Equal(rev.DevicePub, dev)
+	return linked, nil
 }
 
 // selfRevoked reports (at startup) that this device is already known to be
 // unlinked — because a previous session was told and the erase did not finish,
 // or because the record survived. Cheap and local; the network path is
-// applyRevocation.
-func (s *Service) selfRevoked() bool {
+// applyRevocation. err: a revocation of this device key is stored, and the
+// device marker cannot be read to tell whether it applies.
+func (s *Service) selfRevoked() (bool, error) {
+	var cannotTell error
 	for _, r := range s.revocations() {
-		if s.revokesUs(r) {
-			return true
+		ok, err := s.revocationApplies(r)
+		if ok {
+			return true, nil
+		}
+		if err != nil {
+			cannotTell = err
 		}
 	}
-	return false
+	return false, cannotTell
 }
 
 // wipeSelf erases everything this install holds and stops it.
@@ -449,65 +475,135 @@ func (s *Service) selfRevoked() bool {
 // having to find their rendezvous address again.
 //
 // The revocation was for one account's device, and the erase is checked
-// against that under the keystore lock, with it (stillThisDevice): another
+// against that under the keystore lock, with it (thisDeviceHere): another
 // window or process may have restored or linked an account here since, and
-// that is not erased. If the lock cannot be had, nothing is erased either:
-// the check could not be trusted without it, nobody is waiting on this erase,
-// and the service is closed already; the next start, which runs this again
-// before anything is served, finishes it.
+// that is not erased (ErrDeviceUnlinkedReplaced). An erase that could not be
+// done or checked now (the lock busy, the marker unreadable, a file held) is
+// tried again in the background, checked again each time, and the shell is
+// told when it finishes; the next start, which runs this before anything is
+// served, is the fallback.
 func (s *Service) wipeSelf() error {
 	dir := s.dataDir
+	account, device := s.id.PublicKey(), s.id.DevicePublicKey()
 	s.mu.RLock()
 	cbs := append([]func(error){}, s.onUnlinked...)
 	s.mu.RUnlock()
 
 	s.Close()
-	err := ResetIdentityIf(dir, s.stillThisDevice(dir), nil)
-	switch {
-	case errors.Is(err, ErrDataNotErased):
-		// Names what is still here.
-		err = fmt.Errorf("%w: %w", ErrDeviceUnlinkedNotErased, err)
-	case errors.Is(err, identity.ErrKeystoreChanged):
-		err = fmt.Errorf("%w; nothing was erased: this device now holds another account, or was linked again, since the revocation arrived", ErrDeviceUnlinkedNotErased)
-	case errors.Is(err, identity.ErrKeystoreBusy):
-		err = fmt.Errorf("%w; nothing was erased yet, and it is tried again at the next start: %w", ErrDeviceUnlinkedNotErased, err)
-	case err != nil:
-		// The erase stops at the keystore: everything is still here.
-		err = fmt.Errorf("%w; nothing was erased yet: %w", ErrDeviceUnlinkedNotErased, err)
-	default:
-		log.Printf("concord/app: this device was unlinked from its account; local data erased")
-	}
-	if err != nil {
-		log.Printf("concord/app: %v", err)
-	}
-	for _, cb := range cbs {
-		cb(err)
+	err := eraseRevokedDevice(dir, account, device)
+	tell(cbs, err)
+	if err != nil && !errors.Is(err, ErrDeviceUnlinkedReplaced) {
+		retryEraseRevokedDevice(dir, account, device, cbs)
 	}
 	return err
 }
 
-// stillThisDevice reports, for the self-erase and under the keystore lock,
-// whether dataDir still holds the device the revocation named: the device
-// marker certifies this account and this device key (revokesUs checked the
-// same), and the keystore, if there is one, names no other account. Every
-// restore or link onto a linked install replaces or removes the marker, so
-// one that landed since is seen. A keystore that names no account in the
-// clear was written before builds recorded it; the marker decides then. No
-// keystore at all (an erase that stopped part-way) leaves the marker to
-// decide whether the data is this device's.
-func (s *Service) stillThisDevice(dataDir string) func() bool {
-	return func() bool {
-		pub, err := identity.ReadAccountPub(keystorePathIn(dataDir))
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-		case err != nil:
-			return false
-		case pub != nil && !ed25519Equal(pub, s.id.PublicKey()):
-			return false
-		}
-		_, linked := loadDeviceMarker(dataDir, s.id.PublicKey(), s.id.DevicePublicKey())
-		return linked
+// tell logs how a self-erase went and tells the shell.
+func tell(cbs []func(error), err error) {
+	if err != nil {
+		log.Printf("concord/app: %v", err)
+	} else {
+		log.Printf("concord/app: this device was unlinked from its account; local data erased")
 	}
+	for _, cb := range cbs {
+		cb(err)
+	}
+}
+
+// eraseRevokedDevice is one attempt at the self-erase of the device whose
+// account and device keys are given, checked under the keystore lock.
+func eraseRevokedDevice(dir string, account, device ed25519.PublicKey) error {
+	var why error
+	err := ResetIdentityIf(dir, func() bool {
+		why = thisDeviceHere(dir, account, device)
+		return why == nil
+	}, nil)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrDataNotErased):
+		// Names what is still here.
+		return fmt.Errorf("%w: %w", ErrDeviceUnlinkedNotErased, err)
+	case errors.Is(err, identity.ErrKeystoreChanged) && why != nil:
+		// Another account, or a device linked again (ErrDeviceUnlinkedReplaced),
+		// or a marker that cannot be read now.
+		return fmt.Errorf("%w; %w", ErrDeviceUnlinkedNotErased, why)
+	case errors.Is(err, identity.ErrKeystoreBusy):
+		return fmt.Errorf("%w; nothing was erased yet, and it is tried again: %w", ErrDeviceUnlinkedNotErased, err)
+	default:
+		// The erase stops at the keystore: everything is still here.
+		return fmt.Errorf("%w; nothing was erased yet: %w", ErrDeviceUnlinkedNotErased, err)
+	}
+}
+
+// thisDeviceHere reports, for the self-erase and under the keystore lock,
+// whether dataDir still holds the device the revocation named: nil when the
+// device marker certifies this account and this device key (revokesUs
+// checked the same) and the keystore names no other account.
+//
+// ErrDeviceUnlinkedReplaced when it does not: every restore or link onto a
+// linked install replaces or removes the marker, so one that landed since is
+// seen, and a keystore naming another account is another account's. Any
+// other error when it cannot be told now (the marker or the keystore cannot
+// be read): that is worth trying again, and is not a refusal.
+//
+// A keystore that names no account in the clear (written before builds
+// recorded it), one that cannot be parsed (it names no one), and none at all
+// (an erase that stopped part-way) leave the marker to decide.
+func thisDeviceHere(dataDir string, account, device ed25519.PublicKey) error {
+	pub, err := identity.ReadAccountPub(keystorePathIn(dataDir))
+	switch {
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, identity.ErrDamagedKeystore):
+	case err != nil:
+		return fmt.Errorf("nothing was erased yet: the keystore cannot be read, so whose it is cannot be told: %w", err)
+	case pub != nil && !ed25519Equal(pub, account):
+		return ErrDeviceUnlinkedReplaced
+	}
+	_, linked, err := readDeviceMarker(dataDir, account, device)
+	if err != nil {
+		return fmt.Errorf("nothing was erased yet: the device marker cannot be read, so whether this is still the unlinked device cannot be told: %w", err)
+	}
+	if !linked {
+		return ErrDeviceUnlinkedReplaced
+	}
+	return nil
+}
+
+// retryEraseRevokedDevice keeps trying a self-erase that did not finish, in
+// the background (see selfEraseRetryPause), one loop per data directory. It
+// stops when an attempt erases the device, when the device turns out to hold
+// another account, or when it finds the device already erased (by the next
+// start, say); the shell is told each of those. Giving up is safe: the
+// revocation is stored, and the next start erases before it serves anything.
+func retryEraseRevokedDevice(dir string, account, device ed25519.PublicKey, cbs []func(error)) {
+	fast, pause, slow, slowPause := selfEraseRetryAttempts, selfEraseRetryPause, selfEraseSlowAttempts, selfEraseSlowPause
+	if fast+slow == 0 {
+		return
+	}
+	if _, running := selfErasing.LoadOrStore(dir, struct{}{}); running {
+		return
+	}
+	selfErasers.Add(1)
+	go func() {
+		defer selfErasers.Done()
+		defer selfErasing.Delete(dir)
+		for i := 0; i < fast+slow; i++ {
+			if i < fast {
+				time.Sleep(pause)
+			} else {
+				time.Sleep(slowPause)
+			}
+			if !HasIdentity(dir) && !hasAccountData(dir) {
+				tell(cbs, nil) // erased meanwhile
+				return
+			}
+			err := eraseRevokedDevice(dir, account, device)
+			if err == nil || errors.Is(err, ErrDeviceUnlinkedReplaced) {
+				tell(cbs, err)
+				return
+			}
+		}
+	}()
 }
 
 // plural counts a thing in a user-facing sentence. It exists because the one
@@ -525,3 +621,24 @@ func plural(n int, one, many string) string {
 // valid revocation for its own device key and could not finish erasing
 // itself. The error names what is still here; the next start tries again.
 var ErrDeviceUnlinkedNotErased = errors.New("app: this device has been unlinked from the account, but erasing it did not finish")
+
+// ErrDeviceUnlinkedReplaced: this device was unlinked, but by the time it
+// came to erase itself another account had been restored or linked here (or
+// it had been linked again with a new device key). That is not what the
+// revocation named, so nothing was erased, and nothing will be on its
+// account. Reported together with ErrDeviceUnlinkedNotErased.
+var ErrDeviceUnlinkedReplaced = errors.New("app: nothing was erased: this device now holds another account, or was linked again, since the unlink arrived")
+
+// Retrying a self-erase that could not finish (the keystore busy, the device
+// marker unreadable, a file held): every selfEraseRetryPause for
+// selfEraseRetryAttempts tries, then every selfEraseSlowPause for
+// selfEraseSlowAttempts more, each try checked again under the keystore
+// lock. The next start remains the fallback. Variables for tests.
+var (
+	selfEraseRetryPause    = 5 * time.Second
+	selfEraseRetryAttempts = 60 // five minutes
+	selfEraseSlowPause     = 5 * time.Minute
+	selfEraseSlowAttempts  = 288          // a day
+	selfErasing            sync.Map       // data dir -> struct{}: one retry loop each
+	selfErasers            sync.WaitGroup // the running loops, so a test can wait for them
+)

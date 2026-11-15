@@ -1176,7 +1176,10 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// survived a crash. Checked here rather than at the end of Start so a revoked
 	// install never serves a roster, answers a sync, or joins a topic.
 	s.loadRevoked()
-	if s.selfRevoked() {
+	// A revocation of this device whose marker cannot be read now is not a
+	// device that was never linked: it is not opened. wipeSelf checks again
+	// under the keystore lock and says what it found.
+	if revoked, cannotTell := s.selfRevoked(); revoked || cannotTell != nil {
 		if err := s.wipeSelf(); err != nil {
 			return nil, err
 		}

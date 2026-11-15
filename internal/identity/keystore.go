@@ -53,13 +53,13 @@ var ErrWrongPassphrase = errors.New("identity: wrong passphrase or corrupted key
 // on: the recovery phrase.
 var errCorruptKeystore = fmt.Errorf("%w (its key derivation settings are out of range)", ErrWrongPassphrase)
 
-// errDamagedKeystore is a keystore file that does not parse (empty, cut
+// ErrDamagedKeystore is a keystore file that does not parse (empty, cut
 // short, overwritten) or lacks what every build writes. Like a wrong
 // passphrase, the recovery phrase is the way back, so it is reported the same
 // way (errors.Is ErrWrongPassphrase), which is what the unlock screen routes
 // to recovery. A file from a newer build (an unknown version or key
 // derivation) is not damaged and keeps its own error.
-var errDamagedKeystore = fmt.Errorf("%w (the keystore file is damaged)", ErrWrongPassphrase)
+var ErrDamagedKeystore = fmt.Errorf("%w (the keystore file is damaged)", ErrWrongPassphrase)
 
 // errUnknownKeystoreFormat is a keystore laid out in a way this build does
 // not know. It is deliberately not ErrWrongPassphrase: that error sends the
@@ -405,7 +405,7 @@ func ReadAccountPub(path string) (ed25519.PublicKey, error) {
 func accountPubOf(blob []byte) (ed25519.PublicKey, error) {
 	var env keystoreFile
 	if err := json.Unmarshal(blob, &env); err != nil {
-		return nil, errDamagedKeystore
+		return nil, ErrDamagedKeystore
 	}
 	if len(env.AccountPub) != ed25519.PublicKeySize {
 		return nil, nil
@@ -638,7 +638,7 @@ func openKeystore(path, passphrase string) (*Identity, []byte, error) {
 func OpenKeystoreBytes(blob []byte, passphrase string) (*Identity, error) {
 	var env keystoreFile
 	if err := json.Unmarshal(blob, &env); err != nil {
-		return nil, errDamagedKeystore
+		return nil, ErrDamagedKeystore
 	}
 	if env.Version < 1 || env.Version > keystoreVersion {
 		return nil, fmt.Errorf("identity: unsupported keystore version %d", env.Version)
@@ -648,7 +648,7 @@ func OpenKeystoreBytes(blob []byte, passphrase string) (*Identity, error) {
 	}
 	switch {
 	case len(env.Nonce) == 0:
-		return nil, errDamagedKeystore
+		return nil, ErrDamagedKeystore
 	case len(env.Nonce) != nonceSize:
 		// Not missing but a different size: more likely a format this build
 		// does not know than damage, and the recovery flow this would be

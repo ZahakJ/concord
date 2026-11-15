@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -42,18 +44,30 @@ func deviceMarkerPath(dataDir string) string {
 // actually holds. A missing/invalid/foreign/stale marker yields (nil,false) →
 // default single-device mode.
 func loadDeviceMarker(dataDir string, accountPub, devicePub ed25519.PublicKey) (*deviceMarker, bool) {
+	m, ok, _ := readDeviceMarker(dataDir, accountPub, devicePub)
+	return m, ok
+}
+
+// readDeviceMarker is loadDeviceMarker that also says when the marker is
+// there but cannot be read (err, anything but its absence): then it cannot
+// tell whether this install is linked, which a caller deciding to erase the
+// device, or to open it after a revocation, must not read as "not linked".
+func readDeviceMarker(dataDir string, accountPub, devicePub ed25519.PublicKey) (*deviceMarker, bool, error) {
 	b, err := os.ReadFile(deviceMarkerPath(dataDir))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false, nil
+	}
 	if err != nil {
-		return nil, false
+		return nil, false, err
 	}
 	var m deviceMarker
 	if json.Unmarshal(b, &m) != nil || m.Cert == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	// The cert must verify AND certify THIS install's account — a marker copied
 	// from another account is ignored rather than trusted.
 	if !m.Cert.Verify() || !ed25519Equal(m.Cert.AccountPub, accountPub) {
-		return nil, false
+		return nil, false, nil
 	}
 	// …and it must certify the device key we are about to present it with.
 	// Signature and account both survive an identity reset; only the device key
@@ -61,9 +75,9 @@ func loadDeviceMarker(dataDir string, accountPub, devicePub ed25519.PublicKey) (
 	// is linked, offers a certificate for a key it no longer has, and is refused
 	// by every peer that binds the credential to the connection.
 	if !ed25519Equal(m.Cert.DevicePub, devicePub) {
-		return nil, false
+		return nil, false, nil
 	}
-	return &m, true
+	return &m, true, nil
 }
 
 // saveDeviceMarker persists a linked-device marker (written by the link flow

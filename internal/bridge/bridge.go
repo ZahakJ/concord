@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+	"weak"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/chronimport"
@@ -43,6 +44,9 @@ type Bridge struct {
 	// Lock* value; "" = nothing in this process ended a session, so the core
 	// must have started since). See SessionState.
 	lockReason string
+	// unlinkedFrom is the session an unlink ended (see noteUnlinked), held
+	// weakly: its erase may finish later, from a background retry.
+	unlinkedFrom weak.Pointer[appsvc.Service]
 	// unlockNotice is something the user must be told once after an unlock
 	// (see takeUnlockNotice); guarded by mu.
 	unlockNotice string
@@ -629,6 +633,26 @@ func (b *Bridge) ResetIdentity(ticket, typed string) error {
 	return err
 }
 
+// noteUnlinked drops svc's session after its device was unlinked and says
+// why on the lock screen. The erase may not have finished; a background
+// retry then calls this again when it does, and the reason follows, as long
+// as nothing else has happened here since (no unlock in between).
+func (b *Bridge) noteUnlinked(svc weak.Pointer[appsvc.Service], erased error) {
+	b.mu.Lock()
+	switch {
+	case b.svc != nil && weak.Make(b.svc) == svc:
+		b.svc = nil
+		b.lockReason = unlinkedReason(erased)
+		b.unlinkedFrom = svc
+	case b.svc == nil && b.unlinkedFrom == svc && b.lockReason == LockUnlinkedNotErased:
+		b.lockReason = unlinkedReason(erased)
+	}
+	b.mu.Unlock()
+	if b.OnPresence != nil {
+		b.OnPresence()
+	}
+}
+
 // AppVersion returns the release tag stamped into this binary ("dev" for
 // unstamped local builds). Needs no session — the login screen can show it too.
 func (b *Bridge) AppVersion() string { return version.Version }
@@ -867,17 +891,8 @@ func (b *Bridge) Login(passphrase string) error {
 	// the session rather than leaving the UI talking to a closed store, and poke
 	// the presence feed so the shell notices it needs to go back to the lock
 	// screen — where HasIdentity is now false, which is the truth.
-	svc.OnUnlinked(func(erased error) {
-		b.mu.Lock()
-		if b.svc == svc {
-			b.svc = nil
-			b.lockReason = unlinkedReason(erased)
-		}
-		b.mu.Unlock()
-		if b.OnPresence != nil {
-			b.OnPresence()
-		}
-	})
+	unlinked := weak.Make(svc) // the retry of the erase must not keep the session alive
+	svc.OnUnlinked(func(erased error) { b.noteUnlinked(unlinked, erased) })
 	svc.OnVoicePresence(func(from, fingerprint, channelID, action, target, dest string) {
 		if b.OnVoicePresence != nil {
 			p := VoicePresence{From: from, Fingerprint: fingerprint, ChannelID: channelID, Action: action, Target: target, Dest: dest}

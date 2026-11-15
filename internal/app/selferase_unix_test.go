@@ -109,3 +109,43 @@ func TestARevokeWipeThatCannotTakeTheKeystoreLockErasesNothingUntilTheNextStart(
 		t.Fatal("the revoke wipe at the next start left data behind")
 	}
 }
+
+// A self-erase that could not take the keystore lock is tried again in the
+// background, checked each time under the lock: a device left locked at the
+// lock screen (a lost one, the case unlinking is for) is erased once the
+// lock is free, without anyone unlocking it, and the shell is told.
+func TestABusyRevokeWipeFinishesWithoutARestart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits out the keystore lock (10 s)")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	fastSelfEraseRetry(t)
+	s := revokedLinkedDevice(t, ctx, dir)
+	told := make(chan error, 4)
+	s.OnUnlinked(func(err error) { told <- err })
+
+	release := holdKeystoreLock(t, keystorePathIn(dir))
+	if err := s.wipeSelf(); !errors.Is(err, identity.ErrKeystoreBusy) {
+		t.Fatalf("revoke wipe with the keystore lock held: %v, want ErrKeystoreBusy", err)
+	}
+	if <-told == nil {
+		t.Fatal("the shell was told the device was erased")
+	}
+	time.Sleep(300 * time.Millisecond) // past at least one more try
+	mustHoldAccount(t, dir, s.id.PublicKey(), "while the lock is held")
+	release()
+
+	select {
+	case err := <-told:
+		if err != nil {
+			t.Fatalf("the retry once the lock was free: %v", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the erase was not tried again once the lock was free")
+	}
+	if HasIdentity(dir) || hasAccountData(dir) {
+		t.Fatal("the retry reported the device erased, and it is not")
+	}
+}

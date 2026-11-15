@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"weak"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/identity"
@@ -556,5 +558,50 @@ func TestTheLockReasonAfterAnUnlinkSaysWhetherItErased(t *testing.T) {
 	}
 	if got := unlinkedReason(appsvc.ErrDeviceUnlinkedNotErased); got != LockUnlinkedNotErased {
 		t.Fatalf("not erased: %q", got)
+	}
+}
+
+// An unlink refused because another account is here now says so, and not
+// "something held its files, open it again to finish the erase", which would
+// never happen.
+func TestTheLockReasonAfterAnUnlinkSaysWhenAnotherAccountIsHere(t *testing.T) {
+	err := fmt.Errorf("%w; %w", appsvc.ErrDeviceUnlinkedNotErased, appsvc.ErrDeviceUnlinkedReplaced)
+	if got := unlinkedReason(err); got != LockUnlinkedReplaced {
+		t.Fatalf("another account here: %q", got)
+	}
+}
+
+// A self-erase that did not finish is retried in the background after the
+// session was dropped. When a retry finishes it, the lock screen's reason
+// follows: the device was erased after all.
+func TestTheLockReasonFollowsAnUnlinkEraseThatFinishesLater(t *testing.T) {
+	b, _ := newLockedDevice(t, "ada-pass-1", "Ada")
+	if err := b.Login("ada-pass-1"); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := b.service()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := func() string {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return b.lockReason
+	}
+	b.noteUnlinked(weak.Make(svc), appsvc.ErrDeviceUnlinkedNotErased)
+	if _, err := b.service(); err == nil {
+		t.Fatal("the unlinked session is still open")
+	}
+	if got := reason(); got != LockUnlinkedNotErased {
+		t.Fatalf("after the first try: %q", got)
+	}
+	b.noteUnlinked(weak.Make(svc), nil)
+	if got := reason(); got != LockUnlinked {
+		t.Fatalf("after a retry erased the device: %q, want %q", got, LockUnlinked)
+	}
+
+	// A later session is not touched by the old one's news.
+	if err := b.Logout(); err != nil {
+		t.Fatal(err)
 	}
 }

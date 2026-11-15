@@ -70,8 +70,8 @@ func TestARevokeWipeLeavesAnotherAccountsKeystore(t *testing.T) {
 	}
 
 	err := s.wipeSelf()
-	if !errors.Is(err, ErrDeviceUnlinkedNotErased) {
-		t.Fatalf("revoke wipe over another account's keystore: %v, want ErrDeviceUnlinkedNotErased", err)
+	if !errors.Is(err, ErrDeviceUnlinkedNotErased) || !errors.Is(err, ErrDeviceUnlinkedReplaced) {
+		t.Fatalf("revoke wipe over another account's keystore: %v, want ErrDeviceUnlinkedNotErased and ErrDeviceUnlinkedReplaced", err)
 	}
 	mustHoldAccount(t, dir, bobPub, "after a revoke wipe for Ada's device")
 }
@@ -90,8 +90,8 @@ func TestARevokeWipeLeavesADeviceLinkedAgain(t *testing.T) {
 	}
 
 	err := s.wipeSelf()
-	if !errors.Is(err, ErrDeviceUnlinkedNotErased) {
-		t.Fatalf("revoke wipe of a device linked again: %v, want ErrDeviceUnlinkedNotErased", err)
+	if !errors.Is(err, ErrDeviceUnlinkedNotErased) || !errors.Is(err, ErrDeviceUnlinkedReplaced) {
+		t.Fatalf("revoke wipe of a device linked again: %v, want ErrDeviceUnlinkedNotErased and ErrDeviceUnlinkedReplaced", err)
 	}
 	mustHoldAccount(t, dir, s.id.PublicKey(), "after a revoke wipe for the old device key")
 	if _, err := os.Stat(deviceMarkerPath(dir)); err != nil {
@@ -99,7 +99,103 @@ func TestARevokeWipeLeavesADeviceLinkedAgain(t *testing.T) {
 	}
 }
 
-// An erase is checked: without a check it erases nothing, rather than
+// A keystore that cannot be parsed names no account, so it cannot be another
+// account's: the device marker decides, and a revoked device is erased.
+func TestARevokeWipeErasesADamagedKeystore(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	s := revokedLinkedDevice(t, ctx, dir)
+	if err := os.WriteFile(keystorePathIn(dir), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.wipeSelf(); err != nil {
+		t.Fatalf("revoke wipe over a damaged keystore: %v", err)
+	}
+	if hasAccountData(dir) {
+		t.Fatal("a revoked device kept its data because its keystore could not be parsed")
+	}
+	if _, err := os.Lstat(keystorePathIn(dir)); !os.IsNotExist(err) {
+		t.Fatalf("the damaged keystore is still here: %v", err)
+	}
+}
+
+// A device marker that cannot be read at the moment (a scanner holding it,
+// its permissions changed) says nothing either way. The erase is not refused
+// as "another account": it is tried again, and goes through once the marker
+// can be read.
+func TestARevokeWipeWithAnUnreadableMarkerTriesAgain(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads anything")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	fastSelfEraseRetry(t)
+	s := revokedLinkedDevice(t, ctx, dir)
+	told := make(chan error, 4)
+	s.OnUnlinked(func(err error) { told <- err })
+	if err := os.Chmod(deviceMarkerPath(dir), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(deviceMarkerPath(dir), 0o600) })
+
+	err := s.wipeSelf()
+	if !errors.Is(err, ErrDeviceUnlinkedNotErased) || errors.Is(err, ErrDeviceUnlinkedReplaced) {
+		t.Fatalf("revoke wipe with an unreadable marker: %v, want not erased and not refused as another account", err)
+	}
+	if <-told == nil {
+		t.Fatal("the shell was told the device was erased")
+	}
+	mustHoldAccount(t, dir, s.id.PublicKey(), "while the marker cannot be read")
+
+	if err := os.Chmod(deviceMarkerPath(dir), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-told:
+		if err != nil {
+			t.Fatalf("the retry once the marker could be read: %v", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the erase was not tried again once the marker could be read")
+	}
+	if HasIdentity(dir) || hasAccountData(dir) {
+		t.Fatal("the retry reported the device erased, and it is not")
+	}
+}
+
+// At the next start, a revocation of this device with a marker that cannot be
+// read is not "not linked": Concord cannot tell whether the revocation is for
+// this install, and does not open the account.
+func TestARevokedDeviceWithAnUnreadableMarkerDoesNotOpen(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads anything")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	s := revokedLinkedDevice(t, ctx, dir)
+	_ = s.Close()
+	if err := os.Chmod(deviceMarkerPath(dir), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(deviceMarkerPath(dir), 0o600) })
+
+	again, err := Start(ctx, Config{DataDir: dir, Passphrase: "test-pass", DisableMDNS: true})
+	if err == nil {
+		_ = again.Close()
+		t.Fatal("a revoked device whose marker cannot be read opened its account")
+	}
+	if !errors.Is(err, ErrDeviceUnlinkedNotErased) {
+		t.Fatalf("start of a revoked device with an unreadable marker: %v, want ErrDeviceUnlinkedNotErased", err)
+	}
+	if !HasIdentity(dir) {
+		t.Fatal("the keystore was erased while the marker could not be read")
+	}
+}
+
+// A self-erase is checked: it refuses to erase without one, rather than
 // erasing whatever is there.
 func TestResetIdentityIfRefusesWithoutACheck(t *testing.T) {
 	dir := t.TempDir()

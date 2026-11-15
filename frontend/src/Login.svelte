@@ -787,10 +787,16 @@
           them back.
         {:else if endedReason === "unlinked-not-erased"}
           This device was unlinked from its account, but erasing its copy here
-          did not finish: something on this device was holding Concord's files,
-          so your identity and data may still be on it. Close anything else
-          using Concord's files and open it again to finish the erase. Nothing
-          was deleted from anyone else.
+          has not finished: another Concord window or program was holding
+          Concord's files, or one of them could not be read, so your identity
+          and data are still on it. Concord keeps trying while it is open, and
+          tries again the next time it is unlocked. Nothing was deleted from
+          anyone else.
+        {:else if endedReason === "unlinked-replaced"}
+          This device was unlinked from its account, but by the time it came to
+          erase itself another account had been restored or linked here, so
+          nothing was erased: what is on this device now is not what the unlink
+          was for.
         {:else if endedReason === "wiped"}
           Everything on this device was deleted from another Concord window.
         {:else if endedReason === "signed-out"}

@@ -43,14 +43,23 @@ const (
 	LockSignedOut = "signed-out" // someone signed out (another window, or this one)
 	LockUnlinked  = "unlinked"   // the account unlinked this device and it erased itself
 	// LockUnlinkedNotErased: the account unlinked this device, and erasing it
-	// did not finish (something held its files). The next unlock tries again.
+	// did not finish (something held its files, or the keystore lock, or its
+	// device marker could not be read). It is tried again in the background
+	// and at the next unlock.
 	LockUnlinkedNotErased = "unlinked-not-erased"
-	LockWiped             = "wiped" // "Delete everything on this device" ran
+	// LockUnlinkedReplaced: the account unlinked this device, but by the
+	// time it came to erase itself another account had been restored or
+	// linked here, so nothing was erased.
+	LockUnlinkedReplaced = "unlinked-replaced"
+	LockWiped            = "wiped" // "Delete everything on this device" ran
 )
 
 // unlinkedReason is the lock reason after this device was unlinked: erased,
 // or not (erased is the erase's error, nil when it completed).
 func unlinkedReason(erased error) string {
+	if errors.Is(erased, appsvc.ErrDeviceUnlinkedReplaced) {
+		return LockUnlinkedReplaced
+	}
 	if erased != nil {
 		return LockUnlinkedNotErased
 	}
