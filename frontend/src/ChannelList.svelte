@@ -1,4 +1,5 @@
 <script module>
+  import { own } from "./lib/lookup.js";
   // "Later" on the recovery-phrase nudge lasts the session, not the mount: the
   // sidebar remounts on every shell change and the phrase must not nag back
   // the moment you resize a window.
@@ -250,7 +251,7 @@
       !g.evicted &&
       g.isOwner &&
       !g.heir &&
-      !heirNudgeDismissed[g.id] &&
+      !own(heirNudgeDismissed, g.id) &&
       S.members.some((m) => !m.isSelf && !m.pending) &&
       !S.members.some((m) => !m.isSelf && !m.pending && m.canManage),
   );
@@ -595,13 +596,13 @@
   // parent's row or it's invisible. Text channels can parent threads too now,
   // so both kinds roll up; voice and announcement rows keep the cheap path.
   function channelUnread(c) {
-    const own = S.unread[c.id];
-    if (c.type !== "forum" && (c.type || "text") !== "text") return own;
-    let count = own?.count || 0;
-    let mentions = own?.mentions || 0;
+    const mine = own(S.unread, c.id);
+    if (c.type !== "forum" && (c.type || "text") !== "text") return mine;
+    let count = mine?.count || 0;
+    let mentions = mine?.mentions || 0;
     for (const t of g?.channels || []) {
       if (t.parent !== c.id || isMuted(t.id, g?.id)) continue;
-      const u = S.unread[t.id];
+      const u = own(S.unread, t.id);
       if (!u) continue;
       count += u.count;
       mentions += u.mentions;
@@ -672,13 +673,13 @@
       {
         label: `Use guild default (${levelLabel(guildNotifLevel(g?.id))})`,
         icon: "bell",
-        active: !S.notifs.channels[c.id],
+        active: !own(S.notifs.channels, c.id),
         onClick: () => setChannelNotifs(c.id, null),
       },
       ...LEVELS.map((l) => ({
         label: l.label,
         icon: l.id === "none" ? "bellOff" : "bell",
-        active: S.notifs.channels[c.id] === l.id,
+        active: own(S.notifs.channels, c.id) === l.id,
         onClick: () => setChannelNotifs(c.id, l.id),
       })),
       { sep: true },
@@ -1067,7 +1068,7 @@
         oncontextmenu={coarse ? (e) => e.preventDefault() : placeMenu}
         use:longpress={{ handler: placeMenu }}
       >
-        <span class="ph-icon" class:hasicon={!!g.icon} class:moments={MOM.unseen[g.id] > 0} title={MOM.unseen[g.id] ? "New moments: right-click the guild's name, then View moments" : undefined}>
+        <span class="ph-icon" class:hasicon={!!g.icon} class:moments={own(MOM.unseen, g.id) > 0} title={own(MOM.unseen, g.id) ? "New moments: right-click the guild's name, then View moments" : undefined}>
           {#if g.icon}<img src={g.icon} alt="" />{:else}<GuildMark {g} size={13} />{/if}
         </span>
         <span class="ph-name"><bdi>{g.name}</bdi></span>

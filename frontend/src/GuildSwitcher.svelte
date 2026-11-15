@@ -1,4 +1,5 @@
 <script>
+  import { own } from "./lib/lookup.js";
   // The guild switcher: the inventory behind the sidebar's shortcut strip.
   // Every guild, searchable, in the user's own order with folders opening in
   // place (the old vertical rail as a list — lib/rail.js's order and folder
@@ -66,7 +67,7 @@
     const u = guildUnread(g);
     const muted = guildNotifLevel(g.id) === "none";
     let raw = 0;
-    if (muted) for (const c of g.channels) raw += S.unread[c.id]?.mentions || 0;
+    if (muted) for (const c of g.channels) raw += own(S.unread, c.id)?.mentions || 0;
     return { muted, count: muted ? raw : u.attention, dot: !muted && !u.attention && u.count > 0 };
   }
   function folderMarks(ids) {

@@ -1,4 +1,5 @@
 <script>
+  import { own, listFor } from "../lib/lookup.js";
   // The guild calendar: agenda list + month grid (toggle), day drill-down,
   import Segmented from "../Segmented.svelte";
   // and the create/edit form. The agenda leads on phones — a month grid is a
@@ -37,7 +38,7 @@
   // a background refresh changes the active guild id.
   const gid = S.modal?.guildId || S.activeGuildId;
   const g = $derived(S.guilds.find((x) => x.id === gid) || null);
-  const records = $derived(EV.byGuild[gid] || []);
+  const records = $derived(listFor(EV.byGuild, gid));
 
   // Every reading surface below works on OCCURRENCES, not records: a series is
   // one record and many days, and the agenda, the grid and the day drill-down

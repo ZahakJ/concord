@@ -54,7 +54,7 @@ import { insertBySent, compareSent } from "./feedorder.js";
 import { createFeedCache, reconcileFeed } from "./feedcache.js";
 import { formatClock } from "./clockfmt.js";
 import { isBlankText } from "./compose.js";
-import { isReading, readThrough, attention, addressedToYou } from "./readstate.js";
+import { isReading, readThrough, attention, addressedToYou, mergeUnreadChunk } from "./readstate.js";
 import {
   step as callStep,
   isRinging,
@@ -79,6 +79,7 @@ import {
 } from "./notifs.js";
 import { reducedMotion, motionMode, onOsMotionChange } from "./motion.js";
 import { customEmojiTable } from "./customemoji.js";
+import { own } from "./lookup.js";
 import { ANIMATED_PACKS, groundOf, migratePrefs, packIdOrDefault } from "./packs.js";
 
 // The saved prefs, brought up to this build before anything reads them: a
@@ -856,7 +857,7 @@ if (!lastPlace.channels) lastPlace.channels = {}; // tolerate an older/partial v
 
 function rememberPlace(guildId, channelId) {
   if (!guildId || !channelId) return;
-  if (lastPlace.guildId === guildId && lastPlace.channels[guildId] === channelId) return;
+  if (lastPlace.guildId === guildId && own(lastPlace.channels, guildId) === channelId) return;
   lastPlace.guildId = guildId;
   lastPlace.channels[guildId] = channelId;
   if (S.guilds.find((g) => g.id === guildId)?.kind === "dm") lastPlace.dm = guildId;
@@ -868,7 +869,7 @@ function rememberPlace(guildId, channelId) {
 // skipped: reopening one would look like an invitation to rejoin a call you
 // aren't in, and its chat is reachable without that ambiguity.
 function channelToResume(guild) {
-  const saved = lastPlace.channels[guild.id];
+  const saved = own(lastPlace.channels, guild.id);
   const ch = guild.channels.find((c) => c.id === saved);
   if (ch && ch.type !== "voice") return ch.id;
   return (guild.channels.find((c) => c.type !== "voice") || guild.channels[0]).id;
@@ -889,14 +890,14 @@ const countedMsgIds = new Set();
 // caps marks too far ahead of its clock), and that is the one kept here.
 export function markRead(channelId, through = "") {
   if (!channelId) return;
-  if (S.unread[channelId]) {
+  if (own(S.unread, channelId)) {
     const u = { ...S.unread };
     delete u[channelId];
     S.unread = u;
   }
   const at = Date.parse(through);
   if (Number.isFinite(at)) {
-    const local = lastRead[channelId] ? Date.parse(lastRead[channelId]) : 0;
+    const local = own(lastRead, channelId) ? Date.parse(own(lastRead, channelId)) : 0;
     if (at > local) {
       lastRead[channelId] = new Date(at).toISOString();
       saveJSON("concord.lastRead", lastRead);
@@ -926,7 +927,7 @@ function adoptMarks(held) {
   for (const [id, at] of Object.entries(held || {})) {
     if (typeof at !== "number" || at <= 0) continue;
     const iso = new Date(at).toISOString();
-    if (lastRead[id] !== iso) {
+    if (own(lastRead, id) !== iso) {
       lastRead[id] = iso;
       changed = true;
     }
@@ -971,8 +972,8 @@ export function syncReading() {
   const id = S.activeChannelId;
   if (!id || !readingNow()) return;
   const through = readThrough(S.messages.filter((m) => m.channelId === id || !m.channelId));
-  const behind = through && (!lastRead[id] || Date.parse(through) > Date.parse(lastRead[id]));
-  if (behind || S.unread[id]) markRead(id, through);
+  const behind = through && (!own(lastRead, id) || Date.parse(through) > Date.parse(own(lastRead, id)));
+  if (behind || own(S.unread, id)) markRead(id, through);
 }
 
 // ---- notification levels ----
@@ -993,7 +994,7 @@ export function notifLevel(channelId, guildId) {
 }
 
 export function guildNotifLevel(guildId) {
-  return S.notifs.guilds[guildId] || "all";
+  return own(S.notifs.guilds, guildId) || "all";
 }
 
 // isMuted keeps the old vocabulary for the places that only ever asked the
@@ -1095,7 +1096,7 @@ export function setPeerVolume(peerId, vol) {
 
 // togglePeerMute flips a participant between silenced (0) and full (1) for you.
 export function togglePeerMute(peerId) {
-  setPeerVolume(peerId, S.peerVolumes[peerId] === 0 ? 1 : 0);
+  setPeerVolume(peerId, own(S.peerVolumes, peerId) === 0 ? 1 : 0);
 }
 
 // markUnread rewinds a channel's read cursor to just before a message, so it
@@ -1287,7 +1288,7 @@ export function guildMenuItems(g) {
     // Both, always: viewing them used to be the only way in once one existed,
     // so a second person could never share theirs.
     {
-      label: MOM.unseen[g.id] ? `View moments · ${MOM.unseen[g.id]} new` : "View moments",
+      label: own(MOM.unseen, g.id) ? `View moments · ${own(MOM.unseen, g.id)} new` : "View moments",
       icon: "imagetext",
       onClick: () => openMoments(g.id),
     },
@@ -1477,7 +1478,7 @@ export async function setChannelType(channel, type) {
 
   // Pulling the floor out from under a live call: everyone in it would be
   // talking in a channel that no longer has a call.
-  const inCall = Object.keys(S.voiceRosters[channel.id] || {}).length > 0 || S.voice?.channelId === channel.id;
+  const inCall = Object.keys(own(S.voiceRosters, channel.id) || {}).length > 0 || S.voice?.channelId === channel.id;
   if (current === "voice" && inCall) {
     flash("There's a call in this channel right now — end it first", "error");
     return;
@@ -1605,7 +1606,7 @@ export async function setChannelTopic(channel, topic) {
 // guilds was most of the cost of a busy guild in the background.
 // S.unreadTick is for the few readers that care that SOMETHING changed.
 function bumpUnread(channelId, mention) {
-  const cur = S.unread[channelId] || { count: 0, mentions: 0 };
+  const cur = own(S.unread, channelId) || { count: 0, mentions: 0 };
   S.unread[channelId] = { count: cur.count + 1, mentions: cur.mentions + (mention ? 1 : 0) };
   S.unreadTick++;
 }
@@ -1618,7 +1619,7 @@ async function countChannelUnread(channelId) {
 
 // tallyUnread is countChannelUnread's arithmetic over rows already in hand.
 function tallyUnread(msgs, channelId) {
-  const since = lastRead[channelId] ? new Date(lastRead[channelId]) : null;
+  const since = own(lastRead, channelId) ? new Date(own(lastRead, channelId)) : null;
   let count = 0;
   let mentions = 0;
   for (const m of msgs) {
@@ -1648,7 +1649,7 @@ async function recomputeUnread() {
   for (const g of S.guilds) {
     for (const c of g.channels) {
       if (c.id === S.activeChannelId && readingNow()) continue;
-      since[c.id] = lastRead[c.id] || "";
+      since[c.id] = own(lastRead, c.id) || "";
     }
   }
   let counts = null;
@@ -1674,7 +1675,7 @@ async function recomputeUnread() {
       // that currently shows a badge falls through to the fresh per-channel
       // count instead — authoritative either way, and the fast path still
       // covers the common case (read channel, no badge).
-      if (counts && !counts[c.id] && !S.unread[c.id]) continue;
+      if (counts && !own(counts, c.id) && !own(S.unread, c.id)) continue;
       refine.push(c.id);
     }
   }
@@ -1682,7 +1683,7 @@ async function recomputeUnread() {
   for (let i = 0; i < refine.length && batched; i += 40) {
     const chunk = refine.slice(i, i + 40);
     const ask = {};
-    for (const id of chunk) ask[id] = lastRead[id] || "";
+    for (const id of chunk) ask[id] = own(lastRead, id) || "";
     let rows;
     try {
       rows = (await api.unreadMessages(ask)) || {};
@@ -1690,14 +1691,7 @@ async function recomputeUnread() {
       batched = false; // an older core: the per-channel path below
       break;
     }
-    const next = { ...S.unread };
-    for (const id of chunk) {
-      if (!(id in rows)) continue; // unreadable right now: keep what is shown
-      const u = tallyUnread(rows[id] || [], id);
-      if (u) next[id] = u;
-      else delete next[id];
-    }
-    S.unread = next;
+    S.unread = mergeUnreadChunk(S.unread, chunk, rows, tallyUnread);
   }
   if (batched) return;
   for (const id of refine) {
@@ -1998,7 +1992,7 @@ function armCatchUp(guildId) {
   // A copy of the marks as they were, so the counts are asked for against the
   // moment you arrived rather than against whatever reading has done since.
   const marks = {};
-  for (const c of g.channels) marks[c.id] = lastRead[c.id] || "";
+  for (const c of g.channels) marks[c.id] = own(lastRead, c.id) || "";
   pending = { guildId, sinceMs: since, atMs: Date.now(), marks };
   // Deferred by a microtask rather than called straight through. selectGuild
   // sets S.activeGuildId immediately AFTER this returns, and settleCatchUp's
@@ -2033,11 +2027,11 @@ export async function settleCatchUp() {
   const mentions = {};
   for (const e of S.inbox.entries) {
     if (e.guildId !== p.guildId || e.at <= p.sinceMs) continue;
-    mentions[e.channelId] = (mentions[e.channelId] || 0) + 1;
+    mentions[e.channelId] = (own(mentions, e.channelId) || 0) + 1;
   }
   const unread = {};
   for (const [id, n] of Object.entries(counts || {})) {
-    if (n > 0) unread[id] = { count: n, mentions: mentions[id] || 0 };
+    if (n > 0) unread[id] = { count: n, mentions: own(mentions, id) || 0 };
   }
 
   const d = buildDigest({
@@ -2099,7 +2093,7 @@ export function guildUnread(g) {
   let attn = 0;
   const dm = isPersonDM(g);
   for (const c of g.channels) {
-    const u = S.unread[c.id];
+    const u = own(S.unread, c.id);
     if (!u || isMuted(c.id, g.id)) continue;
     count += u.count;
     mentions += u.mentions;
@@ -2314,7 +2308,7 @@ function firstVisibleMsgId() {
 // Instant, flash-free — unlike scrollToMessage this is not a "look here" jump,
 // it's the reader's own place quietly coming back.
 function restoreReadingPosition(id) {
-  const anchor = scrollStash[id];
+  const anchor = own(scrollStash, id);
   if (!anchor) return false;
   delete scrollStash[id];
   if (!S.messages.some((m) => m.id === anchor)) return false;
@@ -3490,7 +3484,7 @@ export async function selectChannel(id) {
   rememberPlace(S.activeGuildId, id);
   // Snapshot where we left off BEFORE marking read, to place the "new messages"
   // divider for this viewing session.
-  S.readAnchor = lastRead[id] || "";
+  S.readAnchor = own(lastRead, id) || "";
   S.typingList.forEach((t) => clearTimeout(t.timer));
   S.typingList = [];
   S.replyingTo = null;
@@ -4238,7 +4232,7 @@ function initEvents() {
   // message read anywhere clears (or trims) the badge here immediately.
   on("read-state", async (r) => {
     if (!r?.channelId || !r?.at) return;
-    const local = lastRead[r.channelId] ? Date.parse(lastRead[r.channelId]) : 0;
+    const local = own(lastRead, r.channelId) ? Date.parse(own(lastRead, r.channelId)) : 0;
     if (r.at <= local) return; // we already know a newer read
     lastRead[r.channelId] = new Date(r.at).toISOString();
     saveJSON("concord.lastRead", lastRead);
@@ -4310,7 +4304,7 @@ function initEvents() {
     //
     // Two of those gates were written down here and did not work. The volume
     // slider is keyed by PEER ID — setPeerVolume(peerId, …), read as
-    // S.peerVolumes[pid] everywhere else — and this read it by fingerprint, so
+    // own(S.peerVolumes, pid) everywhere else — and this read it by fingerprint, so
     // "Mute <name> for me" silenced their voice and left their airhorns at full
     // level for everyone except a guest (whose two ids happen to be the same
     // string). And deafen lives inside the mesh, which a soundboard press never
@@ -4323,7 +4317,7 @@ function initEvents() {
         S.peerVolumes[v.from] !== 0
       ) {
         const now = Date.now();
-        if (now - (sfxLast[v.fingerprint] || 0) >= 1000) {
+        if (now - (own(sfxLast, v.fingerprint) || 0) >= 1000) {
           sfxLast[v.fingerprint] = now;
           playSfxTrigger(v.target);
         }
@@ -4428,7 +4422,7 @@ function initEvents() {
     if (v.action === "join" && S.voice?.channelId === v.channelId && v.fingerprint !== S.identity.fingerprint) {
       publishVoiceState();
     }
-    if (v.action === "leave" && S.voiceStates[v.fingerprint]) {
+    if (v.action === "leave" && own(S.voiceStates, v.fingerprint)) {
       const next = { ...S.voiceStates };
       delete next[v.fingerprint];
       S.voiceStates = next;
@@ -4599,13 +4593,13 @@ function dropVoicePeer(peerId) {
   // "Did we know them" decides whether anything audible happens: the roster
   // expiry and a stray goodbye can both name someone we never had, and a chime
   // for a person who was never on the stage is a noise with no referent.
-  const knew = !!S.voicePeerFpr[peerId] || S.voice.mesh.peers.has(peerId);
-  if (S.voicePeerFpr[peerId]) {
+  const knew = !!own(S.voicePeerFpr, peerId) || S.voice.mesh.peers.has(peerId);
+  if (own(S.voicePeerFpr, peerId)) {
     const c = { ...S.voicePeerFpr };
     delete c[peerId];
     S.voicePeerFpr = c;
   }
-  if (S.voicePeerStatus[peerId]) {
+  if (own(S.voicePeerStatus, peerId)) {
     const st = { ...S.voicePeerStatus };
     delete st[peerId];
     S.voicePeerStatus = st;
@@ -4618,7 +4612,7 @@ function dropVoicePeer(peerId) {
 function updateVoiceRoster(channelId, peerId, fingerprint, action) {
   if (!channelId || !peerId) return;
   const rosters = { ...S.voiceRosters };
-  const room = { ...(rosters[channelId] || {}) };
+  const room = { ...(own(rosters, channelId) || {}) };
   if (action === "leave") {
     delete room[peerId];
   } else {
@@ -4649,7 +4643,7 @@ function updateVoiceRoster(channelId, peerId, fingerprint, action) {
 // few seconds), and a client that quits or crashes never sends one at all.
 // Tying the lock's lifetime to the roster makes every one of those self-heal.
 export function forgetLock(channelId) {
-  if (S.callLocks[channelId]) {
+  if (own(S.callLocks, channelId)) {
     const locks = { ...S.callLocks };
     delete locks[channelId];
     S.callLocks = locks;
@@ -4659,7 +4653,7 @@ export function forgetLock(channelId) {
     S.callLockBy = { ...S.callLockBy, [channelId]: "" };
     persistLocks();
   }
-  if (S.callKnocks[channelId]) {
+  if (own(S.callKnocks, channelId)) {
     const k = { ...S.callKnocks };
     delete k[channelId];
     S.callKnocks = k;
@@ -4961,8 +4955,8 @@ function persistLocks() {
   try {
     const out = {};
     for (const ch of Object.keys(S.callLocks)) {
-      if (!S.callLocks[ch]) continue;
-      out[ch] = { by: S.callLockBy[ch] || "", admitted: S.callAdmitted[ch] || [] };
+      if (!own(S.callLocks, ch)) continue;
+      out[ch] = { by: own(S.callLockBy, ch) || "", admitted: own(S.callAdmitted, ch) || [] };
     }
     if (Object.keys(out).length) localStorage.setItem(LOCK_KEY, JSON.stringify(out));
     else localStorage.removeItem(LOCK_KEY);
@@ -4999,20 +4993,20 @@ if (typeof window !== "undefined") {
   setTimeout(() => {
     for (const ch of Object.keys(S.callLocks)) {
       if (S.voice?.channelId === ch) continue;
-      if (!Object.keys(S.voiceRosters[ch] || {}).length) forgetLock(ch);
+      if (!Object.keys(own(S.voiceRosters, ch) || {}).length) forgetLock(ch);
     }
   }, 12000);
 }
 
 export function isCallLocked(channelId) {
-  return !!S.callLocks[channelId];
+  return !!own(S.callLocks, channelId);
 }
 
 // Who locked it, as a name. The fingerprint comes off the authenticated sender
 // of the lock signal (voice.go stamps it; the body never carries it), so this
 // is the same class of claim as a message's author.
 export function callLockedBy(channelId) {
-  const fpr = S.callLockBy[channelId];
+  const fpr = own(S.callLockBy, channelId);
   if (!fpr) return "";
   if (fpr === S.identity.fingerprint) return "you";
   return nameFor(fpr);
@@ -5040,11 +5034,11 @@ export function canLockCall(channelId) {
 // admittedIn / isAdmitted — the guest list, and the question the join gate asks.
 export function isAdmitted(channelId, fpr) {
   if (!fpr) return false;
-  return (S.callAdmitted[channelId] || []).includes(fpr);
+  return (own(S.callAdmitted, channelId) || []).includes(fpr);
 }
 function admit(channelId, fpr) {
   if (!channelId || !fpr) return;
-  const list = S.callAdmitted[channelId] || [];
+  const list = own(S.callAdmitted, channelId) || [];
   if (list.includes(fpr)) return;
   S.callAdmitted = { ...S.callAdmitted, [channelId]: [...list, fpr] };
   persistLocks();
@@ -5052,8 +5046,8 @@ function admit(channelId, fpr) {
 // Everyone in the room when the lock goes on is in it. A lock that threw out
 // the people already talking would be a kick with extra steps.
 function seedAdmitted(channelId) {
-  const room = S.voiceRosters[channelId] || {};
-  const fprs = new Set(S.callAdmitted[channelId] || []);
+  const room = own(S.voiceRosters, channelId) || {};
+  const fprs = new Set(own(S.callAdmitted, channelId) || []);
   fprs.add(S.identity.fingerprint);
   for (const p of Object.values(room)) if (p?.fingerprint) fprs.add(p.fingerprint);
   S.callAdmitted = { ...S.callAdmitted, [channelId]: [...fprs] };
@@ -5067,7 +5061,7 @@ export function toggleCallLock() {
     flash("You don't have permission to lock this call", "error");
     return;
   }
-  const locking = !S.callLocks[ch];
+  const locking = !own(S.callLocks, ch);
   api.signalCall(ch, locking ? "lock" : "unlock").catch(() => {});
   const locks = { ...S.callLocks };
   if (locking) locks[ch] = true;
@@ -5095,7 +5089,7 @@ export function toggleCallLock() {
     // One-off gossip is missable, so re-announce the lock every few seconds
     // while it's on, so late watchers (and knockers) learn the call is locked.
     lockRebroadcast = setInterval(() => {
-      if (S.voice?.channelId === ch && S.callLocks[ch]) api.signalCall(ch, "lock").catch(() => {});
+      if (S.voice?.channelId === ch && own(S.callLocks, ch)) api.signalCall(ch, "lock").catch(() => {});
       else clearInterval(lockRebroadcast);
     }, 3000);
   }
@@ -5187,7 +5181,7 @@ export function noteCallLeft() {
 // noteKnock puts a fingerprint on the door card, once.
 function noteKnock(channelId, fpr) {
   if (!fpr) return;
-  const list = S.callKnocks[channelId] || [];
+  const list = own(S.callKnocks, channelId) || [];
   if (list.includes(fpr)) return;
   S.callKnocks = { ...S.callKnocks, [channelId]: [...list, fpr] };
 }
@@ -5207,7 +5201,7 @@ function refusedRecently(channelId, fpr) {
 }
 
 function dropKnock(channelId, fpr) {
-  const list = (S.callKnocks[channelId] || []).filter((f) => f !== fpr);
+  const list = (own(S.callKnocks, channelId) || []).filter((f) => f !== fpr);
   const k = { ...S.callKnocks };
   if (list.length) k[channelId] = list;
   else delete k[channelId];
@@ -5250,7 +5244,7 @@ const isGroupDM = (g) => (g?.dmMembers ?? 2) > 2;
 function otherAccounts(channelId) {
   const self = S.identity?.fingerprint;
   const out = new Set();
-  for (const info of Object.values(S.voiceRosters[channelId] || {})) {
+  for (const info of Object.values(own(S.voiceRosters, channelId) || {})) {
     if (info.fingerprint && info.fingerprint !== self) out.add(info.fingerprint);
   }
   return out;
@@ -5260,7 +5254,7 @@ function otherAccounts(channelId) {
 // says. The machine decides; this only has the hands.
 export function callEvent(channelId, ev) {
   if (!channelId) return;
-  const prev = S.calls[channelId];
+  const prev = own(S.calls, channelId);
   const { st, fx } = callStep(prev, ev);
   if (st !== prev) S.calls = { ...S.calls, [channelId]: st };
   for (const f of fx) {
@@ -5270,7 +5264,7 @@ export function callEvent(channelId, ev) {
     if (f.local) api.noteCall(channelId, f.local).catch(() => {});
     if (f.sendDecline) {
       const blob = declineBlob(channelId);
-      for (const pid of Object.keys(S.voiceRosters[channelId] || {})) {
+      for (const pid of Object.keys(own(S.voiceRosters, channelId) || {})) {
         if (pid !== S.identity?.peerId) api.relaySignal(pid, blob).catch(() => {});
       }
     }
@@ -5306,7 +5300,7 @@ function dmRosterChanged(channelId, v = null) {
     return;
   }
   if (S.joiningVoice === channelId) return;
-  const roster = S.voiceRosters[channelId] || {};
+  const roster = own(S.voiceRosters, channelId) || {};
   if (!Object.keys(roster).length) {
     callEvent(channelId, { type: "gone", now });
     return;
@@ -5315,7 +5309,7 @@ function dmRosterChanged(channelId, v = null) {
   // desktop ringing for the call the phone placed is a ring at yourself.
   const selfIn = Object.values(roster).some((i) => i.fingerprint === S.identity?.fingerprint);
   if (selfIn || !others.size) return;
-  const st = S.calls[channelId];
+  const st = own(S.calls, channelId);
   if (!st || st.phase === "idle") {
     // The caller is whoever was in the room first, as far as we heard it.
     const first = Object.values(roster).sort((a, b) => (a.since || a.ts) - (b.since || b.ts))[0];
@@ -5345,7 +5339,7 @@ function onDeclineSignal(channelId, raw) {
       by = "";
     }
   }
-  const st = S.calls[channelId];
+  const st = own(S.calls, channelId);
   const declined = new Set([...(st?.declinedBy || []), by]);
   const everyone = !isGroupDM(g) || declined.size >= (g.dmMembers ?? 2) - 1;
   callEvent(channelId, { type: "declined", by, everyone, now: Date.now() });
@@ -5384,7 +5378,7 @@ export function joinedDMCall(channelId) {
     callEvent(channelId, { type: "reset" });
     callEvent(channelId, { type: "dial", now, group: isGroupDM(g), reachable });
   }
-  return S.calls[channelId]?.phase || "active";
+  return own(S.calls, channelId)?.phase || "active";
 }
 
 // leavingDMCall: we are hanging up. The machine decides what record that
@@ -5404,7 +5398,7 @@ export function acceptingCall(channelId) {
 // The DM call our own side is ringing out on, if any — for the stage's pill.
 export function outgoingRing() {
   const ch = S.voice?.channelId;
-  const st = ch && S.calls[ch];
+  const st = ch && own(S.calls, ch);
   return isRinging(st) ? { channelId: ch, phase: st.phase } : null;
 }
 
@@ -5450,7 +5444,7 @@ export function voiceMembersFor(channelId) {
   // versa) whenever you joined the same call from both — the audio was flowing
   // the whole time, the roster just refused to admit the second device existed.
   // Only our own peer id is skipped, because we added it above.
-  for (const [pid, info] of Object.entries(S.voiceRosters[channelId] || {})) {
+  for (const [pid, info] of Object.entries(own(S.voiceRosters, channelId) || {})) {
     if (pid === S.identity.peerId) continue;
     out.push({
       peerId: pid,
@@ -5463,7 +5457,7 @@ export function voiceMembersFor(channelId) {
       deafened: !!S.voiceStates[info.fingerprint]?.deafened,
       // Speaking is only known for the room we're in (from the local mesh).
       speaking: S.voiceSpeaking.includes(pid),
-      sharing: !!S.voiceSharing[pid],
+      sharing: !!own(S.voiceSharing, pid),
     });
   }
   return out;

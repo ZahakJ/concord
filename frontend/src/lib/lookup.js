@@ -14,3 +14,11 @@ export const own = (o, key) => (o && typeof key === "string" && Object.hasOwn(o,
 
 // at reads a list entry by an index that must be a non-negative integer.
 export const at = (list, i) => (Number.isInteger(i) && i >= 0 && i < list.length ? list[i] : undefined);
+
+// listFor reads a list stored under `key`, or an empty list: what a map from
+// id to array (events per guild, members per channel) answers for anything
+// that is not one of its own entries.
+export const listFor = (o, key) => {
+  const v = own(o, key);
+  return Array.isArray(v) ? v : [];
+};

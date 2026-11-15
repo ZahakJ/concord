@@ -11,6 +11,8 @@
 // sidebar can read without touching storage on every render, seeded once from
 // what is already on disk so a reload shows the marks immediately.
 
+import { own } from "./lookup.js";
+
 const PREFIX = "concord.draft.";
 
 const index = $state({ map: {} });
@@ -40,7 +42,7 @@ export function noteDraft(channelId, text) {
 
 // The unsent text for a conversation, or "".
 export function draftIn(channelId) {
-  return (channelId && index.map[channelId]) || "";
+  return (channelId && own(index.map, channelId)) || "";
 }
 
 // How many conversations are holding one.

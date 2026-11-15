@@ -1,4 +1,5 @@
 <script>
+  import { own } from "./lib/lookup.js";
   // The forum BOARD. A post is a real channel (type "thread", parent = the
   // forum), so it already has encryption, unread badges and mutes; what this
   // view adds is everything a board needs to be worth browsing — author, body
@@ -239,7 +240,7 @@
   function wantMedia(node) {
     const tok = nodeTok.get(node);
     const postId = node.dataset.postId;
-    if (!tok || !postId || media[postId]) return;
+    if (!tok || !postId || own(media, postId)) return;
     const mine = mediaGen;
     media = { ...media, [postId]: { state: "loading", src: "" } };
     loadAttachment(postId, tok)
@@ -779,10 +780,10 @@
         {@const tok = firstImage(p)}
         {@const tile = tileFor(p.id, p.title, accentHue)}
         {@const tags = resolveTags(p.tags, palette)}
-        {@const unread = S.unread[p.id]}
+        {@const unread = own(S.unread, p.id)}
         {@const pending = isPending(p)}
         {@const mem = p.authorFingerprint ? memberByFpr(p.authorFingerprint) : null}
-        {@const m = media[p.id]}
+        {@const m = own(media, p.id)}
         {@const shot = tok && m?.state === "ok" ? m.src : ""}
         <li
           class="card"

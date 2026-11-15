@@ -8,6 +8,7 @@
   // purely so a peer whose event lane has not caught up yet can still say what
   // the announcement was about instead of drawing an empty box.
   import Icon from "./Icon.svelte";
+  import { own, listFor } from "./lib/lookup.js";
   import EventCard from "./EventCard.svelte";
   import { S, activeGuild, joinVoiceChannel } from "./lib/state.svelte.js";
   import { EV, loadEvents } from "./lib/events.svelte.js";
@@ -15,7 +16,7 @@
   let { token } = $props();
 
   const g = $derived(activeGuild());
-  const ev = $derived((EV.byGuild[S.activeGuildId] || []).find((e) => e.id === token.id) || null);
+  const ev = $derived(listFor(EV.byGuild, S.activeGuildId).find((e) => e.id === token.id) || null);
 
   // The calendar is loaded lazily by whichever panel opens it, so a channel
   // carrying an announcement is often the FIRST thing to want it. One fetch

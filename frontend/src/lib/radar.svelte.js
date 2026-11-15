@@ -27,6 +27,7 @@ import { happeningNow } from "./eventtime.js";
 import { localNotify } from "./scheduled.svelte.js";
 import { goneLive, liveDestination, unseenCount, snapshot, pruneFired } from "./radar.js";
 import { isNotesLike } from "./notes.js";
+import { own, listFor } from "./lookup.js";
 
 const FIRED_KEY = "concord.eventRadar.fired"; // occurrence key -> firedAt ms
 const SEEN_KEY = "concord.eventRadar.seen"; // guildId -> { ts, sigs }
@@ -85,7 +86,7 @@ function pushNudge(n, ttl) {
 function scanLive() {
   const now = RADAR.now;
   for (const g of S.guilds) {
-    for (const ev of EV.byGuild[g.id] || []) {
+    for (const ev of listFor(EV.byGuild, g.id)) {
       if (!goneLive(ev, now)) continue;
       const ch = liveDestination(ev, g);
       if (!ch) continue; // free-text/external event — its guest flow owns it
@@ -118,7 +119,7 @@ export function liveChannelSet() {
   const now = RADAR.now;
   const set = new Set();
   for (const g of S.guilds) {
-    for (const ev of EV.byGuild[g.id] || []) {
+    for (const ev of listFor(EV.byGuild, g.id)) {
       if (happeningNow(ev, now) && liveDestination(ev, g)) set.add(ev.locationChannelId);
     }
   }
@@ -130,7 +131,7 @@ export function guildLiveSet() {
   const now = RADAR.now;
   const set = new Set();
   for (const g of S.guilds) {
-    for (const ev of EV.byGuild[g.id] || []) {
+    for (const ev of listFor(EV.byGuild, g.id)) {
       if (happeningNow(ev, now) && liveDestination(ev, g)) {
         set.add(g.id);
         break;
@@ -149,9 +150,9 @@ let primed = false;
 
 function scanNew() {
   for (const g of S.guilds) {
-    const evs = EV.byGuild[g.id];
+    const evs = own(EV.byGuild, g.id);
     if (!evs) continue;
-    if (!seen[g.id]) {
+    if (!own(seen, g.id)) {
       // First sighting of this guild's calendar on this device: "since the
       // user last looked" is undefined, so define it as now, silently —
       // otherwise a fresh device lights up for every event ever scheduled.
@@ -190,7 +191,7 @@ function recount() {
   const next = {};
   for (const g of S.guilds) {
     if (isNotesLike(g)) continue; // Notes is you scheduling at yourself
-    const n = unseenCount(EV.byGuild[g.id], seen[g.id], me, RADAR.now);
+    const n = unseenCount(own(EV.byGuild, g.id), own(seen, g.id), me, RADAR.now);
     if (n) next[g.id] = n;
   }
   // Only touch state when something changed — this runs every tick and must
@@ -202,11 +203,11 @@ function recount() {
 // on it, in its current shape, is now "seen". App.svelte calls this while a
 // calendar modal is open and when it closes.
 export function markCalendarSeen(guildId) {
-  const evs = EV.byGuild[guildId];
+  const evs = own(EV.byGuild, guildId);
   if (!guildId || !evs) return;
   seen[guildId] = snapshot(evs, Math.floor(Date.now() / 1000));
   save(SEEN_KEY, seen);
-  if (RADAR.unseen[guildId]) {
+  if (own(RADAR.unseen, guildId)) {
     const next = { ...RADAR.unseen };
     delete next[guildId];
     RADAR.unseen = next;
@@ -218,7 +219,7 @@ export function markCalendarSeen(guildId) {
 export function markAllCalendarsSeen() {
   const nowUnix = Math.floor(Date.now() / 1000);
   for (const g of S.guilds) {
-    if (EV.byGuild[g.id]) seen[g.id] = snapshot(EV.byGuild[g.id], nowUnix);
+    if (own(EV.byGuild, g.id)) seen[g.id] = snapshot(own(EV.byGuild, g.id), nowUnix);
   }
   save(SEEN_KEY, seen);
   if (Object.keys(RADAR.unseen).length) RADAR.unseen = {};

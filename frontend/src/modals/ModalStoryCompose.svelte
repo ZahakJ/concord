@@ -1,4 +1,5 @@
 <script>
+  import { own } from "../lib/lookup.js";
   // Share a moment: pick a scene — any live banner preset, or your own image —
   // write the headline, and read — in plain words — exactly who gets it and
   // for how long. The audience line is mandatory honesty, not decoration: a
@@ -75,7 +76,7 @@
   $effect(() => {
     if (ag && ag.kind !== "dm") counts[ag.id] = S.members.length;
     for (const g of myGuilds) {
-      if (g.id === ag?.id || counts[g.id] != null) continue;
+      if (g.id === ag?.id || own(counts, g.id) != null) continue;
       counts[g.id] = -1; // in flight — render as "…", never as 0
       api
         .members(g.id)
@@ -85,8 +86,8 @@
   });
 
   const chosen = $derived(myGuilds.filter((g) => selected[g.id]));
-  const total = $derived(chosen.reduce((n, g) => n + Math.max(0, counts[g.id] ?? 0), 0));
-  const countOf = (id) => (counts[id] == null || counts[id] < 0 ? "…" : counts[id]);
+  const total = $derived(chosen.reduce((n, g) => n + Math.max(0, own(counts, g.id) ?? 0), 0));
+  const countOf = (id) => (own(counts, id) == null || own(counts, id) < 0 ? "…" : own(counts, id));
 
   const canPost = $derived(
     !!scene && !!caption.trim() && bytes <= MAX_BYTES && chosen.length > 0 && !posting,

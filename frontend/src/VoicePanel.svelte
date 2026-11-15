@@ -1,4 +1,5 @@
 <script>
+  import { own } from "./lib/lookup.js";
   // The call stage: one big square per participant (avatar, or their live
   // camera), animated speaking rings, plus wide tiles for any screen shares.
   // Dynamic and animated, and the same in a DM call or a guild voice room.
@@ -184,7 +185,7 @@
   // signal, so this is a claim the app can actually stand behind — the same way
   // a forum post says who locked IT.
   const lockedBy = $derived(callLockedBy(chId));
-  const knockers = $derived(S.callKnocks[chId] || []);
+  const knockers = $derived(own(S.callKnocks, chId) || []);
   const isDM = $derived(callGuild?.kind === "dm");
 
   // A knocker's face for the door card. Members resolve to their real profile;
@@ -232,7 +233,7 @@
   // to join…" over the top of "Reconnecting to the call…" — a fourth framing of
   // one event, and the only cheerful one. An empty room is a fact about the
   // room; you cannot state it while you cannot reach the room.
-  const dial = $derived(S.calls[chId]);
+  const dial = $derived(own(S.calls, chId));
   const dmGroup = $derived((callGuild?.dmMembers ?? 2) > 2);
   const dmName = $derived(callGuild?.name || "them");
   const ringing = $derived(
@@ -271,7 +272,7 @@
   }
 
   function participant(peerId) {
-    const fpr = S.voicePeerFpr[peerId];
+    const fpr = own(S.voicePeerFpr, peerId);
     const mem = fpr ? memberByFpr(fpr) : null;
     return {
       ...worn(mem),
@@ -308,7 +309,7 @@
   };
   function connStatus(pid) {
     if (pid === "self") return null;
-    const st = S.voicePeerStatus[pid];
+    const st = own(S.voicePeerStatus, pid);
     if (!st) return { state: "connecting", label: STATUS_LABEL.connecting };
     if (st.state === "connected") {
       // Connected and silent. The connection has a path; nothing is coming
@@ -681,8 +682,8 @@
       };
     }
     const p = participant(pid);
-    const fpr = S.voicePeerFpr[pid];
-    const st = (fpr && S.voiceStates[fpr]) || {};
+    const fpr = own(S.voicePeerFpr, pid);
+    const st = (fpr && own(S.voiceStates, fpr)) || {};
     return {
       ...p,
       // Your own account on a second device: a real participant, but naming it
@@ -694,7 +695,7 @@
       muted: !!st.muted,
       deafened: !!st.deafened,
       self: false,
-      localMuted: S.peerVolumes[pid] === 0,
+      localMuted: own(S.peerVolumes, pid) === 0,
       // A browser guest, identified by the peer id the gateway gives them. They
       // are the only participant a host removes from here, and the only one who
       // needs it: a member is handled with roles and bans, while a guest holds
@@ -745,7 +746,7 @@
       !t.self && {
         range: true,
         label: `${t.name}'s volume, for you`,
-        value: S.peerVolumes[pid] ?? 1,
+        value: own(S.peerVolumes, pid) ?? 1,
         onInput: (v) => setPeerVolume(pid, v),
       },
       t.guest && { sep: true },

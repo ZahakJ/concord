@@ -1,4 +1,5 @@
 <script>
+  import { own, listFor } from "../lib/lookup.js";
   // "Your calendar": ONE river across everything you're part of — guild
   // events, DM plans, and your private Notes reminders — the per-user blend.
   // A masthead answers "what's my day?" in one glance (weekday, date, the
@@ -49,7 +50,7 @@
   // too (last week's dots are part of the month's shape).
   const allItems = $derived(
     S.guilds
-      .flatMap((g) => (EV.byGuild[g.id] || []).map((ev) => ({ ev, g })))
+      .flatMap((g) => listFor(EV.byGuild, g.id).map((ev) => ({ ev, g })))
       .sort((a, b) => a.ev.startUnix - b.ev.startUnix),
   );
 

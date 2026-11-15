@@ -1,4 +1,5 @@
 <script>
+  import { own } from "../lib/lookup.js";
   // The GIF picker. Two tabs, two different privacy stories, both stated on
   // screen because a picker that implies more privacy than it delivers is worse
   // than one that offers less.
@@ -609,9 +610,9 @@
                     use:lazy={() => loadPackThumb(x)}
                     onclick={() => send(x)}
                   >
-                    {#if srcs[x.id]}
-                      <img src={srcs[x.id]} alt={x.name} />
-                    {:else if failed[x.id]}
+                    {#if own(srcs, x.id)}
+                      <img src={own(srcs, x.id)} alt={x.name} />
+                    {:else if own(failed, x.id)}
                       <span class="ph">offline</span>
                     {:else}
                       <span class="ph shimmer"></span>
@@ -721,9 +722,9 @@
                       use:lazy={() => loadHitThumb(x)}
                       onclick={() => sendHit(x)}
                     >
-                      {#if thumbs[x.id]}
-                        <img src={thumbs[x.id]} alt={x.title || "GIF"} />
-                      {:else if thumbFailed[x.id]}
+                      {#if own(thumbs, x.id)}
+                        <img src={own(thumbs, x.id)} alt={x.title || "GIF"} />
+                      {:else if own(thumbFailed, x.id)}
                         <span class="ph">no preview</span>
                       {:else}
                         <span class="ph shimmer"></span>

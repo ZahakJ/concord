@@ -12,6 +12,7 @@ import { popLayer, topKind } from "./navstack.svelte.js";
 import { pressesBind, releasesBind, typesCharacter } from "./keybind.js";
 import { appCovered } from "./layers.js";
 import { cycleRegion } from "./regions.js";
+import { own } from "./lookup.js";
 
 // ---- the registry ----
 //
@@ -122,7 +123,7 @@ function stepUnread(dir) {
   if (!flat.length) return;
   const unreadIdx = flat
     .map((c, i) => ({ c, i }))
-    .filter(({ c }) => S.unread[c.id] && !isMuted(c.id));
+    .filter(({ c }) => own(S.unread, c.id) && !isMuted(c.id));
   if (!unreadIdx.length) return;
   const cur = flat.findIndex((c) => c.id === S.activeChannelId);
   const target =

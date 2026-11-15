@@ -1,4 +1,5 @@
 <script>
+  import { own } from "./lib/lookup.js";
   // Chat column header: channel name, search, pins, voice, guild actions.
   import Icon from "./Icon.svelte";
   import OwnerMark from "./OwnerMark.svelte";
@@ -430,20 +431,20 @@
                menus here have no fly-outs. -->
           <div class="menu-head">Notifications</div>
           {#if g.kind !== "dm"}
-            <button class="menu-item" class:active={!S.notifs.channels[ch.id]} onclick={() => setChannelNotifs(ch.id, null)}>
+            <button class="menu-item" class:active={!own(S.notifs.channels, ch.id)} onclick={() => setChannelNotifs(ch.id, null)}>
               <Icon name="bell" size={14} /> Use guild default ({levelLabel(guildNotifLevel(g.id))})
-              {#if !S.notifs.channels[ch.id]}<span class="tick"><Icon name="check" size={13} /></span>{/if}
+              {#if !own(S.notifs.channels, ch.id)}<span class="tick"><Icon name="check" size={13} /></span>{/if}
             </button>
           {/if}
           {#each LEVELS as l (l.id)}
             <button
               class="menu-item"
-              class:active={S.notifs.channels[ch.id] === l.id}
+              class:active={own(S.notifs.channels, ch.id) === l.id}
               onclick={() => setChannelNotifs(ch.id, g.kind === "dm" && l.id === "all" ? null : l.id)}
             >
               <Icon name={l.id === "none" ? "bellOff" : "bell"} size={14} />
               {l.label}
-              {#if S.notifs.channels[ch.id] === l.id || (g.kind === "dm" && l.id === "all" && !S.notifs.channels[ch.id])}<span class="tick"><Icon name="check" size={13} /></span>{/if}
+              {#if own(S.notifs.channels, ch.id) === l.id || (g.kind === "dm" && l.id === "all" && !own(S.notifs.channels, ch.id))}<span class="tick"><Icon name="check" size={13} /></span>{/if}
             </button>
           {/each}
           <div class="menu-sep"></div>

@@ -1,4 +1,5 @@
 <script>
+  import { own } from "./lib/lookup.js";
   import { cycleRegion } from "./lib/regions.js";
   // App.svelte is the shell: login gate, the four-column layout, voice
   // lifecycle, global shortcuts, and modal routing. All shared state and the
@@ -1389,7 +1390,7 @@
     // admit us would have to be inside. Rather than knock at a door with nobody
     // behind it, drop the lock and walk in. (forgetLock also covers the roster
     // going empty; this is the last-line check at the moment it matters.)
-    if (!Object.keys(S.voiceRosters[channelId] || {}).length) forgetLock(channelId);
+    if (!Object.keys(own(S.voiceRosters, channelId) || {}).length) forgetLock(channelId);
     // Locked call: don't barge in — knock and wait to be admitted (unless we're
     // arriving BECAUSE we were just admitted). Someone already in the call
     // approves, which flips admittedJoin and re-calls us with admitted=true.
@@ -1486,7 +1487,7 @@
       onPeerStatus: (peerId, st) => (S.voicePeerStatus = { ...S.voicePeerStatus, [peerId]: st }),
       onVideo: (key, stream, meta) => setVideoStream(key, stream, meta),
       onWatcher: (peerId) => {
-        const fpr = S.voicePeerFpr[peerId];
+        const fpr = own(S.voicePeerFpr, peerId);
         flash(`${fpr ? nameFor(fpr) : "Someone"} is watching your screen`, "info");
       },
       onVideoState: (kind, on, info) => {

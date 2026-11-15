@@ -1,4 +1,5 @@
 <script>
+  import { own } from "./lib/lookup.js";
   // The guilds, in one of two arrangements (the device-local `navModel` pref,
   // decided in App.svelte):
   //
@@ -160,7 +161,7 @@
   const guildMuted = (gg) => guildNotifLevel(gg.id) === "none";
   function rawMentions(gg) {
     let n = 0;
-    for (const c of gg.channels) n += S.unread[c.id]?.mentions || 0;
+    for (const c of gg.channels) n += own(S.unread, c.id)?.mentions || 0;
     return n;
   }
   function marks(gg) {

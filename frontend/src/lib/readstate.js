@@ -25,6 +25,8 @@
 // mark further ahead of its own clock than readSkew allows (readstate.go), so a
 // skewed sender's message can only push a mark that far either.
 
+import { own } from "./lookup.js";
+
 // isReading answers rule 1–3. Every input is plain data so the rule can be
 // tested without a DOM; state.svelte.js supplies the live values.
 export function isReading({ open, onScreen, hidden, focused, mobile, atBottom }) {
@@ -85,4 +87,19 @@ export function windowTitle({ attention: n = 0, channelName = "", guild = null }
   else if (guild?.kind === "meeting") where = guild.name || channelName;
   else if (channelName) where = `#${channelName}`;
   return `${n > 0 ? `(${n > 99 ? "99+" : n}) ` : ""}${where ? `${where} — ` : ""}Concord`;
+}
+
+// mergeUnreadChunk folds one batch of the core's unread rows ({channelId ->
+// messages}) into the unread map: a channel the core answered for is
+// re-tallied, one it left out keeps what is shown. Reads own entries only.
+export function mergeUnreadChunk(prev, chunk, rows, tally) {
+  const next = { ...prev };
+  for (const id of chunk) {
+    if (!rows || !Object.hasOwn(rows, id)) continue;
+    const msgs = own(rows, id);
+    const u = tally(Array.isArray(msgs) ? msgs : [], id);
+    if (u) next[id] = u;
+    else delete next[id];
+  }
+  return next;
 }

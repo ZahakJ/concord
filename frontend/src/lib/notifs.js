@@ -22,6 +22,8 @@
 // Every function is pure: state in, new state out, so the reactive layer stays
 // a thin wrapper and this is testable on its own.
 
+import { own } from "./lookup.js";
+
 export const LEVELS = [
   { id: "all", label: "All messages", sub: "Every message pings" },
   { id: "mentions", label: "Only @mentions", sub: "Still shows unread, but stays quiet" },
@@ -52,14 +54,14 @@ export function normalize(raw) {
 export function migrateMutes(state, mutes) {
   const channels = { ...state.channels };
   for (const [id, on] of Object.entries(mutes || {})) {
-    if (on && !channels[id]) channels[id] = "none";
+    if (on && !own(channels, id)) channels[id] = "none";
   }
   return { ...state, channels };
 }
 
 // resolve answers "how loud is this channel", walking channel → guild → all.
 export function resolve(state, channelId, guildId) {
-  return state?.channels?.[channelId] || state?.guilds?.[guildId] || "all";
+  return own(state?.channels, channelId) || own(state?.guilds, guildId) || "all";
 }
 
 // setChannel pins one channel, or clears it back to following its guild.
@@ -79,7 +81,7 @@ export function setGuild(state, guildId, level, channelIds = []) {
   else delete guilds[guildId];
   const channels = { ...state.channels };
   const eff = isLevel(level) ? level : "all";
-  for (const id of channelIds) if (channels[id] === eff) delete channels[id];
+  for (const id of channelIds) if (own(channels, id) === eff) delete channels[id];
   return { channels, guilds };
 }
 

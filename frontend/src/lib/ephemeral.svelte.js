@@ -8,6 +8,7 @@
 // security boundary on its own; it's honouring an expiry the author set.
 import { S } from "./state.svelte.js";
 import { api } from "./api.js";
+import { own } from "./lookup.js";
 
 export const EPH_RE = /\[eph\]\(concord:\/\/eph\/v1\/(\d{9,12})\)/;
 
@@ -37,7 +38,7 @@ function loadTimers() {
   }
 }
 export function channelTTL(channelId) {
-  return timers[channelId] || 0;
+  return own(timers, channelId) || 0;
 }
 export function setChannelTTL(channelId, secs) {
   if (secs) timers[channelId] = secs;
