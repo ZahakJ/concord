@@ -693,9 +693,16 @@ func TestLinkCardArrivesWithMessage(t *testing.T) {
 	if m == nil {
 		t.Fatalf("no thumbnail token in %q", content)
 	}
-	jpg, err := b.FetchAttachment(channel, m[1], m[2], "jpeg")
-	if err != nil || !strings.HasPrefix(jpg, "data:image/jpeg;base64,") {
-		t.Fatalf("B could not fetch the card's picture from peers: %v", err)
+	// Fetched the way the reader's client does: retried while A, the only
+	// holder, is still being found (under -race that can take a moment).
+	var jpg string
+	var ferr error
+	waitUntil(t, 20*time.Second, func() bool {
+		jpg, ferr = b.FetchAttachment(channel, m[1], m[2], "jpeg")
+		return ferr == nil
+	}, "B could not fetch the card's picture from peers")
+	if !strings.HasPrefix(jpg, "data:image/jpeg;base64,") {
+		t.Fatalf("the card's picture is not a JPEG data URL: %.40q %v", jpg, ferr)
 	}
 	if ct.n.Load() != 0 || hits.Load() != 0 {
 		t.Fatalf("reading made HTTP requests: client=%d server=%d", ct.n.Load(), hits.Load())
