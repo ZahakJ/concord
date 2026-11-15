@@ -1,13 +1,14 @@
 package app
 
 import (
+	"time"
+
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/ZahakJ/concord/internal/domain"
 )
 
-// Typing indicators are the one presence signal Concord broadcasts that the
-// user has no say over, and the switch is reciprocal: turn it off and you stop
+// Typing indicators are off by default, and the switch is reciprocal: turn it off and you stop
 // sending "typing…" AND stop seeing it. Reciprocity is the honest arrangement,
 // and it is the only one that survives here —
 // there is no server to enforce a one-way deal, so a client that kept receiving
@@ -17,9 +18,8 @@ import (
 // the account. It is published to the Notes self-group — a group whose only
 // members are your own devices — so nobody else was ever told what you read.
 
-// typingPrefKey persists the switch. Absent means on: indicators are what chat
-// has felt like since 1996, and a privacy default that silently changes how a
-// friend group reads each other is a worse surprise than the setting is a win.
+// typingPrefKey persists the switch. It is OFF unless chosen: a signal that
+// tells people when you are typing should never start without you saying so.
 const typingPrefKey = "typing_indicators"
 
 // receiveTyping attributes an inbound typing signal to a member account and
@@ -52,6 +52,11 @@ const typingPrefKey = "typing_indicators"
 // its certificate and the NEXT keystroke attributes; an outsider answers
 // nothing and has cost us one stream on this connection, ever.
 func (s *Service) receiveTyping(guildID string, groupID []byte, channelID string, from peer.ID, data []byte) {
+	// Mutual: with ours off we neither send nor see, so drop before doing any
+	// attribution work (and before soliciting a hello from a stranger).
+	if !s.TypingEnabled() {
+		return
+	}
 	fpr := s.presence(from).Fingerprint
 	if !s.guildHasMember(guildID, fpr) {
 		// Unlearned linked device, or an outsider. The roster is the authority
@@ -146,11 +151,13 @@ func (s *Service) syncTypingTopics() {
 	}
 }
 
-// loadTypingPref mirrors the persisted switch into memory at startup.
+// loadTypingPref mirrors the persisted switch into memory at startup, after
+// the one-time opt-in migration (typingsync.go).
 func (s *Service) loadTypingPref() {
+	s.migrateTypingOptIn()
 	v, _ := s.store.GetSetting(typingPrefKey)
 	s.mu.Lock()
-	s.typingOn = v != "0"
+	s.typingOn = v == "1"
 	s.mu.Unlock()
 }
 
@@ -161,18 +168,19 @@ func (s *Service) TypingEnabled() bool {
 	return s.typingOn
 }
 
-// SetTypingEnabled flips the switch and persists it. It takes effect at once,
-// in both directions.
+// SetTypingEnabled flips the switch, persists it and tells the account's other
+// devices. It takes effect at once, in both directions.
 func (s *Service) SetTypingEnabled(on bool) error {
-	val := "0"
-	if on {
-		val = "1"
+	s.typingPrefMu.Lock()
+	at := capReadMark(time.Now().UnixMilli(), time.Now())
+	if prev := s.typingStamp(); at <= prev {
+		at = prev + 1
 	}
-	if err := s.store.SetSetting(typingPrefKey, val); err != nil {
+	err := s.storeTypingPref(on, at)
+	s.typingPrefMu.Unlock()
+	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	s.typingOn = on
-	s.mu.Unlock()
+	s.broadcastTypingPref(on, at)
 	return nil
 }

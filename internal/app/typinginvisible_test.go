@@ -28,6 +28,8 @@ func TestTypingStopArrivesAndInvisibleSendsNothing(t *testing.T) {
 	}
 	waitMembers(t, 20*time.Second, 2, a, b)
 	channel := g.Channels[0].ID
+	_ = a.SetTypingEnabled(true)
+	_ = b.SetTypingEnabled(true)
 
 	var mu sync.Mutex
 	starts, stops := 0, 0

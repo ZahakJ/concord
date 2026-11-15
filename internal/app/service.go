@@ -364,6 +364,8 @@ type Service struct {
 	// typingOn mirrors the typing-indicator preference (see typing.go), guarded
 	// by mu — it is read on every keystroke's publish and on every inbound hint.
 	typingOn bool
+	// typingPrefMu serialises the stamped read-modify-write of the switch.
+	typingPrefMu sync.Mutex
 
 	// Receipts (see receipts.go). receiptsOn mirrors the read-receipts setting;
 	// the rest is the coalescing queue for outbound acks and read receipts.

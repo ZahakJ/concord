@@ -2249,6 +2249,7 @@ type guildMeta struct {
 	Avatar      string          `json:"avatar,omitempty"`
 	Banner      string          `json:"banner,omitempty"` // user profile banner (not the guild banner below)
 	Presence    string          `json:"presence,omitempty"`
+	TypingOn    *bool           `json:"typingOn,omitempty"` // typing_pref (Notes only): the account's choice, stamped by UpdatedAt
 	Bio         string          `json:"bio,omitempty"`
 	MailboxPub  []byte          `json:"mbx,omitempty"`
 	Activity    *Activity       `json:"activity,omitempty"`  // profile + activity: structured now-playing
@@ -3546,6 +3547,16 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 			return
 		}
 		s.applyRemoteHides(m.Hides)
+		return
+	case "typing_pref":
+		// Own devices only, over the Notes group (typingsync.go).
+		if actor != s.id.Fingerprint() || m.TypingOn == nil {
+			return
+		}
+		if notes, ok := s.findNotesDM(); !ok || notes.ID != guildID {
+			return
+		}
+		s.applyRemoteTypingPref(*m.TypingOn, m.UpdatedAt)
 		return
 	case "channel_added":
 		if !sanitizeChannelRefs(&m.Channel) || !s.mayAddChannel(guildID, actor, m.Channel) {

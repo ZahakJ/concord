@@ -33,6 +33,7 @@ import (
 // typingCapture wires an OnTyping listener and returns getters for the last
 // fingerprint seen on the wanted channel and the number of events.
 func typingCapture(svc *Service, channelID string) (last func() (string, bool), count func() int) {
+	_ = svc.SetTypingEnabled(true) // opt-in; these tests are about attribution
 	var mu sync.Mutex
 	var got string
 	n := 0
@@ -62,6 +63,7 @@ func typingCapture(svc *Service, channelID string) (last func() (string, bool), 
 // passes; typing is fire-and-forget gossip and the mesh may still be forming.
 func pumpTyping(t *testing.T, from *Service, channelID string, stop func() bool) {
 	t.Helper()
+	_ = from.SetTypingEnabled(true)
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		if err := from.SendTyping(channelID); err != nil {
@@ -220,6 +222,7 @@ func TestTypingFromFriendsPhoneNamesTheFriend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stranger peer id: %v", err)
 	}
+	_ = me.SetTypingEnabled(true)
 	var strangerMu sync.Mutex
 	strangerSeen := ""
 	me.OnTyping(func(from, ch string, _ bool) {

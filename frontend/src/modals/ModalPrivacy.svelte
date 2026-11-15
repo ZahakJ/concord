@@ -74,11 +74,9 @@
       flash(err);
     }
   }
-  // Typing indicators are reciprocal by design (see internal/app/typing.go):
-  // off means you neither send nor see them. There is no server to enforce a
-  // one-way deal, and a client that took without giving would just be lying to
-  // its friends.
-  let typing = $state(true);
+  // Typing indicators are off by default and reciprocal (see
+  // internal/app/typing.go): off means you neither send nor see them.
+  let typing = $state(false);
   async function toggleTyping() {
     typing = !typing;
     try {
@@ -117,7 +115,7 @@
     try {
       typing = await api.typingEnabled();
     } catch {
-      /* older backend: indicators are on, as they always were */
+      /* older backend: the switch just starts off */
     }
   })();
 </script>
@@ -195,8 +193,8 @@
     <SettingRow
       icon="edit"
       title="Typing indicators"
-      sub="Show others you're typing — and see when they are"
-      info="They go both ways. Switch them off and you stop sending them and stop seeing them — there's no server to enforce a one-way deal, and a client that took without giving would just be lying to its friends."
+      sub="Off by default. Both ways: you show yours and see theirs"
+      info="Off by default. When on, people in a conversation with you see while you are typing, and you see when they are. It is only that you are typing: never what, never how much. It works both ways, so with it off you neither send nor see it. It is shared across your own devices. Off on both sides is the norm."
       checked={typing}
       onclick={toggleTyping}
     />

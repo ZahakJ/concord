@@ -45,9 +45,11 @@ func TestTypingIndicatorsReciprocal(t *testing.T) {
 		return seenByB
 	}
 
-	// Baseline: on by default, so a hint gets through.
-	if !a.TypingEnabled() {
-		t.Fatal("typing indicators are off by default")
+	// Baseline: both sides opted in, so a hint gets through.
+	for _, x := range []*Service{a, b} {
+		if err := x.SetTypingEnabled(true); err != nil {
+			t.Fatalf("SetTypingEnabled: %v", err)
+		}
 	}
 	deadline := time.Now().Add(15 * time.Second)
 	for count() == 0 && time.Now().Before(deadline) {
@@ -105,10 +107,10 @@ func TestTypingPrefPersists(t *testing.T) {
 
 	dir := t.TempDir()
 	s := startServiceInDir(t, ctx, dir)
-	if !s.TypingEnabled() {
-		t.Fatal("default should be on")
+	if s.TypingEnabled() {
+		t.Fatal("default should be off")
 	}
-	if err := s.SetTypingEnabled(false); err != nil {
+	if err := s.SetTypingEnabled(true); err != nil {
 		t.Fatalf("SetTypingEnabled: %v", err)
 	}
 	if err := s.Close(); err != nil {
@@ -116,7 +118,7 @@ func TestTypingPrefPersists(t *testing.T) {
 	}
 
 	again := startServiceInDir(t, ctx, dir)
-	if again.TypingEnabled() {
-		t.Fatal("typing indicators came back on after a restart")
+	if !again.TypingEnabled() {
+		t.Fatal("typing indicators were off after a restart")
 	}
 }
