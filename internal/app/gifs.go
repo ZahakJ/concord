@@ -257,7 +257,8 @@ func (s *Service) GuildGifs(guildID string) ([]GuildGif, error) {
 // message. It re-uses the blob the pack already holds rather than re-sealing
 // the bytes, so posting the same GIF a hundred times costs one copy, and the
 // token is the plain v1 form every existing client already renders.
-func (s *Service) SendGuildGif(channelID, gifID, replyTo string) (domain.Message, error) {
+// text, if any, rides in the same message (the disappearing timer).
+func (s *Service) SendGuildGif(channelID, gifID, replyTo, text string) (domain.Message, error) {
 	s.mu.RLock()
 	guildID, tracked := s.channelToGuild[channelID]
 	s.mu.RUnlock()
@@ -277,7 +278,7 @@ func (s *Service) SendGuildGif(channelID, gifID, replyTo string) (domain.Message
 	}
 	token := fmt.Sprintf("![image](concord://attach/v1/%s/%s/%s/%dx%d)",
 		gif.ID, gif.Keys, gif.Subtype, gif.Width, gif.Height)
-	return s.send(channelID, token, "", replyTo)
+	return s.send(channelID, withText(token, text), "", replyTo)
 }
 
 // applyGifMeta applies a gif_added / gif_removed announcement learned from a

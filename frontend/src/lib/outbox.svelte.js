@@ -182,12 +182,17 @@ export function sendText(channelId, body, replyTo, dir) {
 // sendAttachment: the staged chip, with its thumbnail carried into the pending
 // row so the picture is on screen while it is being sealed and sent, which on a
 // 5 MB image is the whole of the wait.
-export function sendAttachment(channelId, att, replyTo) {
+// text is what rides in the same message (attachText: caption plus stamps);
+// caption is the bare words, for the pending row and the clipboard.
+export function sendAttachment(channelId, att, replyTo, text = "", dir = "", caption = "") {
   const entry = add({
     id: `o${++seq}`,
     kind: "att",
     channelId,
     att,
+    text,
+    dir,
+    caption,
     replyTo: replyTo || "",
     match: "", // an attach token's blob id is not known until the core answers
     state: "sending",
@@ -216,8 +221,10 @@ function deliver(entry) {
         !!a.spoiler,
         a.name || "",
         a.desc || "",
+        entry.text || "",
+        entry.dir || "",
       );
-    return api.sendFile(entry.channelId, a.dataUrl, a.name, entry.replyTo);
+    return api.sendFile(entry.channelId, a.dataUrl, a.name, entry.replyTo, entry.text || "", entry.dir || "");
   }
   return api.sendMessage(entry.channelId, entry.body, entry.replyTo, entry.dir);
 }
@@ -310,8 +317,9 @@ export function retry(id) {
 // when the row was created.
 export function discard(id) {
   const entry = S.outbox.find((e) => e.id === id);
-  if (entry?.kind === "text" && entry.body) {
-    navigator.clipboard?.writeText(entry.body);
+  const words = entry?.kind === "text" ? entry.body : entry?.caption;
+  if (words) {
+    navigator.clipboard?.writeText(words);
     flash("Copied to the clipboard", "success");
   }
   drop(id);

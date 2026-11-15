@@ -46,7 +46,7 @@ func TestAttachmentSendAndFetch(t *testing.T) {
 
 	rb := &recorder{}
 	b.OnMessage(rb.add)
-	msg, err := a.SendAttachment(channel, dataURL, 800, 600, "", false, "", "")
+	msg, err := a.SendAttachment(channel, dataURL, 800, 600, "", false, "", "", "", "")
 	if err != nil {
 		t.Fatalf("SendAttachment: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestFileAttachment(t *testing.T) {
 
 	rb := &recorder{}
 	b.OnMessage(rb.add)
-	msg, err := a.SendFile(channel, dataURL, "report.pdf", "")
+	msg, err := a.SendFile(channel, dataURL, "report.pdf", "", "", "")
 	if err != nil {
 		t.Fatalf("SendFile: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestAttachmentTokenVersionFollowsOptions(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			msg, err := a.SendAttachment(channel, dataURL, 10, 10, "", tc.spoiler, tc.fname, tc.desc)
+			msg, err := a.SendAttachment(channel, dataURL, 10, 10, "", tc.spoiler, tc.fname, tc.desc, "", "")
 			if err != nil {
 				t.Fatalf("SendAttachment: %v", err)
 			}
@@ -200,7 +200,7 @@ func TestAttachmentTokenVersionFollowsOptions(t *testing.T) {
 
 	// The description rides in the message body, so it has to be bounded.
 	long := strings.Repeat("x", maxAttachDescLen+500)
-	msg, err := a.SendAttachment(channel, dataURL, 10, 10, "", false, "", long)
+	msg, err := a.SendAttachment(channel, dataURL, 10, 10, "", false, "", long, "", "")
 	if err != nil {
 		t.Fatalf("SendAttachment: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestEditAttachmentReplacesInPlace(t *testing.T) {
 	first := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("before"))
 	second := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("after"))
 
-	msg, err := a.SendAttachment(channel, first, 10, 10, "", false, "", "")
+	msg, err := a.SendAttachment(channel, first, 10, 10, "", false, "", "", "", "")
 	if err != nil {
 		t.Fatalf("SendAttachment: %v", err)
 	}

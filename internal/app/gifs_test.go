@@ -62,7 +62,7 @@ func TestGuildGifAddListRemove(t *testing.T) {
 
 	// Sending posts an ordinary v1 image-attachment token pointing at the SAME
 	// blob — no re-seal — so every existing client renders it with no new code.
-	msg, err := a.SendGuildGif(g.Channels[0].ID, gif.ID, "")
+	msg, err := a.SendGuildGif(g.Channels[0].ID, gif.ID, "", "")
 	if err != nil {
 		t.Fatalf("SendGuildGif: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestGuildGifAddListRemove(t *testing.T) {
 		t.Fatalf("blob gone after removing the pack entry: %v", err)
 	}
 	// And the record itself is gone, so it can no longer be posted.
-	if _, err := a.SendGuildGif(g.Channels[0].ID, gif.ID, ""); err == nil {
+	if _, err := a.SendGuildGif(g.Channels[0].ID, gif.ID, "", ""); err == nil {
 		t.Fatal("SendGuildGif succeeded for a removed GIF")
 	}
 }

@@ -175,7 +175,7 @@ func TestGifSearchNormalResults(t *testing.T) {
 	// Sending goes out as the ordinary v1 attachment token — the same one the
 	// guild pack emits — so recipients need no new code and fetch nothing from
 	// Tenor themselves.
-	msg, err := a.SendSearchedGif(ctx, g.Channels[0].ID, hit.Full, "", hit.Width, hit.Height)
+	msg, err := a.SendSearchedGif(ctx, g.Channels[0].ID, hit.Full, "", hit.Width, hit.Height, "")
 	if err != nil {
 		t.Fatalf("SendSearchedGif: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestGifSearchOversizedMedia(t *testing.T) {
 	if _, err := a.GifSearchMedia(ctx, "ref.sig", true); err == nil {
 		t.Fatal("an over-cap image was accepted")
 	}
-	if _, err := a.SendSearchedGif(ctx, g.Channels[0].ID, "ref.sig", "", 0, 0); err == nil {
+	if _, err := a.SendSearchedGif(ctx, g.Channels[0].ID, "ref.sig", "", 0, 0, ""); err == nil {
 		t.Fatal("an over-cap image was sent")
 	}
 	// Nothing was posted, and in particular nothing was sealed into the store.

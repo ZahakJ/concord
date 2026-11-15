@@ -124,7 +124,7 @@ func TestPostMediaComesFromTheOpeningBatchNotTheExcerpt(t *testing.T) {
 		t.Fatalf("CreateThread: %v", err)
 	}
 	// Exactly what the composer does: the attachment goes out as its own message.
-	if _, err := svc.SendAttachment(post.ID, tinyPNG(), 640, 480, "", false, "", ""); err != nil {
+	if _, err := svc.SendAttachment(post.ID, tinyPNG(), 640, 480, "", false, "", "", "", ""); err != nil {
 		t.Fatalf("SendAttachment: %v", err)
 	}
 

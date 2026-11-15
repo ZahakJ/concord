@@ -182,3 +182,52 @@ func (s *Store) NextEphemeral() int64 {
 	_ = s.rd().QueryRow(`SELECT COALESCE(MIN(expires), 0) FROM messages WHERE expires > 0 AND deleted = 0`).Scan(&at)
 	return at
 }
+
+// StampSweepRow is one live message of a chat that holds disappearing
+// messages, as the unstamped-attachment sweep (app/stampsweep.go) reads it.
+type StampSweepRow struct {
+	ID      string
+	Sender  []byte
+	Sent    int64 // unix nanoseconds
+	Expires int64 // unix seconds, 0 = none
+	Content string
+}
+
+// DisappearingChats returns, per channel that holds at least one row with a
+// deadline, its live ordinary messages oldest first, bodies opened.
+func (s *Store) DisappearingChats() (map[string][]StampSweepRow, error) {
+	rows, err := s.rd().Query(
+		`SELECT channel_id, id, sender, sent, expires, content_enc, nonce FROM messages
+		 WHERE deleted = 0 AND kind = '' AND channel_id IN (SELECT DISTINCT channel_id FROM messages WHERE expires > 0)
+		 ORDER BY channel_id, sent`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]StampSweepRow{}
+	for rows.Next() {
+		var ch string
+		var r StampSweepRow
+		var enc, nonce []byte
+		if rows.Scan(&ch, &r.ID, &r.Sender, &r.Sent, &r.Expires, &enc, &nonce) != nil {
+			continue
+		}
+		body, err := s.open(enc, nonce)
+		if err != nil {
+			continue
+		}
+		r.Content = body
+		out[ch] = append(out[ch], r)
+	}
+	return out, rows.Err()
+}
+
+// SetExpiresIfUnset gives a live row a deadline, only where it has none.
+func (s *Store) SetExpiresIfUnset(id string, at int64) (bool, error) {
+	res, err := s.db.Exec(`UPDATE messages SET expires = ? WHERE id = ? AND expires = 0 AND deleted = 0`, at, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}

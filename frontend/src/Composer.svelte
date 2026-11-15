@@ -963,14 +963,15 @@
     // nothing on screen and hand the draft back on failure, which is the only
     // moment anything was said at all.
     //
-    // Attachments first, then the caption — so a pasted image sits above its
-    // text in the feed, the way a captioned picture reads. Each is its own
-    // pending row because each is its own message.
-    for (const a of atts) outSendAttachment(chId, a, nextReply());
+    // A picture and its caption are ONE message: the caption rides after the
+    // last attachment's token, so it sits under the pictures and lives, renders
+    // and disappears with them. (Pictures without a caption get the channel's
+    // timer in lib/api.js, like every other send.)
+    let body = "";
     if (text) {
       // Seal before the ephemeral stamp so both tokens sit at the front in a
       // stable order; each strips independently at render.
-      const body = sealNext ? stampTimestamp(text) : text;
+      const sealed = sealNext ? stampTimestamp(text) : text;
       // The direction travels with the message. Laid out one way as it was
       // written and the other way as it is read is not the message anyone
       // wrote — and the reader's client has no way to recover the intent,
@@ -980,8 +981,16 @@
       // message goes out now without one — sending never waits on a website.
       const lp = linkPrep.take(text);
       linkPrep.reset();
-      outSendText(chId, stampEphemeral(chId, withPreviews(body, lp)), nextReply(), dirMode);
+      body = stampEphemeral(chId, withPreviews(sealed, lp));
       sealNext = false;
+    }
+    atts.forEach((a, i) => {
+      const last = i === atts.length - 1;
+      if (last && text) outSendAttachment(chId, a, nextReply(), body, dirMode, text);
+      else outSendAttachment(chId, a, nextReply());
+    });
+    if (text) {
+      if (!atts.length) outSendText(chId, body, nextReply(), dirMode);
       if (chId === S.activeChannelId) armSlowMode();
     }
   }

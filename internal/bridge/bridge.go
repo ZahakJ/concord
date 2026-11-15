@@ -2278,12 +2278,12 @@ func (b *Bridge) PrepareLinkPreviews(text string) (string, error) {
 // meme editor keys the recipe it saves for "edit this meme again" by exactly
 // this id, and the id is minted inside the seal — there is nothing the frontend
 // could compute it from.
-func (b *Bridge) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc string) (string, error) {
+func (b *Bridge) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc, text, dir string) (string, error) {
 	svc, err := b.service()
 	if err != nil {
 		return "", err
 	}
-	msg, err := svc.SendAttachment(channelID, dataURL, w, h, replyTo, spoiler, name, desc)
+	msg, err := svc.SendAttachment(channelID, dataURL, w, h, replyTo, spoiler, name, desc, text, dir)
 	if err != nil {
 		return "", err
 	}
@@ -2311,14 +2311,25 @@ func (b *Bridge) FetchAttachment(channelID, blobID, keys, subtype string) (strin
 	return svc.FetchAttachment(channelID, blobID, keys, subtype)
 }
 
+// SweepUnstampedAttachments counts (apply false) or repairs (apply true) the
+// pictures and files sent into disappearing chats without a deadline; see
+// app/stampsweep.go. Run it dry first: the counts are all it returns.
+func (b *Bridge) SweepUnstampedAttachments(apply bool) (appsvc.StampSweep, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.StampSweep{}, err
+	}
+	return svc.SweepUnstampedAttachments(apply)
+}
+
 // SendFile seals an arbitrary file into an encrypted blob and posts a file
 // reference token (rendered as a download card, not inline).
-func (b *Bridge) SendFile(channelID, dataURL, filename, replyTo string) error {
+func (b *Bridge) SendFile(channelID, dataURL, filename, replyTo, text, dir string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	_, err = svc.SendFile(channelID, dataURL, filename, replyTo)
+	_, err = svc.SendFile(channelID, dataURL, filename, replyTo, text, dir)
 	return err
 }
 
@@ -3561,12 +3572,12 @@ func (b *Bridge) RemoveGuildGif(guildID, id string) error {
 }
 
 // SendGuildGif posts a pack GIF as an ordinary image attachment message.
-func (b *Bridge) SendGuildGif(channelID, gifID, replyTo string) error {
+func (b *Bridge) SendGuildGif(channelID, gifID, replyTo, text string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	_, err = svc.SendGuildGif(channelID, gifID, replyTo)
+	_, err = svc.SendGuildGif(channelID, gifID, replyTo, text)
 	return err
 }
 
@@ -3647,12 +3658,12 @@ func (b *Bridge) GifSearchMedia(ref string, full bool) (string, error) {
 }
 
 // SendSearchedGif posts a searched GIF as an ordinary encrypted attachment.
-func (b *Bridge) SendSearchedGif(channelID, ref, replyTo string, w, h int) error {
+func (b *Bridge) SendSearchedGif(channelID, ref, replyTo string, w, h int, text string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	_, err = svc.SendSearchedGif(b.ctx, channelID, ref, replyTo, w, h)
+	_, err = svc.SendSearchedGif(b.ctx, channelID, ref, replyTo, w, h, text)
 	return err
 }
 
@@ -4084,13 +4095,15 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.ScheduledSends()
 	case "SendAttachment":
 		return b.SendAttachment(argStr(args, 0), argStr(args, 1), argInt(args, 2), argInt(args, 3), argStr(args, 4),
-			argBool(args, 5), argStr(args, 6), argStr(args, 7))
+			argBool(args, 5), argStr(args, 6), argStr(args, 7), argStr(args, 8), argStr(args, 9))
 	case "EditAttachment":
 		return b.EditAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt(args, 3), argInt(args, 4))
 	case "FetchAttachment":
 		return b.FetchAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "SendFile":
-		return nil, b.SendFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+		return nil, b.SendFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5))
+	case "SweepUnstampedAttachments":
+		return b.SweepUnstampedAttachments(argBool(args, 0))
 	case "FetchFile":
 		return b.FetchFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "PrepareLinkPreviews":
@@ -4320,7 +4333,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "RemoveGuildGif":
 		return nil, b.RemoveGuildGif(argStr(args, 0), argStr(args, 1))
 	case "SendGuildGif":
-		return nil, b.SendGuildGif(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+		return nil, b.SendGuildGif(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "GifSearchStatus":
 		return b.GifSearchStatus()
 	case "SearchGifs":
@@ -4328,7 +4341,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "GifSearchMedia":
 		return b.GifSearchMedia(argStr(args, 0), argBool(args, 1))
 	case "SendSearchedGif":
-		return nil, b.SendSearchedGif(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt(args, 3), argInt(args, 4))
+		return nil, b.SendSearchedGif(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt(args, 3), argInt(args, 4), argStr(args, 5))
 	case "SaveSearchedGif":
 		return nil, b.SaveSearchedGif(argStr(args, 0), argStr(args, 1), argStrs(args, 2), argStr(args, 3), argInt(args, 4), argInt(args, 5))
 	case "RenameChannel":

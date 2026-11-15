@@ -268,7 +268,8 @@ func gifDataURLOf(subtype string, plain []byte) string {
 // an ordinary encrypted attachment and emits the same v1 token the guild pack
 // does, so recipients need no new code and no idea where it came from — and, in
 // particular, do NOT fetch it from the provider themselves.
-func (s *Service) SendSearchedGif(ctx context.Context, channelID, ref, replyTo string, w, h int) (domain.Message, error) {
+// text, if any, rides in the same message (the disappearing timer).
+func (s *Service) SendSearchedGif(ctx context.Context, channelID, ref, replyTo string, w, h int, text string) (domain.Message, error) {
 	s.mu.RLock()
 	_, tracked := s.channelToGuild[channelID]
 	s.mu.RUnlock()
@@ -291,7 +292,7 @@ func (s *Service) SendSearchedGif(ctx context.Context, channelID, ref, replyTo s
 		return domain.Message{}, err
 	}
 	token := fmt.Sprintf("![image](concord://attach/v1/%s/%s/%s/%dx%d)", blobID, keys, subtype, w, h)
-	return s.send(channelID, token, "", replyTo)
+	return s.send(channelID, withText(token, text), "", replyTo)
 }
 
 // SaveSearchedGif adds a searched GIF to the guild's own pack, so a good result

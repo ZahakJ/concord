@@ -92,6 +92,7 @@
           <span class="pfile"><Icon name="attach" size={14} /> {entry.att?.name || "file"}</span>
         {/if}
       </div>
+      {#if entry.caption}<div class="pbody">{previewText(entry.caption)}</div>{/if}
     {:else if html}
       <!-- eslint-disable-next-line svelte/no-at-html-tags -->
       <div class="pbody" class:jumbo>{@html html}</div>

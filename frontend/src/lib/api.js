@@ -254,6 +254,14 @@ export function leaveVoiceOnUnload(channelID) {
   }
 }
 
+// stampFor puts the channel's disappearing timer on what is sent. It is
+// installed by lib/ephemeral.svelte.js, which owns the timers and already
+// imports this file, so a hook rather than an import; until then, nothing.
+let stampFor = (_channelId, content) => content;
+export function setSendStamp(fn) {
+  stampFor = fn;
+}
+
 export const api = {
   getBootstrap: () => call("GetBootstrap"),
   setBootstrap: (addrs) => call("SetBootstrap", addrs),
@@ -366,7 +374,8 @@ export const api = {
   addGuildGif: (guildID, name, tags, dataURL, w, h) =>
     call("AddGuildGif", guildID, name, tags, dataURL, w, h),
   removeGuildGif: (guildID, id) => call("RemoveGuildGif", guildID, id),
-  sendGuildGif: (channelID, gifID, replyTo = "") => call("SendGuildGif", channelID, gifID, replyTo),
+  sendGuildGif: (channelID, gifID, replyTo = "") =>
+    call("SendGuildGif", channelID, gifID, replyTo, stampFor(channelID, "")),
   // Tenor search, proxied through the user's own rendezvous. Note what is NOT
   // here: any way to get a URL. A result carries opaque handles, and both the
   // thumbnail and the full image come back from gifSearchMedia as inline data
@@ -377,7 +386,7 @@ export const api = {
   searchGifs: (query, pos = "") => call("SearchGifs", query, pos),
   gifSearchMedia: (ref, full = false) => call("GifSearchMedia", ref, full),
   sendSearchedGif: (channelID, ref, replyTo = "", w = 0, h = 0) =>
-    call("SendSearchedGif", channelID, ref, replyTo, w, h),
+    call("SendSearchedGif", channelID, ref, replyTo, w, h, stampFor(channelID, "")),
   saveSearchedGif: (guildID, name, tags, ref, w = 0, h = 0) =>
     call("SaveSearchedGif", guildID, name, tags, ref, w, h),
   // Guild calendar events. Times are UTC Unix seconds (endUnix 0 = no stated
@@ -496,7 +505,7 @@ export const api = {
   // it. Bounded again on the Go side (domain.ValidDir), so this is a hint, not
   // a trust boundary.
   sendMessage: (channelID, content, replyTo = "", dir = "") =>
-    call("SendMessage", channelID, content, replyTo, dir),
+    call("SendMessage", channelID, stampFor(channelID, content), replyTo, dir),
   sendCallNotice: (channelID, kind, content) =>
     call("SendCallNotice", channelID, kind, content),
   // A call record for this device only — "ended:<secs>" or "missed:<fpr>".
@@ -509,8 +518,10 @@ export const api = {
   scheduledSends: () => call("ScheduledSends"),
   // Resolves to the new blob's id — the meme editor keys its local render
   // recipe by it. Everything else ignores the return.
-  sendAttachment: (channelID, dataURL, w, h, replyTo = "", spoiler = false, name = "", desc = "") =>
-    call("SendAttachment", channelID, dataURL, w, h, replyTo, spoiler, name, desc),
+  // text rides in the SAME message as the picture: a caption, and the
+  // channel's disappearing timer (stampFor).
+  sendAttachment: (channelID, dataURL, w, h, replyTo = "", spoiler = false, name = "", desc = "", text = "", dir = "") =>
+    call("SendAttachment", channelID, dataURL, w, h, replyTo, spoiler, name, desc, stampFor(channelID, text), dir),
   // Re-point one of your own image messages at a freshly sealed picture, in
   // place. Also resolves to the new blob id. NOT sendAttachment + delete: that
   // leaves a tombstone where the original was.
@@ -518,8 +529,8 @@ export const api = {
     call("EditAttachment", channelID, messageID, dataURL, w, h),
   fetchAttachment: (channelID, blobID, keys, subtype) =>
     call("FetchAttachment", channelID, blobID, keys, subtype),
-  sendFile: (channelID, dataURL, filename, replyTo = "") =>
-    call("SendFile", channelID, dataURL, filename, replyTo),
+  sendFile: (channelID, dataURL, filename, replyTo = "", text = "", dir = "") =>
+    call("SendFile", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir),
   fetchFile: (channelID, blobID, keys, mime) =>
     call("FetchFile", channelID, blobID, keys, mime),
   // Built on THIS device for a message being composed; returns the rider token

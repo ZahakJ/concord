@@ -7,7 +7,7 @@
 // sides with no extra coordination and no backend TTL/schema. Nothing here is a
 // security boundary on its own; it's honouring an expiry the author set.
 import { S } from "./state.svelte.js";
-import { api } from "./api.js";
+import { api, setSendStamp } from "./api.js";
 import { own } from "./lookup.js";
 
 export const EPH_RE = /\[eph\]\(concord:\/\/eph\/v1\/(\d{9,12})\)/;
@@ -57,6 +57,11 @@ export function stampEphemeral(channelId, content) {
   const at = Math.floor(Date.now() / 1000) + ttl;
   return `[eph](concord://eph/v1/${at})${content}`;
 }
+
+// Every send in lib/api.js carries the channel's timer, whichever screen made
+// it: pictures, files, GIFs, doodles, sounds and polls used to go out bare and
+// outlive the words around them. Content already stamped is left as it is.
+setSendStamp((channelId, content) => (EPH_RE.test(content || "") ? content : stampEphemeral(channelId, content || "")));
 
 // parseEphemeral -> expiry epoch (ms) or 0.
 export function ephemeralExpiry(content) {

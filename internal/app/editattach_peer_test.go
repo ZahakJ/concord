@@ -47,7 +47,7 @@ func TestEditedAttachmentReachesTheOtherPeer(t *testing.T) {
 	}
 
 	// A sends the original meme.
-	first, err := a.SendAttachment(channel, dataURL(), 320, 240, "", false, "", "")
+	first, err := a.SendAttachment(channel, dataURL(), 320, 240, "", false, "", "", "", "")
 	if err != nil {
 		t.Fatalf("SendAttachment: %v", err)
 	}

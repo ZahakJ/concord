@@ -162,13 +162,29 @@ func (s *Service) sealAttachment(dataURL string, w, h int, spoiler bool, name, d
 // and sends the reference token as a normal chat message. spoiler/name/desc
 // come from the per-image controls in the composer; when all three are unset
 // the token emitted is the original v1 form.
-func (s *Service) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc string) (domain.Message, error) {
+//
+// text is optional: a caption, and the stamps the composer puts on any message
+// (the disappearing timer above all), sealed in the same message as the
+// picture so the two travel, render and expire as one. Builds that predate it
+// strip the token and show the rest, which is the caption.
+func (s *Service) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc, text, dir string) (domain.Message, error) {
 	_, token, err := s.sealAttachment(dataURL, w, h, spoiler, name, desc)
 	if err != nil {
 		return domain.Message{}, err
 	}
-	return s.send(channelID, token, "", replyTo)
+	return s.sendAs(channelID, withText(token, text), "", replyTo, "", dir)
 }
+
+// withText puts a message's text after its attachment token.
+func withText(token, text string) string {
+	if text == "" {
+		return token
+	}
+	return token + "\n" + text
+}
+
+// imageTokenRe is a whole image token, as sealAttachment writes it.
+var imageTokenRe = regexp.MustCompile(`!\[image\]\(concord://attach/v[12]/[^)\s]*\)`)
 
 // EditAttachment replaces the picture in one of this peer's own image messages,
 // in place. The new image becomes its own blob and the ORIGINAL message is
@@ -193,7 +209,14 @@ func (s *Service) EditAttachment(channelID, targetID, dataURL string, w, h int) 
 	if err != nil {
 		return "", err
 	}
-	if err := s.EditMessage(channelID, targetID, token, ""); err != nil {
+	// Only the picture changes: a caption and the disappearing timer stay.
+	content := token
+	if old, ok, _ := s.store.MessageByID(targetID); ok {
+		if loc := imageTokenRe.FindStringIndex(old.Content); loc != nil {
+			content = old.Content[:loc[0]] + token + old.Content[loc[1]:]
+		}
+	}
+	if err := s.EditMessage(channelID, targetID, content, ""); err != nil {
 		return "", err
 	}
 	return blobID, nil
@@ -204,7 +227,9 @@ func (s *Service) EditAttachment(channelID, targetID, dataURL string, w, h int) 
 // the UI shows a download card. Token:
 //
 //	[file](concord://file/v1/<blobID>/<keys>/<size>/<mimeB64url>/<nameB64url>)
-func (s *Service) SendFile(channelID, dataURL, filename, replyTo string) (domain.Message, error) {
+//
+// text is optional, as for SendAttachment.
+func (s *Service) SendFile(channelID, dataURL, filename, replyTo, text, dir string) (domain.Message, error) {
 	m := fileURLRe.FindStringSubmatch(dataURL)
 	if m == nil {
 		return domain.Message{}, fmt.Errorf("app: attachment must be a data URL")
@@ -225,7 +250,7 @@ func (s *Service) SendFile(channelID, dataURL, filename, replyTo string) (domain
 	filename = clampBytes(filename, maxFilenameLen)
 	token := fmt.Sprintf("[file](concord://file/v1/%s/%s/%d/%s/%s)",
 		blobID, keys, len(plain), b64url.EncodeToString([]byte(mime)), b64url.EncodeToString([]byte(filename)))
-	return s.send(channelID, token, "", replyTo)
+	return s.sendAs(channelID, withText(token, text), "", replyTo, "", dir)
 }
 
 // fetchBlobPlaintext resolves a token's blob to its plaintext: local store
