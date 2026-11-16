@@ -670,10 +670,7 @@
     {#if endedReason && !backupPhrase && !resumeBackup}
       <p class="notice" role="status">
         {#if endedReason === "unlinked"}
-          This device was unlinked from its account. Its copy of your identity,
-          your guilds and your messages has been erased here — nothing was deleted
-          from anyone else. Link it again from one of your other devices to get
-          them back.
+          {erasedAfterUnlink}
         {:else if endedReason === "wiped"}
           Everything on this device was deleted from another Concord window.
         {:else if endedReason === "signed-out"}
@@ -1024,6 +1021,9 @@
         Back
       </button>
     {:else if forgot}
+      {#if dataHere}
+        <p class="muted">Restore with this account's recovery phrase to open the data on this device.</p>
+      {/if}
       <p class="muted">
         Your passphrase can't be looked up — it's never stored anywhere. If this
         account is also on <strong>another device</strong>, re-linking from it is

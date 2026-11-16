@@ -93,8 +93,9 @@ func TestTheHeldFileSentenceAgreesWithHowManyFilesAreHeld(t *testing.T) {
 		{[]string{"a", "b"}, "The files a, b are still here, probably because another program is using them."},
 		{nil, "Some of its files are still here, probably because another program is using them."},
 	} {
-		if got := eraseUnfinishedMsg(c.files); !strings.Contains(got, c.want) {
-			t.Errorf("%v: %q, want it to contain %q", c.files, got, c.want)
+		want := "Concord couldn't finish erasing this device. " + c.want + " Close any other Concord windows or restart the computer. Concord finishes erasing the next time it starts."
+		if got := eraseUnfinishedMsg(c.files); got != want {
+			t.Errorf("%v: %q, want %q", c.files, got, want)
 		}
 	}
 }

@@ -48,7 +48,7 @@ type eraseRecord struct {
 var ErrEraseUnfinished = errors.New("Erasing this device hasn't finished, so Concord won't open anything on it yet")
 
 // eraseHeldAdvice is said when a file could not be removed.
-const eraseHeldAdvice = "Another program may be using it. Close any other Concord windows, or restart the computer; Concord finishes erasing the next time it starts"
+const eraseHeldAdvice = "Another program may be using it. Close any other Concord windows or restart the computer. Concord finishes erasing the next time it starts"
 
 // eraseStep runs after each step of an erase, named. An error stops the
 // erase there, as if the process had died. A variable for tests.
