@@ -1,5 +1,6 @@
 <script module>
   import { replyState } from "./lib/hidden.js";
+  import { canRevealDeleted as revealOffered, notKept, NOT_KEPT } from "./lib/reveal.js";
   // Holding Shift over the feed swaps Edit, Pin and Delete into the hover
   // toolbar. One listener for the whole app, written to the root as an
   // attribute so every row's bar answers from CSS — hundreds of rows each
@@ -919,15 +920,11 @@
   const isOwn = $derived(m.sender === S.identity.fingerprint && m.kind !== "guest");
   const unsignedMark = $derived(showUnsignedMark(m, S.identity.fingerprint));
 
-  // Moderator reveal of a deleted GUILD message. The content only exists to
-  // reveal in guilds — DM deletes erase it — so this is guild-only and gated on
-  // Manage Messages (re-checked on the backend). `revealed` holds the fetched
-  // original once shown.
-  // An EXPIRED (disappeared) message was truly erased on every device — there's
-  // nothing to reveal, so it's never revealable regardless of mod powers.
-  const canRevealDeleted = $derived(
-    m.deleted && !m.expired && activeGuild()?.kind !== "dm" && canDeleteOthers,
-  );
+  // Moderator reveal of a deleted GUILD message (lib/reveal.js): never in a
+  // direct message, never for an expired one, and gated on Manage Messages
+  // (re-checked on the backend). `revealed` holds the fetched original once
+  // shown, or the fixed "not kept" line when this device erased it.
+  const canRevealDeleted = $derived(revealOffered(m, activeGuild()?.kind, canDeleteOthers));
   let revealed = $state(null);
   let revealing = $state(false);
   async function revealOriginal() {
@@ -936,7 +933,9 @@
     try {
       revealed = (await api.revealDeleted(m.channelId, m.id)) || "(the original was empty)";
     } catch (err) {
-      flash(err);
+      // Asking again would get the same answer: say it once, in place.
+      if (notKept(err)) revealed = NOT_KEPT;
+      else flash(err);
     } finally {
       revealing = false;
     }
@@ -1437,7 +1436,9 @@
         class:revealable={canRevealDeleted && revealed === null}
         onmouseenter={hoverReveal}
       >
-        {#if revealed !== null}
+        {#if revealed === NOT_KEPT}
+          <em>deleted</em> · <span class="revealed-text">{NOT_KEPT}</span>
+        {:else if revealed !== null}
           <span
             class="revealed-tag"
             use:tooltip={"Deleted — shown to you as a moderator"}
