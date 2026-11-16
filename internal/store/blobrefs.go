@@ -24,10 +24,16 @@ import (
 // existed are indexed by a bounded backfill at startup (BackfillBlobRefs);
 // until that has finished, ReleaseBlobs removes and bans nothing, since a
 // blob shared with a row not yet indexed would look unused.
+//
+// The backfill keeps its rowid cursor after it finishes, and Close moves it
+// to the newest row, since every row this build writes is indexed as it is
+// written. At the next start the backfill indexes whatever lies past the
+// cursor before any blob may go again: rows an older build wrote to the same
+// store in between, or rows of a run that ended without Close. After a clean
+// close nothing lies past it, and the check is one query.
 
 const (
-	settingBlobRefsComplete = "blob_refs_complete"
-	settingBlobRefsCursor   = "blob_refs_backfill_rowid"
+	settingBlobRefsCursor = "blob_refs_backfill_rowid"
 	// blobRefsBatch bounds one backfill transaction, as pruneBatch does a
 	// prune: the store runs on one connection.
 	blobRefsBatch = 2000
@@ -148,15 +154,15 @@ func insertBlobRefs(q querier, messageID string, ids []string) error {
 	return nil
 }
 
-// BlobRefsComplete reports whether every stored row has been indexed.
+// BlobRefsComplete reports whether every stored row has been indexed, as
+// far as this process has checked (BackfillBlobRefs).
 func (s *Store) BlobRefsComplete() bool {
-	v, err := s.GetSetting(settingBlobRefsComplete)
-	return err == nil && v == "1"
+	return s.blobRefsLive.Load()
 }
 
-// BackfillBlobRefs indexes up to one batch of rows stored before the index
-// existed, in rowid order from where the last batch stopped, and reports
-// whether the backfill is complete. The caller loops, giving other readers
+// BackfillBlobRefs indexes up to one batch of the rows past the backfill's
+// cursor, in rowid order from where the last batch stopped, and reports
+// whether every row is now indexed. The caller loops, giving other readers
 // the connection back between batches.
 func (s *Store) BackfillBlobRefs() (bool, error) {
 	if s.BlobRefsComplete() {
@@ -213,17 +219,28 @@ func (s *Store) BackfillBlobRefs() (bool, error) {
 			break
 		}
 	}
-	key, val := settingBlobRefsCursor, strconv.FormatInt(last, 10)
-	if done {
-		key, val = settingBlobRefsComplete, "1"
-	}
-	if _, err := tx.Exec(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, val); err != nil {
+	if _, err := tx.Exec(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		settingBlobRefsCursor, strconv.FormatInt(last, 10)); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
+	if done {
+		s.blobRefsLive.Store(true)
+	}
 	return done, nil
+}
+
+// noteBlobRefsThrough moves the backfill's cursor to the newest row, at
+// Close: once the backfill has finished, every row up to it is indexed.
+func (s *Store) noteBlobRefsThrough() {
+	if !s.BlobRefsComplete() {
+		return
+	}
+	_, _ = s.db.Exec(`INSERT INTO settings (key, value)
+		SELECT ?, CAST(coalesce(max(rowid), 0) AS TEXT) FROM messages WHERE true
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, settingBlobRefsCursor)
 }
 
 // ReleaseBlobs drops messageID's blob references, and removes and bans each

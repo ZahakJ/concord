@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -337,5 +338,76 @@ func TestABodyChangeAndItsReferencesAreWrittenTogether(t *testing.T) {
 	}
 	if body, _ := s.MessageContent(relayed.ID); body != "as relayed" {
 		t.Errorf("the proven copy was stored without its references: %q", body)
+	}
+}
+
+// Rows written to the store by a build that does not index blobs, after the
+// backfill finished, are indexed at the next start before any blob goes.
+// After a clean close there is nothing to index.
+func TestRowsWrittenWithoutTheIndexAreIndexedAtTheNextStart(t *testing.T) {
+	s, path := openTestStore(t)
+	reopen := func() *Store {
+		t.Helper()
+		r, err := Open(path, bytes.Repeat([]byte{0x42}, 32))
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		t.Cleanup(func() { _ = r.Close() })
+		return r
+	}
+	backfill := func(st *Store) int {
+		t.Helper()
+		for calls := 1; calls < 20; calls++ {
+			done, err := st.BackfillBlobRefs()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if done {
+				return calls
+			}
+		}
+		t.Fatal("the backfill never finished")
+		return 0
+	}
+	backfill(s)
+	shared := blobID('a')
+	holdBlob(t, s, shared)
+	gone := saveBody(t, s, "to be deleted "+imageToken(shared))
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// A start after a clean close finds nothing past the cursor.
+	s = reopen()
+	var newest int64
+	_ = s.db.QueryRow(`SELECT max(rowid) FROM messages`).Scan(&newest)
+	if cur, _ := s.GetSetting(settingBlobRefsCursor); cur != fmt.Sprint(newest) {
+		t.Errorf("after a clean close the cursor is %q, want the newest row %d", cur, newest)
+	}
+	if calls := backfill(s); calls != 1 {
+		t.Errorf("after a clean close the backfill took %d calls, want 1", calls)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// A build without the index writes a row naming the same blob: the row
+	// is stored with no references, and the cursor is not moved.
+	old := reopen()
+	written := saveBody(t, old, "written by an older build "+imageToken(shared))
+	if _, err := old.db.Exec(`DELETE FROM blob_refs WHERE message_id = ?`, written.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s = reopen()
+	if s.BlobRefsComplete() {
+		t.Error("a store with rows past the cursor says it is complete before the backfill ran")
+	}
+	backfill(s)
+	if banned, err := s.ReleaseBlobs(gone.ID); err != nil || len(banned) != 0 || !heldBlob(s, shared) {
+		t.Errorf("a blob a row written by an older build names was removed: %v %v", banned, err)
 	}
 }

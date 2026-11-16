@@ -24,6 +24,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/nacl/secretbox"
@@ -69,6 +70,10 @@ type Store struct {
 	ckptMu       sync.Mutex
 	ckptRetrying bool
 	closed       bool
+
+	// blobRefsLive is set once this process has indexed every row up to the
+	// newest (BackfillBlobRefs); until then no blob is removed or banned.
+	blobRefsLive atomic.Bool
 }
 
 // Open opens (creating if needed) the SQLite database at path and prepares the
@@ -4722,6 +4727,7 @@ func (s *Store) Close() error {
 		s.closeOnce.Do(func() { close(s.closing) })
 	}
 	s.bg.Wait()
+	s.noteBlobRefsThrough()
 	if s.rdb != nil {
 		_ = s.rdb.Close()
 	}
