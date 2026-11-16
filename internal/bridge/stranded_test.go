@@ -83,3 +83,18 @@ func TestAHeldFileIsNamedWithWhatFixesIt(t *testing.T) {
 		t.Fatalf("held file: %q %v", c.Msg, files)
 	}
 }
+
+func TestTheHeldFileSentenceAgreesWithHowManyFilesAreHeld(t *testing.T) {
+	for _, c := range []struct {
+		files []string
+		want  string
+	}{
+		{[]string{"concord.db-wal"}, "The file concord.db-wal is still here, probably because another program is using it."},
+		{[]string{"a", "b"}, "The files a, b are still here, probably because another program is using them."},
+		{nil, "Some of its files are still here, probably because another program is using them."},
+	} {
+		if got := eraseUnfinishedMsg(c.files); !strings.Contains(got, c.want) {
+			t.Errorf("%v: %q, want it to contain %q", c.files, got, c.want)
+		}
+	}
+}

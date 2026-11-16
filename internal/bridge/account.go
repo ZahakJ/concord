@@ -250,13 +250,13 @@ func (b *Bridge) startError(err error) error {
 // eraseUnfinishedMsg is the held-file sentence (the UI says the same,
 // lib/strandeddata.js).
 func eraseUnfinishedMsg(files []string) string {
-	what := "Some of its files are"
+	what, them := "Some of its files are", "them"
 	switch len(files) {
 	case 0:
 	case 1:
-		what = "The file " + files[0] + " is"
+		what, them = "The file "+files[0]+" is", "it"
 	default:
 		what = "The files " + strings.Join(files, ", ") + " are"
 	}
-	return "Concord couldn't finish erasing this device. " + what + " still here, probably because another program is using them. Close any other Concord windows, or restart the computer, and Concord finishes erasing the next time it starts."
+	return "Concord couldn't finish erasing this device. " + what + " still here, probably because another program is using " + them + ". Close any other Concord windows, or restart the computer, and Concord finishes erasing the next time it starts."
 }

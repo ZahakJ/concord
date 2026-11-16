@@ -36,8 +36,9 @@ export const erasedAfterUnlink =
 // names, as the core reports them.
 export function eraseUnfinished(files) {
   const list = (files || []).filter(Boolean);
-  const what = list.length === 0 ? "Some of its files are" : list.length === 1 ? `The file ${list[0]} is` : `The files ${list.join(", ")} are`;
-  return `Concord couldn't finish erasing this device. ${what} still here, probably because another program is using them. Close any other Concord windows, or restart the computer, and Concord finishes erasing the next time it starts.`;
+  const one = list.length === 1;
+  const what = list.length === 0 ? "Some of its files are" : one ? `The file ${list[0]} is` : `The files ${list.join(", ")} are`;
+  return `Concord couldn't finish erasing this device. ${what} still here, probably because another program is using ${one ? "it" : "them"}. Close any other Concord windows, or restart the computer, and Concord finishes erasing the next time it starts.`;
 }
 
 // lockNotice is the lock screen's sentence for why the device is locked,
