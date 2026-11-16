@@ -534,8 +534,11 @@ export class App {
     await this.waitForMessage(next);
   }
 
+  // Deletes for everyone. The ⋯ menu also offers "Delete for me", which only
+  // hides the message on this account's devices; the plain "Delete" label
+  // lives on the Shift toolbar button and the confirm dialog.
   async deleteMessage(text) {
-    await this.messageAction(text, "Delete");
+    await this.messageAction(text, "Delete for everyone");
     await this.dialog().getByRole("button", { name: "Delete", exact: true }).click();
     await this.dialog().waitFor({ state: "detached" }).catch(() => {});
   }
