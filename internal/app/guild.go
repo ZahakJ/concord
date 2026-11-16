@@ -633,6 +633,7 @@ func (s *Service) deleteGuildLocal(guildID string) error {
 			chIDs = append(chIDs, c.ID)
 		}
 		delete(s.guilds, guildID)
+		delete(s.ownerUnverified, guildID)
 		delete(s.hiddenDMs, guildID)
 		delete(s.dmPeers, guildID)
 	}
@@ -1178,9 +1179,21 @@ func (s *Service) redeemInvite(ic inviteCode, held *domain.Guild) (domain.Guild,
 	//     keeps its own record whole; only the welcome is taken;
 	//   - a guild with a founder-scheme group id must name, as owner, the key
 	//     its group id was derived from;
+	//   - a device that holds a record for the guild but is not seated (out of
+	//     sync, removed, without a leaf) keeps a founder-scheme group, and the
+	//     answer must name that group's founder;
 	//   - a guild from before the scheme must be joined in the group its
 	//     record names.
-	want, err := joinWant(ic.GuildID, resp.Guild, held)
+	var stored *domain.Guild
+	if held == nil {
+		s.mu.RLock()
+		if cur, ok := s.guilds[ic.GuildID]; ok {
+			c := cur.Clone()
+			stored = &c
+		}
+		s.mu.RUnlock()
+	}
+	want, err := joinWant(ic.GuildID, resp.Guild, held, stored)
 	if err != nil {
 		return domain.Guild{}, err
 	}
@@ -1191,7 +1204,16 @@ func (s *Service) redeemInvite(ic inviteCode, held *domain.Guild) (domain.Guild,
 		return domain.Guild{}, fmt.Errorf("app: join group: %w", err)
 	}
 	if probe {
+		// The device's own record as it stands now, not as it was read before
+		// the round trip, so an update that landed meanwhile is kept.
 		resp.Guild = held.Clone()
+		s.mu.RLock()
+		if cur, ok := s.guilds[ic.GuildID]; ok && bytes.Equal(cur.GroupID, want) {
+			resp.Guild = cur.Clone()
+		}
+		s.mu.RUnlock()
+	} else {
+		resp.Guild.GroupID = append([]byte(nil), want...)
 	}
 	// Seated again — by a committer that consulted the same governance log that
 	// put us out, so this is the one event that lifts the terminal state.
@@ -1204,6 +1226,9 @@ func (s *Service) redeemInvite(ic inviteCode, held *domain.Guild) (domain.Guild,
 	}
 	g := resp.Guild
 	s.trackGuild(&g)
+	// The record just saved was checked against its group; the audit settles
+	// any owner-unverified state left from before.
+	s.auditFounder(g.ID)
 	// Adopt the member roster carried by the response so real names show
 	// immediately, without waiting for gossip announces.
 	for fpr, p := range resp.Profiles {

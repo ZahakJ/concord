@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"errors"
 	"log"
 	"sync/atomic"
@@ -45,12 +46,21 @@ func (s *Service) foundGroup() (string, []byte, error) {
 
 // joinWant is the MLS group a join for this answer must land in, or an error
 // if the answer cannot be joined. held is the device's own record on a probe.
-func joinWant(codeGuildID string, answer domain.Guild, held *domain.Guild) ([]byte, error) {
+// stored is the record the device holds for the guild otherwise (out of sync,
+// removed, without a leaf), or nil: a stored founder-scheme record keeps its
+// group, and the answer must name that group's founder.
+func joinWant(codeGuildID string, answer domain.Guild, held, stored *domain.Guild) ([]byte, error) {
 	if held != nil {
 		if len(held.GroupID) == 0 {
 			return nil, errInviteMismatch
 		}
 		return held.GroupID, nil
+	}
+	if stored != nil && domain.IsFounderGroupID(stored.GroupID) {
+		if !domain.FounderMatches(stored.GroupID, codeGuildID, answer.OwnerID) {
+			return nil, errInviteMismatch
+		}
+		return stored.GroupID, nil
 	}
 	switch {
 	case domain.IsFounderGroupID(answer.GroupID):
@@ -129,7 +139,7 @@ func (s *Service) auditFounder(guildID string, extra ...[]byte) bool {
 
 	s.mu.Lock()
 	cur, ok := s.guilds[guildID]
-	if !ok {
+	if !ok || !bytes.Equal(cur.GroupID, gid) {
 		s.mu.Unlock()
 		return false
 	}

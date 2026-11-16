@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"sync/atomic"
@@ -589,7 +590,7 @@ func TestJoinWant(t *testing.T) {
 		{"probe with no held group", domain.Guild{ID: "g", GroupID: gid, OwnerID: founder}, &domain.Guild{ID: "g"}, nil, false},
 	}
 	for _, c := range cases {
-		got, err := joinWant("g", c.answer, c.held)
+		got, err := joinWant("g", c.answer, c.held, nil)
 		if (err == nil) != c.ok || !bytes.Equal(got, c.want) {
 			t.Errorf("%s: %x, %v", c.what, got, err)
 		}
@@ -597,8 +598,21 @@ func TestJoinWant(t *testing.T) {
 			t.Errorf("%s: refusal %v is not the mismatch refusal", c.what, err)
 		}
 	}
+	// A stored record that is not a probe: a founder-scheme group is kept, and
+	// the answer must name its founder whatever group the answer names.
+	stored := &domain.Guild{ID: "g", GroupID: gid, OwnerID: founder}
+	otherGid, _ := domain.NewFounderGroupID("g", other)
+	if got, err := joinWant("g", domain.Guild{ID: "g", GroupID: otherGid, OwnerID: founder}, nil, stored); err != nil || !bytes.Equal(got, gid) {
+		t.Errorf("stored founder record, answer naming its founder: %x, %v; want the stored group", got, err)
+	}
+	if _, err := joinWant("g", domain.Guild{ID: "g", GroupID: otherGid, OwnerID: other}, nil, stored); !errors.Is(err, errInviteMismatch) {
+		t.Errorf("stored founder record, answer naming another owner and group: %v, want the mismatch refusal", err)
+	}
+	if got, err := joinWant("g", domain.Guild{ID: "g", GroupID: legacy, OwnerID: other}, nil, &domain.Guild{ID: "g", GroupID: legacy}); err != nil || !bytes.Equal(got, legacy) {
+		t.Errorf("stored legacy record: %x, %v; want the answer's rules", got, err)
+	}
 	// The id the founder is checked against is the code's, not the answer's.
-	if _, err := joinWant("h", domain.Guild{ID: "h", GroupID: gid, OwnerID: founder}, nil); err == nil {
+	if _, err := joinWant("h", domain.Guild{ID: "h", GroupID: gid, OwnerID: founder}, nil, nil); err == nil {
 		t.Error("a founder id made for guild g was accepted for guild h")
 	}
 }
@@ -816,5 +830,147 @@ func TestOwnerAHealServedAsAPlainJoinKeepsTheFounder(t *testing.T) {
 	}
 	if !member.IsGuildOwner(g.ID, owner.id.Fingerprint()) || member.OwnerUnverified(g.ID) {
 		t.Fatalf("after the heal the owner is %q (unverified %v), want the founder", member.GuildOwnerFingerprint(g.ID), member.OwnerUnverified(g.ID))
+	}
+}
+
+// answerWithOwnGroup makes s answer every invite for rec.ID with a welcome to
+// group gid, which s creates, and a record naming s as owner of it. It returns
+// a code that reaches s.
+func answerWithOwnGroup(t *testing.T, ctx context.Context, s *Service, rec domain.Guild, gid []byte) string {
+	t.Helper()
+	if _, err := s.mls.CreateGroupWithID(ctx, mls.GroupID(gid)); err != nil {
+		t.Fatalf("CreateGroupWithID: %v", err)
+	}
+	s.host.HandleInvites(func(c context.Context, from peer.ID, raw []byte) ([]byte, error) {
+		var req inviteRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return nil, err
+		}
+		_, welcome, err := s.mls.Invite(c, mls.GroupID(gid), req.KeyPackage)
+		if err != nil {
+			return nil, err
+		}
+		answer := rec.Clone()
+		answer.GroupID = append([]byte(nil), gid...)
+		answer.OwnerID = s.PublicKey()
+		return json.Marshal(inviteResponse{Welcome: welcome, Guild: answer})
+	})
+	bootstrap := LoadNetConfig(s.dataDir).Bootstrap
+	return encodeInviteCode(inviteCode{
+		GuildID:   rec.ID,
+		GuildName: rec.Name,
+		OwnerID:   s.host.PeerID().String(),
+		OwnerAddr: codeAddrs(s.host.AddrInfo().Addrs, bootstrap),
+		Bootstrap: bootstrap,
+	})
+}
+
+// A device that holds a new guild while it is not a seated member (here
+// marked removed, as before a readmit) joins only the group its record names,
+// and only under the owner that group was made for. An answer with another
+// group and owner is refused and the held record stays as it was, whether that
+// group has a founder-scheme id or a 16-byte one.
+func TestOwnerAHolderNotSeatedJoinsOnlyItsOwnGroup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	owner := startService(t, ctx)
+	member := startService(t, ctx)
+	other := startService(t, ctx)
+	g, err := owner.CreateGuild("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := owner.InviteCode(g.ID)
+	if _, err := member.JoinViaInvite(code); err != nil {
+		t.Fatalf("member join: %v", err)
+	}
+	waitMembers(t, 30*time.Second, 2, owner, member)
+	held := storedGuild(member, g.ID)
+	founderGID, err := domain.NewFounderGroupID(g.ID, other.PublicKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyGID := make([]byte, 16)
+	if _, err := rand.Read(legacyGID); err != nil {
+		t.Fatal(err)
+	}
+
+	member.mu.Lock()
+	member.evicted[g.ID] = "removed"
+	member.mu.Unlock()
+	for _, tc := range []struct {
+		name string
+		gid  []byte
+	}{
+		{"founder-scheme group", founderGID},
+		{"16-byte group", legacyGID},
+	} {
+		otherCode := answerWithOwnGroup(t, ctx, other, storedGuild(owner, g.ID), tc.gid)
+		if _, err := member.JoinViaInvite(otherCode); !errors.Is(err, errInviteMismatch) {
+			t.Fatalf("%s: an answer with another group and owner: err %v, want the mismatch refusal", tc.name, err)
+		}
+		got := storedGuild(member, g.ID)
+		if !bytes.Equal(got.GroupID, held.GroupID) || !bytes.Equal(got.OwnerID, held.OwnerID) {
+			t.Fatalf("%s: the held record changed: group %x owner %x; it held %x %x", tc.name, got.GroupID, got.OwnerID, held.GroupID, held.OwnerID)
+		}
+		if member.IsGuildOwner(g.ID, other.id.Fingerprint()) {
+			t.Fatalf("%s: the answering device is owner on the member's device", tc.name)
+		}
+		if _, err := member.mls.Members(ctx, tc.gid); err == nil {
+			t.Fatalf("%s: the member holds MLS state for the answering device's group", tc.name)
+		}
+	}
+}
+
+// A fresh join whose answer names a group that verifies, but whose welcome is
+// for another group, is refused and stores nothing for either group.
+func TestOwnerAFreshJoinRefusesAWelcomeForAnotherGroup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	owner := startService(t, ctx)
+	newcomer := startService(t, ctx)
+	g, err := owner.CreateGuild("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := owner.CreateGuild("other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.host.HandleInvites(func(c context.Context, from peer.ID, raw []byte) ([]byte, error) {
+		var req inviteRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return nil, err
+		}
+		req.GuildID = other.ID
+		swapped, _ := json.Marshal(req)
+		out, err := owner.handleInviteRequest(c, from, swapped)
+		if err != nil {
+			return out, err
+		}
+		var resp inviteResponse
+		if err := json.Unmarshal(out, &resp); err != nil {
+			return nil, err
+		}
+		resp.Guild = storedGuild(owner, g.ID)
+		return json.Marshal(resp)
+	})
+	code, _ := owner.InviteCode(g.ID)
+	if _, err := newcomer.JoinViaInvite(code); !errors.Is(err, errInviteMismatch) {
+		t.Fatalf("a welcome for another group under a verified answer: err %v, want the mismatch refusal", err)
+	}
+	if holdsGuild(newcomer, g.ID) || holdsGuild(newcomer, other.ID) {
+		t.Fatal("the refused newcomer holds a guild record")
+	}
+	for _, gid := range [][]byte{g.GroupID, other.GroupID} {
+		if _, err := newcomer.mls.Epoch(ctx, gid); err == nil {
+			t.Fatalf("the refused newcomer holds MLS state for group %x", gid)
+		}
 	}
 }
