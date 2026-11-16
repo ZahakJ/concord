@@ -175,6 +175,11 @@ func RestoreOverExisting(dataDir, phrase, passphrase, confirm string) error {
 	if err != nil {
 		return err
 	}
+	// An erase of this device that did not finish is finished first: the
+	// device restored onto is the erased one, not what the erase left.
+	if _, err := finishInterruptedErase(dataDir); err != nil {
+		return err
+	}
 	keep, err := replaceGate(dataDir, seed, confirm, "")
 	if err != nil {
 		return err

@@ -79,6 +79,9 @@ type PeerCache struct {
 	// on the next launch reads back as "no remembered peers at all", i.e. the
 	// fallback gone exactly when it is needed.
 	saveMu sync.Mutex
+	// closed: the last write has been made (Close); nothing writes the file
+	// after it. Guarded by saveMu.
+	closed bool
 }
 
 type peerCacheFile struct {
@@ -207,8 +210,22 @@ func (c *PeerCache) Save(dataDir string) error {
 	return c.save(dataDir)
 }
 
-// save snapshots the cache and writes it. Caller holds c.saveMu.
+// Close writes the cache one last time; after it, Save and Flush write
+// nothing.
+func (c *PeerCache) Close(dataDir string) error {
+	c.saveMu.Lock()
+	defer c.saveMu.Unlock()
+	err := c.save(dataDir)
+	c.closed = true
+	return err
+}
+
+// save snapshots the cache and writes it, unless the cache is closed. Caller
+// holds c.saveMu.
 func (c *PeerCache) save(dataDir string) error {
+	if c.closed {
+		return nil
+	}
 	c.mu.Lock()
 	c.prune(time.Now())
 	b, err := json.MarshalIndent(peerCacheFile{Peers: c.peers}, "", "  ")

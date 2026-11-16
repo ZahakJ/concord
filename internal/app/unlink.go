@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -324,7 +324,7 @@ func (s *Service) applyRevocation(rev *identity.DeviceRevocation) {
 		return
 	}
 	s.saveRevocations(append(s.revocations(), rev))
-	go s.wipeSelf()
+	go func() { _ = s.wipeSelf() }()
 }
 
 // revokesUs is the whole safety check for the self-erase, kept in one place and
@@ -364,24 +364,119 @@ func (s *Service) selfRevoked() bool {
 
 // wipeSelf erases everything this install holds and stops it.
 //
-// It removes the device marker along with the keystore and database: without
-// that, a revoked device restarted before the erase completed would come back
-// presenting the certificate it was just told to stop using. The network config
-// is deliberately KEPT — it is not account data, and leaving it means the person
-// holding the device can re-link it (a fresh, freshly-authorized device) without
-// having to find their rendezvous address again.
-func (s *Service) wipeSelf() {
+// The erase is recorded before anything goes (resetIdentity), so one stopped
+// part-way is finished by the next start before anything is opened. It runs
+// in the session's erase gate: Close waits for an erase in flight, and once
+// Close has run no erase of this session starts (the stored revocation has
+// the next start erase the device). The shell is told only once the erase
+// is done, and the log says erased only when it was.
+func (s *Service) wipeSelf() error {
 	dir := s.dataDir
 	s.mu.RLock()
 	cbs := append([]func(){}, s.onUnlinked...)
 	s.mu.RUnlock()
 
-	s.Close()
-	_ = os.Remove(deviceMarkerPath(dir))
-	_ = ResetIdentity(dir)
-	log.Printf("concord/app: this device was unlinked from its account; local data erased")
+	g := s.erase
+	if !g.enter() {
+		log.Printf("concord/app: %v", errClosedBeforeErase)
+		return errClosedBeforeErase
+	}
+	s.closeSession()
+	err := resetIdentity(dir, true)
+	g.leave()
+	if err != nil {
+		err = fmt.Errorf("%w: %w. %s", ErrDeviceUnlinkedNotErased, err, eraseHeldAdvice)
+		log.Printf("concord/app: %v", err)
+	} else {
+		log.Printf("concord/app: this device was unlinked from its account; local data erased")
+	}
 	for _, cb := range cbs {
 		cb()
+	}
+	return err
+}
+
+// ErrDeviceUnlinkedNotErased: this device was unlinked from its account and
+// erasing it did not finish; the error names what is still here, and the
+// next start tries again before it opens anything.
+var ErrDeviceUnlinkedNotErased = errors.New("app: this device has been unlinked from the account, but erasing it did not finish")
+
+// errClosedBeforeErase: the session was closed before its self-erase began.
+// Nothing was erased now; the revocation is stored, and the next start
+// erases the device before it opens anything.
+var errClosedBeforeErase = fmt.Errorf("%w; the app closed first, and the next start erases it", ErrDeviceUnlinkedNotErased)
+
+// eraseGate ties a session's self-erase to its Close. An erase attempt holds
+// the gate while it removes anything; Close shuts it, so no attempt starts
+// after, and waits (at most closeEraseWait) for an attempt in flight. One
+// still running then is logged and left: its record has the next start
+// finish it. A nil gate (a Service not made by Start) never shuts.
+type eraseGate struct {
+	mu   sync.Mutex
+	shut bool          // under mu
+	done chan struct{} // closed when the gate shuts
+	busy chan struct{} // holds one token while an attempt runs
+}
+
+// closeEraseWait bounds how long Close waits for an erase in flight. A
+// variable for tests.
+var closeEraseWait = 30 * time.Second
+
+func newEraseGate() *eraseGate {
+	return &eraseGate{done: make(chan struct{}), busy: make(chan struct{}, 1)}
+}
+
+func (g *eraseGate) isShut() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.shut
+}
+
+// enter takes the gate for one erase attempt; false once it is shut.
+func (g *eraseGate) enter() bool {
+	if g == nil {
+		return true
+	}
+	if g.isShut() {
+		return false
+	}
+	select {
+	case g.busy <- struct{}{}:
+	case <-g.done:
+		return false
+	}
+	if g.isShut() {
+		<-g.busy
+		return false
+	}
+	return true
+}
+
+func (g *eraseGate) leave() {
+	if g != nil {
+		<-g.busy
+	}
+}
+
+// shutAfterErase shuts the gate, then waits for an attempt in flight, at
+// most closeEraseWait.
+func (g *eraseGate) shutAfterErase() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	if !g.shut {
+		g.shut = true
+		close(g.done)
+	}
+	g.mu.Unlock()
+	t := time.NewTimer(closeEraseWait)
+	defer t.Stop()
+	select {
+	case g.busy <- struct{}{}:
+		<-g.busy
+	case <-t.C:
+		log.Printf("concord/app: closing while this device's erase is still running; the next start finishes it")
 	}
 }
 

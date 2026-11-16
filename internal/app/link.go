@@ -398,6 +398,11 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 	// of it, before the new keystore lands. Keeping the database is what used
 	// to publish the erased account's profile over the real one: its edit
 	// stamp was newer, so the handover lost to it and every device adopted it.
+	// An erase of this device that did not finish is finished first: the
+	// device being linked is the erased one, not what the erase left.
+	if _, err := finishInterruptedErase(dataDir); err != nil {
+		return LinkResult{}, err
+	}
 	keep, err := replaceGate(dataDir, accountSeed, confirm, resp.Profile.Name)
 	if err != nil {
 		return LinkResult{}, err
