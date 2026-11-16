@@ -96,3 +96,48 @@ func TestARestoreDoesNotBringBackARevokedDevicesData(t *testing.T) {
 		cancel()
 	}
 }
+
+// A restore that replaces another account erases that account's data under
+// the same record: stopped part-way, the next start finishes the erase, and
+// nothing of the replaced account opens.
+func TestARestoreStoppedPartWayThroughItsEraseIsFinishedAtTheNextStart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	other, err := Start(ctx, Config{DataDir: t.TempDir(), Passphrase: "b-pass", DisableMDNS: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	phrase, _ := other.Mnemonic()
+	fp := other.Fingerprint()
+	_ = other.Close()
+
+	dir := t.TempDir()
+	s, ch, _ := unlinkedDeviceWithData(t, ctx, dir)
+	s.saveRevocations(nil)
+	_ = s.Close()
+	stopEraseAt(t, 2) // the record, then the database
+	if err := RestoreOverExisting(dir, phrase, "b-pass-2", ConfirmToken(dir, fp)); !errors.Is(err, errStopHere) {
+		t.Fatalf("restore: %v", err)
+	}
+	eraseStep = func(string) error { return nil }
+	if !erasePendingIn(dir) || HasIdentity(dir) {
+		t.Fatal("a stopped restore erase is not recorded, or the old account still shows")
+	}
+	if _, err := Start(ctx, Config{DataDir: dir, Passphrase: "test-pass", DisableMDNS: true}); err == nil {
+		t.Log("a new account was created after the erase finished")
+	}
+	if erasePendingIn(dir) {
+		t.Fatal("the erase was not finished")
+	}
+	if _, err := os.Lstat(deviceMarkerPath(dir)); err == nil {
+		t.Fatal("the replaced account's device marker is still here")
+	}
+	s2, err := Start(ctx, Config{DataDir: dir, Passphrase: "test-pass", DisableMDNS: true})
+	if err == nil {
+		msgs, _ := s2.Messages(ch, 10)
+		_ = s2.Close()
+		if len(msgs) != 0 {
+			t.Fatal("the replaced account's messages are readable")
+		}
+	}
+}

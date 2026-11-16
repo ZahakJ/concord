@@ -319,6 +319,12 @@ func eraseIfUnchanged(dataDir, seen string) func() error {
 		if dataIdentity(dataDir) != seen {
 			return errDataChanged
 		}
+		// Recorded like every other erase: one stopped part-way is finished
+		// by the next start. The restore or link removes the record once its
+		// keystore is in place (endReplaceErase).
+		if err := writeEraseRecord(dataDir, false); err != nil {
+			return err
+		}
 		return resetDataIn(dataDir)
 	}
 }
@@ -449,4 +455,14 @@ func DataWithoutKeystore(dataDir string) (stranded, keepable bool) {
 	}
 	keepable, _ = NoKeystoreKeepable(dataDir)
 	return true, keepable
+}
+
+// endReplaceErase removes the erase record a restore or link wrote
+// (eraseIfUnchanged) once its new keystore is in place. A record left by a
+// write that failed stays: what the erase began is finished at the next
+// start.
+func endReplaceErase(dataDir string, err error) {
+	if err == nil && erasePendingIn(dataDir) {
+		_ = removeEraseRecord(dataDir)
+	}
 }

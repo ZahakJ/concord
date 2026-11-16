@@ -465,7 +465,9 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 
 	// Adopt the account: keystore = received account seed + our device seed;
 	// marker = the issuer-signed cert. Next login runs in linked mode.
-	if err := identity.ReplaceKeystoreWith(ksPath, passphrase, linked, snap, eraseOld); err != nil {
+	err = identity.ReplaceKeystoreWith(ksPath, passphrase, linked, snap, eraseOld)
+	endReplaceErase(dataDir, err)
+	if err != nil {
 		if errors.Is(err, identity.ErrKeystoreChanged) || errors.Is(err, identity.ErrKeystoreExists) {
 			return LinkResult{}, errLinkRaced
 		}

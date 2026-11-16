@@ -352,6 +352,7 @@ func RestoreOverExisting(dataDir, phrase, passphrase, confirm string) error {
 		eraseOld = eraseIfUnchanged(dataDir, seen)
 	}
 	err = identity.RestoreKeystoreWith(ksPath, phrase, passphrase, snap, eraseOld)
+	endReplaceErase(dataDir, err)
 	if errors.Is(err, identity.ErrKeystoreChanged) || errors.Is(err, identity.ErrKeystoreExists) {
 		return errRestoreRaced
 	}
