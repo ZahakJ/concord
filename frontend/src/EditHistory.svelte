@@ -63,7 +63,9 @@
   }
 </script>
 
-<span class="eh" class:block bind:this={root} onkeydown={onKey} role="presentation">
+<!-- edited-tag: the class every reader of a message's text knows to leave out
+     (its own words, without the mark). -->
+<span class="eh edited-tag" class:block bind:this={root} onkeydown={onKey} role="presentation">
   <button
     type="button"
     class="eh-btn"

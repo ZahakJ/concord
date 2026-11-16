@@ -2327,13 +2327,6 @@
   .disappeared :global(svg) {
     opacity: 0.8;
   }
-  /* Standing on its own under a picture rather than trailing a line of text,
-     so it needs to be a block or it sits beside the image's baseline. */
-  .att-edited {
-    display: block;
-    margin-left: 0;
-    margin-top: 2px;
-  }
   .body.folded {
     max-height: calc(var(--fs-body) * 1.5 * 20);
     overflow: hidden;
@@ -2351,14 +2344,6 @@
   }
   .fold-btn:hover {
     text-decoration: underline;
-  }
-  .edited-tag {
-    margin-left: 5px;
-    font-size: var(--fs-tiny);
-    color: var(--text-faint);
-    user-select: none;
-    vertical-align: baseline;
-    animation: tag-in 0.3s ease;
   }
   .eph-hint {
     display: inline-flex;
@@ -2393,11 +2378,6 @@
   }
   .gamenote :global(svg) {
     opacity: 0.8;
-  }
-  @keyframes tag-in {
-    from {
-      opacity: 0;
-    }
   }
   .thread-chips {
     display: flex;
