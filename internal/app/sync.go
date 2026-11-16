@@ -1290,7 +1290,6 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 		}
 		for _, full := range changed {
 			anyNew = true
-			s.dropForTarget(full.ID)
 			// History, not news: a listener that notifies must not treat a
 			// week-old row that arrived on the catch-up like a message somebody
 			// just wrote (domain.Message.Backfill). But see syncedIsNews: the
@@ -1300,6 +1299,8 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 			if !full.Backfill {
 				s.noteDelivered(full)
 			}
+			// After the row is shown, so a held delete it releases is shown last.
+			s.releaseSyncedTarget(full.ID)
 		}
 	}
 	refusedMessages.note(refused, "backfilled messages", srcFpr)

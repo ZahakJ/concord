@@ -389,3 +389,32 @@ func TestAnActionHeldAsItsTargetIsStoredApplies(t *testing.T) {
 		t.Errorf("%d actions still held for a row that is here", n)
 	}
 }
+
+// A delete that arrived before its row is applied when the row then arrives
+// by history sync from a source that holds it undeleted.
+func TestAHeldDeleteAppliesToARowThatArrivesBySync(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newTwoGuilds(t, ctx) // b owns gb, so a is not a trusted source there
+
+	row := w.signedByA(w.chB, "", "", "deleted before it arrived")
+	w.deliver(t, ctx, w.groupB, w.signedByA(w.chB, "delete", row.ID, "deleted"))
+
+	raw, err := json.Marshal(syncPayload{Guild: w.gb.Clone(), Messages: map[string][]domain.Message{w.chB: {row}}})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	ct, err := w.a.mls.Encrypt(ctx, w.groupB, raw)
+	if err != nil {
+		t.Fatalf("a encrypt: %v", err)
+	}
+	if ok, _, _ := w.b.applySyncPayloadFrom(w.gb.ID, w.groupB, ct, w.a.Fingerprint()); !ok {
+		t.Fatal("b could not read a sync payload a encrypted at the shared epoch")
+	}
+	if !w.row(t, row.ID).Deleted {
+		t.Error("a delete that arrived before its row was lost when the row arrived by sync")
+	}
+}

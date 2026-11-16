@@ -17,7 +17,7 @@ import (
 //     that lifts the removal. The two travel on different lanes.
 //
 // Such an action is kept here for a short while and delivered again, through
-// the whole of deliverMessage, when the row arrives live or the readmit is applied.
+// the whole of deliverMessage, when the row arrives or the readmit is applied.
 // Nothing is granted by being held: every check runs again on the second
 // delivery. An action that is still waiting when it expires, or that is pushed
 // out by newer ones from the same sender, is dropped, as it was before.
@@ -26,10 +26,10 @@ import (
 // message body, which has no small bound. An edit that outruns its target is
 // dropped.
 //
-// A target that arrives by history sync releases nothing: the served row
-// carries its reactions, pin and deletion as the source holds them, and
-// replaying a toggle on top of that could undo it. The held actions for that
-// row are dropped instead.
+// A target that arrives by history sync releases its held deletes; a delete
+// is idempotent and its checks run again. Its held reactions and pins are
+// dropped instead: the served row carries them as the source holds them, and
+// replaying a toggle on top of that could undo it.
 const (
 	heldActionTTL = 2 * time.Minute
 	// heldActionCap bounds the whole queue, heldPerSender what one sender may
@@ -214,7 +214,7 @@ func (s *Service) holdForReadmit(carrier, guildID, fpr string, m domain.Message,
 	s.held.add(heldAction{reason: heldForReadmit, carrier: carrier, guild: guildID, fpr: fpr, m: m, senderID: senderID, at: time.Now()})
 }
 
-// releaseForTarget delivers again the actions waiting for a row that arrived live.
+// releaseForTarget delivers again the actions waiting for a row that arrived.
 func (s *Service) releaseForTarget(targetID string) {
 	if targetID == "" {
 		return
@@ -224,12 +224,17 @@ func (s *Service) releaseForTarget(targetID string) {
 	}
 }
 
-// dropForTarget forgets the actions waiting for a row that arrived by sync.
-func (s *Service) dropForTarget(targetID string) {
+// releaseSyncedTarget settles the actions waiting for a row that arrived by
+// history sync: deletes are delivered again, reactions and pins dropped.
+func (s *Service) releaseSyncedTarget(targetID string) {
 	if targetID == "" {
 		return
 	}
-	s.held.take(func(a heldAction) bool { return a.reason == heldForTarget && a.target == targetID })
+	for _, a := range s.held.take(func(a heldAction) bool { return a.reason == heldForTarget && a.target == targetID }) {
+		if a.m.Kind == "delete" {
+			s.deliverMessage(a.carrier, a.m, a.senderID)
+		}
+	}
 }
 
 // releaseForReadmit delivers again the actions waiting for fpr's readmit.
