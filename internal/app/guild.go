@@ -2223,6 +2223,8 @@ func (s *Service) EmptyTrash(guildID string) (int, error) {
 // moderator. It is gated on MANAGE_MESSAGES here, but the real protection is
 // that the content only EXISTS to reveal in guilds — DM deletes erase it (see
 // applyDelete), so there is nothing to return for a DM even to its participant.
+// It answers only for a deleted message held in the channel it names, the
+// channel whose guild the permission was checked in.
 func (s *Service) RevealDeleted(channelID, messageID string) (string, error) {
 	s.mu.RLock()
 	guildID, ok := s.channelToGuild[channelID]
@@ -2239,6 +2241,13 @@ func (s *Service) RevealDeleted(channelID, messageID string) (string, error) {
 	}
 	if !s.hasPerm(guildID, PermManageMessages) {
 		return "", fmt.Errorf("app: only moderators can view deleted messages")
+	}
+	m, held, err := s.store.MessageByID(messageID)
+	if err != nil {
+		return "", err
+	}
+	if !held || m.ChannelID != channelID || !m.Deleted {
+		return "", fmt.Errorf("app: no deleted message %s in this channel", messageID)
 	}
 	return s.store.MessageContent(messageID)
 }
