@@ -538,6 +538,12 @@ func TestLinkCardSiteCannotNameAnotherSite(t *testing.T) {
 		"Rick Astley ｙｏｕｔｕｂｅ．ｃｏｍ":                 "Rick Astley",
 		"Rick Astley you\u00adtube\u3002com":      "Rick Astley",
 		"Rick Astley youtube\u200b.com":           "Rick Astley",
+		"Rick Astley youtube\u00b7com":            "Rick Astley",
+		"Rick Astley youtube\u2027com":            "Rick Astley",
+		"Rick Astley youtube[.]com":               "Rick Astley",
+		"Topic\u00b7youtube\u00b7com\u00b7x":      "Topic · x",
+		"News bbc(.)co(.)uk":                      "News",
+		"Col\u00b7lecci\u00f3 d'art":              "Col\u00b7lecci\u00f3 d'art",
 		"Node.js Foundation":                      "Node.js Foundation",
 		"Example News":                            "Example News",
 	}
@@ -559,6 +565,9 @@ func TestLinkCardSiteCannotNameAnotherSite(t *testing.T) {
 	// The link's own domain may name itself.
 	if got := stripForeignDomains("Example · example.org", "example.org"); got != "Example · example.org" {
 		t.Errorf("own domain removed: %q", got)
+	}
+	if got := stripForeignDomains("Rick Astley youtube·com", "youtube.com"); got != "Rick Astley youtube·com" {
+		t.Errorf("own domain, written with a middle dot, removed: %q", got)
 	}
 }
 

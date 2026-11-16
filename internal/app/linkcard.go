@@ -480,6 +480,66 @@ var (
 	separatorRunRe  = regexp.MustCompile(`\s*[·•|]\s*(?:[·•|]\s*)+`)
 )
 
+// An address can also be written with something that only looks like its dot
+// between the labels: a middle dot or one of its cousins ("youtube·com",
+// "youtube‧com"), or the "[.]" people write to keep a link from being one.
+// These are not dots to a URL parser, and in other text they are ordinary
+// punctuation ("col·lecció"), so foldForCheck leaves them. Instead each run
+// of words joined by them is read label by label: wherever its labels, read
+// as joined by dots, end in a registrable domain that is not the link's,
+// those labels go and the words before them stay ("Topic·youtube·com" keeps
+// "Topic"). The reader does the same (lib/regdomain.js stripLookalikeRun).
+const lookalikeDot = `(?:[\x{00b7}\x{2027}\x{2219}\x{22c5}\x{30fb}\x{ff65}]|\[\.\]|\(\.\)|\{\.\})`
+
+var (
+	lookalikeRunRe = regexp.MustCompile(`[\p{L}\p{N}-]+(?:` + lookalikeDot + `[\p{L}\p{N}-]+)+`)
+	lookalikeDotRe = regexp.MustCompile(lookalikeDot)
+)
+
+func stripLookalikeRun(run, dest string) string {
+	labels := lookalikeDotRe.Split(run, -1)
+	seps := lookalikeDotRe.FindAllString(run, -1)
+	gone := make([]bool, len(labels))
+	stripped := false
+	for j := len(labels) - 1; j >= 1; j-- {
+		d := namedDomain(strings.Join(labels[:j+1], "."))
+		if d == "" {
+			continue
+		}
+		k := min(strings.Count(d, ".")+1, j+1)
+		if d != dest {
+			for i := j - k + 1; i <= j; i++ {
+				gone[i] = true
+			}
+			stripped = true
+		}
+		j -= k - 1
+	}
+	if !stripped {
+		return run
+	}
+	var b strings.Builder
+	if !gone[0] {
+		b.WriteString(labels[0])
+	}
+	for i := 1; i < len(labels); i++ {
+		if gone[i] && gone[i-1] {
+			continue
+		}
+		// A separator next to an address taken out becomes a plain one,
+		// which the tidying after collapses or trims.
+		if gone[i] || gone[i-1] {
+			b.WriteString(" · ")
+		} else {
+			b.WriteString(seps[i-1])
+		}
+		if !gone[i] {
+			b.WriteString(labels[i])
+		}
+	}
+	return b.String()
+}
+
 // stripForeignDomains removes from text every address that names a site other
 // than dest, the link's own registrable domain. A channel or site name is the
 // page's claim about itself; the only address a card may print is the one
@@ -495,6 +555,11 @@ func stripForeignDomains(text, dest string) string {
 		}
 		hit = true
 		return ""
+	})
+	out = lookalikeRunRe.ReplaceAllStringFunc(out, func(run string) string {
+		r := stripLookalikeRun(run, dest)
+		hit = hit || r != run
+		return r
 	})
 	if !hit {
 		return text

@@ -175,6 +175,43 @@ const DOMAINISH_RE = /(?:[a-z][a-z0-9+.-]*:\/\/)?(?:[\p{L}\p{N}-]+\.)+[\p{L}\p{N
 const SEP = "[\\s·•|:,;/\\-–—]";
 const SEP_EDGES_RE = new RegExp(`^${SEP}+|${SEP}+$`, "gu");
 
+// An address can also be written with something that only looks like its dot
+// between the labels: a middle dot or one of its cousins ("youtube·com",
+// "youtube‧com"), or the "[.]" people write to keep a link from being one.
+// These are not dots to a URL parser, and in other text they are ordinary
+// punctuation ("col·lecció"), so they are not folded into dots. Instead each
+// run of words joined by them is read label by label: wherever its labels,
+// read as joined by dots, end in a registrable domain that is not the link's,
+// those labels go, and the words before them stay ("Topic·youtube·com" keeps
+// "Topic"). The sender's core does the same (internal/app/linkcard.go).
+const LOOKALIKE_DOT = "(?:[\\u00b7\\u2027\\u2219\\u22c5\\u30fb\\uff65]|\\[\\.\\]|\\(\\.\\)|\\{\\.\\})";
+const LOOKALIKE_RUN_RE = new RegExp(`[\\p{L}\\p{N}-]+(?:${LOOKALIKE_DOT}[\\p{L}\\p{N}-]+)+`, "gu");
+const LOOKALIKE_SPLIT_RE = new RegExp(`(${LOOKALIKE_DOT})`, "u");
+
+function stripLookalikeRun(run, domain) {
+  // parts: label, separator, label, separator, ..., label
+  const parts = run.split(LOOKALIKE_SPLIT_RE);
+  const labels = parts.filter((_, i) => i % 2 === 0);
+  const gone = new Array(labels.length).fill(false);
+  for (let j = labels.length - 1; j >= 1; j--) {
+    const named = textDomain(labels.slice(0, j + 1).join("."));
+    if (!named) continue;
+    const k = Math.min(named.split(".").length, j + 1);
+    if (named !== domain) for (let i = j - k + 1; i <= j; i++) gone[i] = true;
+    j -= k - 1;
+  }
+  if (!gone.some(Boolean)) return run;
+  let out = gone[0] ? "" : labels[0];
+  for (let i = 1; i < labels.length; i++) {
+    if (gone[i] && gone[i - 1]) continue;
+    // A separator next to an address taken out becomes a plain one, which the
+    // tidying below collapses or trims.
+    out += gone[i] || gone[i - 1] ? " · " : parts[2 * i - 1];
+    if (!gone[i]) out += labels[i];
+  }
+  return out;
+}
+
 // stripForeignDomains(text, domain): `text` without any address that names a
 // site other than `domain`, the link's own registrable domain. A card's site
 // or channel name is the page's claim about itself, printed right above the
@@ -185,11 +222,16 @@ const SEP_EDGES_RE = new RegExp(`^${SEP}+|${SEP}+$`, "gu");
 export function stripForeignDomains(text, domain) {
   const folded = foldForCheck(text);
   let hit = false;
-  const out = folded.replace(DOMAINISH_RE, (tok) => {
+  let out = folded.replace(DOMAINISH_RE, (tok) => {
     const named = textDomain(tok);
     if (!named || named === domain) return tok;
     hit = true;
     return "";
+  });
+  out = out.replace(LOOKALIKE_RUN_RE, (run) => {
+    const r = stripLookalikeRun(run, domain);
+    hit = hit || r !== run;
+    return r;
   });
   if (!hit) return String(text || "");
   return out

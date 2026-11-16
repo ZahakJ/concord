@@ -68,6 +68,21 @@ eq(stripForeignDomains("Topic·youtube.com·x", "evil.example"), "Topic · x", "
 eq(stripForeignDomains("Example · example.org", "example.org"), "Example · example.org", "own domain stays");
 eq(stripForeignDomains("Node.js Foundation", "evil.example"), "Node.js Foundation", "a name with a dot stays");
 eq(stripForeignDomains("www.paypal.com", "evil.example"), "", "nothing but an address");
+// LC2-04: separators that only look like dots.
+eq(stripForeignDomains("Rick Astley youtube\u00b7com", "evil.example"), "Rick Astley", "middle dot");
+eq(stripForeignDomains("Rick Astley youtube\u2027com", "evil.example"), "Rick Astley", "hyphenation point");
+eq(stripForeignDomains("Rick Astley youtube[.]com", "evil.example"), "Rick Astley", "[.]");
+eq(stripForeignDomains("Rick Astley youtube(.)com", "evil.example"), "Rick Astley", "(.)");
+eq(stripForeignDomains("Rick Astley youtube\u2219com", "evil.example"), "Rick Astley", "bullet operator");
+eq(stripForeignDomains("Rick Astley youtube\u22c5com", "evil.example"), "Rick Astley", "dot operator");
+eq(stripForeignDomains("Rick Astley youtube\u30fbcom", "evil.example"), "Rick Astley", "katakana middle dot");
+eq(stripForeignDomains("Rick Astley youtube\uff65com", "evil.example"), "Rick Astley", "halfwidth katakana middle dot");
+eq(stripForeignDomains("Topic\u00b7youtube\u00b7com", "evil.example"), "Topic", "glued, the words before stay");
+eq(stripForeignDomains("Topic\u00b7youtube\u00b7com\u00b7x", "evil.example"), "Topic \u00b7 x", "glued on both sides");
+eq(stripForeignDomains("News bbc[.]co[.]uk", "evil.example"), "News", "a two-label suffix goes whole");
+eq(stripForeignDomains("Rick Astley \u00b7 3:33", "evil.example"), "Rick Astley \u00b7 3:33", "the spaced separator is not an address");
+eq(stripForeignDomains("Col\u00b7lecci\u00f3 d'art", "evil.example"), "Col\u00b7lecci\u00f3 d'art", "a Catalan middle dot is a letter's");
+eq(stripForeignDomains("Rick Astley youtube\u00b7com", "youtube.com"), "Rick Astley youtube\u00b7com", "its own domain stays");
 
 if (failures) {
   console.error(`${failures} regdomain test(s) failed`);
