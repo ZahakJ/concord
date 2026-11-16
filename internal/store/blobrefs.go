@@ -31,6 +31,19 @@ const (
 	// blobRefsBatch bounds one backfill transaction, as pruneBatch does a
 	// prune: the store runs on one connection.
 	blobRefsBatch = 2000
+	// blobRefsBatchRefs ends a backfill transaction early once it has written
+	// about this many references, so a batch of long bodies holds the
+	// connection no longer than one of ordinary ones.
+	blobRefsBatchRefs = 20000
+	// blobRefsBatchBytes ends a backfill batch early once it has read this
+	// many bytes of sealed bodies, which bounds the batch's memory and the
+	// time spent opening bodies.
+	blobRefsBatchBytes = 4 << 20
+	// blobRefsPerBody is the most blob ids one body is indexed under: far
+	// above the pictures, files and link previews of any message a person
+	// writes. Reading stops there, so a body's cost to store and to release
+	// is bounded by this, not by its length.
+	blobRefsPerBody = 64
 	// lpTokenMax bounds the link-preview payload read for picture ids, as
 	// the app does on receipt (linkEmbedTokenMax).
 	lpTokenMax = 8192
@@ -63,24 +76,41 @@ CREATE TABLE IF NOT EXISTS banned_blobs (
 }
 
 // BlobIDsIn returns the attachment blob ids a message body names: those of
-// its image and file tokens and of its link previews' pictures, each once.
+// its image and file tokens and of its link previews' pictures, each once, at
+// most blobRefsPerBody of them. Reading stops at the cap, and at most
+// blobRefsPerBody link-preview tokens are decoded.
 func BlobIDsIn(body string) []string {
 	var out []string
 	seen := map[string]bool{}
-	add := func(id string) {
+	add := func(id string) bool {
 		if hexBlobIDRe.MatchString(id) && !seen[id] {
 			seen[id] = true
 			out = append(out, id)
 		}
+		return len(out) < blobRefsPerBody
 	}
-	for _, m := range blobTokenIDRe.FindAllStringSubmatch(body, -1) {
-		add(m[1])
+	for rest := body; ; {
+		loc := blobTokenIDRe.FindStringSubmatchIndex(rest)
+		if loc == nil {
+			break
+		}
+		if !add(rest[loc[2]:loc[3]]) {
+			return out
+		}
+		rest = rest[loc[1]:]
 	}
-	for _, m := range lpTokenRe.FindAllStringSubmatch(body, -1) {
-		if len(m[1]) > lpTokenMax {
+	decoded := 0
+	for rest := body; decoded < blobRefsPerBody; decoded++ {
+		loc := lpTokenRe.FindStringSubmatchIndex(rest)
+		if loc == nil {
+			break
+		}
+		payload := rest[loc[2]:loc[3]]
+		rest = rest[loc[1]:]
+		if len(payload) > lpTokenMax {
 			continue
 		}
-		raw, err := base64.RawURLEncoding.DecodeString(m[1])
+		raw, err := base64.RawURLEncoding.DecodeString(payload)
 		if err != nil {
 			continue
 		}
@@ -93,8 +123,8 @@ func BlobIDsIn(body string) []string {
 			continue
 		}
 		for _, e := range embeds {
-			if e.Image != nil {
-				add(e.Image.Blob)
+			if e.Image != nil && !add(e.Image.Blob) {
+				return out
 			}
 		}
 	}
@@ -144,33 +174,45 @@ func (s *Store) BackfillBlobRefs() (bool, error) {
 		return false, err
 	}
 	type row struct {
+		rowid      int64
 		id         string
 		enc, nonce []byte
 	}
 	var batch []row
-	last := after
+	size, cut := 0, false
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&last, &r.id, &r.enc, &r.nonce); err != nil {
+		if err := rows.Scan(&r.rowid, &r.id, &r.enc, &r.nonce); err != nil {
 			rows.Close()
 			return false, err
 		}
 		batch = append(batch, r)
+		if size += len(r.enc); size >= blobRefsBatchBytes {
+			cut = true
+			break
+		}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return false, err
 	}
+	done := !cut && len(batch) < blobRefsBatch
+	last, refs := after, 0
 	for _, r := range batch {
-		body, err := s.open(r.enc, r.nonce)
-		if err != nil {
-			continue
+		last = r.rowid
+		if body, err := s.open(r.enc, r.nonce); err == nil {
+			ids := BlobIDsIn(body)
+			if err := insertBlobRefs(tx, r.id, ids); err != nil {
+				return false, err
+			}
+			refs += len(ids)
 		}
-		if err := noteBlobRefs(tx, r.id, body); err != nil {
-			return false, err
+		if refs >= blobRefsBatchRefs {
+			// The rest of the rows are read again by the next batch.
+			done = false
+			break
 		}
 	}
-	done := len(batch) < blobRefsBatch
 	key, val := settingBlobRefsCursor, strconv.FormatInt(last, 10)
 	if done {
 		key, val = settingBlobRefsComplete, "1"

@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -222,5 +223,88 @@ func TestBlobBackfillCrossesBatches(t *testing.T) {
 	_ = s.db.QueryRow(`SELECT COUNT(1) FROM blob_refs`).Scan(&n)
 	if batches != 2 || n != blobRefsBatch+5 {
 		t.Errorf("%d batches indexed %d refs, want 2 and %d", batches, n, blobRefsBatch+5)
+	}
+}
+
+// manyTokens is a body naming n distinct blobs, each in an image token.
+func manyTokens(n int) string {
+	var sb strings.Builder
+	for i := 0; i < n; i++ {
+		sb.WriteString(imageToken(fmt.Sprintf("%064x", i+1)) + " ")
+	}
+	return sb.String()
+}
+
+// A body is indexed under at most blobRefsPerBody blobs, however many it names.
+func TestABodyIsIndexedUnderAtMostTheCap(t *testing.T) {
+	body := manyTokens(12000)
+	if ids := BlobIDsIn(body); len(ids) != blobRefsPerBody {
+		t.Errorf("BlobIDsIn read %d ids, want %d", len(ids), blobRefsPerBody)
+	}
+	s := completeStore(t)
+	m := saveBody(t, s, body)
+	var n int
+	_ = s.db.QueryRow(`SELECT COUNT(1) FROM blob_refs WHERE message_id = ?`, m.ID).Scan(&n)
+	if n != blobRefsPerBody {
+		t.Errorf("a body naming 12000 blobs wrote %d references, want %d", n, blobRefsPerBody)
+	}
+}
+
+// A backfill batch ends once it has written about blobRefsBatchRefs
+// references, and the next batch goes on from where it stopped.
+func TestABackfillBatchEndsAtTheReferenceBound(t *testing.T) {
+	s, _ := openTestStore(t)
+	const rows = 400
+	body := manyTokens(blobRefsPerBody)
+	for i := 0; i < rows; i++ {
+		saveBody(t, s, body)
+	}
+	if _, err := s.db.Exec(`DELETE FROM blob_refs`); err != nil {
+		t.Fatal(err)
+	}
+	count := func() (n int) {
+		_ = s.db.QueryRow(`SELECT COUNT(1) FROM blob_refs`).Scan(&n)
+		return n
+	}
+	done, err := s.BackfillBlobRefs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := count()
+	if done || first < blobRefsBatchRefs || first >= blobRefsBatchRefs+blobRefsPerBody {
+		t.Errorf("the first batch wrote %d references (done=%v), want it to stop just past %d", first, done, blobRefsBatchRefs)
+	}
+	for calls := 0; !done && calls < 10; calls++ {
+		if done, err = s.BackfillBlobRefs(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !done || count() != rows*blobRefsPerBody {
+		t.Errorf("after the backfill: done=%v, %d references, want %d", done, count(), rows*blobRefsPerBody)
+	}
+}
+
+// A backfill batch also ends once it has read blobRefsBatchBytes of bodies.
+func TestABackfillBatchEndsAtTheByteBound(t *testing.T) {
+	s, _ := openTestStore(t)
+	const rows = 6
+	long := strings.Repeat("x", 1<<20)
+	for i := 0; i < rows; i++ {
+		saveBody(t, s, long+imageToken(fmt.Sprintf("%064x", i+1)))
+	}
+	if _, err := s.db.Exec(`DELETE FROM blob_refs`); err != nil {
+		t.Fatal(err)
+	}
+	calls, done := 0, false
+	for ; !done && calls < 20; calls++ {
+		var err error
+		if done, err = s.BackfillBlobRefs(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var n int
+	_ = s.db.QueryRow(`SELECT COUNT(1) FROM blob_refs`).Scan(&n)
+	if !done || calls < 2 || n != rows {
+		t.Errorf("%d calls (done=%v) indexed %d references, want at least 2 calls and %d", calls, done, n, rows)
 	}
 }
