@@ -1638,6 +1638,9 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	go s.runStoryGCLoop()
 	go s.runRetentionLoop()
 	go s.runEphemeralLoop()
+	// Once per device: deleted bodies at rest that this device cannot reveal
+	// (deletedbodies.go).
+	go s.clearDeletedBodiesOnce()
 
 	// Resume rich presence if the user had it on.
 	if s.RichPresenceEnabled() {
