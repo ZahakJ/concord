@@ -18,14 +18,21 @@ test("edit and delete are seen by the other member", async ({ world, assert, ste
   await b.waitForMessage("second draft, much better");
   // The new text and nothing else. An edit box that mounted empty and was
   // filled a moment later joined a quick correction onto the old text and
-  // saved "first draft of a thoughtsecond draft, much better".
+  // saved "first draft of a thoughtsecond draft, much better". The "(edited)"
+  // mark sits in the body too, as the edit-history component (.eh): it is
+  // taken out of the text by that element and checked on its own.
   for (const app of [a, b]) {
-    const [body, html] = await app.message("second draft, much better").evaluate((el) => {
+    const [body, marks, html] = await app.message("second draft, much better").evaluate((el) => {
       const c = el.cloneNode(true);
-      c.querySelectorAll(".edited-tag").forEach((t) => t.remove());
-      return [c.textContent.trim(), el.innerHTML.slice(0, 500)];
+      c.querySelectorAll(".eh").forEach((t) => t.remove());
+      return [
+        c.textContent.trim(),
+        [...el.querySelectorAll(".eh .eh-btn")].map((t) => t.textContent.trim()),
+        el.innerHTML.slice(0, 500),
+      ];
     });
     assert.equal(body, "second draft, much better", html);
+    assert.deepEqual(marks, ["(edited)"], html);
   }
   await b.waitForNoMessage("first draft of a thought");
   const edited = await bashir.waitForMessage(ch.id, "second draft, much better");
