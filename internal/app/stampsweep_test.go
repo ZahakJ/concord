@@ -247,3 +247,36 @@ func TestSweepIgnoresUnprovenRowsAfterTheyExpire(t *testing.T) {
 		t.Fatal("the picture was given a deadline from an unproven row")
 	}
 }
+
+// Expiring a row a second time (the core's sweeper and the view can both
+// reach it) leaves it the timer evidence the first expiry kept.
+func TestADisappearedTextStaysTimerEvidenceWhenExpiredAgain(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc := startServiceInDir(t, ctx, t.TempDir())
+	me := svc.PublicKey()
+	const pic = "![image](concord://attach/v1/" + "0000000000000000000000000000000000000000000000000000000000000000/k/png/1x1)"
+	base := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+	if _, err := svc.store.SaveMessage(domain.Message{ID: "pic", ChannelID: "cx", Sender: me, Sent: base, Content: pic}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.store.SaveMessage(domain.Message{ID: "caption", ChannelID: "cx", Sender: me, Sent: base.Add(time.Second),
+		Content: ephStamp(base.Add(time.Second+time.Hour)) + "caption"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := svc.ExpireMessage("cx", "caption"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dry, err := svc.SweepUnstampedAttachments(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dry.Paired != 1 {
+		t.Fatalf("a caption expired twice no longer gives its picture a timer: %+v", dry)
+	}
+}

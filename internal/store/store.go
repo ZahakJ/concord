@@ -2502,9 +2502,11 @@ func (s *Store) markDeleted(id string, bySender []byte, force, expire bool) (dom
 	// which is how deletes would stop propagating.
 	q := `UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0 WHERE id = ?`
 	if expire {
-		// The CASE reads the row as it was before this write.
+		// The CASE reads the row as it was before this write. A row expired a
+		// second time (the core's sweeper and the view can both reach it)
+		// keeps what the first expiry decided.
 		q = `UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0, expired = 1, pinned = 0,
-		 expires = CASE WHEN deleted = 0 AND unverified = 0 THEN expires ELSE 0 END WHERE id = ?`
+		 expires = CASE WHEN expired = 1 OR (deleted = 0 AND unverified = 0) THEN expires ELSE 0 END WHERE id = ?`
 	}
 	if _, err := s.db.Exec(q, time.Now().UnixNano(), id); err != nil {
 		return domain.Message{}, false, err
