@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sharing files and media · Concord manual</title>
-<meta name="description" content="How images, videos, voice messages and other files are sent, encrypted and fetched, along with custom emoji, the guild GIF pack, doodles, memes, sounds, and what link previews reach out to.">
+<meta name="description" content="How images, videos, voice messages and other files are sent, encrypted and fetched, along with custom emoji, the guild GIF pack, doodles, memes, sounds, and the preview cards on links.">
 <meta name="color-scheme" content="dark light">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2316181c'/%3E%3Cpath fill='%23fff' d='M32 12l2 14 12 9-12-3-2 18-2-18-12 3 12-9z'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../docs.css">
@@ -33,10 +33,10 @@
   <div class="scrim" data-scrim hidden></div>
   <main class="main" id="content">
     <div class="crumb">Talking</div>
-    <details class="toc-inline"><summary>On this page</summary><a class="toc__link toc__link--2" href="#attaching-files">Attaching files</a><a class="toc__link toc__link--3" href="#voice-messages">Voice messages</a><a class="toc__link toc__link--2" href="#how-attachments-travel">How attachments travel</a><a class="toc__link toc__link--2" href="#custom-emoji">Custom emoji</a><a class="toc__link toc__link--2" href="#gifs">GIFs</a><a class="toc__link toc__link--2" href="#doodles-memes-and-sounds">Doodles, memes and sounds</a><a class="toc__link toc__link--2" href="#link-previews">Link previews</a></details>
+    <details class="toc-inline"><summary>On this page</summary><a class="toc__link toc__link--2" href="#attaching-files">Attaching files</a><a class="toc__link toc__link--3" href="#voice-messages">Voice messages</a><a class="toc__link toc__link--2" href="#how-attachments-travel">How attachments travel</a><a class="toc__link toc__link--2" href="#custom-emoji">Custom emoji</a><a class="toc__link toc__link--2" href="#gifs">GIFs</a><a class="toc__link toc__link--2" href="#doodles-memes-and-sounds">Doodles, memes and sounds</a><a class="toc__link toc__link--2" href="#link-cards">Link cards</a></details>
     <article class="doc">
 <h1 id="sharing-files-and-media">Sharing files and media</h1>
-<p>How images, videos, voice messages and other files are sent, encrypted and fetched, along with custom emoji, the guild GIF pack, doodles, memes, sounds, and what link previews reach out to.</p>
+<p>How images, videos, voice messages and other files are sent, encrypted and fetched, along with custom emoji, the guild GIF pack, doodles, memes, sounds, and the preview cards on links.</p>
 <h2 id="attaching-files"><a class="anchor" href="#attaching-files" aria-hidden="true">#</a>Attaching files</h2>
 <p>Click <strong>Attach a file</strong> beside the composer, paste a file, or drop it onto the conversation. On a phone, use <strong>+</strong> → <strong>Photo or file</strong> or <strong>Camera</strong>. Attachments are staged above the text box and nothing is sent until you send the message.</p>
 <p>An edit changes only a message's text, so pasting an image while you edit a message does nothing. Send the image as a new message.</p>
@@ -82,22 +82,23 @@
 <li><strong>Meme</strong> (<code>/meme</code>, or <strong>Make a meme</strong> on any image's right-click menu): add captions to a bundled template or to an image from the conversation. It is rendered on your device and sent as a normal image. On the device that made it, your own meme has <strong>Edit meme</strong>, which reopens it in the editor and saves back over the message.</li>
 <li><strong>Sound</strong> (<code>/sound</code>): play a sound effect into the channel, or build your own. A sound is a short recipe of a few dozen bytes that each device turns into audio, not an audio file.</li>
 </ul>
-<h2 id="link-previews"><a class="anchor" href="#link-previews" aria-hidden="true">#</a>Link previews</h2>
-<p>Link previews are <strong>off by default</strong>. Turn them on with <strong>Settings → Privacy &amp; safety → Link previews</strong>.</p>
-<p>Fetching a preview means your device contacts the linked site, which learns your IP address and when you were online, without you clicking anything. That is why the setting starts off. With it on:</p>
+<h2 id="link-cards"><a class="anchor" href="#link-cards" aria-hidden="true">#</a>Link cards</h2>
+<p>A link card shows a link's title, the site or channel name and a small picture, with the link's real domain printed under them. The card is made by the <strong>sender's</strong> device, once, when the message is sent, and travels inside the encrypted, signed message. Reading a card contacts nobody: the picture comes from other members like any attachment.</p>
+<p>Sending cards is <strong>off by default</strong>. Turn it on with <strong>Settings → Privacy &amp; safety → Preview cards for links you send</strong>. With it on, when you send a message with a link:</p>
 <ul>
-<li>your device fetches the page's title, description and image when the message scrolls into view;</li>
-<li>it reads at most 512 KiB of the page and gives up after 5 seconds;</li>
-<li>it sends no cookies or login details and refuses to contact addresses on your own machine or local network.</li>
+<li>your device loads the page once: for YouTube and Vimeo, their oEmbed service; for other sites, the page and the host of its picture. They see your IP address, as if you had opened the link;</li>
+<li>it reads at most 512 KiB of a page, gives up on the whole card after 6 seconds, sends no cookies or login details, and refuses addresses on your own machine or local network;</li>
+<li>the message waits at most 2 seconds for its card, and goes out without one if the card is slower, if you send anything else into the conversation first, or if you leave the app;</li>
+<li>nothing is fetched while you type, and a link sent again within 10 minutes reuses the card already made.</li>
 </ul>
-<p>Links to a supported video host get a click-to-play player. With link previews off it shows a plain placeholder instead of the video's thumbnail, and contacts the site only when you click play.</p>
-<p>Nothing is fetched for messages in an imported archive. See <a href="../privacy/">Privacy and encryption</a> for everything that leaves your device.</p>
+<p>A link sent without a card is shown as it was typed. A YouTube link with no card shows a placeholder, and YouTube is contacted only when you tap it. Tapping a card's play button loads the video from <code>youtube-nocookie.com</code>; tapping anything else on a card opens the link in your browser.</p>
+<p>Older versions show a card as its title as a link, the domain, and the picture with the site's name under it.</p>
     </article>
     <p class="edit"><a href="https://github.com/ZahakJ/concord/edit/main/docs/manual/files-and-media.md" rel="noreferrer">Edit this page on GitHub</a></p>
     <nav class="pager" aria-label="Previous and next"><a class="pager__link pager__link--prev" href="../direct-messages/"><span class="pager__kicker">Previous</span><span class="pager__title">Direct messages</span></a><a class="pager__link pager__link--next" href="../search/"><span class="pager__kicker">Next</span><span class="pager__title">Search</span></a></nav>
     <footer class="foot">Concord is free software under the GNU Affero General Public License, version 3 or later. These pages are built from the Markdown in the repository.</footer>
   </main>
-  <aside class="toc" aria-label="On this page"><div class="toc__title">On this page</div><a class="toc__link toc__link--2" href="#attaching-files">Attaching files</a><a class="toc__link toc__link--3" href="#voice-messages">Voice messages</a><a class="toc__link toc__link--2" href="#how-attachments-travel">How attachments travel</a><a class="toc__link toc__link--2" href="#custom-emoji">Custom emoji</a><a class="toc__link toc__link--2" href="#gifs">GIFs</a><a class="toc__link toc__link--2" href="#doodles-memes-and-sounds">Doodles, memes and sounds</a><a class="toc__link toc__link--2" href="#link-previews">Link previews</a></aside>
+  <aside class="toc" aria-label="On this page"><div class="toc__title">On this page</div><a class="toc__link toc__link--2" href="#attaching-files">Attaching files</a><a class="toc__link toc__link--3" href="#voice-messages">Voice messages</a><a class="toc__link toc__link--2" href="#how-attachments-travel">How attachments travel</a><a class="toc__link toc__link--2" href="#custom-emoji">Custom emoji</a><a class="toc__link toc__link--2" href="#gifs">GIFs</a><a class="toc__link toc__link--2" href="#doodles-memes-and-sounds">Doodles, memes and sounds</a><a class="toc__link toc__link--2" href="#link-cards">Link cards</a></aside>
 </div>
 <script>window.__docs={base:"../"}</script>
 <script src="../docs.js" defer></script>

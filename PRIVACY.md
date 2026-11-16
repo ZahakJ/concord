@@ -189,15 +189,28 @@ is not made, not merely not displayed.
   [`internal/app/gifsearch.go`](internal/app/gifsearch.go) and
   [`cmd/rendezvous/gifsearch.go`](cmd/rendezvous/gifsearch.go).
 
-### Three more that load a picture, all off by default
+### Pictures from other sites, and link cards
 
-Game box art (`cdn.*.steamstatic.com`), link previews, and YouTube embeds all
-have the same shape: rendering someone else's message would otherwise make your
-browser fetch something from a third party, telling them your IP and the moment
-you were online with no click at all. So all three are **off by default**, with
-a switch each — *Privacy & safety → Game box art*, *→ Link previews*, and the
-per-embed click-to-load. See
+Game box art (`cdn.*.steamstatic.com`) and YouTube videos have the same shape:
+rendering someone else's message would otherwise make your device fetch
+something from a third party, telling them your IP and the moment you were
+online with no click at all. Box art is **off by default** (*Privacy & safety →
+Game box art*). A YouTube video loads, from `youtube-nocookie.com`, only when
+you tap play. See
 [§12 of DESIGN.md](docs/DESIGN.md#12-assets-why-nothing-is-fetched-at-runtime).
+
+Link cards are made by the **sender**, never by the people who read them.
+With *Privacy & safety → Preview cards for links you send* switched on, which is
+**off by default**, your device loads a link's page once, when you send the
+message: YouTube's or Vimeo's oEmbed service for their videos, otherwise the
+page and the host of its picture. That site learns your IP address and the
+moment you sent the link, as if you had opened it. The title, the site's name
+and a small cleaned copy of the picture go inside your encrypted, signed
+message. Readers contact nobody: the picture reaches them from other members
+like any attachment. Nothing is fetched while you type. The old
+receive-side *Link previews* setting, which fetched every link that scrolled
+into view, is gone. See
+[`internal/app/linkcard.go`](internal/app/linkcard.go).
 
 ## How long anything is kept
 

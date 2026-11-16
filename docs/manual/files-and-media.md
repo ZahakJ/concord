@@ -1,6 +1,6 @@
 # Sharing files and media
 
-How images, videos, voice messages and other files are sent, encrypted and fetched, along with custom emoji, the guild GIF pack, doodles, memes, sounds, and what link previews reach out to.
+How images, videos, voice messages and other files are sent, encrypted and fetched, along with custom emoji, the guild GIF pack, doodles, memes, sounds, and the preview cards on links.
 
 ## Attaching files
 
@@ -67,16 +67,18 @@ All three are in the composer's **+** menu or have a slash command.
 - **Meme** (`/meme`, or **Make a meme** on any image's right-click menu): add captions to a bundled template or to an image from the conversation. It is rendered on your device and sent as a normal image. On the device that made it, your own meme has **Edit meme**, which reopens it in the editor and saves back over the message.
 - **Sound** (`/sound`): play a sound effect into the channel, or build your own. A sound is a short recipe of a few dozen bytes that each device turns into audio, not an audio file.
 
-## Link previews
+## Link cards
 
-Link previews are **off by default**. Turn them on with **Settings → Privacy & safety → Link previews**.
+A link card shows a link's title, the site or channel name and a small picture, with the link's real domain printed under them. The card is made by the **sender's** device, once, when the message is sent, and travels inside the encrypted, signed message. Reading a card contacts nobody: the picture comes from other members like any attachment.
 
-Fetching a preview means your device contacts the linked site, which learns your IP address and when you were online, without you clicking anything. That is why the setting starts off. With it on:
+Sending cards is **off by default**. Turn it on with **Settings → Privacy & safety → Preview cards for links you send**. With it on, when you send a message with a link:
 
-- your device fetches the page's title, description and image when the message scrolls into view;
-- it reads at most 512 KiB of the page and gives up after 5 seconds;
-- it sends no cookies or login details and refuses to contact addresses on your own machine or local network.
+- your device loads the page once: for YouTube and Vimeo, their oEmbed service; for other sites, the page and the host of its picture. They see your IP address, as if you had opened the link;
+- it reads at most 512 KiB of a page, gives up on the whole card after 6 seconds, sends no cookies or login details, and refuses addresses on your own machine or local network;
+- the message waits at most 2 seconds for its card, and goes out without one if the card is slower, if you send anything else into the conversation first, or if you leave the app;
+- nothing is fetched while you type, and a link sent again within 10 minutes reuses the card already made.
 
-Links to a supported video host get a click-to-play player. With link previews off it shows a plain placeholder instead of the video's thumbnail, and contacts the site only when you click play.
+A link sent without a card is shown as it was typed. A YouTube link with no card shows a placeholder, and YouTube is contacted only when you tap it. Tapping a card's play button loads the video from `youtube-nocookie.com`; tapping anything else on a card opens the link in your browser.
 
-Nothing is fetched for messages in an imported archive. See [Privacy and encryption](privacy.md) for everything that leaves your device.
+Older versions show a card as its title as a link, the domain, and the picture with the site's name under it.
+
