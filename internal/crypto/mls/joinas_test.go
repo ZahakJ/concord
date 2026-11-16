@@ -108,3 +108,34 @@ func sameMembers(a, b [][]byte) bool {
 	slices.SortFunc(b, bytes.Compare)
 	return slices.EqualFunc(a, b, bytes.Equal)
 }
+
+// CreateGroupWithID makes a group under the id given, and refuses an id the
+// device already holds instead of replacing that group.
+func TestCreateGroupWithIDRefusesAHeldID(t *testing.T) {
+	ctx := context.Background()
+	alice, _ := engineForNewMember(t)
+	bob, _ := engineForNewMember(t)
+	want := bytes.Repeat([]byte{0x01}, 33)
+	gid, err := alice.CreateGroupWithID(ctx, want)
+	if err != nil || !bytes.Equal(gid, want) {
+		t.Fatalf("CreateGroupWithID: %x, %v", gid, err)
+	}
+	kp, _ := bob.KeyPackage(ctx)
+	if _, _, err := alice.Invite(ctx, gid, kp); err != nil {
+		t.Fatal(err)
+	}
+	epoch, _ := alice.Epoch(ctx, gid)
+	members, _ := alice.Members(ctx, gid)
+	if _, err := alice.CreateGroupWithID(ctx, want); !errors.Is(err, upstream.ErrGroupExists) {
+		t.Fatalf("a second group under a held id: %v, want ErrGroupExists", err)
+	}
+	if e, _ := alice.Epoch(ctx, gid); e != epoch {
+		t.Fatalf("the held group's epoch moved %d -> %d", epoch, e)
+	}
+	if m, _ := alice.Members(ctx, gid); !sameMembers(m, members) {
+		t.Fatal("the held group's roster changed")
+	}
+	if _, err := alice.CreateGroupWithID(ctx, nil); err == nil {
+		t.Fatal("an empty id was accepted")
+	}
+}

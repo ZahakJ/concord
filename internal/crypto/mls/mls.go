@@ -50,6 +50,10 @@ var quietLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 // like this — see rosterUnavailable in internal/app.
 var ErrGroupNotFound = upstream.ErrGroupNotFound
 
+// ErrWrongGroup is JoinAs's refusal of a welcome for a group other than the
+// one named. Nothing was stored.
+var ErrWrongGroup = upstream.ErrWrongGroup
+
 // GroupID identifies an MLS group (a Concord guild).
 type GroupID []byte
 
@@ -82,6 +86,11 @@ type Engine interface {
 
 	// CreateGroup starts a new group owned by this member and returns its ID.
 	CreateGroup(ctx context.Context) (GroupID, error)
+
+	// CreateGroupWithID is CreateGroup under an id the caller chooses. It
+	// fails, and changes nothing, if the device already holds a group under
+	// that id.
+	CreateGroupWithID(ctx context.Context, gid GroupID) (GroupID, error)
 
 	// Invite adds the member identified by memberKeyPackage. It returns a
 	// commit (which every *existing* member other than the inviter must apply
@@ -240,6 +249,14 @@ func (e *mlsEngine) CreateGroup(ctx context.Context) (GroupID, error) {
 		return nil, fmt.Errorf("mls: create group: %w", err)
 	}
 	return GroupID(gid), nil
+}
+
+func (e *mlsEngine) CreateGroupWithID(ctx context.Context, gid GroupID) (GroupID, error) {
+	out, err := e.c.CreateGroupWithID(ctx, gid)
+	if err != nil {
+		return nil, fmt.Errorf("mls: create group: %w", err)
+	}
+	return GroupID(out), nil
 }
 
 func (e *mlsEngine) Invite(ctx context.Context, gid GroupID, kp []byte) (commit, welcome []byte, err error) {

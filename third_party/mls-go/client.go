@@ -620,6 +620,48 @@ func (c *Client) CreateGroup(ctx context.Context) ([]byte, error) {
 	return cloneBytes(groupID.AsSlice()), nil
 }
 
+// ErrGroupExists is returned by CreateGroupWithID when the client already
+// holds a group under the requested id.
+var ErrGroupExists = errors.New("mls: a group with this id already exists")
+
+// CreateGroupWithID is CreateGroup with a group id the caller chooses. It
+// refuses an id the client already holds, so a new group never replaces one.
+func (c *Client) CreateGroupWithID(ctx context.Context, groupIDBytes []byte) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.checkOpen(); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(groupIDBytes) == 0 {
+		return nil, ErrEmptyGroupID
+	}
+	groupID := group.NewGroupID(cloneBytes(groupIDBytes))
+	if _, err := c.store.LoadGroupState(ctx, groupID); err == nil {
+		return nil, ErrGroupExists
+	} else if !isGroupStateNotFound(err) {
+		return nil, fmt.Errorf("loading group state: %w", err)
+	}
+	kp, kpPriv, err := keypackages.Generate(c.credWithKey, c.cs)
+	if err != nil {
+		return nil, fmt.Errorf("generating creator key package: %w", err)
+	}
+	g, err := group.NewGroup(groupID, c.cs, kp, kpPriv)
+	if err != nil {
+		return nil, fmt.Errorf("creating group: %w", err)
+	}
+	g.SetPaddingSize(c.paddingSize)
+	entry := &groupEntry{}
+	if err := c.persistGroup(ctx, g, entry); err != nil {
+		return nil, err
+	}
+	c.groupEntries[groupCacheKey(groupID)] = entry
+	c.log(slog.LevelInfo, "group created", "group", groupHex(groupID.AsSlice()))
+	return cloneBytes(groupID.AsSlice()), nil
+}
+
 // CreateGroupWithExtensions creates a fresh one-member MLS group using the
 // provided GroupID, creator KeyPackage bytes, and GroupContext extensions.
 func (c *Client) CreateGroupWithExtensions(ctx context.Context, groupIDBytes, keyPackageBytes []byte, extensions []group.Extension) ([]byte, error) {
