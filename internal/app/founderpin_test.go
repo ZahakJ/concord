@@ -512,14 +512,15 @@ func TestOwnerUnverifiedUntilASyncCarriesTheFounder(t *testing.T) {
 }
 
 // Every kind of group this build creates carries a founder-scheme id for this
-// account: guilds, meetings, Notes and DMs from a code. (Group DMs and the
-// 1:1 opener need verified contacts and use the same helper.)
+// account: guilds, meetings, Notes, DMs from a code, 1:1 and group DMs, booked
+// meeting rooms and event guest rooms.
 func TestEveryCreatorUsesTheFounderID(t *testing.T) {
 	if testing.Short() {
 		t.Skip("network integration test")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	t.Setenv("CONCORD_GUEST_BASE", "http://127.0.0.1:1")
 	s := startService(t, ctx)
 	check := func(what string, g domain.Guild) {
 		t.Helper()
@@ -558,6 +559,57 @@ func TestEveryCreatorUsesTheFounderID(t *testing.T) {
 	if !seen {
 		t.Error("the DM from a code was not found")
 	}
+
+	// A 1:1 DM with a peer who is not online: the group is made here at once.
+	dm, err := s.StartDM("fpr-remote-friend-000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("1:1 dm", dm)
+
+	// A group DM: everyone in it must be a verified contact.
+	for _, f := range []string{"fpr-founder-pin-bob-0000", "fpr-founder-pin-cara-000"} {
+		if err := s.VerifyFingerprint(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gdm, err := s.CreateGroupDM([]string{"fpr-founder-pin-bob-0000", "fpr-founder-pin-cara-000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("group dm", gdm)
+
+	// A booked slot gets its own meeting room.
+	if _, err := s.SetBookingConfig(BookingConfigInput{Enabled: true, SlotMinutes: 30, HorizonDays: 7, Windows: allWeekWindows()}); err != nil {
+		t.Fatal(err)
+	}
+	s.bookingMu.Lock()
+	slots := s.availableSlotsLocked(time.Now())
+	s.bookingMu.Unlock()
+	if len(slots) == 0 {
+		t.Fatal("no slot to book")
+	}
+	if resp := s.bookSlot(bookingRequest{Op: "book", Slot: slots[0], Name: "Sam"}); !resp.OK {
+		t.Fatalf("booking refused: %+v", resp)
+	}
+	bookings := s.BookingSettings().Bookings
+	if len(bookings) != 1 {
+		t.Fatalf("%d bookings, want 1", len(bookings))
+	}
+	check("booked meeting", storedGuild(s, bookings[0].MeetingGuildID))
+
+	// An event opened to guests gets a guest room.
+	eg, ev := eventForGuests(t, s)
+	if _, err := s.OpenEventGuests(eg.ID, ev.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	s.eventGuestMu.Lock()
+	rec, ok := s.eventGuests[ev.ID]
+	s.eventGuestMu.Unlock()
+	if !ok {
+		t.Fatal("no guest room recorded for the event")
+	}
+	check("event guest room", storedGuild(s, rec.MeetingGuildID))
 }
 
 // joinWant names the group a join must land in, by the shape of the answer's
