@@ -254,3 +254,82 @@ func TestSyncPayloadChangesOnlyItsOwnGuild(t *testing.T) {
 	}
 }
 
+// deliver hands b a frame that a encrypted under groupID, as the live lane
+// receives it.
+func (w twoGuilds) deliver(t *testing.T, ctx context.Context, groupID []byte, m domain.Message) {
+	t.Helper()
+	raw, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	ct, err := w.a.mls.Encrypt(ctx, groupID, raw)
+	if err != nil {
+		t.Fatalf("a encrypt: %v", err)
+	}
+	if !w.b.deliverCiphertext(groupID, ct) {
+		t.Fatal("b could not decrypt a frame a encrypted at the shared epoch")
+	}
+}
+
+// signedByA is a message from a, signed as a's sends are.
+func (w twoGuilds) signedByA(channelID, kind, target, content string) domain.Message {
+	m := domain.Message{
+		ID:        domain.NewID(),
+		ChannelID: channelID,
+		Sender:    w.a.PublicKey(),
+		Kind:      kind,
+		ReplyTo:   target,
+		Content:   content,
+		Sent:      time.Now().UTC(),
+	}
+	m.Sig = w.a.signMessage(m)
+	return m
+}
+
+// An unsigned delete is what v0.57 and older send. It is accepted from the
+// message's own author and carries no moderator's authority, so even the
+// guild's owner removes only their own message with one.
+func TestAnUnsignedDeleteActsOnlyForItsAuthor(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newTwoGuilds(t, ctx) // a owns ga
+
+	theirs, err := w.b.SendMessage(w.chA, "b in a's guild", "", "")
+	if err != nil {
+		t.Fatalf("b SendMessage: %v", err)
+	}
+	theirs2, err := w.b.SendMessage(w.chA, "b again in a's guild", "", "")
+	if err != nil {
+		t.Fatalf("b SendMessage: %v", err)
+	}
+	mine, err := w.a.SendMessage(w.chA, "a in a's guild", "", "")
+	if err != nil {
+		t.Fatalf("a SendMessage: %v", err)
+	}
+	waitFor(t, 30*time.Second, func() bool {
+		_, ok, err := w.b.store.MessageByID(mine.ID)
+		return err == nil && ok
+	}, "b never received a's message in a's guild")
+
+	unsigned := func(target string) domain.Message {
+		m := w.signedByA(w.chA, "delete", target, "deleted")
+		m.Sig = nil
+		return m
+	}
+	w.deliver(t, ctx, w.groupA, unsigned(theirs.ID))
+	if w.row(t, theirs.ID).Deleted {
+		t.Error("an unsigned delete from the owner removed another member's message")
+	}
+	w.deliver(t, ctx, w.groupA, unsigned(mine.ID))
+	if !w.row(t, mine.ID).Deleted {
+		t.Error("an unsigned delete of the sender's own message did not apply")
+	}
+	// Signed, the owner's delete of another member's message applies.
+	w.deliver(t, ctx, w.groupA, w.signedByA(w.chA, "delete", theirs2.ID, "deleted"))
+	if !w.row(t, theirs2.ID).Deleted {
+		t.Error("a signed delete from the owner did not apply")
+	}
+}

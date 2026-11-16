@@ -1776,7 +1776,7 @@ func (s *Service) sendAsWith(channelID, content, kind, replyTo, guestName, dir s
 	}
 	switch msg.Kind {
 	case "delete":
-		s.applyDelete(msg.ReplyTo, msg.Sender, channelID)
+		s.applyDelete(msg.ReplyTo, msg.Sender, channelID, true)
 		return msg, nil
 	case "reaction":
 		s.applyReaction(msg.ReplyTo, msg.Content, msg.Sender)
@@ -2088,12 +2088,27 @@ func (s *Service) PurgeMessages(channelID string, n int) (int, error) {
 // applyDelete tombstones a target message and pushes the update to the UI. The
 // author may delete their own; a member with ManageMessages may delete anyone's
 // (the deleter is the MLS-authenticated sender, so this is enforceable).
-func (s *Service) applyDelete(targetID string, bySender []byte, channelID string) {
+//
+// signed says the delete carried an author signature that verified against
+// bySender (deliverMessage refuses one that does not verify; this device's own
+// sends are always signed). Authority over someone else's message is granted
+// only to a signed delete. An unsigned delete is what v0.57 and older send; it
+// is accepted only as the author deleting their own message (MarkDeleted with
+// force false compares the row's sender), never as a moderator's.
+//
+// Unsigned deletes are to be refused entirely once v0.57 and older are retired.
+// Nothing enforces that yet: no build refuses a peer by version, and a build
+// constant would split a guild between members that do and do not refuse. The
+// switch belongs to the guild-wide minimum protocol level that the seated
+// credential work proposes (a level declared per leaf, plus an owner-signed
+// minimum for the guild): when that minimum excludes v0.57, deliverMessage
+// drops a delete with no signature. Until then this function is the limit.
+func (s *Service) applyDelete(targetID string, bySender []byte, channelID string, signed bool) {
 	force := false
 	s.mu.RLock()
 	guildID := s.channelToGuild[channelID]
 	s.mu.RUnlock()
-	if guildID != "" && !s.noModerators(guildID) {
+	if signed && guildID != "" && !s.noModerators(guildID) {
 		force = s.memberHasPerm(guildID, accountFingerprintOf(bySender), PermManageMessages)
 	}
 	deleted, ok, err := s.store.MarkDeleted(targetID, bySender, force)
@@ -4176,7 +4191,7 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 	}
 	switch m.Kind {
 	case "delete":
-		s.applyDelete(m.ReplyTo, m.Sender, m.ChannelID)
+		s.applyDelete(m.ReplyTo, m.Sender, m.ChannelID, len(m.Sig) > 0)
 		return
 	case "reaction":
 		s.applyReaction(m.ReplyTo, m.Content, m.Sender)
