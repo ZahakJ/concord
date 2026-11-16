@@ -286,8 +286,8 @@ func (w twoGuilds) signedByA(channelID, kind, target, content string) domain.Mes
 	return m
 }
 
-// An action that reaches a device before the row it names is applied when
-// the row arrives live, and only then.
+// A delete, pin or reaction that reaches a device before the row it names is
+// applied when the row arrives live, and only then. An edit is not held.
 func TestAnActionThatArrivesBeforeItsTargetApplies(t *testing.T) {
 	if testing.Short() {
 		t.Skip("network integration test")
@@ -308,8 +308,8 @@ func TestAnActionThatArrivesBeforeItsTargetApplies(t *testing.T) {
 	if len(got.Reactions["late"]) != 1 {
 		t.Errorf("a reaction that arrived before its target was lost: %v", got.Reactions)
 	}
-	if got.Content != "edited early" {
-		t.Errorf("an edit that arrived before its target was lost: %q", got.Content)
+	if got.Content != "arrives second" {
+		t.Errorf("an edit that arrived before its target was held: %q", got.Content)
 	}
 
 	w.deliver(t, ctx, w.groupA, other)

@@ -7,8 +7,8 @@ import (
 	"github.com/ZahakJ/concord/internal/domain"
 )
 
-// A live message action (delete, pin, reaction, edit) can arrive before what
-// it depends on, and a live frame is delivered once:
+// A live delete, pin or reaction can arrive before what it depends on, and a
+// live frame is delivered once:
 //
 //   - its target row, when the two travel separately: a mailbox drain across
 //     several nodes, or a drain racing a catch-up;
@@ -17,10 +17,14 @@ import (
 //     that lifts the removal. The two travel on different lanes.
 //
 // Such an action is kept here for a short while and delivered again, through
-// the whole of deliverMessage, when the row arrives live or the readmit is
-// applied. Nothing is granted by being held: every check runs again on the
-// second delivery. An action that is still waiting when it expires, or that is
-// pushed out by newer ones, is dropped, as it was before.
+// the whole of deliverMessage, when the row arrives live or the readmit is applied.
+// Nothing is granted by being held: every check runs again on the second
+// delivery. An action that is still waiting when it expires, or that is pushed
+// out by newer ones from the same sender, is dropped, as it was before.
+//
+// Only a small fixed record is held. Edits are not: an edit carries a whole
+// message body, which has no small bound. An edit that outruns its target is
+// dropped.
 //
 // A target that arrives by history sync releases nothing: the served row
 // carries its reactions, pin and deletion as the source holds them, and
@@ -28,43 +32,152 @@ import (
 // row are dropped instead.
 const (
 	heldActionTTL = 2 * time.Minute
+	// heldActionCap bounds the whole queue, heldPerSender what one sender may
+	// hold in one guild. A sender at its cap loses its own oldest entry; a full
+	// queue loses the oldest entry of the sender holding the most.
 	heldActionCap = 256
+	heldPerSender = 16
+	// heldActionMaxBytes bounds the variable fields of a held action: its id,
+	// channel, target, sender name, content, direction and signature. An
+	// honest one needs at most about 270 bytes: three 32-byte ids, a name of
+	// at most maxNameBytes, a 64-byte signature, and a body that is "deleted",
+	// "pin" or one emoji (a :custom: name is at most 34 bytes, the longest
+	// standard emoji sequence about 40). Anything larger is not held.
+	heldActionMaxBytes = 512
+)
+
+type heldReason uint8
+
+const (
+	heldForTarget heldReason = iota + 1
+	heldForReadmit
 )
 
 type heldAction struct {
+	reason   heldReason
 	carrier  string // guild whose group carried the frame
+	guild    string // guild of the channel it names
+	fpr      string // its sender's account fingerprint
+	target   string // the row it names
 	m        domain.Message
 	senderID []byte
-	// What releases it: the target row, or the readmit of fpr in guild.
-	target string
-	guild  string
-	fpr    string
-	at     time.Time
+	at       time.Time
 }
 
 type heldActions struct {
 	mu    sync.Mutex
 	queue []heldAction // oldest first
+	timer *time.Timer  // the next expiry, while anything is held
 }
 
-func (h *heldActions) add(a heldAction) {
+// holdable reports whether m is a kind that is held and small enough to hold.
+func holdable(m domain.Message) bool {
+	switch m.Kind {
+	case "delete", "pin", "reaction":
+	default:
+		return false
+	}
+	if m.ID == "" || m.ReplyTo == "" {
+		return false
+	}
+	n := len(m.ID) + len(m.ChannelID) + len(m.ReplyTo) + len(m.Name) + len(m.Content) + len(m.Dir) + len(m.Sig)
+	return n <= heldActionMaxBytes
+}
+
+// heldCopy keeps only what deliverMessage reads from a held action. The sender
+// is set again from the MLS credential on delivery.
+func heldCopy(m domain.Message) domain.Message {
+	return domain.Message{
+		ID: m.ID, ChannelID: m.ChannelID, Name: m.Name, Kind: m.Kind,
+		ReplyTo: m.ReplyTo, Content: m.Content, Dir: m.Dir, Sent: m.Sent, Sig: m.Sig,
+	}
+}
+
+// add holds a, and reports whether it did.
+func (h *heldActions) add(a heldAction) bool {
+	if !holdable(a.m) || a.guild == "" || a.fpr == "" {
+		return false
+	}
+	a.m = heldCopy(a.m)
+	a.target = a.m.ReplyTo
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.pruneLocked(a.at)
-	if len(h.queue) >= heldActionCap {
-		h.queue = h.queue[1:]
+	n, oldest := 0, -1
+	for i, b := range h.queue {
+		if b.guild == a.guild && b.fpr == a.fpr {
+			if oldest < 0 {
+				oldest = i
+			}
+			n++
+		}
+	}
+	if n >= heldPerSender {
+		h.removeLocked(oldest)
+	} else if len(h.queue) >= heldActionCap {
+		h.removeLocked(h.busiestLocked())
 	}
 	h.queue = append(h.queue, a)
+	h.scheduleLocked()
+	return true
+}
+
+// busiestLocked is the index of the oldest entry of the sender holding the
+// most entries across every guild.
+func (h *heldActions) busiestLocked() int {
+	count := map[string]int{}
+	for _, b := range h.queue {
+		count[b.fpr]++
+	}
+	best := 0
+	for i, b := range h.queue {
+		if count[b.fpr] > count[h.queue[best].fpr] {
+			best = i
+		}
+	}
+	return best
+}
+
+// removeLocked drops entry i and clears the slot it frees.
+func (h *heldActions) removeLocked(i int) {
+	last := len(h.queue) - 1
+	copy(h.queue[i:], h.queue[i+1:])
+	h.queue[last] = heldAction{}
+	h.queue = h.queue[:last]
+}
+
+// filterLocked keeps the entries keep accepts, in order, and clears the slots
+// it frees so nothing removed stays reachable.
+func (h *heldActions) filterLocked(keep func(heldAction) bool) {
+	kept := h.queue[:0]
+	for _, a := range h.queue {
+		if keep(a) {
+			kept = append(kept, a)
+		}
+	}
+	clear(h.queue[len(kept):])
+	h.queue = kept
 }
 
 func (h *heldActions) pruneLocked(now time.Time) {
-	keep := h.queue[:0]
-	for _, a := range h.queue {
-		if now.Sub(a.at) < heldActionTTL {
-			keep = append(keep, a)
-		}
+	h.filterLocked(func(a heldAction) bool { return now.Sub(a.at) < heldActionTTL })
+}
+
+// scheduleLocked arms a timer for the oldest entry's expiry, so what expires
+// is freed without waiting for the next arrival.
+func (h *heldActions) scheduleLocked() {
+	if h.timer != nil || len(h.queue) == 0 {
+		return
 	}
-	h.queue = keep
+	h.timer = time.AfterFunc(time.Until(h.queue[0].at.Add(heldActionTTL)), h.expire)
+}
+
+func (h *heldActions) expire() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.timer = nil
+	h.pruneLocked(time.Now())
+	h.scheduleLocked()
 }
 
 // take removes and returns, in arrival order, the held actions match selects.
@@ -73,44 +186,53 @@ func (h *heldActions) take(match func(heldAction) bool) []heldAction {
 	defer h.mu.Unlock()
 	h.pruneLocked(time.Now())
 	var out []heldAction
-	keep := h.queue[:0]
-	for _, a := range h.queue {
+	h.filterLocked(func(a heldAction) bool {
 		if match(a) {
 			out = append(out, a)
-		} else {
-			keep = append(keep, a)
+			return false
 		}
-	}
-	h.queue = keep
+		return true
+	})
 	return out
 }
 
 // holdForTarget keeps an action whose target row is not held yet.
-func (s *Service) holdForTarget(carrier string, m domain.Message, senderID []byte) {
-	s.held.add(heldAction{carrier: carrier, m: m, senderID: senderID, target: m.ReplyTo, at: time.Now()})
+func (s *Service) holdForTarget(carrier, guildID, fpr string, m domain.Message, senderID []byte) {
+	s.held.add(heldAction{reason: heldForTarget, carrier: carrier, guild: guildID, fpr: fpr, m: m, senderID: senderID, at: time.Now()})
 }
 
 // holdForReadmit keeps an action from a member this device holds as removed
 // while the MLS group already holds them again.
 func (s *Service) holdForReadmit(carrier, guildID, fpr string, m domain.Message, senderID []byte) {
-	s.held.add(heldAction{carrier: carrier, m: m, senderID: senderID, guild: guildID, fpr: fpr, at: time.Now()})
+	s.held.add(heldAction{reason: heldForReadmit, carrier: carrier, guild: guildID, fpr: fpr, m: m, senderID: senderID, at: time.Now()})
 }
 
 // releaseForTarget delivers again the actions waiting for a row that arrived live.
 func (s *Service) releaseForTarget(targetID string) {
-	for _, a := range s.held.take(func(a heldAction) bool { return a.target == targetID }) {
+	if targetID == "" {
+		return
+	}
+	for _, a := range s.held.take(func(a heldAction) bool { return a.reason == heldForTarget && a.target == targetID }) {
 		s.deliverMessage(a.carrier, a.m, a.senderID)
 	}
 }
 
 // dropForTarget forgets the actions waiting for a row that arrived by sync.
 func (s *Service) dropForTarget(targetID string) {
-	s.held.take(func(a heldAction) bool { return a.target == targetID })
+	if targetID == "" {
+		return
+	}
+	s.held.take(func(a heldAction) bool { return a.reason == heldForTarget && a.target == targetID })
 }
 
 // releaseForReadmit delivers again the actions waiting for fpr's readmit.
 func (s *Service) releaseForReadmit(guildID, fpr string) {
-	for _, a := range s.held.take(func(a heldAction) bool { return a.guild == guildID && a.fpr == fpr }) {
+	if guildID == "" || fpr == "" {
+		return
+	}
+	for _, a := range s.held.take(func(a heldAction) bool {
+		return a.reason == heldForReadmit && a.guild == guildID && a.fpr == fpr
+	}) {
 		s.deliverMessage(a.carrier, a.m, a.senderID)
 	}
 }

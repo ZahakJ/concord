@@ -4202,8 +4202,8 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 			return
 		}
 		if !held {
-			// Not here yet: wait for the row to arrive live.
-			s.holdForTarget(carrierGuild, m, senderID)
+			// Not here yet: wait for the row to arrive.
+			s.holdForTarget(carrierGuild, guildID, senderFpr, m, senderID)
 			return
 		}
 		if target.ChannelID != m.ChannelID {
