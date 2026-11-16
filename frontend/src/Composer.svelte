@@ -10,6 +10,7 @@
   import { uneditableReason } from "./lib/tokenbody.js";
   import { setPostLocked } from "./lib/postactions.svelte.js";
   import { sendText as outSendText, sendAttachment as outSendAttachment } from "./lib/outbox.svelte.js";
+  import { sendsAsIs, sniffedType } from "./lib/postdraft.js";
   import { roving } from "./lib/roving.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import EmojiPicker from "./EmojiPicker.svelte";
@@ -1093,7 +1094,9 @@
     uploading++;
     try {
       let dataUrl, w, h;
-      if (NATIVE_TYPES.includes(file.type) && file.size <= MAX_IMAGE_BYTES) {
+      // The bytes decide, not the name (see pictureType): an AVIF saved as
+      // .jpg goes through the canvas, which the core does not refuse.
+      if (sendsAsIs(await sniffedType(file), file.size)) {
         dataUrl = await readAsDataURL(file);
         ({ w, h } = await imageDims(dataUrl));
         // A truncated or corrupt PNG loads as 0x0 here and used to be staged
@@ -1102,7 +1105,14 @@
         // so it goes down the file path instead of being thrown away.
         if (!w || !h) return false;
       } else {
-        ({ dataUrl, w, h } = await normalizeToJpeg(file));
+        try {
+          ({ dataUrl, w, h } = await normalizeToJpeg(file));
+        } catch (err) {
+          // Named as one of the four and not decodable as anything: the
+          // file path, as for a corrupt picture above.
+          if (NATIVE_TYPES.includes(file.type) && !String(err?.message || err).includes("too large")) return false;
+          throw err;
+        }
       }
       // Defaults come from stagedImage (lib/attachopts.js), which keeps `name`
       // empty so an unedited image still goes out as the v1 token older peers

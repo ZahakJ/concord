@@ -54,6 +54,7 @@
     continueList,
     bodyStats,
     sendsAsIs,
+    sniffedType,
     dataUrlBytes,
     prettyBytes,
     IMAGE_MAX_BYTES,
@@ -528,7 +529,7 @@
       reading++;
       try {
         let dataUrl, w, h;
-        if (sendsAsIs(file.type, file.size)) {
+        if (sendsAsIs(await sniffedType(file), file.size)) {
           dataUrl = await readAsDataURL(file);
           ({ w, h } = await imageDims(dataUrl));
         } else {

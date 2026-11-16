@@ -417,6 +417,28 @@ export const NATIVE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "imag
 // isn't an optimisation here — it's correctness.
 export const sendsAsIs = (type, size) => NATIVE_IMAGE_TYPES.includes(type) && size <= IMAGE_MAX_BYTES;
 
+// pictureType: the format a picture's first bytes say it is, as one of the
+// NATIVE types, or "" for anything else. Callers pass this to sendsAsIs rather
+// than File.type, which comes from the file's name: "Save image as" on a site
+// that serves AVIF keeps the .jpg name, and the core refuses AVIF and HEIC
+// because it cannot remove their metadata. Anything that is not one of the
+// four goes through the canvas instead, which decodes it and drops the
+// metadata with the original bytes.
+export function pictureType(head) {
+  const b = head || [];
+  const s = (from, to) => String.fromCharCode(...Array.from(b.slice(from, to)));
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length >= 8 && s(0, 8) === "\x89PNG\r\n\x1a\n") return "image/png";
+  if (b.length >= 6 && (s(0, 6) === "GIF87a" || s(0, 6) === "GIF89a")) return "image/gif";
+  if (b.length >= 12 && s(0, 4) === "RIFF" && s(8, 12) === "WEBP") return "image/webp";
+  return "";
+}
+
+// sniffedType: pictureType of a File or Blob, reading only its first bytes.
+export async function sniffedType(blob) {
+  return pictureType(new Uint8Array(await blob.slice(0, 12).arrayBuffer()));
+}
+
 // dataUrlBytes: the decoded size of a base64 data URL, without decoding it.
 export function dataUrlBytes(dataUrl) {
   const i = String(dataUrl || "").indexOf(",");

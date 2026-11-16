@@ -35,6 +35,8 @@ import {
   draftAge,
   DRAFT_VERSION,
   sendsAsIs,
+  pictureType,
+  sniffedType,
   dataUrlBytes,
   prettyBytes,
   IMAGE_MAX_BYTES,
@@ -339,6 +341,32 @@ t("sendsAsIs keeps a GIF animated and re-encodes everything else", () => {
   assert.ok(!sendsAsIs("image/heic", 1000));
   assert.ok(!sendsAsIs("image/svg+xml", 10));
 });
+
+// An AVIF or HEIC saved under a .jpg name must go through the canvas (which
+// drops its metadata), not straight to the core (which refuses it); a real
+// picture under the wrong name still goes as it is.
+const AVIF = new Uint8Array([0, 0, 0, 28, ...Array.from("ftypavif", (c) => c.charCodeAt(0)), 0, 0, 0, 0]);
+const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16]);
+const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+
+t("pictureType reads the format from the bytes, not the name", () => {
+  assert.equal(pictureType(JPEG), "image/jpeg");
+  assert.equal(pictureType(PNG), "image/png");
+  assert.equal(pictureType(new TextEncoder().encode("GIF89a\x01\x00")), "image/gif");
+  assert.equal(pictureType(new TextEncoder().encode("RIFF\x00\x00\x00\x00WEBPVP8L")), "image/webp");
+  assert.equal(pictureType(AVIF), "");
+  assert.equal(pictureType(new Uint8Array([0xff, 0xd8])), "");
+  assert.equal(pictureType(undefined), "");
+});
+
+{
+  const avifAsJpg = new File([AVIF], "photo.jpg", { type: "image/jpeg" });
+  assert.ok(sendsAsIs(avifAsJpg.type, avifAsJpg.size), "by its name alone it would go as it is");
+  assert.ok(!sendsAsIs(await sniffedType(avifAsJpg), avifAsJpg.size), "an AVIF named .jpg must go through the canvas");
+  const pngAsJpg = new File([PNG], "photo.jpg", { type: "image/jpeg" });
+  assert.ok(sendsAsIs(await sniffedType(pngAsJpg), pngAsJpg.size), "a PNG named .jpg still goes as it is");
+  n++;
+}
 
 t("dataUrlBytes measures the decoded size without decoding", () => {
   assert.equal(dataUrlBytes("data:image/png;base64,AAAA"), 3);
