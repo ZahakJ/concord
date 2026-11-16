@@ -3371,16 +3371,17 @@ type notesView struct {
 // notesViewOf decides it. An account can hold more than one Notes group
 // (see appsvc.NotesCopy); only the one the core uses is Notes. A copy that
 // holds notes is listed under its own name so nothing in it is out of reach.
-// The stored name test is kept for the Notes itself: it is what tells a
-// self-DM from a peer's DM whatever the peer is called.
-func notesViewOf(g domain.Guild, isCopy, hasMessages bool) notesView {
+// isNotes is the core's test (appsvc.IsNotesGroup): the record's shape and
+// every leaf a device of this account. The stored name test is kept as well:
+// it is what tells a self-DM from a peer's DM whatever the peer is called.
+func notesViewOf(g domain.Guild, isNotes, isCopy, hasMessages bool) notesView {
 	if g.Kind != "dm" {
 		return notesView{}
 	}
 	if isCopy {
 		return notesView{copy: true, copyEmpty: !hasMessages, name: notesCopyName(g.Created)}
 	}
-	return notesView{notes: g.Name == "Notes"}
+	return notesView{notes: isNotes && g.Name == "Notes"}
 }
 
 // isCustomDMName reports whether a DM guild's stored name is a user-chosen group
@@ -3589,7 +3590,8 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 	if g.Kind == "dm" && len(g.Channels) > 0 {
 		dmPreview, dmPreviewMine, dmPreviewAt = svc.LastSaid(g.Channels[0].ID)
 	}
-	nv := notesViewOf(g, g.Kind == "dm" && svc.NotesCopy(g.ID), dmPreviewAt > 0)
+	isNotes := g.Kind == "dm" && svc.IsNotesGroup(g.ID)
+	nv := notesViewOf(g, isNotes, isNotes && svc.NotesCopy(g.ID), dmPreviewAt > 0)
 	if nv.name != "" {
 		name = nv.name
 	}

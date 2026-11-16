@@ -240,18 +240,30 @@ func notesBefore(a, b domain.Guild) bool {
 // as a separate conversation so they stay readable. Nothing is moved or
 // re-posted: every device would do it, and a copy of a copy is not a merge.
 func (s *Service) NotesCopy(guildID string) bool {
-	s.mu.RLock()
-	g, ok := s.guilds[guildID]
-	isNotes := ok && isNotesGuild(*g, s.PublicKey())
-	s.mu.RUnlock()
-	if !isNotes {
+	if !s.IsNotesGroup(guildID) {
 		return false
 	}
 	canon, ok := s.findNotesDM()
 	return ok && canon.ID != guildID
 }
 
-// isNotesGuild: a one-member DM you own, called Notes.
+// IsNotesGroup reports whether a guild is one of this account's Notes groups,
+// the canonical one or a copy: a record of the Notes shape (isNotesGuild) on a
+// group whose every leaf is a device of this account (notesSeatsOnlyUs), the
+// same test findNotesDM applies.
+func (s *Service) IsNotesGroup(guildID string) bool {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok && isNotesGuild(*g, s.PublicKey()) {
+		groupID = append([]byte(nil), g.GroupID...)
+	}
+	s.mu.RUnlock()
+	return groupID != nil && s.notesSeatsOnlyUs(groupID)
+}
+
+// isNotesGuild: a one-member DM you own, called Notes. It reads the record
+// alone; IsNotesGroup adds the leaves.
 func isNotesGuild(g domain.Guild, self []byte) bool {
 	return g.Kind == "dm" && len(g.OwnerID) > 0 && string(g.OwnerID) == string(self) && g.Name == notesGuildName
 }
@@ -374,7 +386,7 @@ func (s *Service) unhideNotesCopies() {
 	}
 	s.mu.RUnlock()
 	for _, g := range hidden {
-		if len(g.Channels) == 0 {
+		if len(g.Channels) == 0 || !s.notesSeatsOnlyUs(g.GroupID) {
 			continue
 		}
 		if _, ok, err := s.store.NewestMessage(g.Channels[0].ID); err == nil && ok {
@@ -411,29 +423,33 @@ func (s *Service) noteNotesOffer(code string, ic inviteCode) {
 	s.joiningMu.Unlock()
 }
 
-// notesGuildIDs is every Notes group this device holds, the copies included.
+// notesGuildIDs is every Notes group this device holds, the copies included
+// (IsNotesGroup).
 func (s *Service) notesGuildIDs() []string {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var ids []string
-	for id, g := range s.guilds {
+	var cands []domain.Guild
+	for _, g := range s.guilds {
 		if isNotesGuild(*g, s.PublicKey()) {
-			ids = append(ids, id)
+			cands = append(cands, g.Clone())
+		}
+	}
+	s.mu.RUnlock()
+	var ids []string
+	for _, g := range cands {
+		if s.notesSeatsOnlyUs(g.GroupID) {
+			ids = append(ids, g.ID)
 		}
 	}
 	return ids
 }
 
 // holdsNotes reports whether this device holds a guild, and whether it is a
-// Notes group.
+// Notes group (IsNotesGroup).
 func (s *Service) holdsNotes(guildID string) (held, notes bool) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	g, ok := s.guilds[guildID]
-	if !ok {
-		return false, false
-	}
-	return true, isNotesGuild(*g, s.PublicKey())
+	_, held = s.guilds[guildID]
+	s.mu.RUnlock()
+	return held, held && s.IsNotesGroup(guildID)
 }
 
 // NotesFirst puts the codes for groups named Notes ahead of the rest. A join

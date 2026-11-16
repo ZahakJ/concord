@@ -20,18 +20,20 @@ func TestNotesViewOf(t *testing.T) {
 	cases := []struct {
 		name        string
 		g           domain.Guild
+		isNotes     bool
 		isCopy, has bool
 		want        notesView
 	}{
-		{"the Notes", notes, false, true, notesView{notes: true}},
-		{"the Notes, empty", notes, false, false, notesView{notes: true}},
-		{"a copy holding notes", notes, true, true, notesView{copy: true, name: "Notes (copy from Nov 12, 09:30)"}},
-		{"an empty copy", notes, true, false, notesView{copy: true, copyEmpty: true, name: "Notes (copy from Nov 12, 09:30)"}},
-		{"a DM with a person", peerDM, false, true, notesView{}},
-		{"a guild named Notes", guild, false, true, notesView{}},
+		{"the Notes", notes, true, false, true, notesView{notes: true}},
+		{"the Notes, empty", notes, true, false, false, notesView{notes: true}},
+		{"a copy holding notes", notes, true, true, true, notesView{copy: true, name: "Notes (copy from Nov 12, 09:30)"}},
+		{"an empty copy", notes, true, true, false, notesView{copy: true, copyEmpty: true, name: "Notes (copy from Nov 12, 09:30)"}},
+		{"a Notes record on a group with another account in it", notes, false, false, true, notesView{}},
+		{"a DM with a person", peerDM, false, false, true, notesView{}},
+		{"a guild named Notes", guild, false, false, true, notesView{}},
 	}
 	for _, c := range cases {
-		if got := notesViewOf(c.g, c.isCopy, c.has); got != c.want {
+		if got := notesViewOf(c.g, c.isNotes, c.isCopy, c.has); got != c.want {
 			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
 		}
 	}
@@ -39,7 +41,7 @@ func TestNotesViewOf(t *testing.T) {
 	// as the Notes.
 	other := notes
 	other.Created = made.AddDate(0, 0, 2)
-	a, b := notesViewOf(notes, true, true).name, notesViewOf(other, true, true).name
+	a, b := notesViewOf(notes, true, true, true).name, notesViewOf(other, true, true, true).name
 	if a == b || a == "Notes" || b == "Notes" {
 		t.Errorf("copies are not told apart: %q and %q", a, b)
 	}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -40,12 +41,29 @@ func TestNotesShapedGroupWithAnotherAccountIsNotNotes(t *testing.T) {
 		t.Fatal("setup: no Notes")
 	}
 	shapeAsNotesOf(t, u, gid, u)
-	if held, notes := u.holdsNotes(gid); !held || !notes {
-		t.Fatal("setup: the shared group's record does not read as Notes")
+	u.mu.RLock()
+	shaped := isNotesGuild(*u.guilds[gid], u.PublicKey())
+	u.mu.RUnlock()
+	if !shaped {
+		t.Fatal("setup: the shared group's record does not have the Notes shape")
 	}
 	got, ok := u.findNotesDM()
 	if !ok || got.ID != canon.ID {
 		t.Fatalf("findNotesDM = %s (%v), want the real Notes %s and never the shared group %s", got.ID, ok, canon.ID, gid)
+	}
+	// Every other reader of "a Notes group" applies the same test.
+	if u.IsNotesGroup(gid) || u.NotesCopy(gid) {
+		t.Errorf("the shared group reads as a Notes group (IsNotesGroup %v, NotesCopy %v)", u.IsNotesGroup(gid), u.NotesCopy(gid))
+	}
+	if held, notes := u.holdsNotes(gid); !held || notes {
+		t.Errorf("holdsNotes(shared group) = %v, %v; want held and not Notes", held, notes)
+	}
+	ids := u.notesGuildIDs()
+	if !slices.Contains(ids, canon.ID) || slices.Contains(ids, gid) {
+		t.Errorf("notesGuildIDs = %v, want the real Notes %s and never the shared group %s", ids, canon.ID, gid)
+	}
+	if !u.IsNotesGroup(canon.ID) || u.NotesCopy(canon.ID) {
+		t.Error("the real Notes does not read as the Notes")
 	}
 	if !p.guildHasMember(gid, u.Fingerprint()) {
 		t.Fatal("setup: the shared group lost U")
