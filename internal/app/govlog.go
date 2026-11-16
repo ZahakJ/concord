@@ -114,7 +114,7 @@ func (s *Service) GovernanceLog(guildID string, offset, limit int) ([]GovLogEntr
 		return nil, fmt.Errorf("app: unknown guild %s", guildID)
 	}
 	ops := append([]govOp(nil), s.govOps[guildID]...)
-	owner := append([]byte(nil), g.OwnerID...)
+	owner := s.foldAnchorLocked(g)
 	s.mu.RUnlock()
 
 	// The verdicts come from a real replay of the whole log, not from a

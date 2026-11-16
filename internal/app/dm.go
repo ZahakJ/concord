@@ -235,11 +235,11 @@ func (s *Service) ensureNotesDM() (domain.Guild, error) {
 	if g, ok := s.findNotesDM(); ok {
 		return g, nil
 	}
-	gid, err := s.mls.CreateGroup(s.ctx)
+	id, gid, err := s.foundGroup()
 	if err != nil {
 		return domain.Guild{}, fmt.Errorf("app: create notes group: %w", err)
 	}
-	g := domain.NewGuild(notesGuildName, gid, s.PublicKey())
+	g := domain.NewGuildWithID(id, notesGuildName, gid, s.PublicKey())
 	g.Kind = "dm"
 	g.Channels[0].Name = "notes"
 	if err := s.store.SaveGuild(g); err != nil {
@@ -441,11 +441,11 @@ type dmInvite struct {
 // guild required). The first person to redeem it becomes the other party; more
 // redeemers make it a group DM.
 func (s *Service) NewDMInvite() (string, error) {
-	gid, err := s.mls.CreateGroup(s.ctx)
+	id, gid, err := s.foundGroup()
 	if err != nil {
 		return "", fmt.Errorf("app: create dm group: %w", err)
 	}
-	g := domain.NewGuild("Direct message", gid, s.PublicKey())
+	g := domain.NewGuildWithID(id, "Direct message", gid, s.PublicKey())
 	g.Kind = "dm"
 	g.Channels[0].Name = "dm"
 	if err := s.store.SaveGuild(g); err != nil {
@@ -497,11 +497,11 @@ func (s *Service) CreateGroupDM(fingerprints []string) (domain.Guild, error) {
 		return *g, nil
 	}
 
-	gid, err := s.mls.CreateGroup(s.ctx)
+	id, gid, err := s.foundGroup()
 	if err != nil {
 		return domain.Guild{}, fmt.Errorf("app: create group dm: %w", err)
 	}
-	g := domain.NewGuild("Group message", gid, s.PublicKey())
+	g := domain.NewGuildWithID(id, "Group message", gid, s.PublicKey())
 	g.Kind = "dm"
 	g.Channels[0].Name = "dm"
 	if err := s.store.SaveGuild(g); err != nil {
@@ -710,11 +710,11 @@ func (s *Service) StartDM(fingerprint string) (domain.Guild, error) {
 		return *g, nil
 	}
 
-	gid, err := s.mls.CreateGroup(s.ctx)
+	id, gid, err := s.foundGroup()
 	if err != nil {
 		return domain.Guild{}, fmt.Errorf("app: create dm group: %w", err)
 	}
-	g := domain.NewGuild("Direct message", gid, s.PublicKey())
+	g := domain.NewGuildWithID(id, "Direct message", gid, s.PublicKey())
 	g.Kind = "dm"
 	g.Channels[0].Name = "dm"
 	if err := s.store.SaveGuild(g); err != nil {

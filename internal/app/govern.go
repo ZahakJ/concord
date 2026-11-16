@@ -27,7 +27,12 @@ func (s *Service) rebuildGovStateLocked(guildID string) {
 	if !ok {
 		return
 	}
-	s.govState[guildID] = replayGuildOpsWith(g.OwnerID, s.govOps[guildID], s.govSigs.verify)
+	st := replayGuildOpsWith(s.foldAnchorLocked(g), s.govOps[guildID], s.govSigs.verify)
+	if s.ownerUnverified[guildID] {
+		// No anchor: nobody is owner, and no fingerprint stands in for one.
+		st.owner = ""
+	}
+	s.govState[guildID] = st
 }
 
 // effectiveOwnerLocked is the guild's CURRENT owner fingerprint: the head of
@@ -37,6 +42,9 @@ func (s *Service) rebuildGovStateLocked(guildID string) {
 // keeps only its non-authority roles (invite dialing, the Notes self-DM
 // identity check). Caller must hold s.mu.
 func (s *Service) effectiveOwnerLocked(guildID string) string {
+	if s.ownerUnverified[guildID] {
+		return ""
+	}
 	if st, ok := s.govState[guildID]; ok && st.owner != "" {
 		return st.owner
 	}

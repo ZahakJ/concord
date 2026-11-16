@@ -95,6 +95,10 @@ const KNOWN = [
   // gets while its earlier copy is still in the guild.
   [/invite rejected: invite failed/i, "",
     "The guild's admin device couldn't add this device. If you linked this device again, that device may still hold its earlier copy and need a newer Concord to replace it."],
+  // The answer to an invite named an owner its own group does not support, or
+  // came with a welcome for another group. The core joined nothing.
+  [/invite's copy of the guild does not match the guild/i, "",
+    "This invite doesn't match the guild it names, so Concord didn't join. Nothing was saved. Ask the guild's owner, or another member you trust, for a new invite."],
   [/^bad invite code|invalid invite code/i, "",
     "That isn't a complete invite code. Paste the whole code — codes are long and easy to clip."],
   // Sending.

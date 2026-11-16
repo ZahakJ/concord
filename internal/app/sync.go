@@ -1139,6 +1139,12 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 		s.applySyncedEvent(guildID, ev)
 	}
 	s.ingestGovOpsRaw(guildID, payload.GovOps)
+	// A device that could not confirm this guild's founder takes it from any
+	// record that verifies against the group id, whoever served it, and from
+	// the log that just arrived (founderpin.go).
+	if s.OwnerUnverified(guildID) {
+		s.auditFounder(guildID, payload.Guild.OwnerID)
+	}
 	// The name, after the log it is checked against. See adoptSyncedGuildName.
 	s.adoptSyncedGuildName(guildID, payload.Guild.Name)
 	s.settleChannelLayout(guildID)
@@ -1486,7 +1492,7 @@ func (s *Service) loggedGuildName(guildID string) string {
 		return ""
 	}
 	ops := append([]govOp(nil), s.govOps[guildID]...)
-	owner := append([]byte(nil), g.OwnerID...)
+	owner := s.foldAnchorLocked(g)
 	s.mu.RUnlock()
 
 	renamed := false

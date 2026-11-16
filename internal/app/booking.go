@@ -589,11 +589,11 @@ func (s *Service) bookSlot(r bookingRequest) bookingResponse {
 	// The meeting room: same disposable machinery as StartMeeting, named for
 	// the calendar, alive until an hour past the slot so a meeting that runs
 	// long is not cut off mid-sentence.
-	gid, err := s.mls.CreateGroup(s.ctx)
+	id, gid, err := s.foundGroup()
 	if err != nil {
 		return bookingResponse{Err: "The host's app couldn't create the meeting — try again."}
 	}
-	g := domain.NewMeetingGuild("📅 "+name+" — "+start.Format("Jan 2, 15:04"), gid, s.PublicKey())
+	g := domain.NewMeetingGuildWithID(id, "📅 "+name+" — "+start.Format("Jan 2, 15:04"), gid, s.PublicKey())
 	if err := s.store.SaveGuild(g); err != nil {
 		return bookingResponse{Err: "The host's app couldn't create the meeting — try again."}
 	}

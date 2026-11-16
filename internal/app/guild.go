@@ -101,11 +101,11 @@ const (
 // CreateGuild creates a new guild (a fresh MLS group) owned by this peer,
 // persists it, and subscribes to its topics.
 func (s *Service) CreateGuild(name string) (domain.Guild, error) {
-	gid, err := s.mls.CreateGroup(s.ctx)
+	id, gid, err := s.foundGroup()
 	if err != nil {
 		return domain.Guild{}, fmt.Errorf("app: create group: %w", err)
 	}
-	g := domain.NewGuild(name, gid, s.PublicKey())
+	g := domain.NewGuildWithID(id, name, gid, s.PublicKey())
 	if err := s.store.SaveGuild(g); err != nil {
 		return domain.Guild{}, err
 	}
@@ -230,11 +230,11 @@ func (s *Service) saveMeetingLife() {
 // participant's client deletes expired meetings on startup, so the room
 // cleans itself up.
 func (s *Service) StartMeeting() (domain.Guild, string, error) {
-	gid, err := s.mls.CreateGroup(s.ctx)
+	id, gid, err := s.foundGroup()
 	if err != nil {
 		return domain.Guild{}, "", fmt.Errorf("app: create meeting group: %w", err)
 	}
-	g := domain.NewMeetingGuild("⚡ Meeting "+time.Now().Format("Jan 2, 15:04"), gid, s.PublicKey())
+	g := domain.NewMeetingGuildWithID(id, "⚡ Meeting "+time.Now().Format("Jan 2, 15:04"), gid, s.PublicKey())
 	if err := s.store.SaveGuild(g); err != nil {
 		return domain.Guild{}, "", err
 	}
@@ -1172,8 +1172,26 @@ func (s *Service) redeemInvite(ic inviteCode, held *domain.Guild) (domain.Guild,
 		return domain.Guild{}, fmt.Errorf("app: invite answered with a different guild")
 	}
 	sanitizeGuildRecord(&resp.Guild)
-	if _, err := s.mls.Join(s.ctx, resp.Welcome); err != nil {
+	// And the group. The join lands only in the group named here, checked
+	// inside the join before anything is stored (founderpin.go joinWant):
+	//   - a device that already holds the guild requires its own group, and
+	//     keeps its own record whole; only the welcome is taken;
+	//   - a guild with a founder-scheme group id must name, as owner, the key
+	//     its group id was derived from;
+	//   - a guild from before the scheme must be joined in the group its
+	//     record names.
+	want, err := joinWant(ic.GuildID, resp.Guild, held)
+	if err != nil {
+		return domain.Guild{}, err
+	}
+	if _, err := s.mls.JoinAs(s.ctx, resp.Welcome, want); err != nil {
+		if errors.Is(err, mls.ErrWrongGroup) {
+			return domain.Guild{}, errInviteMismatch
+		}
 		return domain.Guild{}, fmt.Errorf("app: join group: %w", err)
+	}
+	if probe {
+		resp.Guild = held.Clone()
 	}
 	// Seated again — by a committer that consulted the same governance log that
 	// put us out, so this is the one event that lifts the terminal state.
@@ -2223,6 +2241,8 @@ func (s *Service) trackGuildFromDisk(g *domain.Guild) {
 	// or from a prior sync) now that we know its owner.
 	s.rebuildGovStateLocked(g.ID)
 	s.mu.Unlock()
+	// A founder-scheme guild's owner must match its group id (founderpin.go).
+	s.auditFounder(g.ID)
 
 	// Recover which leaves are linked devices before anyone can ask us about
 	// them; without this a restart makes every quiet second device a stranger.

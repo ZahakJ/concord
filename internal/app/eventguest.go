@@ -227,11 +227,11 @@ func (s *Service) OpenEventGuests(guildID, eventID string, autoAdmit bool) (doma
 	}
 
 	// Mint the room: the same disposable machinery bookings use.
-	gid, err := s.mls.CreateGroup(s.ctx)
+	id, gid, err := s.foundGroup()
 	if err != nil {
 		return domain.Event{}, fmt.Errorf("app: couldn't create the guest room — try again")
 	}
-	room := domain.NewMeetingGuild(eventGuestRoomName(ev.Title), gid, s.PublicKey())
+	room := domain.NewMeetingGuildWithID(id, eventGuestRoomName(ev.Title), gid, s.PublicKey())
 	if err := s.store.SaveGuild(room); err != nil {
 		return domain.Event{}, fmt.Errorf("app: couldn't create the guest room — try again")
 	}

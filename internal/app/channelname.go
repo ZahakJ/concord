@@ -39,7 +39,7 @@ func (s *Service) loggedChannels(guildID string) map[string]loggedChannel {
 		return nil
 	}
 	ops := append([]govOp(nil), s.govOps[guildID]...)
-	owner := append([]byte(nil), g.OwnerID...)
+	owner := s.foldAnchorLocked(g)
 	s.mu.RUnlock()
 	relevant := false
 	for _, o := range ops {

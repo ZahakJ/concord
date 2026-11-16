@@ -1461,6 +1461,18 @@
       <button class="oos-act" onclick={continueFromHere}>Continue from here</button>
     {/if}
   </div>
+{:else if activeGuild()?.ownerUnverified}
+  <!-- This device could not confirm the guild's founder from its group, so the
+       core gives nobody owner powers here and sends no owner. It ends by itself
+       when a member's copy that does match arrives; Retry asks for one now. -->
+  <div class="oos-banner" role="status">
+    <span class="oos-dot"></span>
+    <span class="oos-text">
+      This device couldn't confirm who owns this guild, so nobody has owner powers here for now.
+      It fixes itself when it reaches another member.
+    </span>
+    <button class="oos-act" onclick={retrySync}>Retry now</button>
+  </div>
 {/if}
 
 {#snippet pinRows()}

@@ -45,6 +45,15 @@ const refused = joinFailure("app: invite rejected: invite failed");
 assert(/couldn't add this device/.test(refused.title) && /earlier copy/.test(refused.detail), "a refused join is not 'that code didn't get you in'");
 assert(/couldn't add this device/.test(joinFailure(humanError("app: invite rejected: invite failed")).title), "mapped refused join");
 
+// An answer that does not match the guild it names: the core joined nothing,
+// and the dialog says so in its own sentence, raw or through humanError.
+const mismatch = "app: this invite's copy of the guild does not match the guild";
+for (const m of [mismatch, humanError(mismatch)]) {
+  const f = joinFailure(m);
+  assert(/doesn't match the guild it names/.test(f.title) && /nothing was saved/.test(f.detail) && f.field === false, "a mismatched answer has its own sentence");
+}
+assert(/doesn't match the guild it names/.test(humanError(mismatch)) && !humanError(mismatch).includes("app:"), "humanError maps the mismatch");
+
 if (failures) {
   console.error(`\n${failures} joinerror test(s) failed`);
   process.exit(1);

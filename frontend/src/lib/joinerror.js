@@ -29,6 +29,13 @@ export function joinFailure(err) {
       field: false,
     };
   }
+  if (has("does not match the guild", "doesn't match the guild it names")) {
+    return {
+      title: "This invite doesn't match the guild it names.",
+      detail: "Concord didn't join, and nothing was saved. Ask the guild's owner, or another member you trust, for a new invite.",
+      field: false,
+    };
+  }
   if (has("bad invite code", "invite code", "decode", "illegal base64", "unexpected end", "invalid character")) {
     return {
       title: "That isn't a whole invite code.",

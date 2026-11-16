@@ -314,6 +314,10 @@ type GuildView struct {
 	// OutOfSync: this member is stranded at an old MLS epoch that no reachable
 	// peer could bridge; new messages can't be decrypted until re-invited.
 	OutOfSync bool `json:"outOfSync,omitempty"`
+	// OwnerUnverified: this device could not confirm who founded the guild
+	// from its group, so nobody holds owner powers here until it can. No
+	// owner fingerprint is sent while it holds.
+	OwnerUnverified bool `json:"ownerUnverified,omitempty"`
 	// Evicted is "removed" or "banned" when this device is no longer a member of
 	// the guild — a TERMINAL state, entered only on proof (a commit that blanked
 	// our leaf, or an authorized committer's refusal), never on a failure to
@@ -3577,10 +3581,11 @@ func (vc *viewContext) guildView(g domain.Guild) GuildView {
 		Icon:             g.Icon, Banner: g.Banner, Description: g.Description,
 		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID) || svc.CannotRepairHere(g.ID),
 		Evicted: svc.EvictedFrom(g.ID), EvictedReason: svc.EvictedReason(g.ID),
-		Alone:        svc.AloneInGuild(g.ID),
-		CannotRepair: svc.CannotRepairHere(g.ID),
-		LastActivity: lastActivity,
-		MyMutedUntil: svc.MutedUntil(g.ID, svc.Fingerprint()),
+		Alone:           svc.AloneInGuild(g.ID),
+		CannotRepair:    svc.CannotRepairHere(g.ID),
+		OwnerUnverified: svc.OwnerUnverified(g.ID),
+		LastActivity:    lastActivity,
+		MyMutedUntil:    svc.MutedUntil(g.ID, svc.Fingerprint()),
 	}
 }
 

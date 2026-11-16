@@ -246,6 +246,10 @@ type Service struct {
 	// gate and invite gate consult. Both are guarded by mu.
 	govOps   map[string][]govOp
 	govState map[string]GuildState
+	// ownerUnverified marks founder-scheme guilds whose founder this device
+	// could not confirm from the group (founderpin.go). While set, the log is
+	// folded with no owner. Guarded by mu.
+	ownerUnverified map[string]bool
 	// govHashes indexes each guild's ingested op hashes for O(1) dedup, instead
 	// of re-hashing the whole op log on every ingest (sync replays the full log).
 	govHashes map[string]map[string]bool
@@ -1236,6 +1240,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		nicks:            map[string]map[string]string{},
 		govOps:           map[string][]govOp{},
 		govState:         map[string]GuildState{},
+		ownerUnverified:  map[string]bool{},
 		slowSeen:         map[string]int64{},
 		govHashes:        map[string]map[string]bool{},
 		govHighSeq:       map[string]map[string]uint64{},
