@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
+	"github.com/ZahakJ/concord/internal/crypto/mls"
 	"github.com/ZahakJ/concord/internal/domain"
 )
 
@@ -577,5 +579,221 @@ func TestJoinWant(t *testing.T) {
 	// The id the founder is checked against is the code's, not the answer's.
 	if _, err := joinWant("h", domain.Guild{ID: "h", GroupID: gid, OwnerID: founder}, nil); err == nil {
 		t.Error("a founder id made for guild g was accepted for guild h")
+	}
+}
+
+// A newcomer seated in a second MLS group under the guild's group id, by a
+// device that is not the founder, takes the founder as owner and gives that
+// device no owner power; a record naming that device as owner is refused. The
+// guild's own members do not see the newcomer.
+func TestOwnerALookAlikeGroupKeepsTheFounder(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	owner := startService(t, ctx)
+	member := startService(t, ctx)
+	copier := startService(t, ctx)
+	refused := startService(t, ctx)
+	newcomer := startService(t, ctx)
+	g, err := owner.CreateGuild("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := owner.InviteCode(g.ID)
+	if _, err := member.JoinViaInvite(code); err != nil {
+		t.Fatalf("member join: %v", err)
+	}
+	waitMembers(t, 30*time.Second, 2, owner, member)
+
+	rec := storedGuild(owner, g.ID)
+	if _, err := copier.mls.CreateGroupWithID(ctx, mls.GroupID(rec.GroupID)); err != nil {
+		t.Fatalf("copier CreateGroupWithID: %v", err)
+	}
+	var namedOwner atomic.Pointer[[]byte]
+	copier.host.HandleInvites(func(c context.Context, from peer.ID, raw []byte) ([]byte, error) {
+		var req inviteRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return nil, err
+		}
+		_, welcome, err := copier.mls.Invite(c, mls.GroupID(rec.GroupID), req.KeyPackage)
+		if err != nil {
+			return nil, err
+		}
+		answer := rec.Clone()
+		answer.OwnerID = append([]byte(nil), (*namedOwner.Load())...)
+		return json.Marshal(inviteResponse{Welcome: welcome, Guild: answer})
+	})
+	bootstrap := LoadNetConfig(copier.dataDir).Bootstrap
+	copierCode := encodeInviteCode(inviteCode{
+		GuildID:   rec.ID,
+		GuildName: rec.Name,
+		OwnerID:   copier.host.PeerID().String(),
+		OwnerAddr: codeAddrs(copier.host.AddrInfo().Addrs, bootstrap),
+		Bootstrap: bootstrap,
+	})
+
+	self := copier.PublicKey()
+	namedOwner.Store(&self)
+	if _, err := refused.JoinViaInvite(copierCode); !errors.Is(err, errInviteMismatch) {
+		t.Fatalf("a copy whose record names the copier as owner: err %v, want the mismatch refusal", err)
+	}
+	founder := owner.PublicKey()
+	namedOwner.Store(&founder)
+	if _, err := newcomer.JoinViaInvite(copierCode); err != nil {
+		t.Fatalf("a copy whose record names the founder: %v", err)
+	}
+
+	creds, err := newcomer.mls.Members(ctx, rec.GroupID)
+	if err != nil {
+		t.Fatalf("newcomer Members: %v", err)
+	}
+	seatedWithCopier := false
+	for _, c := range creds {
+		k := accountKeyOf(c)
+		if bytes.Equal(k, founder) || bytes.Equal(k, member.PublicKey()) {
+			t.Fatal("the newcomer's group holds a real member; it is not a copy")
+		}
+		seatedWithCopier = seatedWithCopier || bytes.Equal(k, self)
+	}
+	if !seatedWithCopier {
+		t.Fatal("setup: the newcomer's group does not hold the copier")
+	}
+	if !newcomer.IsGuildOwner(g.ID, owner.id.Fingerprint()) {
+		t.Errorf("in the copy the newcomer's owner is %q, want the founder", newcomer.GuildOwnerFingerprint(g.ID))
+	}
+	if newcomer.IsGuildOwner(g.ID, copier.id.Fingerprint()) || newcomer.memberHasPerm(g.ID, copier.id.Fingerprint(), PermManageMembers) {
+		t.Error("in the copy the copier holds owner power")
+	}
+	if own, err := owner.mls.Members(ctx, rec.GroupID); err != nil || len(own) != 2 {
+		t.Errorf("the guild's own group has %d members, %v; want the owner and the member only", len(own), err)
+	}
+}
+
+// After the founder hands the guild to B, B admits a newcomer and its log
+// reaches the newcomer without the transfer. The newcomer shows the founder as
+// owner until a sync from another member brings the transfer, then B. This
+// records the behaviour: the newcomer's log is whatever its sync sources hold.
+func TestOwnerANewcomerShowsTheFounderUntilASyncBringsTheTransfer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// A shared rendezvous, so the newcomer can find the founder later.
+	boot := testRendezvous(t, ctx)
+	founder := startServiceOn(t, ctx, t.TempDir(), boot)
+	b := startServiceOn(t, ctx, t.TempDir(), boot)
+	newcomer := startServiceOn(t, ctx, t.TempDir(), boot)
+	g := ownerAdminGuild(t, founder, b, func() (domain.Guild, error) { return founder.CreateGuild("g") })
+	if err := founder.TransferOwnership(g.ID, b.id.Fingerprint()); err != nil {
+		t.Fatalf("TransferOwnership: %v", err)
+	}
+	waitUntil(t, 20*time.Second, func() bool { return b.IsGuildOwner(g.ID, b.id.Fingerprint()) }, "B never became owner")
+
+	founder.host.HandleSync(func(context.Context, peer.ID, []byte) ([]byte, error) {
+		return nil, errors.New("not serving sync")
+	})
+	b.mu.RLock()
+	served := 0
+	for _, o := range b.govOps[g.ID] {
+		if o.Type != "transfer_owner" {
+			served++
+		}
+	}
+	b.mu.RUnlock()
+	b.host.HandleSync(func(c context.Context, from peer.ID, raw []byte) ([]byte, error) {
+		b.mu.Lock()
+		all := b.govOps[g.ID]
+		var kept []govOp
+		for _, o := range all {
+			if o.Type != "transfer_owner" {
+				kept = append(kept, o)
+			}
+		}
+		b.govOps[g.ID] = kept
+		b.mu.Unlock()
+		out, err := b.handleSyncRequest(c, from, raw)
+		b.mu.Lock()
+		b.govOps[g.ID] = all
+		b.mu.Unlock()
+		return out, err
+	})
+
+	code, err := b.InviteCode(g.ID)
+	if err != nil {
+		t.Fatalf("B InviteCode: %v", err)
+	}
+	if _, err := newcomer.JoinViaInvite(code); err != nil {
+		t.Fatalf("newcomer join via B: %v", err)
+	}
+	waitUntil(t, 30*time.Second, func() bool {
+		newcomer.mu.RLock()
+		defer newcomer.mu.RUnlock()
+		return len(newcomer.govOps[g.ID]) >= served
+	}, "B's log never reached the newcomer")
+	if !newcomer.IsGuildOwner(g.ID, founder.id.Fingerprint()) {
+		t.Fatalf("before the transfer reaches it the newcomer's owner is %q; the recorded behaviour is the founder", newcomer.GuildOwnerFingerprint(g.ID))
+	}
+
+	founder.host.HandleSync(founder.handleSyncRequest)
+	waitUntil(t, 60*time.Second, func() bool {
+		_ = newcomer.syncGuildFromPeer(g.ID, founder.host.PeerID())
+		return newcomer.IsGuildOwner(g.ID, b.id.Fingerprint())
+	}, "a sync from the founder did not bring the transfer to B")
+}
+
+// A heal served as a plain join, as builds before the heal flag serve it, with
+// a record naming another owner, re-seats the member in its own group; the
+// member keeps its record and its founder.
+func TestOwnerAHealServedAsAPlainJoinKeepsTheFounder(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	boot := testRendezvous(t, ctx)
+	owner := startServiceOn(t, ctx, t.TempDir(), boot)
+	member := startServiceOn(t, ctx, t.TempDir(), boot)
+	g, err := owner.CreateGuild("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := owner.InviteCode(g.ID)
+	waitUntil(t, 60*time.Second, func() bool { _, err := member.JoinViaInvite(code); return err == nil }, "join")
+	before, err := member.mls.Epoch(ctx, g.GroupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stranger := bytes.Repeat([]byte{0x42}, 32)
+	owner.host.HandleInvites(func(c context.Context, from peer.ID, raw []byte) ([]byte, error) {
+		var req inviteRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return nil, err
+		}
+		req.Heal = false
+		plain, _ := json.Marshal(req)
+		out, err := owner.handleInviteRequest(c, from, plain)
+		if err != nil {
+			return out, err
+		}
+		var resp inviteResponse
+		if err := json.Unmarshal(out, &resp); err != nil {
+			return nil, err
+		}
+		resp.Guild.OwnerID = stranger
+		return json.Marshal(resp)
+	})
+	waitUntil(t, 60*time.Second, func() bool { return member.healViaCommitter(g.ID, owner.host.PeerID()) }, "a heal served as a plain join did not re-seat the member")
+	if after, err := member.mls.Epoch(ctx, g.GroupID); err != nil || after <= before {
+		t.Fatalf("after the heal the guild is at epoch %d (was %d), %v", after, before, err)
+	}
+	if got := storedGuild(member, g.ID).OwnerID; !bytes.Equal(got, owner.PublicKey()) {
+		t.Fatalf("after the heal the record names %x, want the founder", got)
+	}
+	if !member.IsGuildOwner(g.ID, owner.id.Fingerprint()) || member.OwnerUnverified(g.ID) {
+		t.Fatalf("after the heal the owner is %q (unverified %v), want the founder", member.GuildOwnerFingerprint(g.ID), member.OwnerUnverified(g.ID))
 	}
 }
