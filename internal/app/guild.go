@@ -1865,9 +1865,33 @@ func (s *Service) sendCore(channelID, content, kind, replyTo, guestName, dir str
 	// Writing in a chat means having read it up to here: our own message must
 	// not sit past our own read mark, here or on our other devices.
 	if markRead {
-		_, _ = s.MarkRead(channelID, msg.Sent.UnixMilli())
+		s.markReadThroughOwn(channelID, msg)
 	}
 	return msg, nil
+}
+
+// markReadThroughOwn moves the read mark up to a message we just sent, so our
+// own words do not sit past our own mark, here or on our other devices. It
+// never moves it past a message from anyone else that is still unread: sending
+// is not reading, and a mark over that row would clear its badge and send a
+// read receipt for it. With one waiting, the mark stops just short of it.
+func (s *Service) markReadThroughOwn(channelID string, msg domain.Message) {
+	at := msg.Sent.UnixMilli()
+	prior, err := s.store.ReadMark(channelID)
+	if err != nil {
+		return
+	}
+	first, waiting, err := s.store.FirstUnseenFromOthers(channelID, prior*int64(time.Millisecond), msg.Sent.UnixNano(), msg.Sender)
+	if err != nil {
+		return
+	}
+	if waiting {
+		// A mark of m covers rows sent at or before m ms.
+		at = min(at, (first-1)/int64(time.Millisecond))
+	}
+	if at > prior {
+		_, _ = s.MarkRead(channelID, at)
+	}
 }
 
 // ToggleReaction adds/removes an emoji reaction on a message.

@@ -1787,6 +1787,25 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 	return msgs, nil
 }
 
+// FirstUnseenFromOthers returns the send time (UnixNano) of the oldest row in
+// a channel that counts towards its unread badge, was sent after afterNano and
+// before beforeNano, and is not from sender. It is what a send asks before it
+// moves the read mark: a mark past that row would mark read a message nobody
+// looked at.
+func (s *Store) FirstUnseenFromOthers(channelID string, afterNano, beforeNano int64, sender []byte) (int64, bool, error) {
+	var sent sql.NullInt64
+	err := s.rd().QueryRow(
+		`SELECT MIN(sent) FROM messages
+		 WHERE channel_id = ? AND sent > ? AND sent < ? AND sender != ?
+		   AND deleted = 0 AND quiet = 0 AND kind IN ('', 'guest')
+		   AND id NOT IN (SELECT message_id FROM hidden_messages WHERE hidden = 1)`,
+		channelID, afterNano, beforeNano, sender).Scan(&sent)
+	if err != nil {
+		return 0, false, err
+	}
+	return sent.Int64, sent.Valid, nil
+}
+
 // UnreadRows returns the newest limit rows of a channel that count towards
 // its unread badge (live, not quiet, a person speaking) and were sent after
 // afterNano, oldest first, without reactions. It is what the client needs to
