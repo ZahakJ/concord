@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,6 +112,8 @@ func (f *fakeClearer) ClearDeletedBodies([]string) (int, error) {
 	return 0, f.clearErr
 }
 
+func (f *fakeClearer) ReleaseErasedBlobs() ([]string, error) { return nil, nil }
+
 // An error on the way does not record the run, so it runs again at the next
 // launch; a run that finishes is recorded and not repeated.
 func TestDeletedBodiesClearIsRecordedOnlyWhenItFinishes(t *testing.T) {
@@ -135,5 +138,72 @@ func TestDeletedBodiesClearIsRecordedOnlyWhenItFinishes(t *testing.T) {
 	clearDeletedBodiesOnceIn(f)
 	if f.clears != 2 {
 		t.Fatalf("a recorded run ran again: %d clears", f.clears)
+	}
+}
+
+// The one-time clear takes the blobs of the bodies it erases: a blob only the
+// erased body named is removed, banned and not served, while a blob a live
+// message names stays served. A cached blob that no held message names is not
+// served either.
+func TestTheOneTimeClearTakesTheErasedBodiesBlobs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	owner := startService(t, ctx)
+	member := startService(t, ctx)
+	g := guildWith(t, owner, member)
+	ch := g.Channels[0].ID
+	waitFor(t, 10*time.Second, func() bool {
+		v, _ := member.store.GetSetting(deletedBodiesClearedKey)
+		return v != ""
+	}, "the launch run was not recorded")
+	if err := member.store.DeleteSetting(deletedBodiesClearedKey); err != nil {
+		t.Fatal(err)
+	}
+
+	gone, kept, orphan := strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64)
+	for _, id := range []string{gone, kept, orphan} {
+		if err := member.store.SaveAttachment(id, []byte("ciphertext of "+id[:4])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m, err := domain.NewMessage(ch, owner.id.PublicKey(), "deleted "+testBlobToken(gone)+" "+testBlobToken(kept))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := member.store.SaveMessage(m); err != nil {
+		t.Fatal(err)
+	}
+	live, err := domain.NewMessage(ch, owner.id.PublicKey(), "live "+testBlobToken(kept))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := member.store.SaveMessage(live); err != nil {
+		t.Fatal(err)
+	}
+	// Deleted with its body kept, as a moderator's device or an older build
+	// left it.
+	if _, ok, err := member.store.MarkDeleted(m.ID, nil, true); err != nil || !ok {
+		t.Fatalf("MarkDeleted: %v %v", ok, err)
+	}
+	if serves(t, member, orphan) {
+		t.Error("a cached blob no held message names was served")
+	}
+
+	member.clearDeletedBodiesOnce()
+
+	if body, _ := member.store.MessageContent(m.ID); body != "" {
+		t.Fatalf("the deleted body was kept: %q", body)
+	}
+	if _, held, _ := member.store.GetAttachment(gone); held || !member.store.BlobBanned(gone) || serves(t, member, gone) {
+		t.Error("the blob of a body the clear erased was kept")
+	}
+	if !serves(t, member, kept) || member.store.BlobBanned(kept) {
+		t.Error("a blob a live message names went with the erased body")
+	}
+	if v, _ := member.store.GetSetting(deletedBodiesClearedKey); v == "" {
+		t.Fatal("the run was not recorded")
 	}
 }

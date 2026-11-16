@@ -13,9 +13,13 @@ const deletedBodiesClearedKey = "app.deleted_bodies_cleared"
 // and clear the other. Deletes applied after the run keep their bodies for
 // RevealDeleted as before.
 //
+// The blobs the erased bodies named are released as a delete releases them
+// (store.ReleaseErasedBlobs), which needs the blob index complete: the launch
+// runs this after the index backfill.
+//
 // The run is recorded only when it finishes. One stopped by an error or by
 // shutdown starts again at the next launch, and what it already cleared is
-// not matched again.
+// not matched again; the blobs it noted are released by that run.
 func (s *Service) clearDeletedBodiesOnce() { clearDeletedBodiesOnceIn(s.store) }
 
 // bodyClearer is the part of the store the one-time clear uses.
@@ -23,6 +27,7 @@ type bodyClearer interface {
 	GetSetting(key string) (string, error)
 	SetSetting(key, value string) error
 	ClearDeletedBodies(keepChannels []string) (int, error)
+	ReleaseErasedBlobs() ([]string, error)
 }
 
 func clearDeletedBodiesOnceIn(st bodyClearer) {
@@ -30,6 +35,9 @@ func clearDeletedBodiesOnceIn(st bodyClearer) {
 		return
 	}
 	if _, err := st.ClearDeletedBodies(nil); err != nil {
+		return
+	}
+	if _, err := st.ReleaseErasedBlobs(); err != nil {
 		return
 	}
 	_ = st.SetSetting(deletedBodiesClearedKey, "1")

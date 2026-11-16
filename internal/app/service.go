@@ -1669,9 +1669,14 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	go s.runStoryGCLoop()
 	go s.runRetentionLoop()
 	go s.runEphemeralLoop()
-	// Once per device: every deleted body already at rest (deletedbodies.go).
-	go s.clearDeletedBodiesOnce()
-	go s.runBlobRefsBackfill()
+	// The blob index backfill, then, once per device, every deleted body
+	// already at rest and its blobs (deletedbodies.go), which need the index.
+	go func() {
+		s.runBlobRefsBackfill()
+		if s.ctx.Err() == nil {
+			s.clearDeletedBodiesOnce()
+		}
+	}()
 
 	// Resume rich presence if the user had it on.
 	if s.RichPresenceEnabled() {

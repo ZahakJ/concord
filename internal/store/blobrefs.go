@@ -4,10 +4,13 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"time"
+
+	"golang.org/x/crypto/nacl/secretbox"
 )
 
 // Blob references: which held message bodies name which attachment blob.
@@ -374,6 +377,88 @@ func (s *Store) queuedBlobIDs(q querier) (map[string]bool, error) {
 		}
 	}
 	return out, rows.Err()
+}
+
+// ErrBlobRefsIncomplete is returned by ReleaseErasedBlobs while the blob index
+// backfill has not finished in this process.
+var ErrBlobRefsIncomplete = errors.New("store: blob index not complete")
+
+// ReleaseErasedBlobs releases, as ReleaseBlobs does, the blobs of every
+// deleted row whose body is erased but which still holds blob references:
+// the rows ClearDeletedBodies erased. It returns the banned ids, and
+// ErrBlobRefsIncomplete, releasing nothing, until the backfill is complete.
+func (s *Store) ReleaseErasedBlobs() ([]string, error) {
+	if !s.BlobRefsComplete() {
+		return nil, ErrBlobRefsIncomplete
+	}
+	ids, err := s.erasedWithBlobs()
+	if err != nil {
+		return nil, err
+	}
+	var banned []string
+	for len(ids) > 0 {
+		n := min(len(ids), blobReleaseBatch)
+		tx, err := s.db.Begin()
+		if err != nil {
+			return banned, err
+		}
+		for _, id := range ids[:n] {
+			b, err := s.releaseBlobs(tx, id, true)
+			if err != nil {
+				_ = tx.Rollback()
+				return banned, err
+			}
+			banned = append(banned, b...)
+		}
+		if err := tx.Commit(); err != nil {
+			return banned, err
+		}
+		ids = ids[n:]
+	}
+	return banned, nil
+}
+
+// blobReleaseBatch bounds one transaction of ReleaseErasedBlobs: releasing a
+// row's blobs costs about a tenth of a millisecond, so a batch holds the
+// connection for some tens of milliseconds.
+const blobReleaseBatch = 500
+
+// erasedWithBlobs lists the deleted rows whose body is erased (the sealed
+// empty string) and which still hold blob references.
+func (s *Store) erasedWithBlobs() ([]string, error) {
+	rows, err := s.rd().Query(`SELECT DISTINCT r.message_id FROM blob_refs r JOIN messages m ON m.id = r.message_id
+		WHERE m.deleted = 1 AND length(m.content_enc) <= ?`, secretbox.Overhead)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// BlobServable reports whether blobID may be served to a peer: it is not
+// banned, and something on this device keeps it, as ReleaseBlobs counts it:
+// a held row that names it and whose body is not erased, the guild GIF pack,
+// or a pin. A blob that only an erased row named, or that no indexed row
+// names (a cache entry whose message is gone, or whose row the backfill has
+// not reached yet), is not served.
+func (s *Store) BlobServable(blobID string) bool {
+	var ok int
+	err := s.rd().QueryRow(`SELECT
+		NOT EXISTS (SELECT 1 FROM banned_blobs WHERE blob_id = ?1)
+		AND (EXISTS (SELECT 1 FROM blob_refs r JOIN messages m ON m.id = r.message_id
+		             WHERE r.blob_id = ?1 AND (m.deleted = 0 OR length(m.content_enc) > ?2))
+		  OR EXISTS (SELECT 1 FROM guild_gifs WHERE id = ?1)
+		  OR EXISTS (SELECT 1 FROM attachments WHERE blob_id = ?1 AND pinned = 1))`,
+		blobID, secretbox.Overhead).Scan(&ok)
+	return err == nil && ok != 0
 }
 
 // BlobBanned reports whether blobID was removed and banned on this device.

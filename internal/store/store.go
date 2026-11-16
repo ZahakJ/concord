@@ -2812,17 +2812,23 @@ func (s *Store) PurgeDeletedContent(channelIDs []string) (int, error) {
 
 // ClearDeletedBodies erases the body still held at rest by every deleted row
 // outside keepChannels, and returns how many rows it cleared. It works in
-// batches of pruneBatch rows, one statement each, so the single connection is
-// given back between them. A cleared body is the sealed empty string, as
-// EraseContent writes, and is not matched again: the loop ends on its own.
-// Once anything was cleared the log is written back, as after any batch of
-// deletes (CheckpointDeletes).
+// batches of at most pruneBatch rows, one transaction each, so the single
+// connection is given back between them. A cleared body is the sealed empty
+// string, as EraseContent writes, and is not matched again: the loop ends on
+// its own. Once anything was cleared the log is written back, as after any
+// batch of deletes (CheckpointDeletes).
+//
+// Before a body is erased, the blobs it names are recorded under its row in
+// the blob index, whether or not the backfill has reached that row yet, so
+// ReleaseErasedBlobs can let them go once the index is complete.
 func (s *Store) ClearDeletedBodies(keepChannels []string) (int, error) {
 	total := 0
 	for {
 		n, err := s.clearDeletedBodiesChunk(keepChannels, pruneBatch)
 		total += n
-		if err != nil || n < pruneBatch {
+		// A batch can stop short of pruneBatch at the byte bound, so only an
+		// empty one ends the loop.
+		if err != nil || n == 0 {
 			if total > 0 {
 				s.CheckpointDeletes()
 			}
@@ -2840,7 +2846,7 @@ func (s *Store) clearDeletedBodiesChunk(keepChannels []string, limit int) (int, 
 	// A sealed empty body is exactly secretbox.Overhead bytes long, so a row
 	// still holding words is told apart without opening it.
 	where := `deleted = 1 AND length(content_enc) > ?`
-	args := []any{sealed, nonce[:], secretbox.Overhead}
+	args := []any{secretbox.Overhead}
 	if len(keepChannels) > 0 {
 		ph := make([]string, len(keepChannels))
 		for i, id := range keepChannels {
@@ -2850,13 +2856,51 @@ func (s *Store) clearDeletedBodiesChunk(keepChannels []string, limit int) (int, 
 		where += ` AND channel_id NOT IN (` + strings.Join(ph, ",") + `)`
 	}
 	args = append(args, limit)
-	res, err := s.db.Exec(`UPDATE messages SET content_enc = ?, nonce = ?
-		 WHERE id IN (SELECT id FROM messages WHERE `+where+` LIMIT ?)`, args...)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	rows, err := tx.Query(`SELECT id, content_enc, nonce FROM messages WHERE `+where+` LIMIT ?`, args...)
 	if err != nil {
 		return 0, fmt.Errorf("store: clear deleted bodies: %w", err)
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	type held struct {
+		id         string
+		enc, nonce []byte
+	}
+	var batch []held
+	size := 0
+	for rows.Next() {
+		var h held
+		if err := rows.Scan(&h.id, &h.enc, &h.nonce); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		batch = append(batch, h)
+		// The same byte bound as a backfill batch: the bodies are opened.
+		if size += len(h.enc); size >= blobRefsBatchBytes {
+			break
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	for _, h := range batch {
+		if body, err := s.open(h.enc, h.nonce); err == nil {
+			if err := insertBlobRefs(tx, h.id, nil, BlobIDsIn(body)); err != nil {
+				return 0, err
+			}
+		}
+		if _, err := tx.Exec(`UPDATE messages SET content_enc = ?, nonce = ? WHERE id = ?`, sealed, nonce[:], h.id); err != nil {
+			return 0, fmt.Errorf("store: clear deleted bodies: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return len(batch), nil
 }
 
 // PruneMessagesBefore deletes messages in the given channels sent before cutoff

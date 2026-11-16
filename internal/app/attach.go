@@ -391,8 +391,10 @@ func (s *Service) handleAttachRequest(ctx context.Context, _ peer.ID, request []
 	if !blobIDRe.MatchString(strings.TrimSpace(req.BlobID)) {
 		return []byte{}, nil
 	}
-	if s.store.BlobBanned(req.BlobID) {
-		return []byte{}, nil // removed with its message; never served again
+	// Only a blob something on this device keeps: not one removed with its
+	// message, nor a cache entry no held message names any longer.
+	if !s.store.BlobServable(req.BlobID) {
+		return []byte{}, nil
 	}
 	ct, ok, err := s.store.GetAttachment(req.BlobID)
 	if err != nil || !ok || len(ct) > cnet.MaxAttachResponse {

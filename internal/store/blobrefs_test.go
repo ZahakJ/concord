@@ -467,3 +467,40 @@ func TestAnotherSendersMessageLiftsABan(t *testing.T) {
 		t.Errorf("the blob could not be stored again after the ban was lifted: %v", err)
 	}
 }
+
+// A blob is served only while something on the device keeps it: a held row
+// whose body names it and is not erased, the guild GIF pack, or a pin. A
+// cache entry no row names, a blob only an erased row names, and a banned
+// blob are not.
+func TestOnlyAKeptBlobIsServed(t *testing.T) {
+	s := completeStore(t)
+	named, orphan, erased, gif, pinned := blobID('a'), blobID('b'), blobID('c'), blobID('d'), blobID('e')
+	for _, id := range []string{named, orphan, erased, gif, pinned} {
+		holdBlob(t, s, id)
+	}
+	saveBody(t, s, "live "+imageToken(named))
+	m := saveBody(t, s, "erased "+imageToken(erased))
+	if _, ok, err := s.MarkDeleted(m.ID, nil, true); err != nil || !ok {
+		t.Fatalf("MarkDeleted: %v %v", ok, err)
+	}
+	if err := s.EraseContent(m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveGuildGif(GuildGifRow{GuildID: "g", ID: gif, Name: "n", Keys: testKeys, Subtype: "gif"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PinAttachment(pinned, true); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]bool{named: true, gif: true, pinned: true, orphan: false, erased: false} {
+		if got := s.BlobServable(id); got != want {
+			t.Errorf("blob %s…: servable %v, want %v", id[:4], got, want)
+		}
+	}
+	if _, err := s.db.Exec(`INSERT INTO banned_blobs (blob_id, at) VALUES (?, 1)`, named); err != nil {
+		t.Fatal(err)
+	}
+	if s.BlobServable(named) {
+		t.Error("a banned blob is servable")
+	}
+}
