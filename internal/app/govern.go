@@ -396,11 +396,16 @@ func (s *Service) canManageMembers(guildID string) bool {
 
 // memberHasPerm reports whether an arbitrary member (by fingerprint) holds a
 // permission in the guild — used to authorize an inbound moderation action
-// whose actor is the MLS-authenticated sender, not us.
+// whose actor is the MLS-authenticated sender, not us. A member who has been
+// removed or banned holds none: a kick does not strip roles in the log, so the
+// roles alone do not answer it.
 func (s *Service) memberHasPerm(guildID, fpr string, need Permission) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if _, ok := s.guilds[guildID]; !ok {
+		return false
+	}
+	if st, ok := s.govState[guildID]; ok && fpr != "" && (st.Removed[fpr] || st.Banned[fpr]) {
 		return false
 	}
 	return s.govState[guildID].Can(s.effectiveOwnerLocked(guildID), fpr, need)

@@ -4122,6 +4122,31 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 	// lane earns it — MLS proved who sent the frame — so it is cleared rather
 	// than adopted, exactly as the sync lane recomputes it.
 	m.Unverified = false
+	s.mu.RLock()
+	guildID := s.channelToGuild[m.ChannelID]
+	s.mu.RUnlock()
+	senderFpr := accountFingerprintOf(m.Sender)
+	// MEMBERSHIP, and it is not advisory. MLS keeps secrets from up to five past
+	// epochs so an out-of-order message still opens, which means a message
+	// written before someone was thrown out still decrypts here afterwards — and
+	// rendering it is how a removal that took effect on the wire fails to take
+	// effect on the screen. The roster is governance and MLS state, never an
+	// observation of who is talking, so a frame whose author is not in the group
+	// NOW is dropped, exactly as a banned sender's would be.
+	//
+	// Only this LIVE lane. History that arrives over sync was legal when it was
+	// written and stays; erasing a former member's past is a different decision
+	// with a different name, and this is not it.
+	//
+	// Actions (delete, pin, reaction, edit) pass the same gate first: what a
+	// sender may do to a message is judged against the roster as it is when
+	// the action is applied.
+	if guildID != "" {
+		if !s.guildHasMember(guildID, senderFpr) ||
+			s.isBanned(guildID, senderFpr) || s.isRemoved(guildID, senderFpr) {
+			return
+		}
+	}
 	if isMessageAction(m.Kind) && !s.targetInChannel(m.ReplyTo, m.ChannelID) {
 		return
 	}
@@ -4138,27 +4163,6 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 	case "pin":
 		s.applyPin(m.ReplyTo, m.Sender, m.ChannelID)
 		return
-	}
-	s.mu.RLock()
-	guildID := s.channelToGuild[m.ChannelID]
-	s.mu.RUnlock()
-	senderFpr := accountFingerprintOf(m.Sender)
-	// MEMBERSHIP, and it is not advisory. MLS keeps secrets from up to five past
-	// epochs so an out-of-order message still opens, which means a message
-	// written before someone was thrown out still decrypts here afterwards — and
-	// rendering it is how a removal that took effect on the wire fails to take
-	// effect on the screen. The roster is governance and MLS state, never an
-	// observation of who is talking, so a frame whose author is not in the group
-	// NOW is dropped, exactly as a banned sender's would be.
-	//
-	// Only this LIVE lane. History that arrives over sync was legal when it was
-	// written and stays; erasing a former member's past is a different decision
-	// with a different name, and this is not it.
-	if guildID != "" {
-		if !s.guildHasMember(guildID, senderFpr) ||
-			s.isBanned(guildID, senderFpr) || s.isRemoved(guildID, senderFpr) {
-			return
-		}
 	}
 	// Announcement channels enforce, rather than wearing a megaphone. The gate
 	// is here and not only in the composer because in a network with no server
