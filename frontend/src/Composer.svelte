@@ -1880,7 +1880,7 @@
         <span>{CARD_QUESTION}</span>
         <span class="ca-btns">
           <button type="button" class="ca-yes" onclick={() => answerCardAsk(true)}>Yes</button>
-          <button type="button" class="ca-no" onclick={() => answerCardAsk(false)}>Not now</button>
+          <button type="button" class="ca-no" onclick={() => answerCardAsk(false)}>No thanks</button>
         </span>
       </div>
     {/if}

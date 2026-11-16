@@ -50,7 +50,7 @@ export const CARD_QUESTION =
 // and says the question is still to come; choosing there is the answer.
 export function cardChoiceNote(pref) {
   if (pref === true) return "On: Concord looks up a link's title and picture, from your device, when you send it";
-  if (pref === false) return "Off: links you send go out as you typed them";
+  if (pref === false) return "Off: links you send go out as you typed them. You can turn this on here at any time.";
   return SEND_DEFAULT === "ask" ? "Not chosen yet: you will be asked at the first link you send" : "Off until you turn it on";
 }
 

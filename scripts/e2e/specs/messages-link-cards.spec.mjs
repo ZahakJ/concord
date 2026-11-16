@@ -12,8 +12,8 @@
 //   - a page posing as YouTube is drawn as a page with its domain in full on
 //     a phone;
 //   - with the default ("ask"), the first link goes out bare and raises one
-//     question that says what Yes does; Yes sends cards from then on, Not now
-//     keeps links bare;
+//     question that says what Yes does; Yes sends cards from then on, No
+//     thanks keeps links bare;
 //   - Settings › Privacy holds the same choice: its line says undecided, on or
 //     off, and setting it there answers the question for good, both ways;
 //   - the composer fetches nothing while a link is typed, and once at send;
@@ -166,7 +166,7 @@ const ROW_TITLE = "Preview cards for links you send";
 const NOTE = {
   undecided: "Not chosen yet: you will be asked at the first link you send",
   on: "On: Concord looks up a link's title and picture, from your device, when you send it",
-  off: "Off: links you send go out as you typed them",
+  off: "Off: links you send go out as you typed them. You can turn this on here at any time.",
 };
 const storedChoice = (app) =>
   app.page.evaluate(() => JSON.parse(localStorage.getItem("concord.prefs") || "{}").sendLinkPreviews ?? null);
@@ -402,9 +402,9 @@ test("the composer fetches nothing while a link is typed, and the card once at s
 });
 
 // The owner's default is "ask": no card until the sender has answered once.
-// "Not now" is an answer: links go out bare, nothing is fetched, and the
+// "No thanks" is an answer: links go out bare, nothing is fetched, and the
 // question is not asked again, after a reload too.
-test("phone: Not now keeps links bare and is not asked again", async ({ world, assert, step, sleep }) => {
+test("phone: No thanks keeps links bare and is not asked again", async ({ world, assert, step, sleep }) => {
   const { alice, bashir, general, ytThumb } = await seed(world);
   const a = await alice.open({ viewport: "phone" });
   const block = `[Never Gonna Give You Up](${YT}) · youtube.com\n${thumbLine(ytThumb, "Rick Astley")}`;
@@ -423,15 +423,16 @@ test("phone: Not now keeps links bare and is not asked again", async ({ world, a
   await bashir.waitForMessage(general.id, `first ${YT}`, { timeout: 30000 });
   await question.waitFor({ timeout: 5000 });
   assert.equal((await question.locator("span").first().innerText()).trim(), QUESTION, "the question's words");
+  assert.equal((await question.locator(".ca-no").innerText()).trim(), "No thanks", "the No button's words");
   await shot(a.page, "phone390-first-link-question");
 
-  step("Not now: the question goes and the next link is sent bare, without a fetch");
+  step("No thanks: the question goes and the next link is sent bare, without a fetch");
   await question.locator(".ca-no").click();
   await question.waitFor({ state: "detached", timeout: 5000 });
   await send(`second ${YT}`);
   await bashir.waitForMessage(general.id, `second ${YT}`, { timeout: 30000 });
   await sleep(1000);
-  assert.equal(await question.count(), 0, "asked again after Not now");
+  assert.equal(await question.count(), 0, "asked again after No thanks");
 
   step("after a reload, still not asked and still nothing fetched");
   await a.reload();
@@ -441,7 +442,7 @@ test("phone: Not now keeps links bare and is not asked again", async ({ world, a
   await bashir.waitForMessage(general.id, `third ${YT}`, { timeout: 30000 });
   await sleep(1000);
   assert.equal(await question.count(), 0, "asked again after a reload");
-  assert.deepEqual(traffic.methods.filter((m) => FETCHES.test(m)), [], "a card was fetched after Not now");
+  assert.deepEqual(traffic.methods.filter((m) => FETCHES.test(m)), [], "a card was fetched after No thanks");
 });
 
 // Settings › Privacy is the same choice as the question. Its line says which

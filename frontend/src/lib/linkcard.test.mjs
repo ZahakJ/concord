@@ -186,7 +186,7 @@ eq(sendingCards(null, "on"), true, "on: undecided sends cards");
 eq(sendingCards(true, "off"), true, "a choice wins over the default");
 eq(sendingCards(false, "on"), false, "a choice wins over the default (no)");
 eq(askAboutCards(null, "ask"), true, "ask: the question comes while undecided");
-eq(askAboutCards(false, "ask"), false, "asked once: Not now is an answer");
+eq(askAboutCards(false, "ask"), false, "asked once: No thanks is an answer");
 eq(askAboutCards(true, "ask"), false, "asked once: Yes is an answer");
 eq(askAboutCards(null, "off"), false, "off: never asked");
 // The default this build ships with (owner's decision): asked, not on. A
@@ -209,7 +209,11 @@ for (const w of ["Concord will look up", "title and picture", "from your device"
 eq(cardChoiceNote(null), "Not chosen yet: you will be asked at the first link you send", "Settings: undecided");
 eq(cardChoiceNote(undefined), cardChoiceNote(null), "Settings: a missing pref is undecided");
 eq(cardChoiceNote(true), "On: Concord looks up a link's title and picture, from your device, when you send it", "Settings: yes");
-eq(cardChoiceNote(false), "Off: links you send go out as you typed them", "Settings: no");
+eq(
+  cardChoiceNote(false),
+  "Off: links you send go out as you typed them. You can turn this on here at any time.",
+  "Settings: no, and it can be turned on there",
+);
 
 if (failures) {
   console.error(`${failures} linkcard test(s) failed`);
