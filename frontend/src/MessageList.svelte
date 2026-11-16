@@ -886,6 +886,12 @@
     const n = items.length;
     void S.editing?.id;
     untrack(() => {
+      // An emptied feed ends any reveal hold, as a channel switch does above.
+      // Opening the channel you are already in empties it and fills it again
+      // under the same id, and a hold left from the first landing made the
+      // refill's window wait (updateWindow returns while held) with nothing
+      // to ask again when the hold ran out: the feed stayed blank.
+      if (!n) revealHold = 0;
       // An empty window being filled (a channel opened, its rows just
       // arrived) is computed now, in this flush, so the rows paint in the
       // same frame as the data. Waiting for the next animation frame here
