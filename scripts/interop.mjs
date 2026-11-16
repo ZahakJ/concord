@@ -308,6 +308,152 @@ async function phaseOnline() {
     return { evidence: ev };
   });
 
+  // --- L10: message actions inside one guild or DM, both ways ---------------
+  // Each action is sent on the channel that holds its target, in the guild or
+  // DM both peers share, and must change the other peer's copy.
+  const row = (base, ch, id) => async () => (await messagesIn(base, ch)).find((m) => m.id === id);
+  const dirs = () => [
+    // [dir, actor, other, actor's channel, other's channel, actor fpr, actor owns it]
+    ["NEW->OLD", NEW, OLD, st.newGuildChanNew, st.newGuildChanOld, st.newFP, true],
+    ["OLD->NEW", OLD, NEW, st.oldGuildChanOld, st.oldGuildChanNew, st.oldFP, true],
+    ["DM NEW->OLD", NEW, OLD, st.dmChanNew, st.dmChanOld, st.newFP, false],
+    ["DM OLD->NEW", OLD, NEW, st.dmChanOld, st.dmChanNew, st.oldFP, false],
+  ].filter((d) => d[3] && d[4]);
+  // A message written by `by` on its channel, as the actor's peer holds it.
+  async function target(dir, by, byChan, actor, actorChan, tag) {
+    const body = `${tag} ${dir} ${Date.now()}`;
+    await rpc(by, "SendMessage", [byChan, body, ""]);
+    return waitFor(`${dir} ${tag} delivery`, () => findMessage(actor, actorChan, body));
+  }
+
+  await lane("L10a", "a reaction is applied on the other peer, both ways, guild and DM", async () => {
+    const ev = [];
+    for (const [dir, actor, other, chA, chO, fpr] of dirs()) {
+      const t = await target(dir, other, chO, actor, chA, "react to me");
+      await rpc(actor, "ToggleReaction", [chA, t.id, "👍"]);
+      const r = await waitFor(`${dir} reaction`, async () => {
+        const m = await row(other, chO, t.id)();
+        return m && (m.reactions?.["👍"] || []).includes(fpr) ? m : null;
+      });
+      ev.push(`${dir} id=${t.id} reactions=${JSON.stringify(r.reactions)}`);
+    }
+    return { evidence: ev };
+  });
+
+  await lane("L10b", "a pin is applied on the other peer, both ways, guild and DM", async () => {
+    const ev = [];
+    for (const [dir, actor, other, chA, chO] of dirs()) {
+      const t = await target(dir, other, chO, actor, chA, "pin me");
+      await rpc(actor, "PinMessage", [chA, t.id]);
+      await waitFor(`${dir} pin`, async () => (await row(other, chO, t.id)())?.pinned || null);
+      await rpc(actor, "PinMessage", [chA, t.id]);
+      await waitFor(`${dir} unpin`, async () => {
+        const m = await row(other, chO, t.id)();
+        return m && !m.pinned ? m : null;
+      });
+      ev.push(`${dir} id=${t.id} pinned then unpinned on the other peer`);
+    }
+    return { evidence: ev };
+  });
+
+  await lane("L10c", "an edit is applied on the other peer, both ways, guild and DM", async () => {
+    const ev = [];
+    for (const [dir, actor, other, chA, chO] of dirs()) {
+      const t = await target(dir, actor, chA, actor, chA, "edit me");
+      await waitFor(`${dir} delivery`, () => row(other, chO, t.id)());
+      const body = `edited ${dir} ${Date.now()}`;
+      await rpc(actor, "EditMessage", [chA, t.id, body, ""]);
+      const m = await waitFor(`${dir} edit`, async () => {
+        const r = await row(other, chO, t.id)();
+        return r && r.content === body ? r : null;
+      });
+      ev.push(`${dir} id=${t.id} edited=${m.edited} unverified=${!!m.unverified}`);
+    }
+    return { evidence: ev };
+  });
+
+  await lane("L10d", "a delete is applied on the other peer, both ways, own and moderated", async () => {
+    const ev = [];
+    for (const [dir, actor, other, chA, chO, , owns] of dirs()) {
+      const mine = await target(dir, actor, chA, actor, chA, "delete mine");
+      await waitFor(`${dir} own delivery`, () => row(other, chO, mine.id)());
+      await rpc(actor, "DeleteMessage", [chA, mine.id]);
+      await waitFor(`${dir} own delete`, async () => (await row(other, chO, mine.id)())?.deleted || null);
+      ev.push(`${dir} author delete id=${mine.id} tombstoned on the other peer`);
+      if (!owns) continue;
+      // The guild's owner removes a member's message.
+      const theirs = await target(dir, other, chO, actor, chA, "moderate me");
+      await rpc(actor, "DeleteMessage", [chA, theirs.id]);
+      await waitFor(`${dir} moderated delete`, async () => (await row(other, chO, theirs.id)())?.deleted || null);
+      ev.push(`${dir} owner delete id=${theirs.id} tombstoned on the author's peer`);
+    }
+    return { evidence: ev };
+  });
+
+  // --- L11: messages that point into another guild or channel ----------------
+  // A forward, a reply naming a message held in another channel, and a message
+  // link are ordinary messages in their own channel. They must arrive intact,
+  // and an action on them must still apply.
+  await lane("L11a", "forwards, cross-channel replies and message links arrive, both ways", async () => {
+    const ev = [];
+    if (!st.dmChanNew || !st.dmChanOld) throw new Error("no DM between the peers (L8a)");
+    for (const [dir, from, to, gChanFrom, dmFrom, dmTo, fpr] of [
+      ["NEW->OLD", NEW, OLD, st.newGuildChanNew, st.dmChanNew, st.dmChanOld, st.oldFP],
+      ["OLD->NEW", OLD, NEW, st.oldGuildChanOld, st.dmChanOld, st.dmChanNew, st.newFP],
+    ]) {
+      const srcBody = `source ${dir} ${Date.now()}`;
+      await rpc(from, "SendMessage", [gChanFrom, srcBody, ""]);
+      const src = await waitFor(`${dir} source`, () => findMessage(from, gChanFrom, srcBody));
+      // The forward, built the way the forward dialog builds it.
+      const fwd = `> ↪ Forwarded from #general · someone\n${srcBody}`;
+      await rpc(from, "SendMessage", [dmFrom, fwd, ""]);
+      // A reply in the DM to a message held in the guild channel, carrying a
+      // link to it.
+      const link = `see concord://msg/${gChanFrom}/${src.id} ${dir}`;
+      await rpc(from, "SendMessage", [dmFrom, link, src.id]);
+      const gotFwd = await waitFor(`${dir} forward`, async () => {
+        const m = (await messagesIn(to, dmTo)).find((x) => x.content === fwd);
+        return m || null;
+      });
+      const gotLink = await waitFor(`${dir} link`, async () => {
+        const m = (await messagesIn(to, dmTo)).find((x) => x.content === link);
+        return m || null;
+      });
+      if (gotLink.replyTo !== src.id) throw new Error(`${dir} reply lost its target: ${gotLink.replyTo}`);
+      // The receiver reacts to both; the sender must see it.
+      for (const m of [gotFwd, gotLink]) {
+        await rpc(to, "ToggleReaction", [dmTo, m.id, "👀"]);
+        await waitFor(`${dir} reaction on ${m.id}`, async () => {
+          const r = (await messagesIn(from, dmFrom)).find((x) => x.id === m.id);
+          return r && (r.reactions?.["👀"] || []).includes(fpr) ? r : null;
+        });
+      }
+      ev.push(`${dir} forward id=${gotFwd.id}, reply+link id=${gotLink.id} replyTo=${gotLink.replyTo}; both reacted to from the other side`);
+    }
+    return { evidence: ev };
+  });
+
+  await lane("L11b", "a guild event located in a channel reaches the other peer, both ways", async () => {
+    const ev = [];
+    for (const [dir, from, to, guildID, chan, fpr] of [
+      ["NEW->OLD", NEW, OLD, st.newGuildID, st.newGuildChanNew, st.oldFP],
+      ["OLD->NEW", OLD, NEW, st.oldGuildID, st.oldGuildChanOld, st.newFP],
+    ]) {
+      const start = Math.floor(Date.now() / 1000) + 3600;
+      const title = `event ${dir} ${Date.now()}`;
+      const made = await rpc(from, "CreateEvent", [guildID, title, "", start, 0, "", chan, "", 0]);
+      const seen = await waitFor(`${dir} event`, async () =>
+        ((await rpc(to, "Events", [guildID])) || []).find((e) => e.id === made.id) || null);
+      await rpc(to, "RSVPEvent", [guildID, made.id, "going"]);
+      await waitFor(`${dir} rsvp`, async () => {
+        const e = ((await rpc(from, "Events", [guildID])) || []).find((x) => x.id === made.id);
+        return e && e.rsvps?.[fpr] === "going" ? e : null;
+      });
+      ev.push(`${dir} event id=${seen.id} in channel ${chan.slice(0, 8)}, RSVP returned`);
+    }
+    return { evidence: ev };
+  });
+
   // --- L6: member list / presence (needs both online) ------------------------
   await lane("L6", "each peer appears online in the other's member list", async () => {
     const ev = [];
