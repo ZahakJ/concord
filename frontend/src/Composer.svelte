@@ -2252,7 +2252,21 @@
               <Icon name="clock" size={11} /> {slowLeft}s
             </span>
           {/if}
-          <button type="submit" class="sendbtn" class:ready={canSend} class:launch={launching} aria-label="Send" disabled={!canSend}>
+          <!-- The tap must not take focus from the text box: a phone drops its
+               keyboard the moment the textarea blurs, and the button itself
+               unmounts once the draft is empty (the mic takes its place), so
+               focus would end on <body>. The press still submits; the caret,
+               and the keyboard with it, stay in the box for the next message. -->
+          <button
+            type="submit"
+            class="sendbtn"
+            class:ready={canSend}
+            class:launch={launching}
+            aria-label="Send"
+            disabled={!canSend}
+            onpointerdown={(e) => e.preventDefault()}
+            onmousedown={(e) => e.preventDefault()}
+          >
             <Icon name="send" size={22} />
           </button>
         {/if}
