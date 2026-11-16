@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -93,5 +94,87 @@ func TestDeleteIsJudgedAgainstTheCurrentRoster(t *testing.T) {
 	}
 	if reader.memberHasPerm(g.ID, mod.Fingerprint(), PermManageMessages) {
 		t.Error("a removed member still reads as holding Manage messages")
+	}
+}
+
+// In a direct message only the author deletes a message for everyone. The
+// member who opened the DM holds no moderator power over the other's messages.
+func TestInADirectMessageOnlyTheAuthorDeletes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	a := startService(t, ctx)
+	b := startService(t, ctx)
+	guildWith(t, a, b)
+	dm, err := a.StartDM(b.Fingerprint()) // a opens the DM
+	if err != nil {
+		t.Fatalf("StartDM: %v", err)
+	}
+	ch := dm.Channels[0].ID
+	waitFor(t, 60*time.Second, func() bool {
+		g, ok := b.channelGuild(ch)
+		return ok && g == dm.ID && b.guildHasMember(dm.ID, a.Fingerprint())
+	}, "b never joined the DM")
+
+	var theirs domain.Message
+	waitFor(t, 30*time.Second, func() bool {
+		if theirs.ID == "" {
+			m, err := b.SendMessage(ch, "from b", "", "")
+			if err != nil {
+				return false
+			}
+			theirs = m
+		}
+		_, ok, _ := a.store.MessageByID(theirs.ID)
+		return ok
+	}, "a never received b's message")
+	mine, err := a.SendMessage(ch, "from a", "", "")
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	waitFor(t, 30*time.Second, func() bool {
+		_, ok, _ := b.store.MessageByID(mine.ID)
+		return ok
+	}, "b never received a's message")
+
+	// a deletes their own: it is gone on both sides.
+	if err := a.DeleteMessage(ch, mine.ID); err != nil {
+		t.Fatalf("DeleteMessage own: %v", err)
+	}
+	waitFor(t, 30*time.Second, func() bool {
+		row, ok, err := b.store.MessageByID(mine.ID)
+		return err == nil && ok && row.Deleted
+	}, "the author's own delete did not apply")
+
+	// a may not delete b's, by the API or by a frame sent anyway.
+	if err := a.DeleteMessage(ch, theirs.ID); err == nil {
+		t.Error("DeleteMessage accepted deleting the other side's message in a DM")
+	}
+	b.mu.RLock()
+	groupID := b.guilds[dm.ID].GroupID
+	b.mu.RUnlock()
+	frame := domain.Message{
+		ID: domain.NewID(), ChannelID: ch, Sender: a.PublicKey(),
+		Kind: "delete", ReplyTo: theirs.ID, Content: "deleted", Sent: time.Now().UTC(),
+	}
+	frame.Sig = a.signMessage(frame)
+	raw, err := json.Marshal(frame)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	ct, err := a.mls.Encrypt(ctx, groupID, raw)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	if !b.deliverCiphertext(groupID, ct) {
+		t.Fatal("b could not decrypt a frame a encrypted at the shared epoch")
+	}
+	for name, s := range map[string]*Service{"b": b, "a": a} {
+		if row, ok, err := s.store.MessageByID(theirs.ID); err != nil || !ok || row.Deleted {
+			t.Errorf("on %s, the DM's opener deleted the other side's message: err=%v found=%v deleted=%v", name, err, ok, row.Deleted)
+		}
 	}
 }

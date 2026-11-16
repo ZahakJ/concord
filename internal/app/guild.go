@@ -2012,8 +2012,26 @@ func (s *Service) BookmarkedMessages() ([]domain.Message, error) {
 const maxPurge = 100
 
 func (s *Service) DeleteMessage(channelID, targetID string) error {
+	s.mu.RLock()
+	guildID := s.channelToGuild[channelID]
+	s.mu.RUnlock()
+	if s.isDMGuild(guildID) {
+		if m, ok, err := s.store.MessageByID(targetID); err == nil && ok && !bytes.Equal(m.Sender, s.PublicKey()) {
+			return fmt.Errorf("app: in a direct message you can delete only your own messages")
+		}
+	}
 	_, err := s.send(channelID, "deleted", "delete", targetID)
 	return err
+}
+
+// isDMGuild reports whether guildID is a one-to-one DM. A DM has no
+// moderators: its creator holds no power over the other side's messages, and
+// each side deletes only its own.
+func (s *Service) isDMGuild(guildID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.guilds[guildID]
+	return ok && g.Kind == "dm"
 }
 
 // PurgeMessages deletes the most recent n messages in a channel — the "/clear
@@ -2069,7 +2087,7 @@ func (s *Service) applyDelete(targetID string, bySender []byte, channelID string
 	s.mu.RLock()
 	guildID := s.channelToGuild[channelID]
 	s.mu.RUnlock()
-	if guildID != "" {
+	if guildID != "" && !s.isDMGuild(guildID) {
 		force = s.memberHasPerm(guildID, accountFingerprintOf(bySender), PermManageMessages)
 	}
 	deleted, ok, err := s.store.MarkDeleted(targetID, bySender, force)

@@ -134,8 +134,11 @@
     threads = null,
   } = $props();
 
-  // Moderators (Manage Messages) can delete anyone's message.
-  const canDeleteOthers = $derived(has(activeGuild()?.myPerms || 0, PERM.MANAGE_MESSAGES));
+  // Moderators (Manage Messages) can delete anyone's message. A DM has no
+  // moderators: each side deletes only its own messages there.
+  const canDeleteOthers = $derived(
+    activeGuild()?.kind !== "dm" && has(activeGuild()?.myPerms || 0, PERM.MANAGE_MESSAGES),
+  );
   // ...and the same bit pins, because the pinned strip is one shared list every
   // member of the guild reads. A DM or a meeting has no roles in it, so both
   // sides of one may pin there; the backend draws the line the same way.
