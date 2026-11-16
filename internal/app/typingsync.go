@@ -77,8 +77,8 @@ func (s *Service) applyRemoteTypingPref(on bool, at int64) {
 // account has no other members of Notes, so this costs nothing.
 func (s *Service) broadcastTypingPref(on bool, at int64) {
 	notes, ok := s.findNotesDM()
-	if !ok {
-		return
+	if !ok || s.mintBarred(notes.ID) != nil {
+		return // see mintBarred: nothing goes out from a copy that cannot repair here
 	}
 	s.publishMeta(notes.GroupID, guildMeta{Type: "typing_pref", TypingOn: &on, UpdatedAt: at})
 }

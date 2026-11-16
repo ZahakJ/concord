@@ -3634,6 +3634,11 @@ func (s *Service) sendTypingSignal(channelID string, b byte) error {
 	if !s.TypingEnabled() || s.backgrounded() || s.invisible() {
 		return nil
 	}
+	if gid, ok := s.channelGuild(channelID); ok {
+		if err := s.mintBarred(gid); err != nil {
+			return err
+		}
+	}
 	groupID, err := s.groupForChannel(channelID)
 	if err != nil {
 		return err

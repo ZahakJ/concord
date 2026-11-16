@@ -133,8 +133,8 @@ func (s *Service) flushHides() {
 		return
 	}
 	notes, ok := s.findNotesDM()
-	if !ok {
-		return
+	if !ok || s.mintBarred(notes.ID) != nil {
+		return // see mintBarred: nothing goes out from a copy that cannot repair here
 	}
 	recs := make([]store.HideRec, 0, len(ops))
 	for _, r := range ops {

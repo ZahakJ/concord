@@ -171,8 +171,8 @@ func (s *Service) flushReadMarkers() {
 	// This used to be a second hand-written copy, which meant two loops over an
 	// unordered map could disagree about which of two Notes groups was THE one.
 	notes, ok := s.findNotesDM()
-	if !ok {
-		return
+	if !ok || s.mintBarred(notes.ID) != nil {
+		return // see mintBarred: nothing goes out from a copy that cannot repair here
 	}
 	// In batches no larger than a receiver takes from one message (takeMarks).
 	for _, batch := range splitMarks(markers, helloReadMarks) {

@@ -151,8 +151,8 @@ func (s *Service) currentReceiptsPref() *receiptsPref {
 
 func (s *Service) broadcastReceiptsPref(p receiptsPref) {
 	notes, ok := s.findNotesDM()
-	if !ok {
-		return
+	if !ok || s.mintBarred(notes.ID) != nil {
+		return // see mintBarred: nothing goes out from a copy that cannot repair here
 	}
 	s.publishMeta(notes.GroupID, guildMeta{Type: "receipts_pref", Receipts: &p})
 }
@@ -285,8 +285,8 @@ func (s *Service) flushReceipts() {
 
 func (s *Service) publishReceipt(channelID string, m guildMeta) {
 	g, ok := s.receiptGuild(channelID)
-	if !ok || s.mls == nil || s.ps == nil {
-		return
+	if !ok || s.mls == nil || s.ps == nil || s.mintBarred(g.ID) != nil {
+		return // see mintBarred
 	}
 	// publishMeta sends nothing from a copy that CannotRepairHere.
 	s.publishMeta(g.GroupID, m)

@@ -216,8 +216,8 @@ func (s *Service) dropChatPrefs(chatIDs []string) {
 // single-device account has no Notes meta peers and pays nothing.
 func (s *Service) broadcastChatPrefs(recs map[string]store.ChatPref) {
 	notes, ok := s.findNotesDM()
-	if !ok {
-		return
+	if !ok || s.mintBarred(notes.ID) != nil {
+		return // see mintBarred: nothing goes out from a copy that cannot repair here
 	}
 	s.publishMeta(notes.GroupID, guildMeta{Type: "chat_prefs", ChatPrefs: recs})
 	for _, p := range s.host.Peers() {
