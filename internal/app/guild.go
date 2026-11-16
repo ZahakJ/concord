@@ -3379,6 +3379,12 @@ func (s *Service) addChannel(guildID string, ch domain.Channel) {
 			return // already known
 		}
 	}
+	// A channel id already bound to another guild stays where it is, whichever
+	// source announced it.
+	if other, bound := s.channelToGuild[ch.ID]; bound && other != guildID {
+		s.mu.Unlock()
+		return
+	}
 	g.Channels = append(g.Channels, ch)
 	s.channelToGuild[ch.ID] = guildID
 	groupID := g.GroupID

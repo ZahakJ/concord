@@ -127,3 +127,42 @@ func TestMessageActionsApplyOnlyInTheGroupThatCarriedThem(t *testing.T) {
 		t.Fatalf("an edit carried by the row's own guild must apply, got %q", mine.Content)
 	}
 }
+
+// History sync is read under one guild's group, and its source is trusted (or
+// not) in that guild. It changes rows of that guild only, and it does not move
+// another guild's channel into it.
+func TestSyncPayloadChangesOnlyItsOwnGuild(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newTwoGuilds(t, ctx)
+
+	// From a, the owner of ga and so a trusted source there: a tombstone for a
+	// row in gb, under ga's channel and under gb's, in a payload whose guild
+	// record also lists gb's channel as one of ga's.
+	served := w.ga.Clone()
+	served.Channels = append(served.Channels, w.gb.Channels[0])
+	for _, ch := range []string{w.chA, w.chB} {
+		tomb := domain.Message{ID: w.byB2.ID, ChannelID: ch, Sender: w.b.PublicKey(), Deleted: true, Sent: w.byB2.Sent, Updated: time.Now().UTC()}
+		payload := syncPayload{Guild: served, Messages: map[string][]domain.Message{ch: {tomb}}}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		ct, err := w.a.mls.Encrypt(ctx, w.groupA, raw)
+		if err != nil {
+			t.Fatalf("a encrypt: %v", err)
+		}
+		if !w.b.applySyncPayload(w.ga.ID, w.groupA, ct, w.a.Fingerprint()) {
+			t.Fatal("b could not read a sync payload a encrypted at the shared epoch")
+		}
+		if w.row(t, w.byB2.ID).Deleted {
+			t.Errorf("a sync payload for one guild removed a message in another (served under %s's channel)", map[string]string{w.chA: "ga", w.chB: "gb"}[ch])
+		}
+	}
+	if g, ok := w.b.channelGuild(w.chB); !ok || g != w.gb.ID {
+		t.Errorf("a sync payload for one guild moved another guild's channel: now in %q", g)
+	}
+}
