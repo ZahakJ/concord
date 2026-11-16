@@ -134,18 +134,32 @@ func TestRelayEnvCapCutsBulkData(t *testing.T) {
 	ha, hb := cappedPair(t, ctx, res)
 
 	got := make(chan int64, 2)
+	reading := make(chan struct{}, 2)
 	hb.SetStreamHandler(probeProto, func(s network.Stream) {
+		reading <- struct{}{}
 		n, _ := io.Copy(io.Discard, s)
 		got <- n
 		_ = s.Close()
 	})
+	// send opens the stream with one byte and sends the rest only once hb's
+	// handler is reading. The handler runs after hb has negotiated the
+	// protocol, and a circuit cut before that can reset the stream before the
+	// handler runs, leaving nothing to report the cut.
 	send := func(n int) error {
 		s, err := ha.NewStream(relayCtx(ctx, "test"), hb.ID(), probeProto)
 		if err != nil {
 			return err
 		}
 		defer s.Close()
-		if _, err := s.Write(make([]byte, n)); err != nil {
+		if _, err := s.Write([]byte{0}); err != nil {
+			return err
+		}
+		select {
+		case <-reading:
+		case <-ctx.Done():
+			t.Fatal("the receiver's handler never started")
+		}
+		if _, err := s.Write(make([]byte, n-1)); err != nil {
 			return err
 		}
 		return s.CloseWrite()
@@ -159,15 +173,20 @@ func TestRelayEnvCapCutsBulkData(t *testing.T) {
 		t.Fatalf("small exchange: %d bytes arrived, want %d", n, 4<<10)
 	}
 
-	// Bulk data does not: the relay resets the circuit at the cap.
+	// Bulk data does not: the relay resets the circuit at the cap. The cut
+	// must come from the relay, so the wait is bounded well below the time
+	// the peers' own sessions take to give up on a circuit that stopped
+	// moving (about 30 s).
+	bulk, cancelBulk := context.WithTimeout(ctx, 5*time.Second)
+	defer cancelBulk()
 	_ = send(4 << 20)
 	select {
 	case n := <-got:
-		t.Logf("%d of %d bytes crossed before the relay cut the circuit", n, 4<<20)
+		t.Logf("the reader got %d of %d bytes before the circuit ended", n, 4<<20)
 		if n >= 4<<20 || n > 2*capBytes {
 			t.Fatalf("%d bytes crossed a relay capped at %d per circuit", n, capBytes)
 		}
-	case <-ctx.Done():
-		t.Fatal("receiver never saw the circuit end")
+	case <-bulk.Done():
+		t.Fatal("the relay neither cut nor delivered the bulk data in time")
 	}
 }
