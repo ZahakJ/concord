@@ -83,14 +83,18 @@ func LockedAccount(dataDir string) DeviceAccount {
 // MatchDeviceAccount compares the account an account seed belongs to with the
 // account on this device.
 func MatchDeviceAccount(dataDir string, seed []byte) string {
-	if !HasIdentity(dataDir) {
+	noKeystore := !HasIdentity(dataDir)
+	if noKeystore && !hasAccountData(dataDir) {
 		return MatchNone
 	}
 	incoming, err := identity.FromSeed(seed)
 	if err != nil {
 		return MatchUnknown
 	}
-	if pub := lockedAccountPub(dataDir); pub != nil {
+	// With no keystore only the data can say whose it is: a device marker
+	// left beside it names an account, but not that the data is that
+	// account's.
+	if pub := lockedAccountPub(dataDir); pub != nil && !noKeystore {
 		if bytes.Equal(pub, incoming.PublicKey()) {
 			return MatchSame
 		}
@@ -142,8 +146,12 @@ func (e *ReplaceRefusedError) Error() string {
 // is allowed only when confirm names the incoming account's fingerprint — a
 // confirmation is for one specific replacement, so a phrase edited or a new
 // code pasted after the user agreed is asked about again.
+//
+// Account data with no keystore goes through the same gate: kept only if it
+// is the incoming account's on an install that was never linked, otherwise
+// asked about and erased, never kept beside the new keystore.
 func replaceGate(dataDir string, seed []byte, confirm, incomingName string) (keep bool, err error) {
-	if !HasIdentity(dataDir) {
+	if !HasIdentity(dataDir) && !hasAccountData(dataDir) {
 		return false, nil
 	}
 	if RestoreKeepsData(dataDir, seed) {
@@ -159,9 +167,21 @@ func replaceGate(dataDir string, seed []byte, confirm, incomingName string) (kee
 	}
 	return false, &ReplaceRefusedError{
 		Match:        MatchDeviceAccount(dataDir, seed),
-		Device:       LockedAccount(dataDir),
+		Device:       deviceAccountForAsk(dataDir),
 		Incoming:     fp,
 		IncomingName: incomingName,
+	}
+}
+
+// deviceAccountForAsk is LockedAccount, and for account data with no
+// keystore the name and link state that data shows.
+func deviceAccountForAsk(dataDir string) DeviceAccount {
+	if HasIdentity(dataDir) {
+		return LockedAccount(dataDir)
+	}
+	return DeviceAccount{
+		Name:   strings.TrimSpace(store.PeekSetting(dbPathIn(dataDir), "display_name")),
+		Linked: hasDeviceMarker(dataDir),
 	}
 }
 
@@ -186,7 +206,7 @@ func RestoreOverExisting(dataDir, phrase, passphrase, confirm string) error {
 	}
 	// A linked device's data is bound to the device key that went with its
 	// keystore: without that keystore it is not kept for a restore either.
-	if !keep && (HasIdentity(dataDir) || hasDeviceMarker(dataDir)) {
+	if !keep && (HasIdentity(dataDir) || hasDeviceMarker(dataDir) || hasAccountData(dataDir)) {
 		if err := ResetIdentity(dataDir); err != nil {
 			return err
 		}

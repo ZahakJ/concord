@@ -206,7 +206,10 @@ func finishInterruptedErase(dataDir string) (unlinked bool, err error) {
 // sealed under passphrase. Guilds/history/mailbox are recovered afterwards by
 // logging in and syncing. The caller must ensure no identity already exists.
 func RestoreIdentity(dataDir, phrase, passphrase string) error {
-	return identity.RestoreKeystore(keystorePathIn(dataDir), phrase, passphrase)
+	// Through the same gate as a restore over an account: data already here
+	// is kept only if it is the phrase's account's, and otherwise asked about
+	// (ReplaceRefusedError) and erased, never kept beside the restored account.
+	return RestoreOverExisting(dataDir, phrase, passphrase, "")
 }
 
 // mlsDirIn returns the directory holding persistent MLS group state, creating

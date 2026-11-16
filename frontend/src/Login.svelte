@@ -99,7 +99,10 @@
         startNotice = erasedAfterUnlink;
       }
       if (err?.code === "erase-unfinished") error = eraseUnfinished(err.detail?.files);
-      if (err?.code === "data-without-keystore") stranded = strandedChoice(!err.detail?.keepable);
+      if (err?.code === "data-without-keystore") {
+        stranded = strandedChoice(!err.detail?.keepable);
+        dataHere = true;
+      }
     } finally {
       busy = false;
     }
@@ -389,8 +392,9 @@
     error = "";
     try {
       const phrase = restorePhrase.trim();
-      if (hasIdentity) {
-        // The forgot-passphrase recovery, over an account that is still here.
+      if (hasIdentity || dataHere) {
+        // The forgot-passphrase recovery, over an account that is still here
+        // (or its data, when its keystore is gone).
         // Ask the core what this phrase would do BEFORE doing it: the same
         // account on this device keeps everything; anything else would erase
         // what is here, and that needs a yes for exactly this phrase's account.
@@ -479,6 +483,9 @@
   // none. startNotice: what the core said about how this device was erased.
   let stranded = $state(null);
   let startNotice = $state("");
+  // dataHere: account data without its keystore is on this device, so a
+  // restore asks the core what it would do to it first, as over an account.
+  let dataHere = $state(false);
 
   function keepOrQuit() {
     if (stranded?.keepable) {
@@ -501,7 +508,10 @@
     if (!hasIdentity) {
       try {
         const v = await api.strandedData();
-        if (v?.stranded) stranded = strandedChoice(!v.keepable);
+        if (v?.stranded) {
+          stranded = strandedChoice(!v.keepable);
+          dataHere = true;
+        }
       } catch {}
     }
     try {
@@ -585,6 +595,7 @@
       hasIdentity = false;
       confirmingReset = false;
       stranded = null;
+      dataHere = false;
       passphrase = "";
       confirmPass = "";
     } catch (err) {

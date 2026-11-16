@@ -426,7 +426,7 @@ func (b *Bridge) RestoreFromMnemonic(phrase, passphrase string) error {
 	if strings.TrimSpace(passphrase) == "" {
 		return errors.New("choose a passphrase to protect the restored identity")
 	}
-	return appsvc.RestoreIdentity(dir, phrase, passphrase)
+	return codeReplace(appsvc.RestoreIdentity(dir, phrase, passphrase))
 }
 
 // RestoreOverExisting is the forgot-passphrase recovery path: a (locked,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -275,5 +276,66 @@ func TestRedeemLinkOverDifferentAccount(t *testing.T) {
 	}
 	if p := ada.SelfProfile(); p.Name != "Ada" {
 		t.Fatalf("the account's profile was overwritten: %q", p.Name)
+	}
+}
+
+// Account data with no keystore, on an install that was never linked: a
+// restore of another account's phrase is asked about, writes nothing until
+// the user agrees for exactly that account, and then erases the data before
+// the new keystore lands. The data's own account's phrase keeps it.
+func TestARestoreOntoDataWithoutAKeystoreAsksBeforeAnotherAccountReplacesIt(t *testing.T) {
+	for _, viaRestoreIdentity := range []bool{false, true} {
+		dir := t.TempDir()
+		bea := seedDevice(t, dir, "old-pass", "Bea", false)
+		if err := os.Remove(keystorePathIn(dir)); err != nil {
+			t.Fatal(err)
+		}
+		before := filesIn(t, dir)
+		other, err := identity.Generate()
+		if err != nil {
+			t.Fatal(err)
+		}
+		restore := func(phrase, confirm string) error {
+			if viaRestoreIdentity {
+				return RestoreIdentity(dir, phrase, "new-pass")
+			}
+			return RestoreOverExisting(dir, phrase, "new-pass", confirm)
+		}
+		var refused *ReplaceRefusedError
+		if err := restore(phraseOf(t, other), ""); !errors.As(err, &refused) || refused.Match != MatchDifferent || refused.Device.Name != "Bea" {
+			t.Fatalf("restoreIdentity=%v: another account's phrase: %v %+v", viaRestoreIdentity, err, refused)
+		}
+		if keystoreFileHere(dir) {
+			t.Fatalf("restoreIdentity=%v: a keystore was written beside the data", viaRestoreIdentity)
+		}
+		// Reading the database to tell whose it is may add its -wal and -shm.
+		if after := filesIn(t, dir); !strings.HasPrefix(strings.Join(after, ","), strings.Join(before, ",")) || store.PeekSetting(dbPathIn(dir), "display_name") != "Bea" {
+			t.Fatalf("restoreIdentity=%v: the refused restore touched the data: %v -> %v", viaRestoreIdentity, before, after)
+		}
+		if got := MatchDeviceAccount(dir, bea.Seed()); got != MatchSame || !RestoreKeepsData(dir, bea.Seed()) {
+			t.Fatalf("restoreIdentity=%v: the data's own account: match %q", viaRestoreIdentity, got)
+		}
+		if viaRestoreIdentity {
+			continue // no way to agree there: the agreement goes through RestoreOverExisting
+		}
+		if err := restore(phraseOf(t, other), other.Fingerprint()); err != nil {
+			t.Fatal(err)
+		}
+		deviceIs(t, dir, "new-pass", other)
+		if _, err := os.Lstat(dbPathIn(dir)); err == nil {
+			t.Fatal("the other account's data was kept beside the restored account")
+		}
+	}
+
+	// The data's own account keeps everything, without asking.
+	dir := t.TempDir()
+	bea := seedDevice(t, dir, "old-pass", "Bea", false)
+	_ = os.Remove(keystorePathIn(dir))
+	if err := RestoreIdentity(dir, phraseOf(t, bea), "new-pass"); err != nil {
+		t.Fatal(err)
+	}
+	deviceIs(t, dir, "new-pass", bea)
+	if name := store.PeekSetting(dbPathIn(dir), "display_name"); name != "Bea" {
+		t.Fatalf("the account's own data was not kept: %q", name)
 	}
 }
