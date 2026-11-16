@@ -196,9 +196,16 @@ func (h *heldActions) take(match func(heldAction) bool) []heldAction {
 	return out
 }
 
-// holdForTarget keeps an action whose target row is not held yet.
+// holdForTarget keeps an action whose target row is not held yet. The row may
+// have been stored between the caller's lookup and the add, by a lane whose
+// release then found nothing, so it is looked up again after.
 func (s *Service) holdForTarget(carrier, guildID, fpr string, m domain.Message, senderID []byte) {
-	s.held.add(heldAction{reason: heldForTarget, carrier: carrier, guild: guildID, fpr: fpr, m: m, senderID: senderID, at: time.Now()})
+	if !s.held.add(heldAction{reason: heldForTarget, carrier: carrier, guild: guildID, fpr: fpr, m: m, senderID: senderID, at: time.Now()}) {
+		return
+	}
+	if _, ok, err := s.store.MessageByID(m.ReplyTo); err == nil && ok {
+		s.releaseForTarget(m.ReplyTo)
+	}
 }
 
 // holdForReadmit keeps an action from a member this device holds as removed

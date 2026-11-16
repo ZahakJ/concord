@@ -365,3 +365,27 @@ func TestAnUnsignedDeleteActsOnlyForItsAuthor(t *testing.T) {
 		t.Error("a signed delete from the owner did not apply")
 	}
 }
+
+// A row can be stored between the live lane's lookup of an action's target
+// and the action being held, by a lane whose release then finds nothing. The
+// action is applied all the same.
+func TestAnActionHeldAsItsTargetIsStoredApplies(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newTwoGuilds(t, ctx)
+
+	row := w.signedByA(w.chB, "", "", "stored in between")
+	if _, err := w.b.store.SaveMessage(row); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+	w.b.holdForTarget(w.gb.ID, w.gb.ID, w.a.Fingerprint(), w.signedByA(w.chB, "reaction", row.ID, "between"), w.a.myCredential)
+	if got := w.row(t, row.ID); len(got.Reactions["between"]) != 1 {
+		t.Errorf("a reaction held just after its target was stored was not applied: %v", got.Reactions)
+	}
+	if n := w.b.held.count(w.a.Fingerprint()); n != 0 {
+		t.Errorf("%d actions still held for a row that is here", n)
+	}
+}
