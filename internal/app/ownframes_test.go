@@ -10,8 +10,9 @@ import (
 	"github.com/ZahakJ/concord/internal/store"
 )
 
-// ZW-06 / SCC-03. The own-device lanes on the MLS meta topic (hides, the
-// receipts and typing settings, read markers, and a sibling's member_left)
+// ZW-06 / SCC-03. The own-device lanes on the MLS meta topic (hides, chat
+// pins, the receipts and typing settings, read markers, and a sibling's
+// member_left)
 // are taken only from a current device of this account. A device unlinked
 // here whose leaf is still seated speaks for the account no more, exactly as
 // on the hello lanes.
@@ -67,6 +68,20 @@ func TestAnUnlinkedDeviceStillSeatedChangesNothing(t *testing.T) {
 	if !desk.store.IsHidden(m1.ID) {
 		t.Fatal("setup: a hide from a current own device was not taken")
 	}
+	pin := func(chat string) guildMeta {
+		return guildMeta{Type: "chat_prefs", ChatPrefs: map[string]store.ChatPref{chat: {Pinned: true, PinKey: 1, PinAt: time.Now().UnixMilli()}}}
+	}
+	pinned := func(chat string) bool {
+		all, err := desk.ChatPrefs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return all[chat].Pinned
+	}
+	desk.receiveGuildMeta(notes.id, notes.group, frame(notes.group, pin("chat-before")))
+	if !pinned("chat-before") {
+		t.Fatal("setup: a pin from a current own device was not taken")
+	}
 
 	// Unlinked here, its leaf left seated (as where no committer could remove
 	// it): this device holds its revocation, nothing more.
@@ -81,7 +96,16 @@ func TestAnUnlinkedDeviceStillSeatedChangesNothing(t *testing.T) {
 
 	on := true
 	now := time.Now().Add(time.Second).UnixMilli()
+	// Each lane is read right after its frame: the member_left below takes the
+	// shared guild, and m2's row with it, if it is wrongly taken.
 	desk.receiveGuildMeta(notes.id, notes.group, frame(notes.group, hide(m2.ID)))
+	if desk.store.IsHidden(m2.ID) {
+		t.Error("an unlinked device hid a message")
+	}
+	desk.receiveGuildMeta(notes.id, notes.group, frame(notes.group, pin("chat-after")))
+	if pinned("chat-after") {
+		t.Error("an unlinked device pinned a chat")
+	}
 	desk.receiveGuildMeta(notes.id, notes.group, frame(notes.group, guildMeta{Type: "typing_pref", TypingOn: &on, UpdatedAt: now}))
 	desk.receiveGuildMeta(notes.id, notes.group, frame(notes.group, guildMeta{Type: "receipts_pref", Receipts: &receiptsPref{On: true, At: now}}))
 	desk.receiveGuildMeta(notes.id, notes.group, frame(notes.group, guildMeta{Type: "read_marker", Markers: map[string]int64{"elsewhere": now}}))
@@ -89,9 +113,6 @@ func TestAnUnlinkedDeviceStillSeatedChangesNothing(t *testing.T) {
 	desk.receiveGuildMeta(shared, sharedGroup, frame(sharedGroup, guildMeta{Type: "member_left", Fingerprint: phone.Fingerprint()}))
 	time.Sleep(2 * time.Second)
 
-	if desk.store.IsHidden(m2.ID) {
-		t.Error("an unlinked device hid a message")
-	}
 	if desk.TypingEnabled() {
 		t.Error("an unlinked device turned typing on")
 	}
