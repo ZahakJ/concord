@@ -53,8 +53,7 @@
     insert as mdInsert,
     continueList,
     bodyStats,
-    sendsAsIs,
-    sniffedType,
+    nativePicture,
     dataUrlBytes,
     prettyBytes,
     IMAGE_MAX_BYTES,
@@ -529,8 +528,9 @@
       reading++;
       try {
         let dataUrl, w, h;
-        if (sendsAsIs(await sniffedType(file), file.size)) {
-          dataUrl = await readAsDataURL(file);
+        const native = await nativePicture(file);
+        if (native) {
+          dataUrl = await readAsDataURL(native);
           ({ w, h } = await imageDims(dataUrl));
         } else {
           ({ dataUrl, w, h } = await normalizeToJpeg(file));

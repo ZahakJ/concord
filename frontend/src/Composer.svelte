@@ -10,7 +10,7 @@
   import { uneditableReason } from "./lib/tokenbody.js";
   import { setPostLocked } from "./lib/postactions.svelte.js";
   import { sendText as outSendText, sendAttachment as outSendAttachment } from "./lib/outbox.svelte.js";
-  import { sendsAsIs, sniffedType } from "./lib/postdraft.js";
+  import { nativePicture } from "./lib/postdraft.js";
   import { roving } from "./lib/roving.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import EmojiPicker from "./EmojiPicker.svelte";
@@ -1095,9 +1095,11 @@
     try {
       let dataUrl, w, h;
       // The bytes decide, not the name (see pictureType): an AVIF saved as
-      // .jpg goes through the canvas, which the core does not refuse.
-      if (sendsAsIs(await sniffedType(file), file.size)) {
-        dataUrl = await readAsDataURL(file);
+      // .jpg goes through the canvas, which the core does not refuse, and a
+      // JPEG typed image/jpg is read as image/jpeg.
+      const native = await nativePicture(file);
+      if (native) {
+        dataUrl = await readAsDataURL(native);
         ({ w, h } = await imageDims(dataUrl));
         // A truncated or corrupt PNG loads as 0x0 here and used to be staged
         // anyway: no dimensions on the chip, and a broken picture on everyone

@@ -37,6 +37,7 @@ import {
   sendsAsIs,
   pictureType,
   sniffedType,
+  nativePicture,
   dataUrlBytes,
   prettyBytes,
   IMAGE_MAX_BYTES,
@@ -365,6 +366,24 @@ t("pictureType reads the format from the bytes, not the name", () => {
   assert.ok(!sendsAsIs(await sniffedType(avifAsJpg), avifAsJpg.size), "an AVIF named .jpg must go through the canvas");
   const pngAsJpg = new File([PNG], "photo.jpg", { type: "image/jpeg" });
   assert.ok(sendsAsIs(await sniffedType(pngAsJpg), pngAsJpg.size), "a PNG named .jpg still goes as it is");
+  n++;
+}
+
+// FileReader names a data URL after the blob's type, and the core admits only
+// data:image/(png|jpeg|gif|webp). A JPEG that a share source or document
+// provider typed image/jpg, image/pjpeg or even image/heic must be read as
+// image/jpeg, with its bytes unchanged.
+{
+  for (const type of ["image/jpg", "image/pjpeg", "image/heic", "image/jpeg", ""]) {
+    const f = new File([JPEG], "photo.jpg", { type });
+    const blob = await nativePicture(f);
+    assert.ok(blob, `a JPEG typed ${JSON.stringify(type)} goes as it is`);
+    assert.equal(blob.type, "image/jpeg", `a JPEG typed ${JSON.stringify(type)} is read as image/jpeg`);
+    assert.deepEqual(new Uint8Array(await blob.arrayBuffer()), JPEG, "its bytes are unchanged");
+  }
+  const png = new File([PNG], "photo.png", { type: "image/png" });
+  assert.equal(await nativePicture(png), png, "a correctly typed picture is read as it is");
+  assert.equal(await nativePicture(new File([AVIF], "photo.jpg", { type: "image/jpeg" })), null, "an AVIF needs the canvas");
   n++;
 }
 

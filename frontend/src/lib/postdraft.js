@@ -439,6 +439,17 @@ export async function sniffedType(blob) {
   return pictureType(new Uint8Array(await blob.slice(0, 12).arrayBuffer()));
 }
 
+// nativePicture: the file as a Blob typed by its bytes when it can go to the
+// core as it is, or null when it needs the canvas. FileReader names a data
+// URL after the blob's type, and the core admits only the four standard
+// subtypes, so a JPEG a share source typed image/jpg (or image/pjpeg) must be
+// read through this Blob, not the File, to arrive as data:image/jpeg.
+export async function nativePicture(file) {
+  const type = await sniffedType(file);
+  if (!sendsAsIs(type, file.size)) return null;
+  return file.type === type ? file : new Blob([file], { type });
+}
+
 // dataUrlBytes: the decoded size of a base64 data URL, without decoding it.
 export function dataUrlBytes(dataUrl) {
   const i = String(dataUrl || "").indexOf(",");
