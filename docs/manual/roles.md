@@ -10,6 +10,16 @@ How a guild decides who may do what: the owner, named roles, the seven permissio
 
 Every role change, ban, kick and mute is a signed record that every member's device checks for itself. An action signed by someone who was not allowed to take it is ignored by every honest client. The **Moderation log** in guild settings lists these records; see [Moderation and safety](moderation.md).
 
+### How your device knows who the owner is
+
+Every check above starts from the guild's founder. A guild made with Concord 0.61 or later carries its founder in the identity of its encrypted group. When you join such a guild, your device checks that the owner named by the member who invited you is the person who founded the group you are joining. If not, the join stops, nothing is saved, and Concord says the invite doesn't match the guild it names: ask the owner, or another member you trust, for a new invite. Transfers and heirs work as before: your device starts from the founder and follows each signed handover. A device that already holds the guild keeps its own group and owner when it joins again, for example after a readmit.
+
+The check is about the group your device joins, not about which group is the guild's real one. A member who invites you with a modified Concord can start a separate group of their own under the same guild name and id and seat you there. Inside that group they are shown as its owner. You would be alone in it with them: the guild's real members never see you there, and the inviter gains nothing in the real guild. If a guild you just joined lacks the members you expected, leave it and ask the owner, or a member you trust, for a new invite.
+
+A guild made before 0.61 cannot be checked this way. For such a guild, your device takes the owner from the member who added it, as earlier versions did. If the owner your device shows for an older guild looks wrong, leave the guild and join again with a code from the owner or from a member you trust. Moving older guilds onto the check, and a guild id that itself names the founder, are planned for a release after 0.61.
+
+If your device ever holds a guild made with 0.61 or later and cannot confirm who founded it, it says so at the top of the guild and gives nobody owner powers there until it can. It fixes itself when it reaches another member.
+
 ## The permissions
 
 | Permission | Hint in the editor | What it lets a member do |
