@@ -138,3 +138,67 @@ func TestBarredDMCopySendsNoAcksOrReadReceipts(t *testing.T) {
 	waitUntil(t, 30*time.Second, func() bool { return tickOf(t, b, bCh, next.ID).Read },
 		"the healthy copy's read receipt never reached B")
 }
+
+// ZW-02, the Notes lanes. The receipts and typing settings, chat pins, hides
+// and read markers go to the Notes group through publishMeta, so a Notes copy
+// that CannotRepairHere encrypts none of them. A Notes copy in that state
+// lasts only as long as the roster cache disagrees with the tree (aloneInGuild
+// reads the cache, onlyPossibleCommitter the tree), so the test sets the
+// cache before each change.
+func TestBarredNotesCopySendsNoOwnDeviceLanes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a, b, spy, _, aCh, bCh := receiptPair(t, ctx)
+	notes, err := a.ensureNotesDM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep, err := a.mls.Epoch(ctx, notes.GroupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.noteBehind(notes.ID, ep+1)
+	bar := func() {
+		t.Helper()
+		a.memberSetMu.Lock()
+		if a.memberSets == nil {
+			a.memberSets = map[string]*memberSet{}
+		}
+		a.memberSets[notes.ID] = &memberSet{creds: [][]byte{a.myCredential, []byte("another leaf")}, at: time.Now()}
+		a.memberSetMu.Unlock()
+		if !a.CannotRepairHere(notes.ID) {
+			t.Fatal("setup: the Notes copy does not read as CannotRepairHere")
+		}
+	}
+	msg, err := b.SendMessage(bCh, "for the lanes", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 30*time.Second, func() bool { return hasMessage(a, aCh, "for the lanes") },
+		"setup: A never received B's message")
+
+	// Each change, then a wait past its beat (hides 0.8 s, read markers 1.2 s),
+	// inside the cache's 2 s.
+	for _, c := range []struct {
+		typ string
+		do  func() error
+	}{
+		{"receipts_pref", func() error { return a.SetReadReceiptsEnabled(true) }},
+		{"typing_pref", func() error { return a.SetTypingEnabled(true) }},
+		{"chat_prefs", func() error { return a.SetChatPinned(aCh, true) }},
+		{"hide_marker", func() error { return a.HideMessage(aCh, msg.ID) }},
+		{"read_marker", func() error { _, err := a.MarkRead(aCh, time.Now().UnixMilli()); return err }},
+	} {
+		bar()
+		if err := c.do(); err != nil {
+			t.Fatalf("%s: %v", c.typ, err)
+		}
+		time.Sleep(1500 * time.Millisecond)
+		if n := spy.count(notes.GroupID, c.typ); n != 0 {
+			t.Errorf("the barred Notes copy encrypted %d %s frames", n, c.typ)
+		}
+	}
+}
