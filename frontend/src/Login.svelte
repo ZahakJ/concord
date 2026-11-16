@@ -11,7 +11,7 @@
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import { finishUnlock } from "./lib/unlock.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
-  import { strandedChoice, lockNotice, erasedAfterUnlink, eraseUnfinished } from "./lib/strandeddata.js";
+  import { strandedChoice, lockNotice, erasedAfterUnlink, eraseUnfinished, quitApp, quitClosed } from "./lib/strandeddata.js";
   import Icon from "./Icon.svelte";
   import PassphraseField from "./PassphraseField.svelte";
   import QRScanner from "./QRScanner.svelte";
@@ -149,7 +149,7 @@
   });
   $effect(() => {
     if (!forgot) return;
-    return pushLayer("onboarding", () => (forgot = false));
+    return pushLayer("onboarding", leaveForgot);
   });
   // Scan is offered where a camera makes sense: touch devices with getUserMedia.
   const canScan =
@@ -486,17 +486,30 @@
   // dataHere: account data without its keystore is on this device, so a
   // restore asks the core what it would do to it first, as over an account.
   let dataHere = $state(false);
+  // keptFrom: the choice "Keep it and restore" was picked on, so Back from
+  // the ways back returns to it. quitAsked: Quit was picked; the choice stays
+  // on screen without its buttons, whatever the shell did with the quit.
+  let keptFrom = null;
+  let quitAsked = $state(false);
 
   function keepOrQuit() {
     if (stranded?.keepable) {
+      keptFrom = stranded;
       stranded = null;
       forgot = true; // the recovery-phrase restore keeps this data
       return;
     }
-    try {
-      if (window.runtime?.Quit) window.runtime.Quit();
-      else window.close();
-    } catch {}
+    quitAsked = true;
+    quitApp(window);
+  }
+  // leaveForgot is Back from the ways back: to the choice when it came from
+  // there, else to the screen before.
+  function leaveForgot() {
+    forgot = false;
+    if (keptFrom) {
+      stranded = keptFrom;
+      keptFrom = null;
+    }
   }
 
   onMount(async () => {
@@ -534,6 +547,8 @@
 
   async function submit(e) {
     e?.preventDefault();
+    // The first screen's choice is up: nothing here submits the form.
+    if (stranded && !forgot) return;
     if (resumeBackup && !backupPhrase) return resumeShow(e);
     if (naming) return saveName(e);
     if (!passphrase || busy || backupPhrase) return;
@@ -595,6 +610,7 @@
       hasIdentity = false;
       confirmingReset = false;
       stranded = null;
+      keptFrom = null;
       dataHere = false;
       passphrase = "";
       confirmPass = "";
@@ -690,8 +706,12 @@
       <p class="muted">Loading…</p>
     {:else if stranded && !confirmingReset && !forgot}
       <p class="muted">{stranded.body}</p>
-      <button class="primary" type="button" onclick={() => ((confirmingReset = true), (error = ""))}>{stranded.erase}</button>
-      <button type="button" onclick={keepOrQuit}>{stranded.other}</button>
+      {#if quitAsked}
+        <p class="notice" role="status">{quitClosed}</p>
+      {:else}
+        <button class="primary" type="button" onclick={() => ((confirmingReset = true), (error = ""))}>{stranded.erase}</button>
+        <button type="button" onclick={keepOrQuit}>{stranded.other}</button>
+      {/if}
     {:else if resumeBackup && !backupPhrase}
       <p class="muted">
         This account was created here, but its recovery phrase was never saved —
@@ -1041,7 +1061,7 @@
       <button type="button" class="link warn-link" onclick={() => ((confirmingReset = true), (forgot = false), (error = ""))}>
         I have neither — start over (deletes everything)
       </button>
-      <button type="button" class="link" onclick={() => (forgot = false)}>Back</button>
+      <button type="button" class="link" onclick={leaveForgot}>Back</button>
     {:else if hasIdentity}
       <p class="muted">Enter the passphrase you chose for this device.</p>
       <span class="field-lbl" aria-hidden="true">Passphrase</span>

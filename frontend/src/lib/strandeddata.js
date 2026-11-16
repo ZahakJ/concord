@@ -48,3 +48,31 @@ export function lockNotice(reason, files) {
   if (reason === "unlinked-not-erased") return eraseUnfinished(files);
   return "";
 }
+
+// quitClosed is said once Quit was asked for and the window is still there
+// (a browser tab the page cannot close). The screen keeps no button: nothing
+// is opened or created from it.
+export const quitClosed = "You can close this window now.";
+
+// quitApp ends the app the way its shell can: Capacitor's App plugin on
+// Android, Wails on the desktop, or else window.close, which a browser
+// ignores for a tab the page did not open. Returns the way it took.
+export function quitApp(win) {
+  const app = win?.Capacitor?.Plugins?.App;
+  if (typeof app?.exitApp === "function") {
+    try {
+      Promise.resolve(app.exitApp()).catch(() => {});
+      return "android";
+    } catch {}
+  }
+  if (typeof win?.runtime?.Quit === "function") {
+    try {
+      win.runtime.Quit();
+      return "desktop";
+    } catch {}
+  }
+  try {
+    win?.close?.();
+  } catch {}
+  return "browser";
+}
