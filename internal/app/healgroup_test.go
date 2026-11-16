@@ -1,8 +1,12 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"log"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,8 +52,16 @@ func TestHealRefusesAWelcomeForAnotherGroup(t *testing.T) {
 		swapped, _ := json.Marshal(req)
 		return owner.handleInviteRequest(c, from, swapped)
 	})
-	if member.healViaCommitter(g.ID, owner.host.PeerID()) {
+	var logged bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(io.MultiWriter(&logged, prev))
+	healed := member.healViaCommitter(g.ID, owner.host.PeerID())
+	log.SetOutput(prev)
+	if healed {
 		t.Fatal("a heal answered with another group's welcome was taken as a repair")
+	}
+	if !strings.Contains(logged.String(), "answered a heal with a welcome for another group; refused") {
+		t.Fatal("the refused heal left no log line")
 	}
 	if m, err := member.mls.Members(ctx, trap.GroupID); err == nil && len(m) > 0 {
 		t.Fatalf("asked to be healed in %q; the device now holds the MLS group of the committer's other guild (%d members)", g.Name, len(m))

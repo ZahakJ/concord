@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
+	"github.com/ZahakJ/concord/internal/crypto/mls"
 	"github.com/ZahakJ/concord/internal/identity"
 )
 
@@ -717,6 +719,9 @@ func (s *Service) healAsk(guildID string, pid peer.ID) (bool, string) {
 	// For this group, the join overwrites our local entry with the fresh
 	// membership at the current epoch — the ratchet is repaired.
 	if _, err := s.mls.JoinAs(s.ctx, resp.Welcome, want); err != nil {
+		if errors.Is(err, mls.ErrWrongGroup) {
+			log.Printf("concord/app: guild %s: committer %s answered a heal with a welcome for another group; refused", guildID, pid)
+		}
 		return false, ""
 	}
 	// A welcome we could join disproves the terminal state: somebody with
