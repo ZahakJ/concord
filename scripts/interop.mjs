@@ -959,8 +959,11 @@ async function phaseSeats() {
     return { evidence: ev };
   });
 
-  await lane("K2", "typing both ways", async () => {
+  await lane("K2", "typing both ways, with NEW's typing turned on", async () => {
     const ev = [];
+    // Typing is off by default from 0.61 on; this lane is about the wire.
+    await rpc(NEW, "SetTypingEnabled", [true]);
+    ev.push(`NEW typing on: ${await rpc(NEW, "TypingEnabled")}`);
     for (const [dir, from, to, chan, fpr] of [
       ["OLD->NEW", OLD, NEW, st.oldGuildChanOld, st.oldFP],
       ["NEW->OLD", NEW, OLD, st.newGuildChanNew, st.newFP],
@@ -974,6 +977,28 @@ async function phaseSeats() {
       const t = await seen;
       if (!t) throw new Error(`${dir}: no typing event`);
       ev.push(`${dir}: typing from ${t.name || t.from} in ${t.channelId.slice(0, 8)}`);
+    }
+    return { evidence: ev };
+  });
+
+  await lane("K2b", "NEW with typing off neither shows OLD's typing nor sends its own", async () => {
+    const ev = [];
+    await rpc(NEW, "SetTypingEnabled", [false]);
+    if (await rpc(NEW, "TypingEnabled")) throw new Error("NEW still has typing on");
+    ev.push("NEW typing off");
+    for (const [dir, from, to, chan, fpr] of [
+      ["OLD->NEW", OLD, NEW, st.oldGuildChanOld, st.oldFP],
+      ["NEW->OLD", NEW, OLD, st.newGuildChanNew, st.newFP],
+    ]) {
+      const seen = typingSeen(to, fpr, 12000);
+      await sleep(500);
+      for (let i = 0; i < 6; i++) {
+        await tryRpc(from, "SendTyping", [chan]);
+        await sleep(1500);
+      }
+      const t = await seen;
+      if (t) throw new Error(`${dir}: a typing event arrived (${JSON.stringify(t)})`);
+      ev.push(`${dir}: no typing event in 12 s`);
     }
     return { evidence: ev };
   });
@@ -1012,8 +1037,35 @@ async function phaseSeats() {
 
   await lane("K5", "a device linked to OLD (OLD binary) joins both guilds; NEW flags nothing and attributes it to OLD", async () => {
     const ev = [];
+    let status = "PASS";
     const code = await rpc(OLD, "LinkOffer");
-    await rpc(SEATLINK, "RedeemLinkCode", [code, PASS_SEATLINK, ""]);
+    // The link's own report: "" when every guild came across, otherwise the
+    // sentence the user reads, naming each guild that did not.
+    const linkMsg = (await rpc(SEATLINK, "RedeemLinkCode", [code, PASS_SEATLINK, ""])) || "";
+    ev.push(`link said: ${JSON.stringify(linkMsg)}`);
+    if (linkMsg) {
+      const newGuild = (await rpc(NEW, "Guilds")).find((g) => g.id === st.newGuildID);
+      // An issuer at v0.60.4 or older cannot hand over a guild owned by a peer
+      // it reaches only over loopback (DialableAddrs drops loopback; changed
+      // after it by a9d7d2c4), which is every peer in this script. It says so, and
+      // the guild NEW owns, and NEW's DM, are the ones it names. Anything else
+      // named is a real failure.
+      const handedOver = /couldn't be handed over from that device \(([^)]*)\)/.exec(linkMsg);
+      const named = handedOver ? handedOver[1].split(", ") : [];
+      const expected = new Set([newGuild?.name, "Direct message"]);
+      const unexpected = named.filter((n) => !expected.has(n));
+      if (!handedOver || unexpected.length || /couldn't join/.test(linkMsg)) {
+        throw new Error(`the link reported guilds it did not bring: ${linkMsg}`);
+      }
+      if (named.includes(newGuild?.name)) {
+        // Admit the linked device the way a person would: a code from NEW,
+        // which owns the guild.
+        const direct = await rpc(NEW, "InviteCode", [st.newGuildID]);
+        await rpc(SEATLINK, "JoinViaInvite", [direct]);
+        ev.push(`OLD could not hand over ${named.join(", ")} (an older issuer over loopback); joined NEW's guild with a code from NEW`);
+        status = "WARN";
+      }
+    }
     for (const gid of [st.newGuildID, st.oldGuildID]) {
       try {
         await waitFor(`linked device holds ${gid.slice(0, 8)}`, async () => (await rpc(SEATLINK, "Guilds")).find((g) => g.id === gid), { timeout: 90000 });
@@ -1040,7 +1092,9 @@ async function phaseSeats() {
     await waitFor("the linked device receives NEW's message", () => findMessage(SEATLINK, linkChanNew, "SEATS-TO-LINKED"), { timeout: 60000 });
     ev.push("the linked device reads NEW's message");
     ev.push(await noSeatFlags(NEW, "NEW"));
-    return { evidence: ev };
+    st.linkSeated = true;
+    saveState(st);
+    return { status, evidence: ev };
   });
 
   await lane("K6", "NEW stays level with membership commits an OLD committer makes", async () => {
@@ -1064,7 +1118,17 @@ async function phaseSeats() {
     }, { timeout: 60000 });
     ev.push(`NEW after OLD's kick: evicted=${gone.evicted}`);
     await rpc(NEW, "RemoveMember", [st.newGuildID, st.oldFP, ""]);
-    for (const [label, base] of [["OLD", OLD], ["linked device", SEATLINK]]) {
+    // The linked device's half needs it seated in NEW's guild, which is K5's
+    // work; without that it is skipped and the lane warns.
+    let status = "PASS";
+    const readers = [["OLD", OLD]];
+    if (st.linkSeated) {
+      readers.push(["linked device", SEATLINK]);
+    } else {
+      status = "WARN";
+      ev.push("K5 did not seat the linked device in NEW's guild; its half of this lane is skipped");
+    }
+    for (const [label, base] of readers) {
       const g = await waitFor(`${label} reads NEW's kick`, async () => {
         const x = (await rpc(base, "Guilds")).find((y) => y.id === st.newGuildID);
         return x && x.evicted ? x : null;
@@ -1072,7 +1136,7 @@ async function phaseSeats() {
       ev.push(`${label} after NEW's kick: evicted=${g.evicted}`);
     }
     ev.push(await noSeatFlags(NEW, "NEW"));
-    return { evidence: ev };
+    return { status, evidence: ev };
   });
   st.lanes = (st.lanes || []).concat(results);
   saveState(st);
