@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -355,11 +356,27 @@ func (s *Service) revokesUs(rev *identity.DeviceRevocation) bool {
 // applyRevocation.
 func (s *Service) selfRevoked() bool {
 	for _, r := range s.revocations() {
-		if s.revokesUs(r) {
+		if s.revokesUs(r) || s.revokedWithoutMarker(r) {
 			return true
 		}
 	}
 	return false
+}
+
+// revokedWithoutMarker reports a revocation this account signed for this
+// install's own device key, stored here, on an install with no device marker
+// at all: a linked device whose erase removed the marker and stopped before
+// the rest. It is that device, and the start erases it.
+func (s *Service) revokedWithoutMarker(rev *identity.DeviceRevocation) bool {
+	if rev == nil || !rev.Verify() || !ed25519Equal(rev.AccountPub, s.id.PublicKey()) {
+		return false
+	}
+	dev := s.id.DevicePublicKey()
+	if len(dev) == 0 || !bytes.Equal(rev.DevicePub, dev) {
+		return false
+	}
+	_, err := os.Lstat(deviceMarkerPath(s.dataDir))
+	return os.IsNotExist(err)
 }
 
 // wipeSelf erases everything this install holds and stops it.
