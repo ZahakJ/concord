@@ -237,6 +237,10 @@ func (s *Service) SetForumBanner(guildID, forumID, banner string) error {
 	if !s.hasPerm(guildID, PermManageChannels) {
 		return fmt.Errorf("app: you don't have permission to manage channels")
 	}
+	banner, err := cleanImageURI(banner)
+	if err != nil {
+		return err
+	}
 	if banner != "" && sanitizeForumBanner(banner) == "" {
 		return fmt.Errorf("app: a forum banner must be a png/jpeg/gif/webp data URI under %d KB, or a preset", maxForumBannerBytes/1024)
 	}

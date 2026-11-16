@@ -484,6 +484,13 @@ func (s *Service) SetGuildProfile(guildID, name, icon, banner, description strin
 	if len(description) > 1000 {
 		description = description[:1000]
 	}
+	var err error
+	if icon, err = cleanImageURI(icon); err != nil {
+		return err
+	}
+	if banner, err = cleanImageURI(banner); err != nil {
+		return err
+	}
 	// A banner may also be a named preset from the shared library — the same
 	// "preset:<id>" form profile banners already travel as, which is a dozen
 	// bytes on the guild-meta topic instead of a quarter-megabyte image, and

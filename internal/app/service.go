@@ -2285,6 +2285,13 @@ func (s *Service) SetGames(games []Game) error {
 
 // SetProfile persists the full self profile and re-announces it to every guild.
 func (s *Service) SetProfile(p Profile) error {
+	var err error
+	if p.Avatar, err = cleanImageURI(p.Avatar); err != nil {
+		return err
+	}
+	if p.Banner, err = cleanImageURI(p.Banner); err != nil {
+		return err
+	}
 	if len(p.Avatar) > maxAvatarBytes {
 		return fmt.Errorf("app: avatar image too large (max %d KB)", maxAvatarBytes/1024)
 	}

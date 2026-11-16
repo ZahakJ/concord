@@ -235,6 +235,10 @@ func (s *Service) ingestStory(guildID string, r storyRecord, authorKey []byte, n
 // profile announce — same MLS-encrypted guildMeta frame, Type "story".
 func (s *Service) PostStory(guildIDs []string, preset, caption string) error {
 	caption = strings.TrimSpace(caption)
+	preset, err := cleanImageURI(preset)
+	if err != nil {
+		return err
+	}
 	if !validStoryScene(preset) {
 		return fmt.Errorf("app: a story needs a banner preset or a png/jpeg/gif/webp image under %dKB", maxStorySceneBytes>>10)
 	}

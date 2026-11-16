@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/nacl/secretbox"
 
 	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/imgmeta"
 	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
@@ -133,6 +134,9 @@ func (s *Service) sealAttachment(dataURL string, w, h int, spoiler bool, name, d
 	if len(plain) == 0 || len(plain) > maxAttachmentPlain {
 		return "", "", fmt.Errorf("app: attachment must be 1 byte – %d MB", maxAttachmentPlain>>20)
 	}
+	if plain, err = cleanImage(plain); err != nil {
+		return "", "", err
+	}
 
 	blobID, keys, err := s.sealBlob(plain)
 	if err != nil {
@@ -241,6 +245,18 @@ func (s *Service) SendFile(channelID, dataURL, filename, replyTo, text, dir stri
 	}
 	if len(plain) == 0 || len(plain) > maxFilePlain {
 		return domain.Message{}, fmt.Errorf("app: file must be 1 byte – %d MB", maxFilePlain>>20)
+	}
+	// A picture that goes as a file is cleaned like any other: the composer
+	// has no "send the original" option, and it routes pictures here on its
+	// own (one the renderer cannot decode, or a file with no type). The format
+	// is read from the bytes, so the mime the page guessed does not matter;
+	// anything that is not png/jpeg/gif/webp (video, audio, documents, HEIC)
+	// is sent as it is.
+	switch imgmeta.Format(plain) {
+	case "jpeg", "png", "gif", "webp":
+		if plain, err = cleanImage(plain); err != nil {
+			return domain.Message{}, err
+		}
 	}
 
 	blobID, keys, err := s.sealBlob(plain)

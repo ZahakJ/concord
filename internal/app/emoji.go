@@ -56,6 +56,10 @@ func (s *Service) AddCustomEmoji(guildID, name, dataURI string) error {
 	if !validEmojiName(name) {
 		return fmt.Errorf("app: emoji name must be 2–32 chars, lowercase letters/numbers/underscore")
 	}
+	dataURI, err := cleanImageURI(dataURI)
+	if err != nil {
+		return err
+	}
 	if !validEmojiImage(dataURI) {
 		return fmt.Errorf("app: emoji must be a base64 PNG/JPEG/GIF/WebP image under %d KB", maxEmojiBytes/1024)
 	}

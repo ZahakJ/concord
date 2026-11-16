@@ -185,6 +185,9 @@ func (s *Service) AddGuildGif(guildID, name string, tags []string, dataURL strin
 	if len(plain) == 0 || len(plain) > maxGifPlain {
 		return GuildGif{}, fmt.Errorf("app: a GIF must be 1 byte – %d MB", maxGifPlain>>20)
 	}
+	if plain, err = cleanImage(plain); err != nil {
+		return GuildGif{}, err
+	}
 
 	blobID, keys, err := s.sealBlob(plain)
 	if err != nil {
