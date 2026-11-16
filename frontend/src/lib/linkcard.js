@@ -40,8 +40,19 @@ export const LINK_CARDS = true;
 // you have answered the question once.
 export const SEND_DEFAULT = "ask";
 
+// The question says in plain words what Yes does. It is asked once; Settings ›
+// Privacy holds the same choice (cardChoiceNote) and answers it there too.
 export const CARD_QUESTION =
-  "Show a preview card for links you send? Your device fetches the page once, when you send. People who read it contact nobody.";
+  "Show cards for links you send? Concord will look up the title and picture of each link you send, from your device, so others see a card. The site sees a visit from you, as if you had opened the link.";
+
+// cardChoiceNote(pref): the line under the Settings switch, which says which
+// of the three states you are in. Undecided shows as off (nothing is fetched)
+// and says the question is still to come; choosing there is the answer.
+export function cardChoiceNote(pref) {
+  if (pref === true) return "On: Concord looks up a link's title and picture, from your device, when you send it";
+  if (pref === false) return "Off: links you send go out as you typed them";
+  return SEND_DEFAULT === "ask" ? "Not chosen yet: you will be asked at the first link you send" : "Off until you turn it on";
+}
 
 // sendingCards(pref, mode): does a link you send get a card?
 export function sendingCards(pref, mode = SEND_DEFAULT) {

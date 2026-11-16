@@ -15,6 +15,7 @@ import {
   askAboutCards,
   SEND_DEFAULT,
   CARD_QUESTION,
+  cardChoiceNote,
 } from "./linkcard.js";
 import { plainSnippet } from "./snippet.js";
 
@@ -197,9 +198,18 @@ eq(sendingCards(true), true, "default: Yes sends cards");
 eq(askAboutCards(true) || askAboutCards(false), false, "default: asked once only");
 eq(
   CARD_QUESTION,
-  "Show a preview card for links you send? Your device fetches the page once, when you send. People who read it contact nobody.",
+  "Show cards for links you send? Concord will look up the title and picture of each link you send, from your device, so others see a card. The site sees a visit from you, as if you had opened the link.",
   "the question, word for word",
 );
+// The question says what Yes does, in plain words.
+for (const w of ["Concord will look up", "title and picture", "from your device", "so others see a card"])
+  eq(CARD_QUESTION.includes(w), true, `the question says "${w}"`);
+
+// The Settings switch: three states, each said under it.
+eq(cardChoiceNote(null), "Not chosen yet: you will be asked at the first link you send", "Settings: undecided");
+eq(cardChoiceNote(undefined), cardChoiceNote(null), "Settings: a missing pref is undecided");
+eq(cardChoiceNote(true), "On: Concord looks up a link's title and picture, from your device, when you send it", "Settings: yes");
+eq(cardChoiceNote(false), "Off: links you send go out as you typed them", "Settings: no");
 
 if (failures) {
   console.error(`${failures} linkcard test(s) failed`);

@@ -12,7 +12,10 @@
 //   - a page posing as YouTube is drawn as a page with its domain in full on
 //     a phone;
 //   - with the default ("ask"), the first link goes out bare and raises one
-//     question; Yes sends cards from then on, Not now keeps links bare;
+//     question that says what Yes does; Yes sends cards from then on, Not now
+//     keeps links bare;
+//   - Settings › Privacy holds the same choice: its line says undecided, on or
+//     off, and setting it there answers the question for good, both ways;
 //   - the composer fetches nothing while a link is typed, and once at send;
 //   - a message sent after a link is never overtaken and never waits;
 //   - a send the core never answers does not hold the channel;
@@ -140,12 +143,54 @@ async function stubLinkCard(app, answer, sleep) {
   return asked;
 }
 
+async function waitChecked(box, want) {
+  for (let i = 0; i < 50; i++) {
+    if ((await box.isChecked()) === want) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`the switch did not turn ${want ? "on" : "off"}`);
+}
+
 async function cardsOn(app) {
   await app.page.evaluate(() => {
     const p = JSON.parse(localStorage.getItem("concord.prefs") || "{}");
     localStorage.setItem("concord.prefs", JSON.stringify({ ...p, sendLinkPreviews: true }));
   });
   await app.reload();
+}
+
+// The question, word for word: it says in plain words what Yes does.
+const QUESTION =
+  "Show cards for links you send? Concord will look up the title and picture of each link you send, from your device, so others see a card. The site sees a visit from you, as if you had opened the link.";
+const ROW_TITLE = "Preview cards for links you send";
+const NOTE = {
+  undecided: "Not chosen yet: you will be asked at the first link you send",
+  on: "On: Concord looks up a link's title and picture, from your device, when you send it",
+  off: "Off: links you send go out as you typed them",
+};
+const storedChoice = (app) =>
+  app.page.evaluate(() => JSON.parse(localStorage.getItem("concord.prefs") || "{}").sendLinkPreviews ?? null);
+
+// The Privacy section's link card row: its switch and the line under it.
+// Opened with the gear (desktop) or the You tab (phone) directly: the
+// question above the composer is itself role=dialog, which openSettings would
+// take for an open settings window.
+async function privacyCardRow(app) {
+  const btn = app.isPhone
+    ? app.page.getByRole("button", { name: "You — profile and settings" })
+    : app.page.locator('button[aria-label="Settings"]').last();
+  await btn.click();
+  await app.settingsSection("Privacy");
+  const row = app.page.locator("label.row", { hasText: ROW_TITLE }).first();
+  await row.waitFor({ state: "visible", timeout: 15000 });
+  return {
+    row,
+    box: row.getByRole("switch", { name: ROW_TITLE }),
+    // The track, where a thumb goes (the row's centre can be the ⓘ, which
+    // opens the reasons instead).
+    flip: () => row.locator(".switch").click(),
+    note: async () => (await row.locator(".sub").innerText()).trim(),
+  };
 }
 
 test("a card arrives whole, and reading it contacts nobody", async ({ world, assert, step, waitFor }) => {
@@ -313,6 +358,7 @@ test("the composer fetches nothing while a link is typed, and the card once at s
   await a.composer().press("Enter");
   await bashir.waitForMessage(general.id, `default ${YT}`, { timeout: 30000 });
   await question.waitFor({ timeout: 5000 });
+  assert.equal((await question.locator("span").first().innerText()).trim(), QUESTION, "the question's words");
   assert.deepEqual(traffic.methods.filter((m) => FETCHES.test(m)), [], "a card was fetched before the question was answered");
   await shot(a.page, "desktop1280-first-link-question");
 
@@ -376,6 +422,7 @@ test("phone: Not now keeps links bare and is not asked again", async ({ world, a
   await send(`first ${YT}`);
   await bashir.waitForMessage(general.id, `first ${YT}`, { timeout: 30000 });
   await question.waitFor({ timeout: 5000 });
+  assert.equal((await question.locator("span").first().innerText()).trim(), QUESTION, "the question's words");
   await shot(a.page, "phone390-first-link-question");
 
   step("Not now: the question goes and the next link is sent bare, without a fetch");
@@ -395,6 +442,139 @@ test("phone: Not now keeps links bare and is not asked again", async ({ world, a
   await sleep(1000);
   assert.equal(await question.count(), 0, "asked again after a reload");
   assert.deepEqual(traffic.methods.filter((m) => FETCHES.test(m)), [], "a card was fetched after Not now");
+});
+
+// Settings › Privacy is the same choice as the question. Its line says which
+// of the three states you are in; setting it there, either way, is the answer:
+// a question already up goes, it is never asked again, and links go out as
+// the switch says.
+test("Settings: the card switch is the question's choice, on and then off", async ({ world, assert, step, sleep }) => {
+  const { alice, bashir, general, ytThumb } = await seed(world);
+  const a = await alice.open({ viewport: DESKTOP });
+  const block = `[Never Gonna Give You Up](${YT}) · youtube.com\n${thumbLine(ytThumb, "Rick Astley")}`;
+  const traffic = watchTraffic(a.page);
+  const fetches = () => traffic.methods.filter((m) => FETCHES.test(m)).length;
+  const asked = await stubLinkCard(a, () => ({ block }), sleep);
+  const question = a.page.locator(".card-ask");
+  await a.openChannel(general.name, "Cards");
+
+  step("the first link asks");
+  await a.composer().fill(`first ${YT}`);
+  await a.composer().press("Enter");
+  await bashir.waitForMessage(general.id, `first ${YT}`, { timeout: 30000 });
+  await question.waitFor({ timeout: 5000 });
+
+  step("Settings: the switch is off and its line says the question is still to come");
+  let s = await privacyCardRow(a);
+  assert.equal(await s.box.isChecked(), false, "undecided shows as on");
+  assert.equal(await s.note(), NOTE.undecided);
+  assert.equal(await storedChoice(a), null);
+  await shot(a.page, "desktop1280-settings-undecided");
+
+  step("switching it on stores Yes and says so");
+  await s.flip();
+  await waitChecked(s.box, true);
+  assert.equal(await s.note(), NOTE.on);
+  assert.equal(await storedChoice(a), true);
+  await shot(a.page, "desktop1280-settings-on");
+
+  step("that answered the question: it is gone");
+  await a.closeModals();
+  await a.composer().waitFor();
+  assert.equal(await question.count(), 0, "the question stayed after choosing in Settings");
+
+  step("the next link gets its card, and no question");
+  await a.composer().fill(YT);
+  await a.composer().press("Enter");
+  await bashir.waitForMessage(general.id, (m) => m.content === block, { timeout: 30000 });
+  assert.deepEqual(asked, [[YT, true]]);
+  await sleep(1000);
+  assert.equal(await question.count(), 0, "asked after Yes in Settings");
+
+  step("switching it off stores No and says so");
+  s = await privacyCardRow(a);
+  await s.flip();
+  await waitChecked(s.box, false);
+  assert.equal(await s.note(), NOTE.off);
+  assert.equal(await storedChoice(a), false);
+  await shot(a.page, "desktop1280-settings-off");
+
+  step("the next link goes out bare, nothing is fetched, and no question");
+  await a.closeModals();
+  const before = fetches();
+  await a.composer().fill(`bare ${YT}`);
+  await a.composer().press("Enter");
+  await bashir.waitForMessage(general.id, `bare ${YT}`, { timeout: 30000 });
+  await sleep(1000);
+  assert.equal(fetches(), before, "a card was fetched with the switch off");
+  assert.equal(await question.count(), 0, "asked after No in Settings");
+
+  step("after a reload the switch still says off");
+  await a.reload();
+  s = await privacyCardRow(a);
+  assert.equal(await s.box.isChecked(), false);
+  assert.equal(await s.note(), NOTE.off);
+});
+
+// A phone that sets the switch before ever sending a link is never asked:
+// off first (links bare, nothing fetched), then on (cards).
+test("phone: choosing in Settings first means the question never comes, off and then on", async ({ world, assert, step, sleep }) => {
+  const { alice, bashir, general, ytThumb } = await seed(world);
+  const a = await alice.open({ viewport: "phone" });
+  const block = `[Never Gonna Give You Up](${YT}) · youtube.com\n${thumbLine(ytThumb, "Rick Astley")}`;
+  const traffic = watchTraffic(a.page);
+  const asked = await stubLinkCard(a, () => ({ block }), sleep);
+  const question = a.page.locator(".card-ask");
+  const send = async (text) => {
+    await a.composer().fill(text);
+    await a.page.getByRole("button", { name: "Send", exact: true }).click();
+  };
+  // Settings is reached from the tabs, which a phone shows outside a
+  // conversation: Back (history) leaves the channel first.
+  const toTabs = async () => {
+    await a.page.evaluate(() => history.back());
+    await a.page.getByRole("button", { name: "You — profile and settings" }).waitFor({ timeout: 15000 });
+  };
+
+  step("Settings before any link: undecided");
+  let s = await privacyCardRow(a);
+  assert.equal(await s.box.isChecked(), false);
+  assert.equal(await s.note(), NOTE.undecided);
+  await shot(a.page, "phone390-settings-undecided");
+
+  step("off: undecided already shows off, so on and back off stores No");
+  await s.flip();
+  await waitChecked(s.box, true);
+  await s.flip();
+  await waitChecked(s.box, false);
+  assert.equal(await s.note(), NOTE.off);
+  assert.equal(await storedChoice(a), false);
+  await shot(a.page, "phone390-settings-off");
+  await a.closeModals();
+
+  step("a link goes out bare: no fetch, no question");
+  await a.openChannel(general.name, "Cards");
+  await send(`bare ${YT}`);
+  await bashir.waitForMessage(general.id, `bare ${YT}`, { timeout: 30000 });
+  await sleep(1000);
+  assert.equal(await question.count(), 0, "asked after No in Settings");
+  assert.deepEqual(traffic.methods.filter((m) => FETCHES.test(m)), [], "a card was fetched after No in Settings");
+
+  step("on in Settings: the next link gets its card, still no question");
+  await toTabs();
+  s = await privacyCardRow(a);
+  await s.flip();
+  await waitChecked(s.box, true);
+  assert.equal(await s.note(), NOTE.on);
+  assert.equal(await storedChoice(a), true);
+  await shot(a.page, "phone390-settings-on");
+  await a.closeModals();
+  await a.openChannel(general.name);
+  await send(YT);
+  await bashir.waitForMessage(general.id, (m) => m.content === block, { timeout: 30000 });
+  assert.deepEqual(asked, [[YT, true]]);
+  await sleep(1000);
+  assert.equal(await question.count(), 0, "asked after Yes in Settings");
 });
 
 test("a message sent after a link is never overtaken and never waits", async ({ world, assert, step, sleep }) => {

@@ -202,7 +202,7 @@ you tap play. See
 Link cards are made by the **sender**, never by the people who read them.
 With *Privacy & safety → Preview cards for links you send* switched on, which is
 **off until you choose** (the first link you send goes out without a card and
-the app asks once), your device loads a link's page once, when you send the
+the app asks once, unless you have already set the switch), your device loads a link's page once, when you send the
 message: YouTube's or Vimeo's oEmbed service for their videos, otherwise the
 page and the host of its picture. That site learns your IP address and the
 moment you sent the link, as if you had opened it. The title, the site's name

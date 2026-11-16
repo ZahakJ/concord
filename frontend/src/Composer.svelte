@@ -1871,10 +1871,11 @@
         <span class="eph-change">change</span>
       </button>
     {/if}
-    {#if cardAsk}
+    {#if cardAsk && askAboutCards(S.prefs.sendLinkPreviews)}
       <!-- Asked once, after the first link you send while undecided. That link
            went out as typed; the answer applies from the next one, and
-           Settings › Privacy changes it later. -->
+           Settings › Privacy changes it later. A choice made in Settings
+           while the question is up answers it, so it goes. -->
       <div class="card-ask" role="dialog" aria-label="Preview cards for links you send">
         <span>{CARD_QUESTION}</span>
         <span class="ca-btns">
