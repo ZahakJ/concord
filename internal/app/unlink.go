@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -458,9 +459,28 @@ func (s *Service) selfRevoked() (bool, error) {
 		}
 		if err != nil {
 			cannotTell = err
+		} else if s.revokedWithoutMarker(r) {
+			s.markerGone = true
+			return true, nil
 		}
 	}
 	return false, cannotTell
+}
+
+// revokedWithoutMarker reports a revocation this account signed for this
+// install's own device key, stored here, on an install with no device marker
+// at all: a linked device whose erase removed the marker and stopped before
+// the rest. It is that device, and the start erases it.
+func (s *Service) revokedWithoutMarker(rev *identity.DeviceRevocation) bool {
+	if rev == nil || !rev.Verify() || !ed25519Equal(rev.AccountPub, s.id.PublicKey()) {
+		return false
+	}
+	dev := s.id.DevicePublicKey()
+	if len(dev) == 0 || !bytes.Equal(rev.DevicePub, dev) {
+		return false
+	}
+	_, err := os.Lstat(deviceMarkerPath(s.dataDir))
+	return errors.Is(err, fs.ErrNotExist)
 }
 
 // wipeSelf erases everything this install holds and stops it.
@@ -500,12 +520,12 @@ func (s *Service) wipeSelf() error {
 		err = errClosedBeforeErase
 	} else {
 		s.closeSession()
-		err = eraseRevokedDevice(dir, account, device)
+		err = eraseRevoked(dir, account, device, s.markerGone)
 		g.leave()
 	}
 	tell(cbs, err)
 	if err != nil && !errors.Is(err, ErrDeviceUnlinkedReplaced) && !errors.Is(err, errClosedBeforeErase) {
-		retryEraseRevokedDevice(g, dir, account, device, cbs)
+		retryEraseRevokedDevice(g, dir, account, device, s.markerGone, cbs)
 	}
 	return err
 }
@@ -622,9 +642,16 @@ func tell(cbs []func(error), err error) {
 // eraseRevokedDevice is one attempt at the self-erase of the device whose
 // account and device keys are given, checked under the keystore lock.
 func eraseRevokedDevice(dir string, account, device ed25519.PublicKey) error {
+	return eraseRevoked(dir, account, device, false)
+}
+
+// eraseRevoked is eraseRevokedDevice; markerGone: the device was found
+// revoked with no device marker (revokedWithoutMarker), and one still absent
+// does not make it another device.
+func eraseRevoked(dir string, account, device ed25519.PublicKey, markerGone bool) error {
 	var why error
 	err := resetIdentityIf(dir, true, func() bool {
-		why = thisDeviceHere(dir, account, device)
+		why = thisDeviceHere(dir, account, device, markerGone)
 		return why == nil
 	}, nil)
 	switch {
@@ -661,7 +688,11 @@ func eraseRevokedDevice(dir string, account, device ed25519.PublicKey) error {
 // (an erase that stopped part-way) leave the marker to decide. No keystore
 // and no account data at all is a device already erased (by a start that
 // ran the erase first, say): nil, and the erase has nothing left to do.
-func thisDeviceHere(dataDir string, account, device ed25519.PublicKey) error {
+//
+// markerGone: the erase is of a device found revoked with no device marker;
+// with the marker still absent and the keystore naming this account, it is
+// that device.
+func thisDeviceHere(dataDir string, account, device ed25519.PublicKey, markerGone bool) error {
 	pub, err := identity.ReadAccountPub(keystorePathIn(dataDir))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -679,6 +710,9 @@ func thisDeviceHere(dataDir string, account, device ed25519.PublicKey) error {
 		return fmt.Errorf("nothing was erased yet: the device marker cannot be read, so whether this is still the unlinked device cannot be told: %w", err)
 	}
 	if !linked {
+		if _, serr := os.Lstat(deviceMarkerPath(dataDir)); markerGone && errors.Is(serr, fs.ErrNotExist) && pub != nil && ed25519Equal(pub, account) {
+			return nil
+		}
 		return ErrDeviceUnlinkedReplaced
 	}
 	return nil
@@ -693,7 +727,7 @@ func thisDeviceHere(dataDir string, account, device ed25519.PublicKey) error {
 //
 // The loop belongs to the session's erase gate g: an attempt holds the gate,
 // and the loop ends without another attempt once the session is closed.
-func retryEraseRevokedDevice(g *eraseGate, dir string, account, device ed25519.PublicKey, cbs []func(error)) {
+func retryEraseRevokedDevice(g *eraseGate, dir string, account, device ed25519.PublicKey, markerGone bool, cbs []func(error)) {
 	fast, pause, slow, slowPause := selfEraseRetryAttempts, selfEraseRetryPause, selfEraseSlowAttempts, selfEraseSlowPause
 	if fast+slow == 0 {
 		return
@@ -718,7 +752,7 @@ func retryEraseRevokedDevice(g *eraseGate, dir string, account, device ed25519.P
 				tell(cbs, nil) // erased meanwhile
 				return
 			}
-			err := eraseRevokedDevice(dir, account, device)
+			err := eraseRevoked(dir, account, device, markerGone)
 			g.leave()
 			if err == nil || errors.Is(err, ErrDeviceUnlinkedReplaced) {
 				tell(cbs, err)

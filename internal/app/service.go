@@ -55,6 +55,9 @@ type Service struct {
 	// once; erase ties the self-erase to Close (eraseGate).
 	closeOnce sync.Once
 	erase     *eraseGate
+	// markerGone: selfRevoked found this device revoked with no device
+	// marker (revokedWithoutMarker).
+	markerGone bool
 
 	id    *identity.Identity
 	host  *cnet.Host
