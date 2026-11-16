@@ -286,6 +286,38 @@ func (w twoGuilds) signedByA(channelID, kind, target, content string) domain.Mes
 	return m
 }
 
+// An action that reaches a device before the row it names is applied when
+// the row arrives live, and only then.
+func TestAnActionThatArrivesBeforeItsTargetApplies(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newTwoGuilds(t, ctx)
+
+	row := w.signedByA(w.chB, "", "", "arrives second")
+	w.deliver(t, ctx, w.groupB, w.signedByA(w.chB, "reaction", row.ID, "late"))
+	w.deliver(t, ctx, w.groupB, w.signedByA(w.chB, "edit", row.ID, "edited early"))
+	// The same, aimed at a row that will turn out to be in another guild.
+	other := w.signedByA(w.chA, "", "", "in a's guild")
+	w.deliver(t, ctx, w.groupB, w.signedByA(w.chB, "reaction", other.ID, "elsewhere"))
+
+	w.deliver(t, ctx, w.groupB, row)
+	got := w.row(t, row.ID)
+	if len(got.Reactions["late"]) != 1 {
+		t.Errorf("a reaction that arrived before its target was lost: %v", got.Reactions)
+	}
+	if got.Content != "edited early" {
+		t.Errorf("an edit that arrived before its target was lost: %q", got.Content)
+	}
+
+	w.deliver(t, ctx, w.groupA, other)
+	if got := w.row(t, other.ID); len(got.Reactions) != 0 {
+		t.Errorf("an early action applied to a row of another guild: %v", got.Reactions)
+	}
+}
+
 // An unsigned delete is what v0.57 and older send. It is accepted from the
 // message's own author and carries no moderator's authority, so even the
 // guild's owner removes only their own message with one.

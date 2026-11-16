@@ -109,6 +109,9 @@ type Service struct {
 	// dropLive, when set, discards a live message before it is stored: a test's
 	// stand-in for gossip losing one. Never set outside tests.
 	dropLive atomic.Pointer[func(domain.Message) bool]
+	// held keeps live message actions that arrived before what they depend on:
+	// their target row, or the readmit of their sender (heldactions.go).
+	held heldActions
 
 	// pendingDMInvites tracks DM invitees (1:1 and group) who haven't joined
 	// yet (guild ID -> set of fingerprints). When such a peer later connects we

@@ -271,3 +271,65 @@ func TestInAGroupDMOnlyTheAuthorDeletes(t *testing.T) {
 	}, "the author's own delete did not apply in the group DM")
 }
 
+// A member who was removed and let back in may have their MLS seat back before
+// this device holds the governance op that readmits them; the two travel on
+// different lanes. An action of theirs in that gap waits for the readmit.
+func TestAnActionFromAReadmittedMemberWaitsForTheReadmit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	owner := startService(t, ctx)
+	mod := startService(t, ctx)
+	reader := startService(t, ctx)
+	g := guildWith(t, owner, mod, reader)
+	ch := g.Channels[0].ID
+	modRole, err := owner.UpsertRole(g.ID, "", "Moderator", "", PermManageMessages, 1)
+	if err != nil {
+		t.Fatalf("UpsertRole: %v", err)
+	}
+	if err := owner.AssignRole(g.ID, mod.Fingerprint(), modRole, true); err != nil {
+		t.Fatalf("AssignRole: %v", err)
+	}
+	waitFor(t, 60*time.Second, func() bool {
+		return reader.memberHasPerm(g.ID, mod.Fingerprint(), PermManageMessages)
+	}, "the role never reached the reader")
+	msg, err := reader.SendMessage(ch, "the reader's", "", "")
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+
+	// The kick and the readmit, signed by the owner and handed to the reader
+	// alone, so the moderator's MLS seat is never touched.
+	seq := owner.nextGovSeq(g.ID)
+	op := func(typ string, seq uint64) govOp {
+		o := govOp{Seq: seq, Signer: owner.id.PublicKey(), Type: typ, Target: mod.Fingerprint(), Time: time.Now().UnixNano()}
+		o.Sig = owner.id.Sign(o.signingBytes())
+		return o
+	}
+	if !reader.ingestGovOp(g.ID, op("remove_member", seq), true) {
+		t.Fatal("the reader refused the removal")
+	}
+	if !reader.isRemoved(g.ID, mod.Fingerprint()) || !reader.guildHasMember(g.ID, mod.Fingerprint()) {
+		t.Fatal("the reader should hold the moderator as removed and still in the group")
+	}
+
+	del := domain.Message{
+		ID: domain.NewID(), ChannelID: ch, Sender: mod.PublicKey(),
+		Kind: "delete", ReplyTo: msg.ID, Content: "deleted", Sent: time.Now().UTC(),
+	}
+	del.Sig = mod.signMessage(del)
+	reader.deliverMessage(g.ID, del, mod.myCredential)
+	if row, _, _ := reader.store.MessageByID(msg.ID); row.Deleted {
+		t.Fatal("a delete from a member held as removed applied before their readmit")
+	}
+
+	if !reader.ingestGovOp(g.ID, op("readmit", seq+1), true) {
+		t.Fatal("the reader refused the readmit")
+	}
+	if row, _, _ := reader.store.MessageByID(msg.ID); !row.Deleted {
+		t.Error("a moderator's delete that arrived just before their readmit was lost")
+	}
+}

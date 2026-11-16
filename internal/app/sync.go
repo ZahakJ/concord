@@ -1290,6 +1290,7 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 		}
 		for _, full := range changed {
 			anyNew = true
+			s.dropForTarget(full.ID)
 			// History, not news: a listener that notifies must not treat a
 			// week-old row that arrived on the catch-up like a message somebody
 			// just wrote (domain.Message.Backfill). But see syncedIsNews: the

@@ -4180,14 +4180,35 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 	// Actions (delete, pin, reaction, edit) pass the same gate first: what a
 	// sender may do to a message is judged against the roster as it is when
 	// the action is applied.
+	//
+	// One state is held rather than dropped: a member in the MLS group whom
+	// governance here still records as removed. That is either a readmit whose
+	// op has not arrived yet, or a removal whose commit has not; an action from
+	// them waits for the readmit and is dropped if none comes (heldactions.go).
 	if guildID != "" {
-		if !s.guildHasMember(guildID, senderFpr) ||
-			s.isBanned(guildID, senderFpr) || s.isRemoved(guildID, senderFpr) {
+		inGroup := s.guildHasMember(guildID, senderFpr)
+		banned := s.isBanned(guildID, senderFpr)
+		removed := s.isRemoved(guildID, senderFpr)
+		if !inGroup || banned || removed {
+			if isMessageAction(m.Kind) && inGroup && !banned && removed {
+				s.holdForReadmit(carrierGuild, guildID, senderFpr, m, senderID)
+			}
 			return
 		}
 	}
-	if isMessageAction(m.Kind) && !s.targetInChannel(m.ReplyTo, m.ChannelID) {
-		return
+	if isMessageAction(m.Kind) {
+		target, held, err := s.store.MessageByID(m.ReplyTo)
+		if err != nil || m.ReplyTo == "" {
+			return
+		}
+		if !held {
+			// Not here yet: wait for the row to arrive live.
+			s.holdForTarget(carrierGuild, m, senderID)
+			return
+		}
+		if target.ChannelID != m.ChannelID {
+			return
+		}
 	}
 	switch m.Kind {
 	case "delete":
@@ -4272,6 +4293,7 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 	}
 	s.emitMessage(m)
 	s.noteDelivered(m)
+	s.releaseForTarget(m.ID)
 	// A message landing in a closed DM reopens the conversation (closing
 	// behavior: closing hides it, new activity surfaces it again) — unless the
 	// person on the other end is blocked, in which case reopening would hand

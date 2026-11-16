@@ -270,6 +270,12 @@ func (s *Service) ingestGovOps(guildID string, ops []govOp, live bool) int {
 		}
 	}
 	s.emitGuildUpdate()
+	// Actions from a member let back in, held until their readmit arrived.
+	for _, a := range added {
+		if a.o.Type == "readmit" && !s.isRemoved(guildID, a.o.Target) {
+			s.releaseForReadmit(guildID, a.o.Target)
+		}
+	}
 	return len(added)
 }
 
