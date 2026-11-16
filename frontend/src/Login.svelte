@@ -11,6 +11,7 @@
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import { finishUnlock } from "./lib/unlock.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
+  import { strandedChoice, lockNotice, erasedAfterUnlink, eraseUnfinished } from "./lib/strandeddata.js";
   import Icon from "./Icon.svelte";
   import PassphraseField from "./PassphraseField.svelte";
   import QRScanner from "./QRScanner.svelte";
@@ -93,6 +94,12 @@
       await enter();
     } catch (err) {
       fail(err);
+      if (err?.code === "device-unlinked") {
+        error = "";
+        startNotice = erasedAfterUnlink;
+      }
+      if (err?.code === "erase-unfinished") error = eraseUnfinished(err.detail?.files);
+      if (err?.code === "data-without-keystore") stranded = strandedChoice(!err.detail?.keepable);
     } finally {
       busy = false;
     }
@@ -467,12 +474,39 @@
     }
   }
 
+  // stranded: the first screen's choice for data this device can no longer
+  // open (strandedChoice), asked before anything else; null when there is
+  // none. startNotice: what the core said about how this device was erased.
+  let stranded = $state(null);
+  let startNotice = $state("");
+
+  function keepOrQuit() {
+    if (stranded?.keepable) {
+      stranded = null;
+      forgot = true; // the recovery-phrase restore keeps this data
+      return;
+    }
+    try {
+      if (window.runtime?.Quit) window.runtime.Quit();
+      else window.close();
+    } catch {}
+  }
+
   onMount(async () => {
     try {
       hasIdentity = await api.hasIdentity();
     } catch {
       hasIdentity = false;
     }
+    if (!hasIdentity) {
+      try {
+        const v = await api.strandedData();
+        if (v?.stranded) stranded = strandedChoice(!v.keepable);
+      } catch {}
+    }
+    try {
+      startNotice = lockNotice((await api.sessionState())?.reason);
+    } catch {}
     if (hasIdentity) {
       try {
         device = await api.lockedAccount();
@@ -550,6 +584,7 @@
       await api.resetIdentity();
       hasIdentity = false;
       confirmingReset = false;
+      stranded = null;
       passphrase = "";
       confirmPass = "";
     } catch (err) {
@@ -637,8 +672,17 @@
       </p>
     {/if}
 
+    {#if startNotice && !stranded}
+      <p class="notice" role="status">{startNotice}</p>
+    {/if}
+
     {#if !checked}
       <p class="muted">Loading…</p>
+    {:else if stranded && !confirmingReset && !forgot}
+      <h2>{stranded.title}</h2>
+      <p class="muted">{stranded.body}</p>
+      <button class="primary" type="button" onclick={() => ((confirmingReset = true), (error = ""))}>{stranded.erase}</button>
+      <button type="button" onclick={keepOrQuit}>{stranded.other}</button>
     {:else if resumeBackup && !backupPhrase}
       <p class="muted">
         This account was created here, but its recovery phrase was never saved —

@@ -604,6 +604,9 @@ func (b *Bridge) Login(passphrase string) error {
 		if errors.Is(err, identity.ErrWrongPassphrase) {
 			return wrongPassphrase()
 		}
+		if cerr := b.startError(err); cerr != err {
+			return cerr
+		}
 		return err
 	}
 	svc.OnMessage(func(m domain.Message) {
@@ -3484,6 +3487,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.Logout()
 	case "HasIdentity":
 		return b.HasIdentity()
+	case "StrandedData":
+		return b.StrandedData()
 	case "ResetIdentity":
 		return nil, b.ResetIdentity()
 	case "BeginWipe":

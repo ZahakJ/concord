@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"errors"
+	"log"
 	"strings"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
@@ -28,6 +29,11 @@ const (
 	CodeLocked          = "locked"           // no unlocked session; ask SessionState why
 	CodeReplaceRefused  = "replace-refused"  // would erase the account on this device; detail says whose
 	CodeWrongPassphrase = "wrong-passphrase" // the passphrase does not open this device's keystore
+	// CodeDataWithoutKeystore: an account's data but no keystore; nothing was
+	// opened or created. Detail: StrandedView.
+	CodeDataWithoutKeystore = "data-without-keystore"
+	CodeDeviceUnlinked      = "device-unlinked"  // the start finished erasing a device its account unlinked
+	CodeEraseUnfinished     = "erase-unfinished" // an erase could not remove some files; detail names them; the next start retries
 )
 
 // Why a running core has no session, for a window that had one. A fresh
@@ -37,7 +43,10 @@ const (
 	LockRestarted = "restarted"  // the core started (crash, update, OS restart) and was never unlocked
 	LockSignedOut = "signed-out" // someone signed out (another window, or this one)
 	LockUnlinked  = "unlinked"   // the account unlinked this device and it erased itself
-	LockWiped     = "wiped"      // "Delete everything on this device" ran
+	// LockUnlinkedNotErased: the account unlinked this device, and erasing it
+	// has not finished; the next start tries again.
+	LockUnlinkedNotErased = "unlinked-not-erased"
+	LockWiped             = "wiped" // "Delete everything on this device" ran
 )
 
 // SessionView answers "what happened to my session?" for a window that just
@@ -53,6 +62,13 @@ func (b *Bridge) SessionState() SessionView {
 	b.mu.Lock()
 	unlocked, reason := b.svc != nil, b.lockReason
 	b.mu.Unlock()
+	if !unlocked && reason == "" {
+		// A fresh process: an unlink's erase still recorded on disk is the
+		// reason, not a restart.
+		if dir, err := appsvc.DataDir(); err == nil && appsvc.PendingEraseIsUnlink(dir) {
+			reason = LockUnlinkedNotErased
+		}
+	}
 	v := SessionView{Unlocked: unlocked}
 	if has, err := b.HasIdentity(); err == nil {
 		v.HasIdentity = has
@@ -183,4 +199,64 @@ func (b *Bridge) RevealMnemonicWith(passphrase string) (string, error) {
 		return "", wrongPassphrase()
 	}
 	return svc.Mnemonic()
+}
+
+// StrandedView answers, before anything is unlocked, whether this device
+// holds account data it can no longer open. Keepable: a restore from the
+// recovery phrase opens it again; otherwise nobody can.
+type StrandedView struct {
+	Stranded bool `json:"stranded"`
+	Keepable bool `json:"keepable"`
+}
+
+// StrandedData is StrandedView for this device. While Stranded, Login opens
+// and creates nothing; the first screen asks what happens to the data.
+func (b *Bridge) StrandedData() (StrandedView, error) {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return StrandedView{}, err
+	}
+	stranded, linked := appsvc.DataWithoutKeystore(dir)
+	return StrandedView{Stranded: stranded, Keepable: stranded && !linked}, nil
+}
+
+// EraseUnfinishedView names the files an erase could not remove.
+type EraseUnfinishedView struct {
+	Files []string `json:"files"`
+}
+
+// startError turns what Start refused with into what the screens act on.
+func (b *Bridge) startError(err error) error {
+	switch {
+	case errors.Is(err, appsvc.ErrDataWithoutKeystore):
+		dir, _ := appsvc.DataDir()
+		_, linked := appsvc.DataWithoutKeystore(dir)
+		msg := "This device holds data it can no longer open. Nothing was opened, and no new account was created beside it."
+		return &CodedError{Code: CodeDataWithoutKeystore, Msg: msg, Detail: StrandedView{Stranded: true, Keepable: !linked}}
+	case errors.Is(err, appsvc.ErrDeviceUnlinked):
+		b.lockReason = LockUnlinked
+		return &CodedError{Code: CodeDeviceUnlinked, Msg: "This device was unlinked from its account, so Concord erased its copy of your identity, guilds and messages. Nothing was deleted from anyone else. Link it again from one of your other devices to get them back."}
+	case errors.Is(err, appsvc.ErrEraseUnfinished):
+		if errors.Is(err, appsvc.ErrDeviceUnlinkedNotErased) {
+			b.lockReason = LockUnlinkedNotErased
+		}
+		log.Printf("concord: %v", err)
+		files := appsvc.LeftFiles(err)
+		return &CodedError{Code: CodeEraseUnfinished, Msg: eraseUnfinishedMsg(files), Detail: EraseUnfinishedView{Files: files}}
+	}
+	return err
+}
+
+// eraseUnfinishedMsg is the held-file sentence (the UI says the same,
+// lib/strandeddata.js).
+func eraseUnfinishedMsg(files []string) string {
+	what := "Some of its files are"
+	switch len(files) {
+	case 0:
+	case 1:
+		what = "The file " + files[0] + " is"
+	default:
+		what = "The files " + strings.Join(files, ", ") + " are"
+	}
+	return "Concord couldn't finish erasing this device. " + what + " still here, probably because another program is using them. Close any other Concord windows, or restart the computer, and Concord finishes erasing the next time it starts."
 }
