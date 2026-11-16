@@ -525,6 +525,9 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 	if err := s.migrateHidden(); err != nil {
 		return err
 	}
+	if err := s.migrateBlobRefs(); err != nil {
+		return err
+	}
 	if err := s.migrateExpires(); err != nil {
 		return err
 	}
@@ -1470,14 +1473,14 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	}
 	sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 
-	// The row and its place on the gallery's queue are one transaction: a
-	// row saved without its queue entry would never be indexed, since saving
-	// the same id again is a no-op.
+	// The row, its place on the gallery's queue and its blob references are
+	// one transaction: a row saved without them would never be indexed,
+	// since saving the same id again is a no-op.
 	tx, err := s.db.Begin()
 	if err != nil {
 		return false, fmt.Errorf("store: save message: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
 	res, err := tx.Exec(
 		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent, sig, unverified, quiet, expires, deleted, expired)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1490,15 +1493,19 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 		return false, fmt.Errorf("store: save message: %w", err)
 	}
 	n, _ := res.RowsAffected()
-	if n > 0 {
-		if err := queueMedia(tx, m); err != nil {
-			return false, fmt.Errorf("store: save message: %w", err)
-		}
+	if n == 0 {
+		return false, nil
+	}
+	if err := queueMedia(tx, m); err != nil {
+		return false, fmt.Errorf("store: save message: %w", err)
+	}
+	if err := noteBlobRefs(tx, m.ID, m.Content); err != nil {
+		return false, err
 	}
 	if err := tx.Commit(); err != nil {
 		return false, fmt.Errorf("store: save message: %w", err)
 	}
-	return n > 0, nil
+	return true, nil
 }
 
 // SameAuthoredMessage reports whether two copies of a message carry the same
@@ -1549,7 +1556,10 @@ func (s *Store) ProveRelayedMessage(m domain.Message) (bool, error) {
 		m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir), sealed, nonce[:], m.Sent.UnixNano(),
 		nilIfEmpty(m.Sig), boolToInt(IsQuiet(m.Content)), EphemeralExpiry(m.Content), m.ID,
 	)
-	return err == nil, err
+	if err != nil {
+		return false, err
+	}
+	return true, noteBlobRefs(s.db, m.ID, m.Content)
 }
 
 // LatestTimestamp returns the newest change time (UnixNano) in a channel — the
@@ -2531,7 +2541,7 @@ func (s *Store) UpdateContent(id string, bySender []byte, newContent string, new
 	if old, oerr := s.open(oldEnc, oldNonce); oerr == nil {
 		_ = s.recordVersion(s.db, id, old, sent, newContent, time.Now().UnixNano())
 	}
-	return true, nil
+	return true, noteBlobRefs(s.db, id, newContent)
 }
 
 // MarkDeleted tombstones a message. The author may always delete their own; a
@@ -2897,6 +2907,11 @@ func (s *Store) pruneMessagesChunk(channelIDs []string, cutoff int64) (int, erro
 	}
 	if _, err := tx.Exec(`DELETE FROM message_versions WHERE message_id IN (`+victims+`)`, args...); err != nil {
 		return 0, fmt.Errorf("store: prune versions: %w", err)
+	}
+	// A pruned row names no blob any more; the blob itself stays a cached,
+	// evictable entry, as before.
+	if _, err := tx.Exec(`DELETE FROM blob_refs WHERE message_id IN (`+victims+`)`, args...); err != nil {
+		return 0, fmt.Errorf("store: prune blob refs: %w", err)
 	}
 	res, err := tx.Exec(`DELETE FROM messages WHERE id IN (`+victims+`)`, args...)
 	if err != nil {
@@ -3457,6 +3472,9 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 		if err := queueMedia(q, m); err != nil {
 			return false, fmt.Errorf("store: upsert synced message: %w", err)
 		}
+		if err := noteBlobRefs(q, m.ID, m.Content); err != nil {
+			return false, err
+		}
 		changed = true
 		inserted = true
 	case err != nil:
@@ -3533,6 +3551,9 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 					at = time.Now().UnixNano()
 				}
 				_ = s.recordVersion(q, m.ID, old, curSent, m.Content, at)
+			}
+			if err := noteBlobRefs(q, m.ID, m.Content); err != nil {
+				return false, err
 			}
 			changed = true
 		}
@@ -3717,11 +3738,13 @@ const maxAttachmentStore = 1 << 30 // 1 GiB
 // and idempotent: saving the same blob twice is a no-op.
 func (s *Store) SaveAttachment(blobID string, ct []byte) error {
 	now := time.Now().UnixNano()
+	// A banned blob (ReleaseBlobs) is not stored again, from a fetch, an
+	// archive or anywhere else.
 	_, err := s.db.Exec(
 		`INSERT INTO attachments (blob_id, ct, size, created, last_used)
-		 VALUES (?, ?, ?, ?, ?)
+		 SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM banned_blobs WHERE blob_id = ?)
 		 ON CONFLICT(blob_id) DO NOTHING`,
-		blobID, ct, len(ct), now, now,
+		blobID, ct, len(ct), now, now, blobID,
 	)
 	if err != nil {
 		return fmt.Errorf("store: save attachment: %w", err)
