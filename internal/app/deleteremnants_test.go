@@ -264,3 +264,48 @@ func TestArchiveImportSkipsRowsPastRetention(t *testing.T) {
 		t.Error("archive import skipped a row inside the policy")
 	}
 }
+
+// A reveal answers in no direct message, one to one or with several people,
+// not even for its creator and not even for a deleted body still held at rest.
+func TestARevealAnswersInNoDirectMessage(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startService(t, ctx)
+	others := []string{"fpr-reveal-dm-bob-000000", "fpr-reveal-dm-cara-00000"}
+	for _, f := range others {
+		if err := s.VerifyFingerprint(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gdm, err := s.CreateGroupDM(others)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := gdm.Channels[0].ID
+	if !s.hasPerm(gdm.ID, PermManageMessages) {
+		t.Fatal("the group's creator should hold every permission there")
+	}
+	for _, kind := range []string{"dm", "group"} {
+		s.mu.Lock()
+		s.guilds[gdm.ID].Kind = kind
+		s.mu.Unlock()
+		// A body still held at rest by a deleted row, as a build that kept
+		// deleted bodies left it.
+		m, err := domain.NewMessage(ch, []byte("bob-key-"+kind), "words of "+kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.store.SaveMessage(m); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok, err := s.store.MarkDeleted(m.ID, m.Sender, true); err != nil || !ok {
+			t.Fatalf("MarkDeleted: %v %v", ok, err)
+		}
+		if body := heldBody(t, s, m.ID); body != "words of "+kind {
+			t.Fatalf("setup: the deleted body is not at rest: %q", body)
+		}
+		if got, err := s.RevealDeleted(ch, m.ID); err == nil {
+			t.Errorf("kind %q: the creator revealed a deleted direct message: %q", kind, got)
+		}
+	}
+}
