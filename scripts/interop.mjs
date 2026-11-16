@@ -847,6 +847,68 @@ async function phaseOldCameBack() {
   return results.every((r) => r.status !== "FAIL");
 }
 
+// ---------------------------------------------------------------- unlink
+
+// Each account links a fresh device running the other build, then unlinks it:
+// the unlinked device must erase its copy of the account (keystore, database,
+// group state) and come back with no identity, whichever build revoked it.
+const PASS_LINK = "interop-link-passphrase";
+const OLDLINK = process.env.INTEROP_OLDLINK;
+const NEWLINK = process.env.INTEROP_NEWLINK;
+
+async function ensureSession(base, pass, name) {
+  if (!(await rpc(base, "Session"))) await login(base, pass, name);
+}
+
+async function linkThenUnlink(accountBase, deviceBase, deviceDir) {
+  await waitFor(
+    "link the device",
+    async () => {
+      const code = await rpc(accountBase, "LinkOffer");
+      await rpc(deviceBase, "RedeemLinkCode", [code, PASS_LINK]);
+      return true;
+    },
+    { timeout: 120000, interval: 3000 },
+  );
+  if (!(await rpc(deviceBase, "Session"))) await rpc(deviceBase, "Login", [PASS_LINK]);
+  const account = await rpc(accountBase, "Identity");
+  const device = await rpc(deviceBase, "Identity");
+  if (device.fingerprint !== account.fingerprint) throw new Error(`the device holds ${device.fingerprint}, not ${account.fingerprint}`);
+  const other = await waitFor("the account lists the device", async () => {
+    const list = (await rpc(accountBase, "LinkedDevices")) || [];
+    return list.find((d) => !d.thisOne && !d.revokedAt && d.online);
+  }, { timeout: 90000, interval: 1000 });
+  await rpc(accountBase, "UnlinkDevice", [other.key]);
+  const evidence = [`unlinked device ${other.key.slice(0, 12)}`];
+  await waitFor("the unlinked device has no identity", async () => (await rpc(deviceBase, "HasIdentity")) === false, {
+    timeout: 120000,
+    interval: 1000,
+  });
+  const left = ["keystore.json", "concord.db", "device.json"].filter((f) => existsSync(join(deviceDir, f)));
+  if (left.length) throw new Error(`still on the unlinked device: ${left.join(", ")}`);
+  const ss = await tryRpc(deviceBase, "SessionState");
+  if (ss.ok) evidence.push(`its session state: ${JSON.stringify(ss.result)}`);
+  if (await rpc(accountBase, "Session")) evidence.push("the account's own device is still unlocked");
+  else throw new Error("the account's own device was locked by the unlink");
+  return { evidence };
+}
+
+async function phaseUnlink() {
+  if (!OLDLINK || !NEWLINK) throw new Error("INTEROP_OLDLINK/INTEROP_NEWLINK must be set");
+  await ensureSession(OLD, PASS_OLD, "LegacyPeer");
+  await ensureSession(NEW, PASS_NEW, "HeadPeer");
+  await lane("U1", "OLD unlinks a device running HEAD, which erases itself", () =>
+    linkThenUnlink(OLD, NEWLINK, join(WORK, "newlink")),
+  );
+  await lane("U2", "HEAD unlinks a device running OLD, which erases itself", () =>
+    linkThenUnlink(NEW, OLDLINK, join(WORK, "oldlink")),
+  );
+  const st = loadState();
+  st.lanes = (st.lanes || []).concat(results);
+  saveState(st);
+  return results.every((r) => r.status !== "FAIL");
+}
+
 function phaseReport() {
   const st = loadState();
   const lanes = st.lanes || [];
@@ -879,6 +941,7 @@ const phases = {
   "old-came-back": phaseOldCameBack,
   "while-new-down": phaseWhileNewDown,
   "new-came-back": phaseNewCameBack,
+  unlink: phaseUnlink,
   report: async () => phaseReport(),
 };
 const run = phases[phase];

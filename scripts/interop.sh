@@ -47,6 +47,9 @@ RV_PORT=${RV_PORT:-8961}
 OLD_WEB_PORT=${OLD_WEB_PORT:-8962}
 NEW_WEB_PORT=${NEW_WEB_PORT:-8963}
 THIRD_WEB_PORT=${THIRD_WEB_PORT:-8964}
+# Two fresh devices for the unlink lanes, one of each build.
+OLDLINK_WEB_PORT=${OLDLINK_WEB_PORT:-8965}
+NEWLINK_WEB_PORT=${NEWLINK_WEB_PORT:-$((OLDLINK_WEB_PORT + 1))}
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/concord-interop.XXXXXXXX")"
 # A binary started without CONCORD_HOME uses the default profile, which on a
@@ -207,7 +210,16 @@ note "restarting NEW peer..."
 start_peer new "$NEW_BIN" "$NEW_WEB_PORT"
 drive new-came-back
 
-# Phase 4: final report over collected evidence.
+# Phase 4: unlink across builds. Each account links a fresh device running
+# the other build and unlinks it; the device must erase itself.
+note "starting fresh OLD and HEAD devices for the unlink lanes..."
+start_peer oldlink "$OLD_BIN" "$OLDLINK_WEB_PORT"
+start_peer newlink "$NEW_BIN" "$NEWLINK_WEB_PORT"
+export INTEROP_OLDLINK="http://127.0.0.1:$OLDLINK_WEB_PORT"
+export INTEROP_NEWLINK="http://127.0.0.1:$NEWLINK_WEB_PORT"
+drive unlink
+
+# Phase 5: final report over collected evidence.
 drive report
 
 note "PASS: every lane survived a v0.41.0 peer"
