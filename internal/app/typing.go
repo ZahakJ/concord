@@ -14,9 +14,10 @@ import (
 // there is no server to enforce a one-way deal, so a client that kept receiving
 // while withholding would just be a client that lies to its friends.
 //
-// Read receipts need no equivalent switch: Concord's read state never leaves
-// the account. It is published to the Notes self-group — a group whose only
-// members are your own devices — so nobody else was ever told what you read.
+// Read receipts follow the same rule with their own switch, off by default
+// and mutual (receipts.go). The read state itself, the marks that clear your
+// badges, travels only the Notes self-group, whose only members are your own
+// devices.
 
 // typingPrefKey persists the switch. It is OFF unless chosen: a signal that
 // tells people when you are typing should never start without you saying so.
