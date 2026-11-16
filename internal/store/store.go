@@ -1551,16 +1551,27 @@ func (s *Store) ProveRelayedMessage(m domain.Message) (bool, error) {
 		return false, err
 	}
 	sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
-	_, err = s.db.Exec(
+	// The new body and its blob references are written together.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	if _, err := tx.Exec(
 		`UPDATE messages SET name = ?, kind = ?, reply_to = ?, dir = ?, content_enc = ?, nonce = ?, sent = ?,
 		 sig = ?, unverified = 0, quiet = ?, expires = ? WHERE id = ? AND unverified = 1`,
 		m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir), sealed, nonce[:], m.Sent.UnixNano(),
 		nilIfEmpty(m.Sig), boolToInt(IsQuiet(m.Content)), EphemeralExpiry(m.Content), m.ID,
-	)
-	if err != nil {
+	); err != nil {
 		return false, err
 	}
-	return true, noteBlobRefs(s.db, m.ID, m.Content)
+	if err := noteBlobRefs(tx, m.ID, m.Content); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // LatestTimestamp returns the newest change time (UnixNano) in a channel — the
@@ -2536,13 +2547,25 @@ func (s *Store) UpdateContent(id string, bySender []byte, newContent string, new
 	}
 	q += ` WHERE id = ?`
 	args = append(args, id)
-	if _, err := s.db.Exec(q, args...); err != nil {
+	// The new body and its blob references are written together.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	if _, err := tx.Exec(q, args...); err != nil {
 		return false, err
 	}
 	if old, oerr := s.open(oldEnc, oldNonce); oerr == nil {
-		_ = s.recordVersion(s.db, id, old, sent, newContent, time.Now().UnixNano())
+		_ = s.recordVersion(tx, id, old, sent, newContent, time.Now().UnixNano())
 	}
-	return true, noteBlobRefs(s.db, id, newContent)
+	if err := noteBlobRefs(tx, id, newContent); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // MarkDeleted tombstones a message. The author may always delete their own; a

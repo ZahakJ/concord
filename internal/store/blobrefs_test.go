@@ -308,3 +308,34 @@ func TestABackfillBatchEndsAtTheByteBound(t *testing.T) {
 		t.Errorf("%d calls (done=%v) indexed %d references, want at least 2 calls and %d", calls, done, n, rows)
 	}
 }
+
+// An edit, and a relayed row replaced by its authenticated copy, write the new
+// body and its blob references in one transaction: when the references cannot
+// be written, the body is not changed either.
+func TestABodyChangeAndItsReferencesAreWrittenTogether(t *testing.T) {
+	s := completeStore(t)
+	edited := saveBody(t, s, "before the edit")
+	relayed, _ := domain.NewMessage("chan-1", []byte("alice-key"), "as relayed")
+	relayed.Unverified = true
+	if _, err := s.SaveMessage(relayed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`ALTER TABLE blob_refs RENAME TO blob_refs_away`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateContent(edited.ID, edited.Sender, "after "+imageToken(blobID('a')), nil, "", false); err == nil {
+		t.Error("an edit whose references could not be written reported no error")
+	}
+	if body, _ := s.MessageContent(edited.ID); body != "before the edit" {
+		t.Errorf("the edit was stored without its references: %q", body)
+	}
+	proven := relayed
+	proven.Content = "as written " + imageToken(blobID('b'))
+	proven.Unverified = false
+	if _, err := s.ProveRelayedMessage(proven); err == nil {
+		t.Error("a proven copy whose references could not be written reported no error")
+	}
+	if body, _ := s.MessageContent(relayed.ID); body != "as relayed" {
+		t.Errorf("the proven copy was stored without its references: %q", body)
+	}
+}
