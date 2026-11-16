@@ -930,53 +930,23 @@
   );
   let revealed = $state(null);
   let revealing = $state(false);
-  let revealDisplay = $state(""); // animated "de-crusting" text
   async function revealOriginal() {
     if (revealing || revealed !== null) return;
     revealing = true;
     try {
       revealed = (await api.revealDeleted(m.channelId, m.id)) || "(the original was empty)";
-      decrustInto(revealed);
     } catch (err) {
       flash(err);
     } finally {
       revealing = false;
     }
   }
-  // Hover-to-reveal: fetch the original and let the deleted tombstone crust
-  // away into the real text. Click still works (touch / keyboard).
+  // Hover-to-reveal: fetch the original and show it in place of the deleted
+  // marker, as plain text. Click still works (touch / keyboard).
   function hoverReveal() {
     if (canRevealDeleted && revealed === null) revealOriginal();
   }
 
-  // decrustInto animates target text out of glitchy "crust": each not-yet-settled
-  // character flickers through random glyphs, resolving left-to-right — the
-  // corruption breaking apart into the original message.
-  const CRUST = "▓▒░#@%&$*/\\|=+<>";
-  let decrustTimer = null;
-  function decrustInto(target) {
-    if (reduceMotion) {
-      revealDisplay = target;
-      return;
-    }
-    clearInterval(decrustTimer);
-    let frame = 0;
-    const settleFrames = 3; // frames each char stays scrambled before settling
-    decrustTimer = setInterval(() => {
-      frame++;
-      const settled = Math.floor(frame / settleFrames);
-      let out = "";
-      for (let i = 0; i < target.length; i++) {
-        if (i < settled || target[i] === " ") out += target[i];
-        else out += CRUST[(Math.random() * CRUST.length) | 0];
-      }
-      revealDisplay = out;
-      if (settled >= target.length) {
-        revealDisplay = target;
-        clearInterval(decrustTimer);
-      }
-    }, 28);
-  }
   // A browser guest has no key: their message is relayed under the host's
   // signature. It is NOT the host talking, so it gets its own author row and
   // never inherits the host's name, color, avatar or fingerprint.
@@ -1474,7 +1444,7 @@
           >
             <Icon name="lock" size={10} /> deleted · original
           </span>
-          <span class="revealed-text">{revealDisplay || revealed}</span>
+          <span class="revealed-text">{revealed}</span>
         {:else if m.expired}
           <em class="disappeared"><Icon name="clock" size={11} /> message disappeared</em>
         {:else}
@@ -2304,7 +2274,7 @@
   .body.deleted {
     color: var(--text-muted);
   }
-  /* A deleted message a moderator can un-crust: hint it's interactive. */
+  /* A deleted message a moderator can reveal: hint it's interactive. */
   .body.deleted.revealable {
     cursor: pointer;
   }
