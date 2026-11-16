@@ -2891,13 +2891,7 @@ func (s *Service) noteStrandedGuilds() {
 // returns the raw bytes so a forged cert can't silently masquerade as some other
 // account (it just fails to match any real member).
 func accountKeyOf(cred []byte) []byte {
-	if cert, ok := identity.ParseDeviceCert(cred); ok {
-		if cert.Verify() {
-			return cert.AccountPub
-		}
-		return cred // invalid cert: don't let it resolve to a claimed account
-	}
-	return cred
+	return identity.AccountKeyOf(cred)
 }
 
 // accountFingerprintOf is the safety-number fingerprint of the account behind a

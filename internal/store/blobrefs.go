@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/nacl/secretbox"
+
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // Blob references: which held message bodies name which attachment blob.
@@ -79,12 +82,12 @@ CREATE INDEX IF NOT EXISTS idx_blob_refs_message ON blob_refs(message_id);
 CREATE TABLE IF NOT EXISTS banned_blobs (
   blob_id TEXT PRIMARY KEY,
   at      INTEGER NOT NULL,
-  sender  BLOB
+  account BLOB
 )`); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
 	}
-	// A table made before the sender column: "duplicate column" is ignored.
-	_, _ = s.db.Exec(`ALTER TABLE banned_blobs ADD COLUMN sender BLOB`)
+	// A table made before the account column: "duplicate column" is ignored.
+	_, _ = s.db.Exec(`ALTER TABLE banned_blobs ADD COLUMN account BLOB`)
 	return nil
 }
 
@@ -149,16 +152,18 @@ func BlobIDsIn(body string) []string {
 // (an edit) keeps the blobs of its earlier versions, which the message still
 // holds until it is deleted.
 //
-// A blob banned when a message from another sender was released is let go
+// A blob banned when a message from another account was released is let go
 // of its ban here, so the next fetch stores it again: the device holds a
-// message of its own that names it. A message from the sender whose message
-// was released does not lift the ban, and neither does any message for a
-// ban recorded without a sender.
+// message of its own that names it. A message from the account whose message
+// was released, from any of its devices, does not lift the ban, and neither
+// does any message for a ban recorded without an account. The account is the
+// one a sender's device cert verifies to (identity.AccountKeyOf).
 func noteBlobRefs(q querier, messageID string, sender []byte, body string) error {
 	return insertBlobRefs(q, messageID, sender, BlobIDsIn(body))
 }
 
 func insertBlobRefs(q querier, messageID string, sender []byte, ids []string) error {
+	var account []byte // the sender's account, read once a ban asks for it
 	for _, id := range ids {
 		if _, err := q.Exec(`INSERT INTO blob_refs (blob_id, message_id) VALUES (?, ?) ON CONFLICT DO NOTHING`, id, messageID); err != nil {
 			return fmt.Errorf("store: note blob refs: %w", err)
@@ -166,7 +171,21 @@ func insertBlobRefs(q querier, messageID string, sender []byte, ids []string) er
 		if len(sender) == 0 {
 			continue
 		}
-		if _, err := q.Exec(`DELETE FROM banned_blobs WHERE blob_id = ? AND sender IS NOT NULL AND sender != ?`, id, sender); err != nil {
+		var banner []byte
+		err := q.QueryRow(`SELECT account FROM banned_blobs WHERE blob_id = ? AND account IS NOT NULL`, id).Scan(&banner)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("store: note blob refs: %w", err)
+		}
+		if account == nil {
+			account = identity.AccountKeyOf(sender)
+		}
+		if bytes.Equal(banner, account) {
+			continue
+		}
+		if _, err := q.Exec(`DELETE FROM banned_blobs WHERE blob_id = ?`, id); err != nil {
 			return fmt.Errorf("store: note blob refs: %w", err)
 		}
 	}
@@ -322,6 +341,7 @@ func (s *Store) releaseBlobs(q querier, messageID string, complete bool) ([]stri
 	}
 	var banned []string
 	var queued map[string]bool
+	var account []byte // the released message's account, read once a blob is banned
 	for _, id := range ids {
 		var kept int
 		err := q.QueryRow(`SELECT
@@ -345,7 +365,10 @@ func (s *Store) releaseBlobs(q querier, messageID string, complete bool) ([]stri
 		if _, err := q.Exec(`DELETE FROM attachments WHERE blob_id = ?`, id); err != nil {
 			return nil, err
 		}
-		if _, err := q.Exec(`INSERT INTO banned_blobs (blob_id, at, sender) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, id, time.Now().UnixNano(), nilIfEmpty(sender)); err != nil {
+		if account == nil {
+			account = identity.AccountKeyOf(sender)
+		}
+		if _, err := q.Exec(`INSERT INTO banned_blobs (blob_id, at, account) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, id, time.Now().UnixNano(), nilIfEmpty(account)); err != nil {
 			return nil, err
 		}
 		banned = append(banned, id)

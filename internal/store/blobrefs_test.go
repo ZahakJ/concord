@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 var testKeys = strings.Repeat("A", 75)
@@ -436,32 +437,51 @@ func TestABlobAScheduledSendNamesStays(t *testing.T) {
 	}
 }
 
-// A ban is lifted when this device stores a live message from another sender
-// that names the blob, and not by another message from the sender whose
-// message was released.
-func TestAnotherSendersMessageLiftsABan(t *testing.T) {
+// A ban is lifted when this device stores a message from another account
+// that names the blob, and not by another message from the account whose
+// message was released, from the same device or another of its devices.
+func TestAnotherAccountsMessageLiftsABan(t *testing.T) {
 	s := completeStore(t)
 	b := blobID('a')
 	holdBlob(t, s, b)
-	from := func(sender, body string) domain.Message {
+	device := func(acct *identity.Identity) []byte {
 		t.Helper()
-		m, _ := domain.NewMessage("chan-1", []byte(sender), body)
+		other, err := identity.Generate()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return acct.IssueDeviceCertFor(other.PublicKey(), "device", 1).Marshal()
+	}
+	x, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	y, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	xPhone, xDesk := device(x), device(x)
+	from := func(sender []byte, body string) domain.Message {
+		t.Helper()
+		m, _ := domain.NewMessage("chan-1", sender, body)
 		if _, err := s.SaveMessage(m); err != nil {
 			t.Fatalf("SaveMessage: %v", err)
 		}
 		return m
 	}
-	x := from("x-key", "copied "+imageToken(b))
-	if banned, err := s.ReleaseBlobs(x.ID); err != nil || len(banned) != 1 || !s.BlobBanned(b) {
+	released := from(xPhone, "copied "+imageToken(b))
+	if banned, err := s.ReleaseBlobs(released.ID); err != nil || len(banned) != 1 || !s.BlobBanned(b) {
 		t.Fatalf("setup: the released blob was not banned: %v %v", banned, err)
 	}
-	from("x-key", "again "+imageToken(b))
-	if !s.BlobBanned(b) {
-		t.Error("a message from the sender whose message was released lifted the ban")
+	for name, sender := range map[string][]byte{"the same device": xPhone, "another device of the account": xDesk, "the account key": x.PublicKey()} {
+		from(sender, "again from "+name+" "+imageToken(b))
+		if !s.BlobBanned(b) {
+			t.Fatalf("a message from %s whose message was released lifted the ban", name)
+		}
 	}
-	from("y-key", "the picture's own message "+imageToken(b))
+	from(device(y), "the picture's own message "+imageToken(b))
 	if s.BlobBanned(b) {
-		t.Error("a message from another sender naming the blob left it banned")
+		t.Error("a message from another account naming the blob left it banned")
 	}
 	if err := s.SaveAttachment(b, []byte("ciphertext again")); err != nil || !heldBlob(s, b) {
 		t.Errorf("the blob could not be stored again after the ban was lifted: %v", err)

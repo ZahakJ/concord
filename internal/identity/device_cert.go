@@ -118,6 +118,17 @@ func ParseDeviceCert(b []byte) (*DeviceCert, bool) {
 	return &c, true
 }
 
+// AccountKeyOf returns the account public key a member credential speaks for:
+// the account of a device cert that verifies, and otherwise the credential's
+// own bytes. A legacy bare 32-byte credential is the account key itself; an
+// unverified cert is returned as it is, so it cannot claim another account.
+func AccountKeyOf(cred []byte) []byte {
+	if cert, ok := ParseDeviceCert(cred); ok && cert.Verify() {
+		return cert.AccountPub
+	}
+	return cred
+}
+
 // DeviceRevocation is an account withdrawing one of its own devices: the same
 // account key that signed a DeviceCert signs, later, "this device is no longer
 // mine". It is the counterpart to IssueDeviceCertFor and carries exactly the
