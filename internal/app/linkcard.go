@@ -11,6 +11,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
+	"math"
 	"mime"
 	"net"
 	"net/http"
@@ -273,8 +274,8 @@ func (pc *previewCache) buildCard(ctx context.Context, u *url.URL, withThumb boo
 			return c, err
 		}
 		c.Title, c.Site, thumbURL = oe.Title, oe.AuthorName, oe.ThumbnailURL
-		if oe.Duration > 0 {
-			c.Duration = fmtDuration(oe.Duration)
+		if oe.Duration >= 1 && oe.Duration < 100*3600 {
+			c.Duration = fmtDuration(int(math.Round(oe.Duration)))
 		}
 	default:
 		body, final, err := pc.getLimited(ctx, u.String(), "text/html", previewBodyCap, isHTML)
@@ -310,7 +311,9 @@ type oembed struct {
 	Title        string `json:"title"`
 	AuthorName   string `json:"author_name"`
 	ThumbnailURL string `json:"thumbnail_url"`
-	Duration     int    `json:"duration"`
+	// Seconds. Vimeo sends a whole number today; a fraction must not cost
+	// the card, as decoding it into an int would.
+	Duration float64 `json:"duration"`
 }
 
 // youtubeVideoID returns the 11-character id of a YouTube watch/short/embed

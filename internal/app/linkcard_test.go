@@ -304,9 +304,11 @@ func TestLinkCardOEmbed(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"title":"Never Gonna Give You Up","author_name":"Rick Astley","thumbnail_url":"http://elsewhere.test/x.jpg"}`)
 	})
+	var vimeoBody atomic.Value
+	vimeoBody.Store(`{"title":"A Vimeo film","author_name":"Someone","duration":3725,"thumbnail_url":"http://img.test/v.jpg"}`)
 	mux.HandleFunc("/vimeo", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"title":"A Vimeo film","author_name":"Someone","duration":3725,"thumbnail_url":"http://img.test/v.jpg"}`)
+		fmt.Fprint(w, vimeoBody.Load().(string))
 	})
 	mux.HandleFunc("/vi/dQw4w9WgXcQ/hqdefault.jpg", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "image/jpeg")
@@ -336,6 +338,13 @@ func TestLinkCardOEmbed(t *testing.T) {
 	c, err = build(t, "https://vimeo.com/76979871")
 	if err != nil || c.Title != "A Vimeo film" || c.Duration != "1:02:05" || len(c.thumb) == 0 {
 		t.Fatalf("vimeo card: %+v err=%v", c, err)
+	}
+
+	// A length with a fraction keeps the card (LC2-06).
+	vimeoBody.Store(`{"title":"A short film","author_name":"Someone","duration":12.5,"thumbnail_url":"http://img.test/v.jpg"}`)
+	c, err = build(t, "https://vimeo.com/76979871")
+	if err != nil || c.Title != "A short film" || c.Duration != "0:13" {
+		t.Fatalf("vimeo card with a fractional length: %+v err=%v", c, err)
 	}
 
 	// Look-alike hosts are not YouTube, however the path reads.
