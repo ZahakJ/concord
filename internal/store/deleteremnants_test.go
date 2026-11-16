@@ -156,3 +156,48 @@ func TestSaveMessageStoresATombstoneAsOne(t *testing.T) {
 		}
 	}
 }
+
+// Under a retention cutoff, history sync skips a row sent before it that is
+// not held, keeps going with the rest of the batch, takes a pinned one (which
+// retention keeps), and still reconciles a row already held.
+func TestASyncedRowPastRetentionIsSkipped(t *testing.T) {
+	s, _ := openTestStore(t)
+	const self = "fpr-self"
+	cutoff := time.Now().Add(-time.Hour)
+
+	old, _ := domain.NewMessage("chan-1", []byte("alice-key"), "pruned everywhere")
+	old.Sent = cutoff.Add(-time.Minute)
+	oldPinned, _ := domain.NewMessage("chan-1", []byte("alice-key"), "pinned, so kept")
+	oldPinned.Sent = cutoff.Add(-time.Minute)
+	oldPinned.Pinned = true
+	recent, _ := domain.NewMessage("chan-1", []byte("alice-key"), "inside the window")
+	held, _ := domain.NewMessage("chan-1", []byte("alice-key"), "held from before")
+	held.Sent = cutoff.Add(-time.Minute)
+	if _, err := s.SaveMessage(held); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+	heldDead := held
+	heldDead.Content = ""
+	heldDead.Deleted = true
+	heldDead.Updated = time.Now()
+
+	changed, err := s.UpsertSyncedMessagesWith([]domain.Message{old, oldPinned, recent, heldDead}, self,
+		SyncRules{Trusted: true, NotBefore: cutoff.UnixNano()})
+	if err != nil {
+		t.Fatalf("UpsertSyncedMessagesWith: %v", err)
+	}
+	if len(changed) != 3 {
+		t.Errorf("%d rows changed, want 3 (the pinned, the recent and the held tombstone)", len(changed))
+	}
+	if _, ok, _ := s.MessageByID(old.ID); ok {
+		t.Error("a row past the retention cutoff was taken back")
+	}
+	for _, m := range []domain.Message{oldPinned, recent} {
+		if _, ok, _ := s.MessageByID(m.ID); !ok {
+			t.Errorf("%q was skipped", m.Content)
+		}
+	}
+	if got, _, _ := s.MessageByID(held.ID); !got.Deleted {
+		t.Error("a held row past the cutoff did not take its tombstone")
+	}
+}

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -171,5 +172,95 @@ func TestAnArchivedTombstoneRestoresAsATombstone(t *testing.T) {
 	}
 	if body := heldBody(t, svc, gone.ID); body != "" {
 		t.Errorf("an archived tombstone came back with a body: %q", body)
+	}
+}
+
+// A guild channel's retention cutoff is a per-row skip for history sync: a
+// row sent before it is not taken back, the rest of the payload is, and the
+// channel's cursor is not held.
+func TestHistorySyncSkipsRowsPastRetention(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newTwoGuilds(t, ctx) // a owns ga
+
+	if err := w.a.SetRetention(w.ga.ID, "", 3600); err != nil {
+		t.Fatalf("SetRetention: %v", err)
+	}
+	waitFor(t, 30*time.Second, func() bool { return w.b.RetentionSeconds(w.ga.ID, w.chA) == 3600 },
+		"the retention policy never reached b")
+
+	old := w.signedByA(w.chA, "", "", "older than the policy")
+	old.Sent = time.Now().Add(-2 * time.Hour).UTC()
+	old.Sig = w.a.signMessage(old)
+	recent := w.signedByA(w.chA, "", "", "inside the policy")
+
+	raw, err := json.Marshal(syncPayload{Guild: w.ga.Clone(), Messages: map[string][]domain.Message{w.chA: {old, recent}}})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	ct, err := w.a.mls.Encrypt(ctx, w.groupA, raw)
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	ok, _, failed := w.b.applySyncPayloadFrom(w.ga.ID, w.groupA, ct, w.a.Fingerprint())
+	if !ok {
+		t.Fatal("b could not read the payload")
+	}
+	if failed[w.chA] {
+		t.Error("a row past retention held the channel's cursor")
+	}
+	if _, held, _ := w.b.store.MessageByID(old.ID); held {
+		t.Error("history sync took back a row past the channel's retention")
+	}
+	if _, held, _ := w.b.store.MessageByID(recent.ID); !held {
+		t.Error("a row inside the policy was not taken")
+	}
+}
+
+// Archive import does not bring back a guild row past its channel's
+// retention.
+func TestArchiveImportSkipsRowsPastRetention(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	svc := startServiceInDir(t, ctx, t.TempDir())
+	g, err := svc.CreateGuild("Night Owls")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	ch := g.Channels[0].ID
+	old, _ := domain.NewMessage(ch, svc.PublicKey(), "older than the policy")
+	old.Sent = time.Now().Add(-2 * time.Hour).UTC()
+	if _, err := svc.store.SaveMessage(old); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+	recent, err := svc.SendMessage(ch, "inside the policy", "", "")
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	sealed, _, err := svc.ExportArchive("archive-pass", false)
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if err := svc.SetRetention(g.ID, "", 3600); err != nil {
+		t.Fatalf("SetRetention: %v", err)
+	}
+	if _, err := svc.store.PruneMessagesBefore([]string{ch}, 1<<62); err != nil {
+		t.Fatalf("wipe: %v", err)
+	}
+	if _, err := svc.ImportArchive(sealed, "archive-pass"); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if _, held, _ := svc.store.MessageByID(old.ID); held {
+		t.Error("archive import brought back a row past the channel's retention")
+	}
+	if _, held, _ := svc.store.MessageByID(recent.ID); !held {
+		t.Error("archive import skipped a row inside the policy")
 	}
 }

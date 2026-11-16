@@ -91,3 +91,26 @@ func (s *Service) sweepRetention(now time.Time) {
 		s.emitGuildUpdate()
 	}
 }
+
+// retentionCutoff is the retention cutoff for channelID of guildID at now, in
+// UnixNano, or 0 when the channel keeps everything. Only guilds carry a
+// policy: DMs and meeting rooms have no governance log (see sweepRetention).
+// History sync and archive import do not take back a row this sweep would
+// prune, so a pruned row does not return from a member who kept it.
+func (s *Service) retentionCutoff(guildID, channelID string, now time.Time) int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.guilds[guildID]
+	if !ok || g.Kind != "" {
+		return 0
+	}
+	st, ok := s.govState[guildID]
+	if !ok {
+		return 0
+	}
+	secs := s.retentionFor(st, channelID)
+	if secs <= 0 {
+		return 0
+	}
+	return now.Add(-time.Duration(secs) * time.Second).UnixNano()
+}

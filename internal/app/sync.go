@@ -1284,7 +1284,10 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 		}
 		// One transaction per batch of rows rather than a commit per statement
 		// (store.UpsertSyncedMessages), with the same rules row for row.
-		changed, err := s.store.UpsertSyncedMessages(accepted, self, trusted)
+		changed, err := s.store.UpsertSyncedMessagesWith(accepted, self, store.SyncRules{
+			Trusted:   trusted,
+			NotBefore: s.retentionCutoff(guildID, chID, now),
+		})
 		if err != nil {
 			// A batch was lost to its commit: not stored, so not ours to count
 			// as reached. The cursor for this channel stays put and the rows

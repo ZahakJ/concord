@@ -3218,10 +3218,23 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 // allowed so ordinary-member catch-up keeps working; only the caller-designated
 // trusted sources (guild owner / SyncHost) may mutate existing rows.
 func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, trusted bool) (bool, error) {
-	return s.upsertSyncedMessage(s.db, m, selfFingerprint, trusted)
+	return s.upsertSyncedMessage(s.db, m, selfFingerprint, SyncRules{Trusted: trusted})
 }
 
-func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint string, trusted bool) (bool, error) {
+// SyncRules is what the caller decided about the rows one source served for
+// one channel.
+type SyncRules struct {
+	// Trusted lets the rows change rows already held (see UpsertSyncedMessage).
+	Trusted bool
+	// NotBefore (UnixNano, 0 for none) is the channel's retention cutoff: a
+	// row sent before it that this device does not hold is skipped, unless it
+	// is pinned, which retention keeps. A row already held is reconciled as
+	// usual.
+	NotBefore int64
+}
+
+func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint string, rules SyncRules) (bool, error) {
+	trusted := rules.Trusted
 	// A deleted row taken from history sync never keeps a body: not the one
 	// the serving member put in the tombstone, and not the one held here.
 	if m.Deleted {
@@ -3262,6 +3275,11 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 	changed := false
 	inserted := false
 	switch {
+	case err == sql.ErrNoRows && !RetainedAt(m, rules.NotBefore):
+		// Past the channel's retention: every device that keeps the policy
+		// has pruned it, so it is not taken back. Skipped, not refused: the
+		// rest of the batch goes on, and the cursor moves past it.
+		return false, nil
 	case err == sql.ErrNoRows:
 		var nonce [nonceSize]byte
 		if _, err := rand.Read(nonce[:]); err != nil {
@@ -3371,6 +3389,13 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 	return changed, nil
 }
 
+// RetainedAt reports whether a channel whose retention cutoff is notBefore
+// (UnixNano, 0 for none) keeps m: it was sent at or after the cutoff, or it is
+// a pinned message, which retention never prunes (PruneMessagesBefore).
+func RetainedAt(m domain.Message, notBefore int64) bool {
+	return notBefore <= 0 || m.Sent.UnixNano() >= notBefore || (m.Pinned && !m.Deleted)
+}
+
 // querier is what *sql.DB and *sql.Tx share, so a statement sequence can run
 // on either: on its own, or inside one transaction with others.
 type querier interface {
@@ -3398,6 +3423,11 @@ const syncBatchRows = 256
 // whole and reported, with the rows already returned from earlier batches
 // still applied.
 func (s *Store) UpsertSyncedMessages(msgs []domain.Message, selfFingerprint string, trusted bool) ([]domain.Message, error) {
+	return s.UpsertSyncedMessagesWith(msgs, selfFingerprint, SyncRules{Trusted: trusted})
+}
+
+// UpsertSyncedMessagesWith is UpsertSyncedMessages under the given rules.
+func (s *Store) UpsertSyncedMessagesWith(msgs []domain.Message, selfFingerprint string, rules SyncRules) ([]domain.Message, error) {
 	var out []domain.Message
 	for start := 0; start < len(msgs); start += syncBatchRows {
 		end := min(start+syncBatchRows, len(msgs))
@@ -3407,7 +3437,7 @@ func (s *Store) UpsertSyncedMessages(msgs []domain.Message, selfFingerprint stri
 		}
 		var applied []domain.Message
 		for _, m := range msgs[start:end] {
-			changed, err := s.upsertSyncedMessage(tx, m, selfFingerprint, trusted)
+			changed, err := s.upsertSyncedMessage(tx, m, selfFingerprint, rules)
 			if err != nil || !changed {
 				continue
 			}

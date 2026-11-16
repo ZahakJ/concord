@@ -10,6 +10,7 @@ import (
 
 	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/store"
 	"github.com/ZahakJ/concord/internal/version"
 )
 
@@ -216,6 +217,7 @@ func (s *Service) ImportArchive(sealed []byte, passphrase string) (ArchiveStats,
 		}
 	}
 
+	now := time.Now()
 	for _, m := range af.Messages {
 		if to, ok := remap[m.ChannelID]; ok {
 			// The row keeps its id, so a second import is still a no-op. Its
@@ -226,6 +228,15 @@ func (s *Service) ImportArchive(sealed []byte, passphrase string) (ArchiveStats,
 			m.ChannelID = to
 		}
 		if !known[m.ChannelID] {
+			st.Skipped++
+			continue
+		}
+		// A row the channel's retention has pruned everywhere is not brought
+		// back from a file either.
+		s.mu.RLock()
+		guildID := s.channelToGuild[m.ChannelID]
+		s.mu.RUnlock()
+		if !store.RetainedAt(m, s.retentionCutoff(guildID, m.ChannelID, now)) {
 			st.Skipped++
 			continue
 		}
