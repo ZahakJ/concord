@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 )
@@ -52,5 +53,36 @@ func TestDisappearingMessageExpiresWithoutAnyView(t *testing.T) {
 	}
 	if n := s.sweepEphemeral(now.Add(7 * time.Minute)); n != 0 {
 		t.Fatalf("a second sweep erased %d more, want 0", n)
+	}
+}
+
+// TestAnExpirySweepEmptiesTheLog: a sweep that erased messages writes the log
+// back and truncates it, so the pages from before the erase do not stay there.
+func TestAnExpirySweepEmptiesTheLog(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	s := startServiceInDir(t, ctx, dir)
+	g, err := s.CreateGuild("Night Shift")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	ch := g.Channels[0].ID
+	now := time.Now()
+	at := now.Add(5 * time.Minute).Unix()
+	for i := 0; i < 20; i++ {
+		if _, err := s.SendMessage(ch, fmt.Sprintf("[eph](concord://eph/v1/%d)gone soon %d", at, i), "", ""); err != nil {
+			t.Fatalf("SendMessage: %v", err)
+		}
+	}
+	if n := s.sweepEphemeral(now.Add(6 * time.Minute)); n != 20 {
+		t.Fatalf("swept %d messages, want 20", n)
+	}
+	st, err := os.Stat(dbPathIn(dir) + "-wal")
+	if err != nil {
+		t.Fatalf("stat log: %v", err)
+	}
+	if st.Size() != 0 {
+		t.Fatalf("the log holds %d bytes after an expiry sweep", st.Size())
 	}
 }

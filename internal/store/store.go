@@ -13,6 +13,7 @@ package store
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -91,7 +92,12 @@ func Open(path string, dataKey []byte) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: set busy timeout: %w", err)
 	}
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;`); err != nil {
+	// secure_delete=ON zeroes what a delete or an overwrite frees: the bytes
+	// inside a page that stays in use, and whole pages that go to the freelist
+	// (the overflow pages of a long body among them), so an erased body's sealed
+	// copy does not stay in the file. See CheckpointDeletes for the copies in
+	// the write-ahead log.
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: set pragmas: %w", err)
 	}
@@ -2602,6 +2608,35 @@ func (s *Store) MessageContent(id string) (string, error) {
 	return s.open(enc, nonceB)
 }
 
+// CheckpointDeletes writes the write-ahead log back into the database and
+// truncates it, after a batch of deletes. Until then the log holds the pages
+// as they were before the batch, the erased bodies' sealed copies with them,
+// and the database file holds its own old copies of the pages.
+//
+// The checkpoint runs on the one writer connection, and a TRUNCATE checkpoint
+// waits for every reader to leave the old snapshot. Under the store's usual
+// five-second busy timeout one open read held every write for five seconds,
+// so the checkpoint waits at most checkpointWait and then gives up; the work
+// left over is done by the next batch's checkpoint, or by SQLite's own
+// automatic checkpoint as the log grows.
+func (s *Store) CheckpointDeletes() {
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA busy_timeout=%d`, checkpointWait.Milliseconds())); err != nil {
+		return
+	}
+	_, _ = conn.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
+	_, _ = conn.ExecContext(ctx, `PRAGMA busy_timeout=5000`)
+}
+
+// checkpointWait bounds how long CheckpointDeletes holds the writer while a
+// reader finishes.
+const checkpointWait = 50 * time.Millisecond
+
 // PurgeDeletedContent permanently erases the retained body of every soft-deleted
 // message (guild deletes keep content for moderator reveal). Returns how many
 // rows were scrubbed. This is the "empty trash" action: after it, "Show
@@ -2629,6 +2664,9 @@ func (s *Store) PurgeDeletedContent(channelIDs []string) (int, error) {
 		return 0, err
 	}
 	n, _ := res.RowsAffected()
+	if n > 0 {
+		s.CheckpointDeletes()
+	}
 	return int(n), nil
 }
 
@@ -2710,6 +2748,9 @@ func (s *Store) PruneMessagesBefore(channelIDs []string, cutoff int64) (int, err
 		}
 		total += n
 		if n < pruneBatch {
+			if total > 0 {
+				s.CheckpointDeletes()
+			}
 			return total, nil
 		}
 	}

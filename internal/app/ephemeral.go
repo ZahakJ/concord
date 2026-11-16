@@ -43,5 +43,8 @@ func (s *Service) sweepEphemeral(now time.Time) int {
 			n++
 		}
 	}
+	if n > 0 {
+		s.store.CheckpointDeletes()
+	}
 	return n
 }
