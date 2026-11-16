@@ -2675,16 +2675,18 @@ func (s *Store) PurgeDeletedContent(channelIDs []string) (int, error) {
 // batches of pruneBatch rows, one statement each, so the single connection is
 // given back between them. A cleared body is the sealed empty string, as
 // EraseContent writes, and is not matched again: the loop ends on its own.
+// Once anything was cleared the log is written back, as after any batch of
+// deletes (CheckpointDeletes).
 func (s *Store) ClearDeletedBodies(keepChannels []string) (int, error) {
 	total := 0
 	for {
 		n, err := s.clearDeletedBodiesChunk(keepChannels, pruneBatch)
-		if err != nil {
-			return total, err
-		}
 		total += n
-		if n < pruneBatch {
-			return total, nil
+		if err != nil || n < pruneBatch {
+			if total > 0 {
+				s.CheckpointDeletes()
+			}
+			return total, err
 		}
 	}
 }

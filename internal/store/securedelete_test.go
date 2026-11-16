@@ -231,3 +231,39 @@ func TestACheckpointDoesNotWaitOutAnOpenRead(t *testing.T) {
 		t.Fatalf("busy_timeout after a checkpoint is %d (%v), want 5000", bt, err)
 	}
 }
+
+// The one-time clear of deleted bodies at rest writes the log back like any
+// other batch of deletes: the cleared bodies are gone from the database file
+// and the log is empty afterwards.
+func TestClearingDeletedBodiesEmptiesTheLog(t *testing.T) {
+	s, path := openTestStore(t)
+	msgs, sealed := fillForDeletes(t, s, path, 400)
+	var cleared, kept [][]byte
+	for i := range msgs {
+		if i%3 != 0 {
+			kept = append(kept, sealed[i])
+			continue
+		}
+		if _, _, err := s.MarkDeleted(msgs[i].ID, nil, true); err != nil {
+			t.Fatal(err)
+		}
+		cleared = append(cleared, sealed[i])
+	}
+	s.CheckpointDeletes()
+	if left := sealedLeft(t, path, cleared); left != len(cleared) {
+		t.Fatalf("found %d of %d deleted bodies before the clear; the scan is wrong", left, len(cleared))
+	}
+	n, err := s.ClearDeletedBodies(nil)
+	if err != nil || n != len(cleared) {
+		t.Fatalf("cleared %d (%v), want %d", n, err, len(cleared))
+	}
+	if w := walSize(path); w != 0 {
+		t.Fatalf("the log holds %d bytes after clearing deleted bodies", w)
+	}
+	if left := sealedLeft(t, path, cleared); left != 0 {
+		t.Fatalf("%d of %d cleared bodies are still in the database file or its log", left, len(cleared))
+	}
+	if left := sealedLeft(t, path, kept); left != len(kept) {
+		t.Fatalf("only %d of %d bodies never deleted are still there", left, len(kept))
+	}
+}
