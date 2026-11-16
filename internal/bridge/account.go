@@ -257,10 +257,13 @@ const StartOverWord = "ERASE"
 
 // StrandedView answers, before anything is unlocked, whether this device
 // holds account data it can no longer open. Keepable: a restore from the
-// recovery phrase opens it again; otherwise nobody can.
+// recovery phrase opens it again; otherwise nobody can. Linked: the data was
+// a linked device's. Not keepable is not linked: a never-linked install with
+// no message to check a phrase against cannot be kept either.
 type StrandedView struct {
 	Stranded bool `json:"stranded"`
 	Keepable bool `json:"keepable"`
+	Linked   bool `json:"linked"`
 }
 
 // StrandedData is StrandedView for this device. While Stranded, Login opens
@@ -270,8 +273,8 @@ func (b *Bridge) StrandedData() (StrandedView, error) {
 	if err != nil {
 		return StrandedView{}, err
 	}
-	stranded, keepable := appsvc.DataWithoutKeystore(dir)
-	return StrandedView{Stranded: stranded, Keepable: keepable}, nil
+	stranded, keepable, linked := appsvc.DataWithoutKeystore(dir)
+	return StrandedView{Stranded: stranded, Keepable: keepable, Linked: linked}, nil
 }
 
 // EraseUnfinishedView names the files an erase could not remove.

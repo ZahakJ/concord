@@ -446,15 +446,18 @@ func ChangePassphrase(dataDir string, account []byte, current, next string) erro
 }
 
 // DataWithoutKeystore reports, for the first screen, whether this device
-// holds account data with no keystore (and no unfinished erase), and whether
-// a restore could keep it (NoKeystoreKeepable). Until the user chooses,
-// Start opens and creates nothing (ErrDataWithoutKeystore).
-func DataWithoutKeystore(dataDir string) (stranded, keepable bool) {
+// holds account data with no keystore (and no unfinished erase), whether a
+// restore could keep it, and whether the install was linked
+// (NoKeystoreKeepable). Not keepable does not mean linked: a never-linked
+// install with no message to check a phrase against cannot be kept either.
+// Until the user chooses, Start opens and creates nothing
+// (ErrDataWithoutKeystore).
+func DataWithoutKeystore(dataDir string) (stranded, keepable, linked bool) {
 	if _, err := os.Lstat(keystorePathIn(dataDir)); err == nil || erasePendingIn(dataDir) || !hasAccountData(dataDir) {
-		return false, false
+		return false, false, false
 	}
-	keepable, _ = NoKeystoreKeepable(dataDir)
-	return true, keepable
+	keepable, linked = NoKeystoreKeepable(dataDir)
+	return true, keepable, linked
 }
 
 // endReplaceErase removes the erase record a restore or link wrote

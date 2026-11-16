@@ -4,14 +4,27 @@
 // the only sentences the screens show for them.
 
 // strandedChoice is the first screen for a device holding account data with
-// no keystore. linked: the data was a linked device's, which nobody can
-// open again, so there is nothing to keep it for.
-export function strandedChoice(linked) {
+// no keystore, from what the core reports (StrandedData): linked, the data
+// was a linked device's, which nobody can open again; keepable, a restore of
+// its own account opens it again. Data that is neither (a never-linked
+// install with no message to check a phrase against) cannot be kept either,
+// but it was never linked, so it is not told that it was.
+export function strandedChoice({ linked, keepable } = {}) {
   if (linked) {
     return {
       title: "This device holds data nobody can open",
       body:
         "This device was linked to an account, and the key that unlocked its data is gone. Nobody can open this data again, not even with the recovery phrase. Erase it to use Concord on this device, or quit and leave it as it is.",
+      erase: "Erase it",
+      other: "Quit",
+      keepable: false,
+    };
+  }
+  if (!keepable) {
+    return {
+      title: "This device holds data it can no longer open",
+      body:
+        "Concord found an earlier account's settings here, but not the key that unlocks them. There are no messages a recovery phrase could bring back. Erase them to use Concord on this device, or quit and leave them as they are.",
       erase: "Erase it",
       other: "Quit",
       keepable: false,
@@ -47,4 +60,32 @@ export function lockNotice(reason, files) {
   if (reason === "unlinked") return erasedAfterUnlink;
   if (reason === "unlinked-not-erased") return eraseUnfinished(files);
   return "";
+}
+
+// quitClosed is said once Quit was asked for and the window is still there
+// (a browser tab the page cannot close). The screen keeps no button: nothing
+// is opened or created from it.
+export const quitClosed = "You can close this window now.";
+
+// quitApp ends the app the way its shell can: Capacitor's App plugin on
+// Android, Wails on the desktop, or else window.close, which a browser
+// ignores for a tab the page did not open. Returns the way it took.
+export function quitApp(win) {
+  const app = win?.Capacitor?.Plugins?.App;
+  if (typeof app?.exitApp === "function") {
+    try {
+      Promise.resolve(app.exitApp()).catch(() => {});
+      return "android";
+    } catch {}
+  }
+  if (typeof win?.runtime?.Quit === "function") {
+    try {
+      win.runtime.Quit();
+      return "desktop";
+    } catch {}
+  }
+  try {
+    win?.close?.();
+  } catch {}
+  return "browser";
 }

@@ -35,9 +35,46 @@ func TestTheFirstScreenSeesDataItCannotOpen(t *testing.T) {
 	if err != nil || !v.Stranded {
 		t.Fatalf("StrandedData = %+v, %v", v, err)
 	}
+	// Never linked, and no message to check a phrase against: not keepable,
+	// and not a linked device's data either.
+	if v.Keepable || v.Linked {
+		t.Fatalf("a never-linked install with no message: %+v, want neither keepable nor linked", v)
+	}
 	codedAs(t, b.Login("new-pass"), CodeDataWithoutKeystore)
 	if appsvc.HasIdentity(dir) {
 		t.Fatal("an account was created beside the data")
+	}
+}
+
+// With a message to check the account's phrase against, never-linked data
+// is keepable, and still not a linked device's.
+func TestTheFirstScreenSeesKeepableDataAsNotLinked(t *testing.T) {
+	t.Setenv("CONCORD_HOME", t.TempDir())
+	t.Setenv("CONCORD_DISABLE_MDNS", "1")
+	t.Setenv("CONCORD_BOOTSTRAP", "")
+	b := New(context.Background())
+	t.Cleanup(b.Close)
+	if err := b.Login("ada-pass-1"); err != nil {
+		t.Fatal(err)
+	}
+	svc, _ := b.service()
+	notes, err := svc.NotesDM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SendMessage(notes.Channels[0].ID, "a note", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Logout(); err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := appsvc.DataDir()
+	if err := os.Remove(filepath.Join(dir, "keystore.json")); err != nil {
+		t.Fatal(err)
+	}
+	v, err := b.StrandedData()
+	if err != nil || !v.Stranded || !v.Keepable || v.Linked {
+		t.Fatalf("StrandedData = %+v, %v; want stranded, keepable, not linked", v, err)
 	}
 }
 

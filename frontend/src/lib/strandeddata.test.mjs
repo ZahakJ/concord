@@ -1,4 +1,4 @@
-import { strandedChoice, erasedAfterUnlink, eraseUnfinished, lockNotice } from "./strandeddata.js";
+import { strandedChoice, erasedAfterUnlink, eraseUnfinished, lockNotice, quitApp, quitClosed } from "./strandeddata.js";
 
 let failures = 0;
 const check = (what, ok) => {
@@ -9,13 +9,20 @@ const check = (what, ok) => {
 };
 const plain = (s) => !/\bapp:|keystore|marker|record|erase-in-progress/i.test(s);
 
-const kept = strandedChoice(false);
+const kept = strandedChoice({ keepable: true, linked: false });
 check("never linked: erase first, keep for a restore second", kept.erase === "Erase it" && /restore/.test(kept.other) && kept.keepable);
 check("never linked: the second option is not a cancel", !/cancel/i.test(kept.other));
 check("never linked: asks to erase", /can no longer open/.test(kept.title));
-const gone = strandedChoice(true);
+const gone = strandedChoice({ keepable: false, linked: true });
 check("linked: erase or quit", gone.erase === "Erase it" && gone.other === "Quit" && !gone.keepable);
 check("linked: says nobody can open it", /Nobody can open this data/.test(gone.body));
+// Never linked, nothing to check a phrase against: not keepable, and not
+// told it was linked.
+const unchecked = strandedChoice({ keepable: false, linked: false });
+check("never linked, unkeepable: the title as approved", unchecked.title === "This device holds data it can no longer open");
+check("never linked, unkeepable: the body as approved", unchecked.body === "Concord found an earlier account's settings here, but not the key that unlocks them. There are no messages a recovery phrase could bring back. Erase them to use Concord on this device, or quit and leave them as they are.");
+check("never linked, unkeepable: erase or quit", unchecked.erase === "Erase it" && unchecked.other === "Quit" && !unchecked.keepable);
+check("never linked, unkeepable: not told it was linked", !/linked/i.test(unchecked.body) && !/nobody/i.test(unchecked.title));
 check("unlink notice says it was erased", /erased/.test(erasedAfterUnlink));
 const held = eraseUnfinished(["concord.db-wal"]);
 check("held file is named", held.includes("concord.db-wal"));
@@ -30,7 +37,34 @@ check("linked: the body as approved", gone.body === "This device was linked to a
 check("unlink notice as approved", erasedAfterUnlink === "This device was unlinked from its account, so Concord erased everything it held: your identity, guilds and messages. Your other devices still have them, and nothing changed for anyone else. To use this device again, link it from one of your other devices.");
 check("held file as approved", held === "Concord couldn't finish erasing this device. The file concord.db-wal is still here, probably because another program is using it. Close any other Concord windows or restart the computer. Concord finishes erasing the next time it starts.");
 check("lock notice after a restart", lockNotice("unlinked") === erasedAfterUnlink && lockNotice("unlinked-not-erased", ["x"]).includes("x") && lockNotice("restarted") === "");
-for (const s of [kept.title, kept.body, kept.other, gone.title, gone.body, erasedAfterUnlink, held]) check(`plain: ${s.slice(0, 30)}`, plain(s));
+// Quit takes the way out the shell has: Android first, then the desktop,
+// then the browser's close.
+const shell = () => {
+  const calls = [];
+  return {
+    calls,
+    Capacitor: { Plugins: { App: { exitApp: () => (calls.push("exitApp"), Promise.resolve()) } } },
+    runtime: { Quit: () => calls.push("Quit") },
+    close: () => calls.push("close"),
+  };
+};
+const android = shell();
+check("Quit on Android exits through Capacitor", quitApp(android) === "android" && android.calls.join() === "exitApp");
+const desktop = shell();
+delete desktop.Capacitor;
+check("Quit on the desktop quits through Wails", quitApp(desktop) === "desktop" && desktop.calls.join() === "Quit");
+const browser = shell();
+delete browser.Capacitor;
+delete browser.runtime;
+check("Quit in a browser closes the window", quitApp(browser) === "browser" && browser.calls.join() === "close");
+const broken = shell();
+broken.Capacitor.Plugins.App.exitApp = () => {
+  throw new Error("no plugin");
+};
+check("a failing exit falls through to the next way", quitApp(broken) === "desktop" && broken.calls.join() === "Quit");
+check("Quit with nothing to call does not throw", quitApp({}) === "browser");
+check("the closed-window text as approved", quitClosed === "You can close this window now.");
+for (const s of [kept.title, kept.body, kept.other, gone.title, gone.body, unchecked.body, erasedAfterUnlink, held, quitClosed]) check(`plain: ${s.slice(0, 30)}`, plain(s));
 
 if (failures) {
   console.error(`strandeddata: ${failures} failed`);
