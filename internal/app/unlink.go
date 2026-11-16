@@ -592,8 +592,8 @@ func (g *eraseGate) leave() {
 }
 
 // shutAfterErase shuts the gate, then waits for an attempt in flight, at
-// most closeEraseWait.
-func (g *eraseGate) shutAfterErase() {
+// most until deadline (Close's call plus closeEraseWait).
+func (g *eraseGate) shutAfterErase(deadline time.Time) {
 	if g == nil {
 		return
 	}
@@ -603,7 +603,13 @@ func (g *eraseGate) shutAfterErase() {
 		close(g.done)
 	}
 	g.mu.Unlock()
-	t := time.NewTimer(closeEraseWait)
+	select {
+	case g.busy <- struct{}{}:
+		<-g.busy
+		return
+	default:
+	}
+	t := time.NewTimer(time.Until(deadline))
 	defer t.Stop()
 	select {
 	case g.busy <- struct{}{}:

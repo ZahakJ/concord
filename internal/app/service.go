@@ -403,8 +403,9 @@ type Service struct {
 	// beatsStopped is set by Close (stopBeats). The coalescing timers for
 	// receipts, hides and read markers are not armed after it, and a flush
 	// that fires anyway publishes nothing. beatFlights counts the flushes
-	// running now; Close waits for them after stopBeats, so none outlives the
-	// engine, host or store. beatGate orders that count against stopBeats.
+	// running now; Close waits for them after stopBeats (at most
+	// closeBeatWait, see waitBeats), so none normally outlives the engine,
+	// host or store. beatGate orders that count against stopBeats.
 	beatsStopped atomic.Bool
 	beatGate     sync.Mutex
 	beatFlights  sync.WaitGroup
@@ -2668,9 +2669,14 @@ func (s *Service) VerifiedFingerprints() map[string]bool {
 // It returns once no self-erase of this session is in flight, and none
 // starts after it (see eraseGate). Closing again does nothing, so a Close
 // after the session's erase writes nothing into the erased directory.
+//
+// Its waits share one bound, closeEraseWait, counted from the call: the wait
+// for a beat's flush in flight (closeBeatWait, inside closeSession) and the
+// wait for an erase in flight both fall within it.
 func (s *Service) Close() error {
+	deadline := time.Now().Add(closeEraseWait)
 	s.closeSession()
-	s.erase.shutAfterErase()
+	s.erase.shutAfterErase(deadline)
 	return nil
 }
 
@@ -2686,7 +2692,7 @@ func (s *Service) closeNow() {
 		s.cancel()
 	}
 	s.stopBeats()
-	s.beatFlights.Wait()
+	s.waitBeats()
 	s.stopOfferGaps()
 	if s.peers != nil {
 		// Flush past the write throttle: everything learned in the last few
@@ -2723,6 +2729,34 @@ func (s *Service) stopBeats() {
 			*b.t = nil
 		}
 		b.mu.Unlock()
+	}
+}
+
+// closeBeatWait bounds how long closing waits for a receipt, hide or
+// read-marker flush in flight. A flush is a few encryptions and a publish,
+// done in milliseconds; this only stops one stalled in the engine from
+// holding Close, or a self-erase, without bound. Kept well inside
+// closeEraseWait, so a Close that also waits for an erase in flight still
+// returns within closeEraseWait. A variable for tests.
+var closeBeatWait = 10 * time.Second
+
+// waitBeats waits for the flushes in flight, at most closeBeatWait. It runs
+// after cancel and stopBeats, so no flush starts during or after it. One
+// still running when it gives up is left: closeNow then closes the host, the
+// engine and the store before it returns, so that flush can send or write
+// nothing from then on, and a self-erase starts only after closeNow returns.
+func (s *Service) waitBeats() {
+	done := make(chan struct{})
+	go func() {
+		s.beatFlights.Wait()
+		close(done)
+	}()
+	t := time.NewTimer(closeBeatWait)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+		log.Printf("concord/app: closing with a receipt, hide or read-marker flush still running; it is left, and can send nothing once the host is closed")
 	}
 }
 

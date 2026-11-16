@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ZahakJ/concord/internal/crypto/mls"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // ZW-14. Close stops the receipt, hide and read-marker beats, and none is
@@ -136,4 +137,118 @@ func TestCloseWaitsForARunningBeat(t *testing.T) {
 	if spy.err != nil {
 		t.Fatalf("the running flush found the engine closed: %v", spy.err)
 	}
+}
+
+// stallingSpy holds the first hide_marker frame's encryption until release is
+// closed, then goes on with the context it was given and records the result.
+type stallingSpy struct {
+	mls.Engine
+	once     sync.Once
+	entered  chan struct{}
+	release  chan struct{}
+	finished chan struct{}
+	err      error
+}
+
+func (sp *stallingSpy) Encrypt(ctx context.Context, gid mls.GroupID, plaintext []byte) ([]byte, error) {
+	var m struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(plaintext, &m) == nil && m.Type == "hide_marker" {
+		held := false
+		sp.once.Do(func() { held = true })
+		if held {
+			close(sp.entered)
+			<-sp.release
+			ct, err := sp.Engine.Encrypt(ctx, gid, plaintext)
+			sp.err = err
+			close(sp.finished)
+			return ct, err
+		}
+	}
+	return sp.Engine.Encrypt(ctx, gid, plaintext)
+}
+
+// A flush stalled in the engine holds neither the self-erase nor a Close
+// called beside it past their bounds, and it sends nothing once it goes on:
+// the erase has run by then, and the engine and host are closed.
+func TestCloseAndSelfEraseDoNotWaitOnAStalledBeat(t *testing.T) {
+	origBeat, origErase := closeBeatWait, closeEraseWait
+	closeBeatWait, closeEraseWait = 300*time.Millisecond, 2*time.Second
+	defer func() { closeBeatWait, closeEraseWait = origBeat, origErase }()
+
+	spy := &stallingSpy{entered: make(chan struct{}), release: make(chan struct{}), finished: make(chan struct{})}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			close(spy.release)
+		}
+	}
+	defer release()
+	dir := t.TempDir()
+	s, err := Start(context.Background(), Config{DataDir: dir, Passphrase: "test-pass", DisableMDNS: true,
+		wrapMLS: func(e mls.Engine) mls.Engine { spy.Engine = e; return spy }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev := s.id.DevicePublicKey()
+	if err := saveDeviceMarker(dir, s.id.IssueDeviceCertFor(dev, "phone", time.Now().Add(-time.Hour).Unix())); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ensureNotesDM(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.HideMessage("some-channel", "some-message"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-spy.entered:
+	case <-time.After(10 * time.Second):
+		_ = s.Close()
+		t.Fatal("setup: the hide beat never reached the engine")
+	}
+	s.saveRevocations([]*identity.DeviceRevocation{s.id.RevokeDevice(dev, time.Now().Unix())})
+	if ok, _ := s.selfRevoked(); !ok {
+		t.Fatal("setup: the stored revocation does not apply")
+	}
+
+	// The self-erase and a Close beside it, both while the flush is held.
+	start := time.Now()
+	erased, closed := make(chan error, 1), make(chan struct{})
+	go func() { erased <- s.wipeSelf() }()
+	go func() { _ = s.Close(); close(closed) }()
+	bound := closeEraseWait + 2*time.Second
+	var eraseErr error
+	for erased != nil || closed != nil {
+		select {
+		case eraseErr = <-erased:
+			erased = nil
+		case <-closed:
+			closed = nil
+		case <-time.After(bound - time.Since(start)):
+			t.Fatalf("after %v with a beat's flush stalled: self-erase returned %v, Close returned %v",
+				time.Since(start).Round(time.Millisecond), erased == nil, closed == nil)
+		}
+	}
+	if eraseErr != nil {
+		t.Fatalf("self-erase: %v", eraseErr)
+	}
+	onlyLockLeft(t, dir, "after the self-erase")
+
+	// The abandoned flush goes on now, after the erase: it can send nothing.
+	release()
+	select {
+	case <-spy.finished:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the held flush never went on")
+	}
+	if spy.err == nil {
+		t.Fatal("a flush abandoned by Close encrypted a frame after the erase")
+	}
+	if n := len(s.host.Peers()); n != 0 {
+		t.Fatalf("the host still has %d peers after Close", n)
+	}
+	time.Sleep(200 * time.Millisecond)
+	onlyLockLeft(t, dir, "after the abandoned flush went on")
 }
