@@ -601,6 +601,9 @@ func TestTheLockReasonFollowsAnUnlinkEraseThatFinishesLater(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// An unlink closes its session before the shell hears of it; the hand
+	// calls below do the same.
+	_ = svc.Close()
 	reason := func() string {
 		b.mu.Lock()
 		defer b.mu.Unlock()
