@@ -120,6 +120,27 @@ func TestOwnerANewGuildJoinerRefusesAnotherOwner(t *testing.T) {
 	if _, err := newcomer.mls.Epoch(ctx, g.GroupID); err == nil {
 		t.Error("the refused newcomer holds MLS state for the guild")
 	}
+
+	// The admin committed the add before the newcomer refused it, so the
+	// guild's tree holds a leaf for the newcomer. A later join through an
+	// honest code replaces that leaf rather than adding a second one.
+	waitUntil(t, 30*time.Second, func() bool {
+		m, err := owner.mls.Members(ctx, g.GroupID)
+		return err == nil && len(m) == 3
+	}, "the owner's tree does not hold the refused newcomer's leaf")
+	ownerCode, err := owner.InviteCode(g.ID)
+	if err != nil {
+		t.Fatalf("owner InviteCode: %v", err)
+	}
+	if _, err := newcomer.JoinViaInvite(ownerCode); err != nil {
+		t.Fatalf("join through the owner after a refused join: %v", err)
+	}
+	if m, err := owner.mls.Members(ctx, g.GroupID); err != nil || len(m) != 3 {
+		t.Fatalf("after the honest join the owner's tree has %d leaves, %v; want 3", len(m), err)
+	}
+	if !newcomer.IsGuildOwner(g.ID, owner.id.Fingerprint()) {
+		t.Errorf("after the honest join the newcomer's owner is %q, want the founder", newcomer.GuildOwnerFingerprint(g.ID))
+	}
 }
 
 // FP-05 (b). KNOWN OPEN CASE, recorded as it stands: a guild made before the
