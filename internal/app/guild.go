@@ -1749,6 +1749,27 @@ func (s *Service) ToggleReaction(channelID, targetID, emoji string) error {
 	return err
 }
 
+// isMessageAction reports whether a message kind acts on another message (the
+// one its ReplyTo names) instead of being stored as a row of its own.
+func isMessageAction(kind string) bool {
+	switch kind {
+	case "delete", "reaction", "edit", "pin":
+		return true
+	}
+	return false
+}
+
+// targetInChannel reports whether this device holds message targetID in
+// channelID. Message ids are one key across every guild, so an action is
+// matched to its target by both.
+func (s *Service) targetInChannel(targetID, channelID string) bool {
+	if targetID == "" || channelID == "" {
+		return false
+	}
+	m, ok, err := s.store.MessageByID(targetID)
+	return err == nil && ok && m.ChannelID == channelID
+}
+
 // applyReaction toggles a reaction in the store and re-emits the target message
 // (now carrying the updated reactions) so the UI refreshes.
 func (s *Service) applyReaction(targetID, emoji string, bySender []byte) {
@@ -3385,7 +3406,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		// Same lane, same checks as a live message from the same authenticated
 		// sender; only an ordinary message for this very channel is taken.
 		if o := m.Opener; o != nil && o.ChannelID == m.Channel.ID && o.Kind == "" {
-			s.deliverMessage(*o, msg.SenderID)
+			s.deliverMessage(guildID, *o, msg.SenderID)
 		}
 	case "channel_updated":
 		if m.Channel.ID == "" {
@@ -3817,24 +3838,37 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	if err := json.Unmarshal(msg.Plaintext, &m); err != nil {
 		return true
 	}
-	s.deliverMessage(m, msg.SenderID)
+	var carrier string
+	s.mu.RLock()
+	for id, g := range s.guilds {
+		if bytes.Equal(g.GroupID, groupID) {
+			carrier = id
+			break
+		}
+	}
+	s.mu.RUnlock()
+	s.deliverMessage(carrier, m, msg.SenderID)
 	return true
 }
 
 // deliverMessage is the live lane after decryption: m arrived in a frame MLS
-// authenticated as senderID's. Everything here filters, attributes and stores;
-// nothing in it depends on which frame carried the message, which is what lets
-// a post's opener ride its channel_added announcement (CreateThread).
-func (s *Service) deliverMessage(m domain.Message, senderID []byte) {
+// authenticated as senderID's, under the group of carrierGuild. Everything here
+// filters, attributes and stores; nothing in it depends on which kind of frame
+// carried the message, which is what lets a post's opener ride its
+// channel_added announcement (CreateThread).
+func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID []byte) {
 	if drop := s.dropLive.Load(); drop != nil && (*drop)(m) {
 		return
 	}
 	// Ignore messages for channels we no longer track (e.g. a guild we left but
-	// whose gossipsub subscription is still live this session).
+	// whose gossipsub subscription is still live this session), and messages
+	// naming a channel of a guild other than the one whose group carried them:
+	// every check below is judged in the channel's guild, so the two must be
+	// the same guild.
 	s.mu.RLock()
-	_, tracked := s.channelToGuild[m.ChannelID]
+	owner, tracked := s.channelToGuild[m.ChannelID]
 	s.mu.RUnlock()
-	if !tracked {
+	if !tracked || carrierGuild == "" || owner != carrierGuild {
 		return
 	}
 	// Learn the sender's device→account mapping (if it's a device cert) so their
@@ -3860,6 +3894,9 @@ func (s *Service) deliverMessage(m domain.Message, senderID []byte) {
 	// lane earns it — MLS proved who sent the frame — so it is cleared rather
 	// than adopted, exactly as the sync lane recomputes it.
 	m.Unverified = false
+	if isMessageAction(m.Kind) && !s.targetInChannel(m.ReplyTo, m.ChannelID) {
+		return
+	}
 	switch m.Kind {
 	case "delete":
 		s.applyDelete(m.ReplyTo, m.Sender, m.ChannelID)
