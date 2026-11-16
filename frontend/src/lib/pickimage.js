@@ -5,7 +5,7 @@
 //
 // A PNG, JPEG, GIF or WebP is kept RAW — no canvas re-encode — so an animated
 // GIF still animates after the round trip, and it is read under the type its
-// bytes give rather than the one its name gives (see nativePicture). Any other
+// bytes give rather than the one its name gives (see sniffedType). Any other
 // picture the renderer can decode (an AVIF saved as .jpg, say) is drawn again
 // on a canvas, as the composer does: the core cleans the four formats of their
 // metadata and refuses the rest, and the canvas keeps only the pixels. The size
@@ -13,7 +13,7 @@
 // third more than the file on disk, and the number that matters is what has to
 // fit in a gossip frame.
 
-import { nativePicture } from "./postdraft.js";
+import { sniffedType } from "./postdraft.js";
 
 // MAX_IMAGE_CHARS is the data-URI length ceiling. It is deliberately expressed
 // in encoded characters, which is the unit the wire actually spends.
@@ -64,12 +64,19 @@ export async function redrawPicture(file, maxChars = Infinity) {
   return png.length <= maxChars ? png : canvas.toDataURL("image/jpeg", 0.85);
 }
 
-// pickedPicture: the picture as a data URI the core takes. maxChars only
+// pickedPicture: the picture as a data URI the core takes. The bytes alone
+// decide the route: a PNG, JPEG, GIF or WebP is read as it is whatever its
+// size, and only a picture of another format is redrawn. There is no size gate
+// here, unlike the composer's nativePicture, which redraws a picture over 5 MB
+// to recompress it: every picker's limit is far below that, so a large picture
+// in one of the four formats is refused by the caller, as it always was, rather
+// than flattened to a still or decoded at full size first. maxChars only
 // chooses the canvas encoding; the caller still checks the length, because a
 // raw picture is never shrunk.
 export async function pickedPicture(file, maxChars = Infinity, { read = readDataURL, redraw = redrawPicture } = {}) {
-  const native = await nativePicture(file);
-  return native ? read(native) : redraw(file, maxChars);
+  const type = await sniffedType(file);
+  if (!type) return redraw(file, maxChars);
+  return read(file.type === type ? file : new Blob([file], { type }));
 }
 
 // readImageFile hands the data URI to `onOk`, or a human sentence to `onFail`.

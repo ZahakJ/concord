@@ -57,4 +57,34 @@ let n = 0;
   n++;
 }
 
+// Over 5 MB, the composer's limit. The pickers' own limits are far lower, so
+// such a picture is read as it is and the caller refuses it as too large; it is
+// never decoded and redrawn first, which would cost seconds of canvas work and
+// turn an animated GIF into a still.
+const BIG = 5 * 1024 * 1024 + 1;
+const padded = (head) => {
+  const b = new Uint8Array(BIG);
+  b.set(head);
+  return b;
+};
+
+{
+  const { calls, deps } = recorders();
+  const gif = new File([padded(GIF)], "dance.gif", { type: "image/gif" });
+  assert.equal(await pickedPicture(gif, 1234, deps), "read", "a GIF over 5 MB is read, not redrawn");
+  assert.equal(calls.redraw.length, 0, "a GIF over 5 MB is not redrawn");
+  assert.equal(calls.read[0].type, "image/gif", "a GIF over 5 MB stays image/gif");
+  assert.equal(calls.read[0].size, BIG, "a GIF over 5 MB is read whole");
+  n++;
+}
+
+{
+  const { calls, deps } = recorders();
+  const jpeg = new File([padded(JPEG)], "photo.jpg", { type: "image/jpeg" });
+  assert.equal(await pickedPicture(jpeg, 1234, deps), "read", "a JPEG over 5 MB is read, not redrawn");
+  assert.equal(calls.redraw.length, 0, "a JPEG over 5 MB is not redrawn");
+  assert.equal(calls.read[0].type, "image/jpeg", "a JPEG over 5 MB stays image/jpeg");
+  n++;
+}
+
 console.log(`pickimage.js: all ${n} tests passed`);
