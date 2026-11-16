@@ -60,7 +60,7 @@ import {
   landedSince,
 } from "./outbox.js";
 import { makeCardGate } from "./cardgate.js";
-import { CARD_WAIT_MS, cardLink, wantsThumb, withCard, sendingCards } from "./linkcard.js";
+import { CARD_WAIT_MS, cardLink, wantsThumb, withCard, sendingCards, cardChoice } from "./linkcard.js";
 
 let seq = 0;
 
@@ -234,7 +234,7 @@ export function sendText(channelId, body, replyTo, dir) {
   // Whatever waits for a card here goes first (also done by api.js for every
   // send; done here as well so the order does not hang on that hook).
   gate.release(channelId);
-  const cardUrl = sendingCards(S.prefs.sendLinkPreviews) ? cardLink(body) : "";
+  const cardUrl = sendingCards(cardChoice(S.prefs)) ? cardLink(body) : "";
   const entry = add({
     id: `o${++seq}`,
     kind: "text",

@@ -7,7 +7,7 @@
   import { onMount } from "svelte";
   import Select from "../Select.svelte";
   import { NOTIFY_MODES, normalizeNotifyMode } from "../lib/notifprivacy.js";
-  import { LINK_CARDS, sendingCards, cardChoiceNote } from "../lib/linkcard.js";
+  import { LINK_CARDS, sendingCards, cardChoiceNote, CARD_PREF, cardChoice } from "../lib/linkcard.js";
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import ModalWipeDevice from "./ModalWipeDevice.svelte";
@@ -130,10 +130,10 @@
       <SettingRow
         icon="screen"
         title="Preview cards for links you send"
-        sub={cardChoiceNote(S.prefs.sendLinkPreviews)}
+        sub={cardChoiceNote(cardChoice(S.prefs))}
         info="When on, your device loads a link's page once, at the moment you send it: for YouTube and Vimeo their oEmbed service, for other sites the page and the host of its picture. They see your IP address, as if you had opened the link. The title, the site's name and a small cleaned copy of the picture go inside your encrypted, signed message. People who read it contact nobody: the picture comes from other members like any attachment, and nothing is fetched while you type. Until you choose, it is off: the first link you send goes out as you typed it and the app asks once. This switch is the same choice; set it here and the question is not asked."
-        checked={sendingCards(S.prefs.sendLinkPreviews)}
-        onclick={() => setPref("sendLinkPreviews", !sendingCards(S.prefs.sendLinkPreviews))}
+        checked={sendingCards(cardChoice(S.prefs))}
+        onclick={() => setPref(CARD_PREF, !sendingCards(cardChoice(S.prefs)))}
       />
     {/if}
     <SettingRow

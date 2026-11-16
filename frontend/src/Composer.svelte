@@ -30,7 +30,7 @@
   import { scheduleMessage } from "./lib/scheduled.svelte.js";
   import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
   import { stampTimestamp } from "./lib/timestamp.js";
-  import { askAboutCards, cardLink, CARD_QUESTION } from "./lib/linkcard.js";
+  import { askAboutCards, cardLink, CARD_QUESTION, CARD_PREF, cardChoice } from "./lib/linkcard.js";
   import { playSend } from "./lib/sounds.js";
   import { resampleEnvelope, voiceFileName } from "./lib/voicemsg.js";
   import { encodeFx, FX_EFFECTS } from "./lib/fxtoken.js";
@@ -54,7 +54,7 @@
   let cardAsk = $state(false);
   function answerCardAsk(yes) {
     cardAsk = false;
-    setPref("sendLinkPreviews", yes);
+    setPref(CARD_PREF, yes);
   }
   // The draft's BASE DIRECTION, when the writer has asked for one: "" (decide
   // per line, the default and almost always right), "rtl", or "ltr".
@@ -993,7 +993,7 @@
     if (text) {
       if (!atts.length) {
         outSendText(chId, body, nextReply(), dirMode);
-        if (askAboutCards(S.prefs.sendLinkPreviews) && cardLink(body)) cardAsk = true;
+        if (askAboutCards(cardChoice(S.prefs)) && cardLink(body)) cardAsk = true;
       }
       if (chId === S.activeChannelId) armSlowMode();
     }
@@ -1871,7 +1871,7 @@
         <span class="eph-change">change</span>
       </button>
     {/if}
-    {#if cardAsk && askAboutCards(S.prefs.sendLinkPreviews)}
+    {#if cardAsk && askAboutCards(cardChoice(S.prefs))}
       <!-- Asked once, after the first link you send while undecided. That link
            went out as typed; the answer applies from the next one, and
            Settings › Privacy changes it later. A choice made in Settings

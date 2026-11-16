@@ -13,7 +13,8 @@
 //     a phone;
 //   - with the default ("ask"), the first link goes out bare and raises one
 //     question that says what Yes does; Yes sends cards from then on, No
-//     thanks keeps links bare;
+//     thanks keeps links bare; a false left under the key older builds used
+//     is not an answer, so that device is asked too;
 //   - Settings › Privacy holds the same choice: its line says undecided, on or
 //     off, and setting it there answers the question for good, both ways;
 //   - the composer fetches nothing while a link is typed, and once at send;
@@ -154,7 +155,7 @@ async function waitChecked(box, want) {
 async function cardsOn(app) {
   await app.page.evaluate(() => {
     const p = JSON.parse(localStorage.getItem("concord.prefs") || "{}");
-    localStorage.setItem("concord.prefs", JSON.stringify({ ...p, sendLinkPreviews: true }));
+    localStorage.setItem("concord.prefs", JSON.stringify({ ...p, sendLinkCards: true }));
   });
   await app.reload();
 }
@@ -169,7 +170,7 @@ const NOTE = {
   off: "Off: links you send go out as you typed them. You can turn this on here at any time.",
 };
 const storedChoice = (app) =>
-  app.page.evaluate(() => JSON.parse(localStorage.getItem("concord.prefs") || "{}").sendLinkPreviews ?? null);
+  app.page.evaluate(() => JSON.parse(localStorage.getItem("concord.prefs") || "{}").sendLinkCards ?? null);
 
 // The Privacy section's link card row: its switch and the line under it.
 // Opened with the gear (desktop) or the You tab (phone) directly: the
@@ -365,7 +366,7 @@ test("the composer fetches nothing while a link is typed, and the card once at s
   step("Yes: the question goes, and the answer is kept");
   await question.locator(".ca-yes").click();
   await question.waitFor({ state: "detached", timeout: 5000 });
-  const pref = await a.page.evaluate(() => JSON.parse(localStorage.getItem("concord.prefs") || "{}").sendLinkPreviews);
+  const pref = await storedChoice(a);
   assert.equal(pref, true, `the answer was stored as ${JSON.stringify(pref)}`);
 
   step("cards on: typing and pausing fetches nothing (ZL-10)");
@@ -403,7 +404,9 @@ test("the composer fetches nothing while a link is typed, and the card once at s
 
 // The owner's default is "ask": no card until the sender has answered once.
 // "No thanks" is an answer: links go out bare, nothing is fetched, and the
-// question is not asked again, after a reload too.
+// question is not asked again, after a reload too. The device starts with the
+// false that builds before the question saved under sendLinkPreviews, which
+// is not an answer: it is asked all the same.
 test("phone: No thanks keeps links bare and is not asked again", async ({ world, assert, step, sleep }) => {
   const { alice, bashir, general, ytThumb } = await seed(world);
   const a = await alice.open({ viewport: "phone" });
@@ -417,6 +420,15 @@ test("phone: No thanks keeps links bare and is not asked again", async ({ world,
     await a.page.getByRole("button", { name: "Send", exact: true }).click();
   };
 
+  step("a false stored under the old key is not an answer");
+  await a.page.evaluate(() => {
+    const p = JSON.parse(localStorage.getItem("concord.prefs") || "{}");
+    localStorage.setItem("concord.prefs", JSON.stringify({ ...p, sendLinkPreviews: false }));
+  });
+  await a.reload();
+  await a.composer().waitFor({ timeout: 15000 });
+  assert.equal(await storedChoice(a), null, "undecided");
+
   step("the first link asks");
   await stubLinkCard(a, () => ({ block }), sleep);
   await send(`first ${YT}`);
@@ -426,9 +438,10 @@ test("phone: No thanks keeps links bare and is not asked again", async ({ world,
   assert.equal((await question.locator(".ca-no").innerText()).trim(), "No thanks", "the No button's words");
   await shot(a.page, "phone390-first-link-question");
 
-  step("No thanks: the question goes and the next link is sent bare, without a fetch");
+  step("No thanks: the question goes, No is kept, and the next link is sent bare, without a fetch");
   await question.locator(".ca-no").click();
   await question.waitFor({ state: "detached", timeout: 5000 });
+  assert.equal(await storedChoice(a), false, "No thanks was not stored");
   await send(`second ${YT}`);
   await bashir.waitForMessage(general.id, `second ${YT}`, { timeout: 30000 });
   await sleep(1000);

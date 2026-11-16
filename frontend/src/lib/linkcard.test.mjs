@@ -16,6 +16,8 @@ import {
   SEND_DEFAULT,
   CARD_QUESTION,
   cardChoiceNote,
+  cardChoice,
+  CARD_PREF,
 } from "./linkcard.js";
 import { plainSnippet } from "./snippet.js";
 
@@ -214,6 +216,21 @@ eq(
   "Off: links you send go out as you typed them. You can turn this on here at any time.",
   "Settings: no, and it can be turned on there",
 );
+
+// Where the choice is kept. Builds before the question saved
+// sendLinkPreviews: false with every pref; that is not an answer, so a device
+// holding it is still undecided and still asked.
+eq(CARD_PREF, "sendLinkCards", "the choice's key");
+eq(cardChoice({ sendLinkPreviews: false }), null, "a stored sendLinkPreviews: false is not a choice");
+eq(askAboutCards(cardChoice({ sendLinkPreviews: false, prefsV: 2 })), true, "a device holding the old false is asked");
+eq(sendingCards(cardChoice({ sendLinkPreviews: true })), false, "nor is an old true: nothing is fetched before the question");
+eq(cardChoice({ linkPreviews: true }), null, "the older linkPreviews key is not read");
+eq(cardChoice({}), null, "nothing stored: undecided");
+eq(cardChoice(null), null, "no prefs: undecided");
+eq(cardChoice({ sendLinkCards: "yes" }), null, "a value that is not true or false: undecided");
+eq(cardChoice({ sendLinkCards: true }), true, "Yes is read back");
+eq(cardChoice({ sendLinkCards: false }), false, "No thanks is read back");
+eq(askAboutCards(cardChoice({ sendLinkPreviews: false, sendLinkCards: false })), false, "No thanks under the new key is an answer");
 
 if (failures) {
   console.error(`${failures} linkcard test(s) failed`);

@@ -257,19 +257,20 @@ export const S = $state({
   // them with what the backend actually holds.
   offDevice: { gameSearch: false, gifSearch: true },
 
-  // Privacy + appearance prefs. sendLinkPreviews: when true, YOUR device
+  // Privacy + appearance prefs. sendLinkCards: when true, YOUR device
   // fetches the page of a link you send (once, when you send it), which shows
   // that site your IP and that someone is linking to it. Readers never fetch
   // anything. null means "not chosen yet", which lib/linkcard.js SEND_DEFAULT
   // decides (off, ask on the first link, or on). (The old key, linkPreviews,
   // meant the opposite — a receiver-side fetch — so it is deliberately not
   // reused: someone who had opted in to that must not silently start fetching
-  // on send.)
+  // on send. sendLinkPreviews is not reused either: it was saved as false
+  // before anyone was asked; see CARD_PREF in lib/linkcard.js.)
   // theme: "dark" | "light" | "system"; density: "compact" | "cozy" | "comfortable";
   // accent: a preset hex, or "" to follow the profile color (the old behavior).
   // Spread over defaults so prefs saved before a key existed still get it.
   prefs: {
-    sendLinkPreviews: null,
+    sendLinkCards: null,
     // Which sidebar categories are folded, keyed by category id. Device-local:
     // which parts of a sidebar you keep shut is a reading preference, and
     // syncing it would be one member deciding what everyone else's sidebar

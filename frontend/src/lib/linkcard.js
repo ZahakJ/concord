@@ -30,8 +30,22 @@ import { deceptiveText, sameAsURL, linkDomain, hostOf, stripForeignDomains } fro
 // row is hidden. It exists so a release can ship with cards off.
 export const LINK_CARDS = true;
 
-// Whether links you send get a card when you have not chosen yet (the
-// sendLinkPreviews pref is null). One of:
+// The device-local pref that holds the choice: true, false, or absent (not
+// chosen yet). Its name is new on purpose. Builds made before the question
+// kept the choice under sendLinkPreviews, defaulted it to false and saved it
+// with every other pref, so a false stored there is not an answer anybody
+// gave; reading it would mean such a device is never asked. That key is left
+// unread, as linkPreviews was before it.
+export const CARD_PREF = "sendLinkCards";
+
+// cardChoice(prefs): the choice as true, false, or null when not made yet.
+export function cardChoice(prefs) {
+  const v = prefs ? prefs[CARD_PREF] : undefined;
+  return v === true || v === false ? v : null;
+}
+
+// Whether links you send get a card when you have not chosen yet
+// (cardChoice is null). One of:
 //   "off" — no card until you turn it on in Privacy;
 //   "ask" — no card until the first time you send a link, then one question
 //           (CARD_QUESTION), answered once; Privacy changes it later;
