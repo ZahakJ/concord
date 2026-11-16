@@ -202,6 +202,9 @@ func (s *Service) greet(p peer.ID) {
 	}
 	hint := s.profileHintFor(p)
 	var typingAt int64
+	// The typing offer sets typingAt; take both before the literal, which
+	// does not fix the order of a call and a plain read inside it.
+	typingOn := s.typingOfferFor(p, &typingAt)
 	req, err := marshalHello(helloFrame{
 		Credential:   s.myCredential,
 		Name:         s.deviceLabel(),
@@ -214,7 +217,7 @@ func (s *Service) greet(p peer.ID) {
 		Receipts:     s.receiptsPrefFor(p),
 		HideReq:      s.hideReqFor(p),
 		ChatPrefs:    s.chatPrefsFor(p),
-		TypingOn:     s.typingOfferFor(p, &typingAt),
+		TypingOn:     typingOn,
 		TypingAt:     typingAt,
 		ProfileAt:    hint,
 	})
