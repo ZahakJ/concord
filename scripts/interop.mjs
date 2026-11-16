@@ -308,6 +308,27 @@ async function phaseOnline() {
     return { evidence: ev };
   });
 
+  // --- L9: delete for everyone, both ways -----------------------------------
+  // Each side deletes its own message; the other side must tombstone it.
+  await lane("L9", "a message deleted by its author is deleted on the other peer", async () => {
+    const ev = [];
+    for (const [dir, from, to, chanFrom, chanTo] of [
+      ["OLD->NEW", OLD, NEW, st.oldGuildChanOld, st.oldGuildChanNew],
+      ["NEW->OLD", NEW, OLD, st.newGuildChanNew, st.newGuildChanOld],
+    ]) {
+      const body = `deleted later ${dir} ${Date.now()}`;
+      await rpc(from, "SendMessage", [chanFrom, body, ""]);
+      const got = await waitFor(`${dir} delivery`, () => findMessage(to, chanTo, body));
+      await rpc(from, "DeleteMessage", [chanFrom, got.id]);
+      const row = await waitFor(`${dir} delete`, async () => {
+        const r = (await messagesIn(to, chanTo)).find((m) => m.id === got.id);
+        return r && r.deleted ? r : null;
+      });
+      ev.push(`${dir} id=${got.id} deleted=${row.deleted} content=${JSON.stringify(row.content || "")}`);
+    }
+    return { evidence: ev };
+  });
+
   // --- L6: member list / presence (needs both online) ------------------------
   await lane("L6", "each peer appears online in the other's member list", async () => {
     const ev = [];
