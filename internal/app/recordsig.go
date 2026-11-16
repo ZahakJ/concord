@@ -196,7 +196,10 @@ func messageAttestationFrom(m *domain.Message, servedBy []byte) bool {
 	switch {
 	case m.Deleted || m.Expired:
 		// The body was erased; whatever signature once covered it is meaningless
-		// and must not be carried on as if it still said something.
+		// and must not be carried on as if it still said something. The body
+		// goes with it: a tombstone taken from history sync is kept without one,
+		// whatever the serving member put in it.
+		m.Content = ""
 		m.Sig = nil
 		m.Unverified = false
 		return true
