@@ -980,7 +980,11 @@ func (s *Service) importedAvatar(dir string, au chronimport.Author) string {
 		return ""
 	}
 	uri := "data:image/" + sub + ";base64," + base64.StdEncoding.EncodeToString(raw)
-	if !validImageDataURI(uri, maxChronicleAvatarBytes) {
+	// The portrait rides the archive manifest to every member, so it is
+	// cleaned like any avatar set on this device. One the stripper cannot read
+	// is dropped, as an oversized one is: the name still imports.
+	uri, err = cleanImageURI(uri)
+	if err != nil || !validImageDataURI(uri, maxChronicleAvatarBytes) {
 		return ""
 	}
 	return uri

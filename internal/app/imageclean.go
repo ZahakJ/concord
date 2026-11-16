@@ -14,9 +14,10 @@ import (
 // right before it is sealed or stored, so the desktop, the web build and the
 // phone share one implementation, and a page path that forgets to clean
 // (paste, drop, the share sheet, a picker) cannot leak anything. The chat
-// paths meet in sealAttachment and SendFile; the pictures that travel as data
-// URIs (avatars, banners, the orbit-ring sprite, guild icons, forum art,
-// stories, custom emoji) go through cleanImageURI in their setters. See
+// paths meet in sealAttachment, SendFile and SendSearchedGif; the pictures
+// that travel as data URIs (avatars, banners, the orbit-ring sprite, guild
+// icons, forum art, stories, custom emoji, the guild GIF pack, the portraits
+// in an imported chat export) are cleaned in their setters. See
 // package imgmeta for what is kept and what is removed.
 
 // cleanImage strips metadata from picture bytes about to leave this device.

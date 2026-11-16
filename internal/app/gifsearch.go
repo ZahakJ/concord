@@ -287,6 +287,11 @@ func (s *Service) SendSearchedGif(ctx context.Context, channelID, ref, replyTo s
 	if w < 0 || w > 99999 || h < 0 || h > 99999 {
 		w, h = 0, 0
 	}
+	// Cleaned like any picture this device sends. Saving to the guild pack
+	// needs no call of its own: AddGuildGif cleans what it stores.
+	if plain, err = cleanImage(plain); err != nil {
+		return domain.Message{}, err
+	}
 	blobID, keys, err := s.sealBlob(plain)
 	if err != nil {
 		return domain.Message{}, err

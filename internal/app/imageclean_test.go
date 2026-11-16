@@ -12,6 +12,7 @@ import (
 
 	"github.com/ZahakJ/concord/internal/chronimport"
 	"github.com/ZahakJ/concord/internal/imgmeta/imgfixture"
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 // One test per way a picture leaves this device. Each sends the fixtures
@@ -247,6 +248,77 @@ func TestImportedPicturesAreSharedWithoutMetadata(t *testing.T) {
 		}
 		if err := f.Check(sealedBytes(t, svc, ch, tok, sentImageRe)); err != nil {
 			t.Error(err)
+		}
+	}
+}
+
+// The portraits and custom emoji an export brought with it are shared with
+// the guild too: the portraits in the archive manifest, the emoji in the
+// guild's emoji set. Both are cleaned at import.
+func TestImportedPortraitsAndEmojiAreSharedWithoutMetadata(t *testing.T) {
+	svc, gid, _ := cleanFixture(t)
+	dir := t.TempDir()
+	var stats chronimport.Stats
+	for _, f := range imgfixture.All() {
+		name := "face-" + f.Name + "." + f.Subtype
+		if err := os.WriteFile(filepath.Join(dir, name), f.Bytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got := svc.importedAvatar(dir, chronimport.Author{ID: "1", Name: "Sina", AvatarURL: name})
+		if got == "" {
+			t.Fatalf("%s: portrait dropped", f.Name)
+		}
+		if err := f.Check(uriBytes(t, got)); err != nil {
+			t.Errorf("portrait: %v", err)
+		}
+		stats.Emoji = append(stats.Emoji, chronimport.EmojiStat{
+			Name: "pic_" + f.Name, Sanitized: "pic_" + f.Name, Local: true,
+			Bytes: int64(len(f.Bytes)), ImageURL: name,
+		})
+	}
+	in, skipped := svc.importCustomEmoji(gid, dir, &stats, &chatImportJob{id: "pictures", guildID: gid})
+	if in != len(imgfixture.All()) || skipped != 0 {
+		t.Fatalf("emoji imported %d, skipped %d", in, skipped)
+	}
+	got, err := svc.CustomEmoji(gid)
+	if err != nil || len(got) != len(imgfixture.All()) {
+		t.Fatalf("CustomEmoji: %d, %v", len(got), err)
+	}
+	for _, e := range got {
+		if err := fixtureNamed(strings.TrimPrefix(e.Name, "pic_")).Check(uriBytes(t, e.Image)); err != nil {
+			t.Errorf("emoji: %v", err)
+		}
+	}
+}
+
+// A GIF picked from search is sent and saved like any other picture: what
+// the members receive is cleaned.
+func TestSearchedGifsAreSentWithoutMetadata(t *testing.T) {
+	svc, gid, ch := cleanFixture(t)
+	if err := svc.SetGifSearchEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []imgfixture.Fixture{fixtureNamed("gif"), fixtureNamed("webp")} {
+		fakeProxy(t, func(_ context.Context, req cnet.GifRequest) (cnet.GifResponse, string, error) {
+			return cnet.GifResponse{Status: cnet.GifStatusOK, Subtype: f.Subtype, Media: f.Bytes}, "12D3KooWfake", nil
+		})
+		msg, err := svc.SendSearchedGif(context.Background(), ch, "ZnVsbA.c2ln", "", 16, 12, "")
+		if err != nil {
+			t.Fatalf("%s: SendSearchedGif: %v", f.Name, err)
+		}
+		if err := f.Check(sealedBytes(t, svc, ch, msg.Content, sentImageRe)); err != nil {
+			t.Errorf("sent: %v", err)
+		}
+		saved, err := svc.SaveSearchedGif(context.Background(), gid, "pic "+f.Name, nil, "ZnVsbA.c2ln", 16, 12)
+		if err != nil {
+			t.Fatalf("%s: SaveSearchedGif: %v", f.Name, err)
+		}
+		plain, err := svc.fetchBlobPlaintext(ch, saved.ID, saved.Keys)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Check(plain); err != nil {
+			t.Errorf("saved: %v", err)
 		}
 	}
 }
