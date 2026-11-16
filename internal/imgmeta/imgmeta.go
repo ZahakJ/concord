@@ -13,16 +13,28 @@
 //     XMP, extended XMP, IPTC/Photoshop (APP13), MPF and other APPn segments,
 //     comments, and anything after the end-of-image marker are dropped.
 //   - PNG: the critical chunks, colour chunks (iCCP, sRGB, gAMA, cHRM, cICP,
-//     mDCV, cLLI, sBIT), tRNS, bKGD, hIST, pHYs, sPLT and the APNG chunks.
-//     eXIf becomes an orientation-only eXIf as for JPEG. tEXt, iTXt, zTXt,
-//     tIME and every other ancillary chunk are dropped.
+//     mDCV, cLLI, sBIT), tRNS, bKGD, hIST, pHYs and the APNG chunks. eXIf
+//     becomes an orientation-only eXIf as for JPEG. tEXt, iTXt, zTXt, tIME,
+//     sPLT (which carries a free-text palette name and does nothing on
+//     display) and every other ancillary chunk are dropped.
 //   - WebP: VP8X, VP8, VP8L, ALPH, ANIM, ANMF and ICCP. EXIF becomes an
 //     orientation-only EXIF chunk, XMP and unknown chunks are dropped, and the
 //     VP8X flags and RIFF size are rewritten to match.
 //   - GIF: image data, graphic control and plain-text extensions, and the
-//     NETSCAPE2.0 loop extension (plus ICCRGBG1 when a GIF carries a colour
-//     profile). Comment and other application extensions (XMP among them) are
-//     dropped, and so is anything after the trailer.
+//     NETSCAPE2.0 and ANIMEXTS1.0 loop extensions (plus ICCRGBG1 when a GIF
+//     carries a colour profile). Comment and other application extensions
+//     (XMP among them) are dropped, and so is anything after the trailer.
+//
+// Damaged input. A JPEG with stray bytes between segments is read the way
+// libjpeg reads it: the bytes up to the next marker are skipped (and not
+// copied). A file cut short is cleaned as far as it goes, but a segment or
+// chunk whose length runs past the end of the input is dropped together with
+// everything after it, so bytes that the structure does not account for are
+// never carried through. The one exception is JPEG entropy data, which is
+// searched for markers rather than skipped by length, so it is kept to the end.
+//
+// Length fields are compared with the bytes that remain rather than added to
+// an offset, so no arithmetic here can overflow a 32-bit int.
 //
 // Orientation is kept as a tag rather than applied to the pixels. Turning a
 // JPEG would mean re-encoding it, which costs quality, and every renderer the
@@ -42,7 +54,7 @@ import (
 
 // ErrUnsupported is returned for a picture in a container this package cannot
 // clean (AVIF and HEIC, which keep EXIF in an ISO-BMFF item).
-var ErrUnsupported = errors.New("imgmeta: this picture format cannot be cleaned")
+var ErrUnsupported = errors.New("imgmeta: HEIC and AVIF pictures cannot be cleaned")
 
 // ErrMalformed is returned when bytes that start like a known format do not
 // follow its structure closely enough to separate metadata from pixels.
@@ -111,18 +123,21 @@ func tiffOrientation(t []byte) int {
 	default:
 		return 0
 	}
-	off := int(bo.Uint32(t[4:8]))
-	if off < 8 || off+2 > len(t) {
+	off := bo.Uint32(t[4:8])
+	if off < 8 || uint64(off) > uint64(len(t)-2) {
 		return 0
 	}
-	n := int(bo.Uint16(t[off:]))
+	ifd := t[off:]
+	n := int(bo.Uint16(ifd))
+	ifd = ifd[2:]
 	for i := 0; i < n; i++ {
-		e := off + 2 + 12*i
-		if e+12 > len(t) {
+		if len(ifd) < 12 {
 			return 0
 		}
-		if bo.Uint16(t[e:]) == 0x0112 && bo.Uint16(t[e+2:]) == 3 {
-			o := int(bo.Uint16(t[e+8:]))
+		e := ifd[:12]
+		ifd = ifd[12:]
+		if bo.Uint16(e) == 0x0112 && bo.Uint16(e[2:]) == 3 {
+			o := int(bo.Uint16(e[8:]))
 			if o >= 1 && o <= 8 {
 				return o
 			}
@@ -157,7 +172,7 @@ func stripJPEG(in []byte) ([]byte, error) {
 					return append(out, in[i:]...), nil
 				}
 				j += k
-				if j+1 >= len(in) {
+				if j >= len(in)-1 {
 					return append(out, in[i:]...), nil
 				}
 				n := in[j+1]
@@ -176,8 +191,16 @@ func stripJPEG(in []byte) ([]byte, error) {
 			inScan = false
 			continue
 		}
+		// Find the next marker as libjpeg's next_marker does: bytes that are
+		// not 0xFF are skipped (some cameras and editors pad between
+		// segments), a run of 0xFF is fill, and 0xFF 0x00 is not a marker.
+		// Skipped bytes are not copied.
 		if in[i] != 0xFF {
-			return nil, ErrMalformed
+			k := bytes.IndexByte(in[i:], 0xFF)
+			if k < 0 {
+				break
+			}
+			i += k
 		}
 		for i < len(in) && in[i] == 0xFF {
 			i++
@@ -188,24 +211,28 @@ func stripJPEG(in []byte) ([]byte, error) {
 		m := in[i]
 		i++
 		switch {
+		case m == 0x00:
+			continue
 		case m == 0xD9: // end of image; whatever follows is not the picture
 			return append(out, 0xFF, 0xD9), nil
 		case m == 0x01 || (m >= 0xD0 && m <= 0xD7):
 			out = append(out, 0xFF, m)
 			continue
 		}
-		if i+2 > len(in) {
+		if len(in)-i < 2 {
 			break
 		}
 		l := int(in[i])<<8 | int(in[i+1])
 		if l < 2 {
 			return nil, ErrMalformed
 		}
-		end := i + l
-		truncated := end > len(in)
-		if truncated {
-			end = len(in)
+		if l > len(in)-i {
+			// The segment runs past the end of the file. What it claims
+			// to hold is cut, and what is left cannot be told apart from
+			// metadata, so it is dropped with everything after it.
+			break
 		}
+		end := i + l
 		seg := in[i+2 : end]
 		switch keepJPEGSegment(m, seg) {
 		case segKeep:
@@ -227,9 +254,6 @@ func stripJPEG(in []byte) ([]byte, error) {
 					out = append(out, t...)
 				}
 			}
-		}
-		if truncated {
-			return out, nil
 		}
 		i = end
 		if m == 0xDA {
@@ -285,7 +309,7 @@ var pngKeep = map[string]bool{
 	"IHDR": true, "PLTE": true, "IDAT": true, "IEND": true,
 	"tRNS": true, "cHRM": true, "gAMA": true, "iCCP": true, "sBIT": true,
 	"sRGB": true, "cICP": true, "mDCV": true, "cLLI": true,
-	"bKGD": true, "hIST": true, "pHYs": true, "sPLT": true,
+	"bKGD": true, "hIST": true, "pHYs": true,
 	"acTL": true, "fcTL": true, "fdAT": true,
 }
 
@@ -305,22 +329,22 @@ func stripPNG(in []byte) ([]byte, error) {
 	out = append(out, in[:8]...)
 	i := 8
 	exifDone := false
-	for i+8 <= len(in) {
-		n := int(binary.BigEndian.Uint32(in[i:]))
+	for len(in)-i >= 8 {
+		ln := binary.BigEndian.Uint32(in[i:])
 		typ := string(in[i+4 : i+8])
-		if n < 0 || n > 1<<31-1 {
+		if ln > 1<<31-1 {
 			return nil, ErrMalformed
 		}
+		if int64(ln) > int64(len(in)-i-12) {
+			// The chunk (with its CRC) runs past the end of the file: drop
+			// it and stop, rather than carry bytes it does not account for.
+			return out, nil
+		}
+		n := int(ln)
 		end := i + 12 + n
 		// A chunk is critical when the first letter of its type is upper
 		// case. An unknown critical chunk is kept: a decoder needs it.
 		keep := pngKeep[typ] || typ[0]&0x20 == 0
-		if end > len(in) { // truncated: keep a picture chunk as it is
-			if keep {
-				out = append(out, in[i:]...)
-			}
-			return out, nil
-		}
 		switch {
 		case typ == "eXIf":
 			if !exifDone {
@@ -350,28 +374,31 @@ var webpKeep = map[string]bool{
 func stripWebP(in []byte) ([]byte, error) {
 	out := make([]byte, 0, len(in)+32)
 	out = append(out, in[:12]...)
-	riffEnd := 8 + int(binary.LittleEndian.Uint32(in[4:8]))
-	if riffEnd > len(in) || riffEnd < 12 {
-		riffEnd = len(in)
+	riffEnd := len(in)
+	if sz := binary.LittleEndian.Uint32(in[4:8]); sz >= 4 && uint64(sz) <= uint64(len(in)-8) {
+		riffEnd = 8 + int(sz)
 	}
 	i := 12
 	vp8x := -1
 	hasExif := false
 	exifDone := false
-	for i+8 <= riffEnd {
+	for riffEnd-i >= 8 {
 		typ := string(in[i : i+4])
-		n := int(binary.LittleEndian.Uint32(in[i+4:]))
-		end := i + 8 + n + n&1
-		if n < 0 || end < i {
-			return nil, ErrMalformed
+		ln := binary.LittleEndian.Uint32(in[i+4:])
+		if uint64(ln) > uint64(riffEnd-i-8) {
+			// The chunk runs past the end of the file: drop it and stop,
+			// rather than carry bytes it does not account for.
+			break
 		}
-		truncated := end > riffEnd
-		if truncated {
-			end = riffEnd
+		n := int(ln)
+		end := i + 8 + n
+		pad := n&1 == 1
+		if pad && end < riffEnd {
+			end++ // the pad byte, when the file has it
 		}
 		switch {
 		case typ == "EXIF":
-			if !exifDone && !truncated {
+			if !exifDone {
 				exifDone = true
 				t := in[i+8 : i+8+n]
 				t = bytes.TrimPrefix(t, []byte("Exif\x00\x00"))
@@ -391,9 +418,9 @@ func stripWebP(in []byte) ([]byte, error) {
 				vp8x = len(out)
 			}
 			out = append(out, in[i:end]...)
-		}
-		if truncated {
-			break
+			if pad && end == i+8+n {
+				out = append(out, 0) // a last odd chunk written without its pad byte
+			}
 		}
 		i = end
 	}
@@ -413,15 +440,27 @@ func stripWebP(in []byte) ([]byte, error) {
 // gifSubBlocks returns the index just past a run of data sub-blocks starting
 // at i (the zero-length terminator included), or -1 when the input ends first.
 func gifSubBlocks(in []byte, i int) int {
+	end, _ := gifSubBlocksUpTo(in, i)
+	return end
+}
+
+// gifSubBlocksUpTo is gifSubBlocks that also returns, when the input ends
+// first, the index just past the last whole sub-block (or i if there is none).
+func gifSubBlocksUpTo(in []byte, i int) (end, whole int) {
+	whole = i
 	for i < len(in) {
 		n := int(in[i])
 		i++
 		if n == 0 {
-			return i
+			return i, i
+		}
+		if n > len(in)-i {
+			return -1, whole
 		}
 		i += n
+		whole = i
 	}
-	return -1
+	return -1, whole
 }
 
 func stripGIF(in []byte) ([]byte, error) {
@@ -442,7 +481,7 @@ func stripGIF(in []byte) ([]byte, error) {
 		case 0x3B: // trailer
 			return append(out, 0x3B), nil
 		case 0x21: // extension
-			if i+2 > len(in) {
+			if len(in)-i < 2 {
 				return append(out, 0x3B), nil
 			}
 			label := in[i+1]
@@ -451,29 +490,37 @@ func stripGIF(in []byte) ([]byte, error) {
 				return append(out, 0x3B), nil
 			}
 			keep := label == 0xF9 || label == 0x01
-			if label == 0xFF && i+3+11 <= len(in) && in[i+2] == 11 {
-				id := string(in[i+3 : i+3+11])
-				keep = id == "NETSCAPE2.0" || id == "ICCRGBG1012"
+			if label == 0xFF && len(in)-i >= 3+11 && in[i+2] == 11 {
+				switch string(in[i+3 : i+3+11]) {
+				case "NETSCAPE2.0", "ANIMEXTS1.0", "ICCRGBG1012":
+					keep = true
+				default:
+					keep = false
+				}
 			}
 			if keep {
 				out = append(out, in[i:end]...)
 			}
 			i = end
 		case 0x2C: // image descriptor, colour table, LZW data
-			j := i + 10
-			if j > len(in) {
-				return append(append(out, in[i:]...), 0x3B), nil
+			if len(in)-i < 10 {
+				return append(out, 0x3B), nil
 			}
+			j := i + 10
 			if p := in[i+9]; p&0x80 != 0 {
 				j += 3 << ((p & 7) + 1)
 			}
 			j++ // LZW minimum code size
-			end := -1
-			if j <= len(in) {
-				end = gifSubBlocks(in, j)
+			if j > len(in) {
+				return append(out, 0x3B), nil
 			}
-			if end < 0 { // truncated image data: keep it, it is all pixels
-				return append(append(out, in[i:]...), 0x3B), nil
+			end, whole := gifSubBlocksUpTo(in, j)
+			if end < 0 {
+				// Truncated image data: keep the whole sub-blocks, which
+				// are pixels, and close the image there. A last sub-block
+				// that runs past the end is dropped.
+				out = append(out, in[i:whole]...)
+				return append(out, 0x00, 0x3B), nil
 			}
 			out = append(out, in[i:end]...)
 			i = end
