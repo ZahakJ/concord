@@ -386,7 +386,7 @@ func TestAnActionHeldAsItsTargetIsStoredApplies(t *testing.T) {
 	if _, err := w.b.store.SaveMessage(row); err != nil {
 		t.Fatalf("SaveMessage: %v", err)
 	}
-	w.b.holdForTarget(w.gb.ID, w.gb.ID, w.a.Fingerprint(), w.signedByA(w.chB, "reaction", row.ID, "between"), w.a.myCredential)
+	w.b.holdForTarget(w.gb.ID, w.gb.ID, w.a.Fingerprint(), w.signedByA(w.chB, "reaction", row.ID, "between"), w.a.myCredential, nil)
 	if got := w.row(t, row.ID); len(got.Reactions["between"]) != 1 {
 		t.Errorf("a reaction held just after its target was stored was not applied: %v", got.Reactions)
 	}

@@ -61,6 +61,7 @@ type heldAction struct {
 	target   string // the row it names
 	m        domain.Message
 	senderID []byte
+	key      []byte // the signing key of the leaf that sent it
 	at       time.Time
 }
 
@@ -199,8 +200,8 @@ func (h *heldActions) take(match func(heldAction) bool) []heldAction {
 // holdForTarget keeps an action whose target row is not held yet. The row may
 // have been stored between the caller's lookup and the add, by a lane whose
 // release then found nothing, so it is looked up again after.
-func (s *Service) holdForTarget(carrier, guildID, fpr string, m domain.Message, senderID []byte) {
-	if !s.held.add(heldAction{reason: heldForTarget, carrier: carrier, guild: guildID, fpr: fpr, m: m, senderID: senderID, at: time.Now()}) {
+func (s *Service) holdForTarget(carrier, guildID, fpr string, m domain.Message, senderID, key []byte) {
+	if !s.held.add(heldAction{reason: heldForTarget, carrier: carrier, guild: guildID, fpr: fpr, m: m, senderID: senderID, key: key, at: time.Now()}) {
 		return
 	}
 	if _, ok, err := s.store.MessageByID(m.ReplyTo); err == nil && ok {
@@ -210,20 +211,23 @@ func (s *Service) holdForTarget(carrier, guildID, fpr string, m domain.Message, 
 
 // holdForReadmit keeps an action from a member this device holds as removed
 // while the MLS group already holds them again.
-func (s *Service) holdForReadmit(carrier, guildID, fpr string, m domain.Message, senderID []byte) {
-	s.held.add(heldAction{reason: heldForReadmit, carrier: carrier, guild: guildID, fpr: fpr, m: m, senderID: senderID, at: time.Now()})
+func (s *Service) holdForReadmit(carrier, guildID, fpr string, m domain.Message, senderID, key []byte) {
+	s.held.add(heldAction{reason: heldForReadmit, carrier: carrier, guild: guildID, fpr: fpr, m: m, senderID: senderID, key: key, at: time.Now()})
+}
+
+// redeliver passes a held action through deliverMessage again, flagged if an
+// audit or a commit has flagged its leaf's key since it was held.
+func (s *Service) redeliver(a heldAction) {
+	s.deliverMessage(a.carrier, a.m, a.senderID, a.key, s.keyFlagged(a.carrier, a.key))
 }
 
 // releaseForTarget delivers again the actions waiting for a row that arrived.
-// deliverMessage refuses an unsigned frame from a flagged leaf before it holds
-// anything, and a seat flag bears only on unsigned frames, so held actions are
-// delivered again as unflagged.
 func (s *Service) releaseForTarget(targetID string) {
 	if targetID == "" {
 		return
 	}
 	for _, a := range s.held.take(func(a heldAction) bool { return a.reason == heldForTarget && a.target == targetID }) {
-		s.deliverMessage(a.carrier, a.m, a.senderID, false)
+		s.redeliver(a)
 	}
 }
 
@@ -235,7 +239,7 @@ func (s *Service) releaseSyncedTarget(targetID string) {
 	}
 	for _, a := range s.held.take(func(a heldAction) bool { return a.reason == heldForTarget && a.target == targetID }) {
 		if a.m.Kind == "delete" {
-			s.deliverMessage(a.carrier, a.m, a.senderID, false)
+			s.redeliver(a)
 		}
 	}
 }
@@ -248,6 +252,6 @@ func (s *Service) releaseForReadmit(guildID, fpr string) {
 	for _, a := range s.held.take(func(a heldAction) bool {
 		return a.reason == heldForReadmit && a.guild == guildID && a.fpr == fpr
 	}) {
-		s.deliverMessage(a.carrier, a.m, a.senderID, false)
+		s.redeliver(a)
 	}
 }

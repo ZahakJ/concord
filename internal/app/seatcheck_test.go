@@ -883,3 +883,71 @@ func TestAnAccountSeenSigningHasNoUnsignedDeletes(t *testing.T) {
 		t.Fatal("an unsigned delete applied for an account seen signing")
 	}
 }
+
+// A held action is delivered again as flagged when its leaf was flagged while
+// it was held. The mod's account is never seen signing at the member, and the
+// mod's unsigned delete of its own message is held; a second leaf then joins
+// under the mod's account key, which flags both, and the release removes
+// nothing.
+func TestAHeldActionIsJudgedByItsLeafsFlagAtRelease(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if testing.Short() {
+		t.Skip("networked")
+	}
+	holdSeatDefence(t)
+	mod, member := startService(t, ctx), startService(t, ctx)
+	g, err := mod.CreateGuild("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := mod.InviteCode(g.ID)
+	if _, err := member.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitMemberCount(t, 30*time.Second, g.ID, 2, mod, member)
+	gid := rhGroup(mod, g.ID)
+	ch := g.Channels[0].ID
+
+	own, err := mod.SendMessage(ch, "the mod's", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 30*time.Second, func() bool {
+		_, ok, err := member.store.MessageByID(own.ID)
+		return err == nil && ok
+	}, "setup: the member never received the mod's message")
+	ls := leavesWith(member, gid, mod.myCredential)
+	if len(ls) != 1 {
+		t.Fatalf("setup: %d leaves under the mod's account key", len(ls))
+	}
+	modKey := ls[0].Key
+	forget := func() {
+		st := member.seatsState()
+		st.mu.Lock()
+		delete(st.signers, mod.Fingerprint())
+		st.mu.Unlock()
+	}
+	forget()
+
+	del := domain.Message{ID: domain.NewID(), ChannelID: ch, Kind: "delete", ReplyTo: own.ID, Content: "deleted", Sent: time.Now()}
+	if !member.held.add(heldAction{reason: heldForTarget, carrier: g.ID, guild: g.ID, fpr: mod.Fingerprint(),
+		m: del, senderID: mod.myCredential, key: modKey, at: time.Now()}) {
+		t.Fatal("setup: the delete was not held")
+	}
+
+	addLeafWithCredential(t, mod, gid, mod.myCredential, freshKey(t))
+	waitUntil(t, 20*time.Second, func() bool {
+		return len(leavesWith(member, gid, mod.myCredential)) == 2 && member.keyFlagged(g.ID, modKey)
+	}, "setup: the member does not flag the mod's leaf")
+	forget()
+
+	member.releaseForTarget(own.ID)
+	row, _, err := member.store.MessageByID(own.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Deleted {
+		t.Fatal("a held unsigned delete applied after its leaf was flagged")
+	}
+}

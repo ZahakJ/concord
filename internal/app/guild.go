@@ -3769,7 +3769,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		// Same lane, same checks as a live message from the same authenticated
 		// sender; only an ordinary message for this very channel is taken.
 		if o := m.Opener; o != nil && o.ChannelID == m.Channel.ID && o.Kind == "" {
-			s.deliverMessage(guildID, *o, msg.SenderID, flagged)
+			s.deliverMessage(guildID, *o, msg.SenderID, msg.SenderKey, flagged)
 		}
 	case "channel_updated":
 		if m.Channel.ID == "" || !sanitizeChannelRefs(&m.Channel) {
@@ -4210,7 +4210,7 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 		}
 	}
 	s.mu.RUnlock()
-	s.deliverMessage(carrier, m, msg.SenderID, s.frameFlagged(carrier, msg))
+	s.deliverMessage(carrier, m, msg.SenderID, msg.SenderKey, s.frameFlagged(carrier, msg))
 	return true
 }
 
@@ -4218,9 +4218,9 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 // authenticated as senderID's, under the group of carrierGuild. Everything here
 // filters, attributes and stores; nothing in it depends on which kind of frame
 // carried the message, which is what lets a post's opener ride its
-// channel_added announcement (CreateThread). flagged says seatcheck.go flags
-// the sending leaf.
-func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID []byte, flagged bool) {
+// channel_added announcement (CreateThread). senderKey is the sending leaf's
+// signing key, and flagged says seatcheck.go flags that leaf.
+func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID, senderKey []byte, flagged bool) {
 	if drop := s.dropLive.Load(); drop != nil && (*drop)(m) {
 		return
 	}
@@ -4315,7 +4315,7 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 		removed := s.isRemoved(guildID, senderFpr)
 		if !inGroup || banned || removed {
 			if isMessageAction(m.Kind) && inGroup && !banned && removed {
-				s.holdForReadmit(carrierGuild, guildID, senderFpr, m, senderID)
+				s.holdForReadmit(carrierGuild, guildID, senderFpr, m, senderID, senderKey)
 			}
 			return
 		}
@@ -4327,7 +4327,7 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 		}
 		if !held {
 			// Not here yet: wait for the row to arrive.
-			s.holdForTarget(carrierGuild, guildID, senderFpr, m, senderID)
+			s.holdForTarget(carrierGuild, guildID, senderFpr, m, senderID, senderKey)
 			return
 		}
 		if target.ChannelID != m.ChannelID {
