@@ -904,6 +904,9 @@ func (b *Bridge) Login(passphrase string) error {
 		if errors.Is(err, identity.ErrWrongPassphrase) {
 			return wrongPassphrase()
 		}
+		if cerr := b.startError(err); cerr != err {
+			return cerr
+		}
 		if errors.Is(err, appsvc.ErrDataWithoutKeystore) {
 			// Nothing was created and nothing deleted (see the create guard in
 			// internal/app). Logged too: a headless unlock has nobody to show.
@@ -4067,6 +4070,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.Logout()
 	case "HasIdentity":
 		return b.HasIdentity()
+	case "StrandedData":
+		return b.StrandedData()
 	case "ResetIdentity":
 		return nil, b.ResetIdentity(argStr(args, 0), argStr(args, 1))
 	case "BeginStartOver":

@@ -49,6 +49,7 @@ func TestARevocationOfAnotherDeviceDoesNotEraseAnInstallWithNoMarker(t *testing.
 		t.Fatal("the install was erased")
 	}
 }
+
 // A recovery-phrase restore onto what an unlink's erase left brings none of
 // the revoked device's data back: an erase with its record is finished
 // first, and the leftovers of one without a record are erased by the

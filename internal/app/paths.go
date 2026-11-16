@@ -155,7 +155,7 @@ func eraseRecordedData(dataDir string) error {
 		return err
 	}
 	if err := removeEraseRecord(dataDir); err != nil {
-		return fmt.Errorf("%w: still here: %s", ErrDataNotErased, eraseRecordName)
+		return &DataLeftError{Files: []string{eraseRecordName}}
 	}
 	return nil
 }
@@ -404,7 +404,7 @@ func resetDataIn(dataDir string) error {
 	// directory.
 	_ = syncDataDir(dataDir)
 	if len(left) > 0 {
-		return fmt.Errorf("%w: still here: %s", ErrDataNotErased, strings.Join(left, ", "))
+		return &DataLeftError{Files: left}
 	}
 	return nil
 }
@@ -437,4 +437,16 @@ func mlsDirIn(dataDir string) (string, error) {
 // leaves the old keystore readable.
 func ChangePassphrase(dataDir string, account []byte, current, next string) error {
 	return identity.ChangePassphraseOf(keystorePathIn(dataDir), account, current, next)
+}
+
+// DataWithoutKeystore reports, for the first screen, whether this device
+// holds account data with no keystore (and no unfinished erase), and whether
+// a restore could keep it (NoKeystoreKeepable). Until the user chooses,
+// Start opens and creates nothing (ErrDataWithoutKeystore).
+func DataWithoutKeystore(dataDir string) (stranded, keepable bool) {
+	if _, err := os.Lstat(keystorePathIn(dataDir)); err == nil || erasePendingIn(dataDir) || !hasAccountData(dataDir) {
+		return false, false
+	}
+	keepable, _ = NoKeystoreKeepable(dataDir)
+	return true, keepable
 }

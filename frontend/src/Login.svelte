@@ -10,6 +10,7 @@
   import { confettiBurst } from "./lib/burst.js";
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import { finishUnlock } from "./lib/unlock.js";
+  import { strandedChoice, lockNotice, erasedAfterUnlink, eraseUnfinished } from "./lib/strandeddata.js";
   import { foundName, keepTypedArgs, restoreStep } from "./lib/restoreprofile.js";
   import { eraseWordMatches, replaceEraseLabel, replaceEraseReady } from "./lib/eraseword.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
@@ -151,6 +152,23 @@
   // sentence here may promise otherwise. noKeystoreLinked says why.
   let noKeystoreKeepable = $state(false);
   let noKeystoreLinked = $state(false);
+  // stranded: the first screen's choice for data this device can no longer
+  // open (strandedChoice), asked before anything else; null when there is
+  // none. startNotice: what the core said about how this device was erased.
+  let stranded = $state(null);
+  let startNotice = $state("");
+
+  function keepOrQuit() {
+    if (stranded?.keepable) {
+      stranded = null;
+      forgot = true; // the recovery-phrase restore keeps this data
+      return;
+    }
+    try {
+      if (window.runtime?.Quit) window.runtime.Quit();
+      else window.close();
+    } catch {}
+  }
   let forgot = $state(false); // forgot-passphrase menu (recover vs start over)
   let restoring = $state(false);
   let restorePhrase = $state("");
@@ -624,7 +642,20 @@
       } catch {
         device = null;
       }
+    } else {
+      try {
+        const v = await api.strandedData();
+        if (v?.stranded) {
+          stranded = strandedChoice(!v.keepable);
+          dataNoKeystore = true;
+          noKeystoreKeepable = !!v.keepable;
+          noKeystoreLinked = !v.keepable;
+        }
+      } catch {}
     }
+    try {
+      startNotice = lockNotice((await api.sessionState())?.reason);
+    } catch {}
     try {
       const r = await api.getRestoreRendezvous();
       const saved = r?.saved || [];
@@ -697,6 +728,11 @@
       if (err?.code === "wrong-passphrase" && hasIdentity) error += " “Forgot passphrase?” below has the ways back in.";
       // An account's data but no keystore: nothing was created. Offer the
       // ways forward (recovery phrase, re-link, start over) right away.
+      if (err?.code === "device-unlinked") {
+        error = "";
+        startNotice = erasedAfterUnlink;
+      }
+      if (err?.code === "erase-unfinished") error = eraseUnfinished(err.detail?.files);
       if (err?.code === "data-without-keystore") {
         dataNoKeystore = true;
         noKeystoreKeepable = !!err.detail?.keepable;
@@ -725,6 +761,7 @@
       resetTyped = "";
       resetTicket = "";
       dataNoKeystore = false;
+      stranded = null;
       passphrase = "";
       confirmPass = "";
     } catch (err) {
@@ -837,8 +874,17 @@
       </p>
     {/if}
 
+    {#if startNotice && !stranded}
+      <p class="notice" role="status">{startNotice}</p>
+    {/if}
+
     {#if !checked}
       <p class="muted">Loading…</p>
+    {:else if stranded && !confirmingReset}
+      <h2>{stranded.title}</h2>
+      <p class="muted">{stranded.body}</p>
+      <button class="primary" type="button" onclick={openReset}>{stranded.erase}</button>
+      <button type="button" onclick={keepOrQuit}>{stranded.other}</button>
     {:else if resumeBackup && !backupPhrase}
       <p class="muted">
         This account was created here, but its recovery phrase was never saved —

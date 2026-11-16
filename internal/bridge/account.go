@@ -2,6 +2,7 @@ package bridge
 
 import (
 	"errors"
+	"log"
 	"strings"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
@@ -30,6 +31,8 @@ const (
 	CodeWrongPassphrase     = "wrong-passphrase"      // the passphrase does not open this device's keystore
 	CodeErasePending        = "erase-pending"         // erased; the keystore file itself goes at the next chance (not a failure)
 	CodeDataWithoutKeystore = "data-without-keystore" // an account's data but no keystore: restore or start over; nothing was created
+	CodeDeviceUnlinked      = "device-unlinked"       // the start finished erasing a device its account unlinked
+	CodeEraseUnfinished     = "erase-unfinished"      // an erase could not remove some files; detail names them; the next start retries
 	CodeConfirmWord         = "confirm-word"          // start over needs StartOverWord typed; nothing was deleted
 	CodeConfirmStale        = "confirm-stale"         // the start-over confirmation is spent, expired, or for what the device held before; nothing was deleted
 	CodeKeystoreBusy        = "keystore-busy"         // another window or process holds the keystore; nothing was deleted; try again
@@ -80,6 +83,13 @@ func (b *Bridge) SessionState() SessionView {
 	b.mu.Lock()
 	unlocked, reason := b.svc != nil, b.lockReason
 	b.mu.Unlock()
+	if !unlocked && reason == "" {
+		// A fresh process: an unlink's erase still recorded on disk is the
+		// reason, not a restart.
+		if dir, err := appsvc.DataDir(); err == nil && appsvc.PendingEraseIsUnlink(dir) {
+			reason = LockUnlinkedNotErased
+		}
+	}
 	v := SessionView{Unlocked: unlocked}
 	if has, err := b.HasIdentity(); err == nil {
 		v.HasIdentity = has
@@ -244,3 +254,58 @@ func (b *Bridge) RevealMnemonicWith(passphrase string) (string, error) {
 // StartOverWord is what the user types to erase this device from the lock
 // screen (start over, or erasing data found without its keystore).
 const StartOverWord = "ERASE"
+
+// StrandedView answers, before anything is unlocked, whether this device
+// holds account data it can no longer open. Keepable: a restore from the
+// recovery phrase opens it again; otherwise nobody can.
+type StrandedView struct {
+	Stranded bool `json:"stranded"`
+	Keepable bool `json:"keepable"`
+}
+
+// StrandedData is StrandedView for this device. While Stranded, Login opens
+// and creates nothing; the first screen asks what happens to the data.
+func (b *Bridge) StrandedData() (StrandedView, error) {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return StrandedView{}, err
+	}
+	stranded, keepable := appsvc.DataWithoutKeystore(dir)
+	return StrandedView{Stranded: stranded, Keepable: keepable}, nil
+}
+
+// EraseUnfinishedView names the files an erase could not remove.
+type EraseUnfinishedView struct {
+	Files []string `json:"files"`
+}
+
+// startError turns what Start refused with into what the screens act on.
+func (b *Bridge) startError(err error) error {
+	switch {
+	case errors.Is(err, appsvc.ErrDeviceUnlinked):
+		b.lockReason = LockUnlinked
+		return &CodedError{Code: CodeDeviceUnlinked, Msg: "This device was unlinked from its account, so Concord erased its copy of your identity, guilds and messages. Nothing was deleted from anyone else. Link it again from one of your other devices to get them back."}
+	case errors.Is(err, appsvc.ErrEraseUnfinished):
+		if errors.Is(err, appsvc.ErrDeviceUnlinkedNotErased) {
+			b.lockReason = LockUnlinkedNotErased
+		}
+		log.Printf("concord: %v", err)
+		files := appsvc.LeftFiles(err)
+		return &CodedError{Code: CodeEraseUnfinished, Msg: eraseUnfinishedMsg(files), Detail: EraseUnfinishedView{Files: files}}
+	}
+	return err
+}
+
+// eraseUnfinishedMsg is the held-file sentence (the UI says the same,
+// lib/strandeddata.js).
+func eraseUnfinishedMsg(files []string) string {
+	what := "Some of its files are"
+	switch len(files) {
+	case 0:
+	case 1:
+		what = "The file " + files[0] + " is"
+	default:
+		what = "The files " + strings.Join(files, ", ") + " are"
+	}
+	return "Concord couldn't finish erasing this device. " + what + " still here, probably because another program is using them. Close any other Concord windows, or restart the computer, and Concord finishes erasing the next time it starts."
+}

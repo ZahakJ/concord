@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // The erase record.
@@ -158,4 +159,37 @@ func syncEraseDir(dir string) error {
 	}
 	defer d.Close()
 	return d.Sync()
+}
+
+// DataLeftError is ErrDataNotErased naming the files still here.
+type DataLeftError struct{ Files []string }
+
+func (e *DataLeftError) Error() string {
+	return ErrDataNotErased.Error() + ": still here: " + strings.Join(e.Files, ", ")
+}
+
+func (e *DataLeftError) Unwrap() error { return ErrDataNotErased }
+
+// LeftFiles names the files an erase error says are still here; nil when it
+// names none.
+func LeftFiles(err error) []string {
+	var left *DataLeftError
+	if errors.As(err, &left) {
+		return left.Files
+	}
+	return nil
+}
+
+// PendingEraseIsUnlink reports whether an unfinished erase is recorded here,
+// and that it is the one an unlink asked for.
+func PendingEraseIsUnlink(dataDir string) bool {
+	if !erasePendingIn(dataDir) {
+		return false
+	}
+	rec, err := readEraseRecord(dataDir)
+	if err != nil || !rec.Unlinked {
+		return false
+	}
+	applies, err := eraseRecordApplies(dataDir, rec)
+	return err == nil && applies
 }
