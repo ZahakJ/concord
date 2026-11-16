@@ -88,10 +88,16 @@ There is no way for a moderator to mute someone else's microphone for everyone.
 
 Choose **Delete** from a message's menu. You can always delete your own; deleting other people's needs **Manage messages**. Moderators can also type `/clear` followed by a number to delete the last messages in a channel, up to 100.
 
+Who may delete other people's messages depends on where they are:
+
+- **In a guild**, anyone with **Manage messages**.
+- **In a direct message**, one-to-one or with several people, nobody. Each person deletes only their own messages, and the person who started the conversation has no extra power.
+- **In a meeting**, its host, as in a guild.
+
 What happens depends on where the message was:
 
-- **In a guild**, the message disappears for members, but every member's app keeps the original, still encrypted, so that moderators can choose **Show original** on it later.
-- **In a direct message**, the text is erased for both of you.
+- **In a guild or a meeting**, the message disappears for members, but every member's app keeps the original, still encrypted, so that moderators can choose **Show original** on it later.
+- **In a direct message**, the text is erased for everyone in the conversation.
 
 Two settings in **Settings → Privacy & safety** control what you see of deleted messages:
 

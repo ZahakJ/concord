@@ -2015,7 +2015,7 @@ func (s *Service) DeleteMessage(channelID, targetID string) error {
 	s.mu.RLock()
 	guildID := s.channelToGuild[channelID]
 	s.mu.RUnlock()
-	if s.isDMGuild(guildID) {
+	if s.noModerators(guildID) {
 		if m, ok, err := s.store.MessageByID(targetID); err == nil && ok && !bytes.Equal(m.Sender, s.PublicKey()) {
 			return fmt.Errorf("app: in a direct message you can delete only your own messages")
 		}
@@ -2024,14 +2024,17 @@ func (s *Service) DeleteMessage(channelID, targetID string) error {
 	return err
 }
 
-// isDMGuild reports whether guildID is a one-to-one DM. A DM has no
-// moderators: its creator holds no power over the other side's messages, and
-// each side deletes only its own.
-func (s *Service) isDMGuild(guildID string) bool {
+// noModerators reports whether guildID is a direct message, one-to-one or
+// with several people. CreateGroupDM makes a group DM with Kind "dm" as well;
+// Kind "group" is made by no build, but mayPin and the inbox already read it as
+// a DM, so it is read alike here. A DM has no moderators: its creator holds no
+// power over anyone else's messages, and each person deletes only their own. A
+// meeting is not one: its host moderates it as in a guild.
+func (s *Service) noModerators(guildID string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	g, ok := s.guilds[guildID]
-	return ok && g.Kind == "dm"
+	return ok && (g.Kind == "dm" || g.Kind == "group")
 }
 
 // PurgeMessages deletes the most recent n messages in a channel — the "/clear
@@ -2054,6 +2057,9 @@ func (s *Service) PurgeMessages(channelID string, n int) (int, error) {
 	s.mu.RUnlock()
 	if !ok {
 		return 0, fmt.Errorf("app: unknown channel %s", channelID)
+	}
+	if s.noModerators(guildID) {
+		return 0, fmt.Errorf("app: in a direct message you can delete only your own messages")
 	}
 	if !s.hasPerm(guildID, PermManageMessages) {
 		return 0, fmt.Errorf("app: you need the Manage messages permission to clear messages")
@@ -2087,7 +2093,7 @@ func (s *Service) applyDelete(targetID string, bySender []byte, channelID string
 	s.mu.RLock()
 	guildID := s.channelToGuild[channelID]
 	s.mu.RUnlock()
-	if guildID != "" && !s.isDMGuild(guildID) {
+	if guildID != "" && !s.noModerators(guildID) {
 		force = s.memberHasPerm(guildID, accountFingerprintOf(bySender), PermManageMessages)
 	}
 	deleted, ok, err := s.store.MarkDeleted(targetID, bySender, force)

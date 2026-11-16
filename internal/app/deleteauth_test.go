@@ -178,3 +178,96 @@ func TestInADirectMessageOnlyTheAuthorDeletes(t *testing.T) {
 		}
 	}
 }
+
+// A group conversation is a direct message too: the member who started it
+// holds no moderator power, and each person deletes only their own messages.
+func TestInAGroupDMOnlyTheAuthorDeletes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	a := startService(t, ctx)
+	b := startService(t, ctx)
+	c := startService(t, ctx)
+	guildWith(t, a, b, c)
+	for _, s := range []*Service{b, c} {
+		if err := a.VerifyFingerprint(s.Fingerprint()); err != nil {
+			t.Fatalf("verify: %v", err)
+		}
+	}
+	dm, err := a.CreateGroupDM([]string{b.Fingerprint(), c.Fingerprint()})
+	if err != nil {
+		t.Fatalf("CreateGroupDM: %v", err)
+	}
+	ch := dm.Channels[0].ID
+	waitFor(t, 60*time.Second, func() bool {
+		for _, s := range []*Service{a, b, c} {
+			if n, _ := s.MemberCount(dm.ID); n != 3 {
+				return false
+			}
+		}
+		return true
+	}, "the group DM never gathered")
+
+	var theirs domain.Message
+	waitFor(t, 30*time.Second, func() bool {
+		if theirs.ID == "" {
+			m, err := b.SendMessage(ch, "from b", "", "")
+			if err != nil {
+				return false
+			}
+			theirs = m
+		}
+		_, okA, _ := a.store.MessageByID(theirs.ID)
+		_, okC, _ := c.store.MessageByID(theirs.ID)
+		return okA && okC
+	}, "b's message never reached a and c")
+
+	if err := a.DeleteMessage(ch, theirs.ID); err == nil {
+		t.Error("DeleteMessage accepted deleting another member's message in a group DM")
+	}
+	if _, err := a.PurgeMessages(ch, 5); err == nil {
+		t.Error("PurgeMessages ran in a group DM")
+	}
+	c.mu.RLock()
+	groupID := c.guilds[dm.ID].GroupID
+	c.mu.RUnlock()
+	send := func(signed bool) {
+		t.Helper()
+		frame := domain.Message{
+			ID: domain.NewID(), ChannelID: ch, Sender: a.PublicKey(),
+			Kind: "delete", ReplyTo: theirs.ID, Content: "deleted", Sent: time.Now().UTC(),
+		}
+		if signed {
+			frame.Sig = a.signMessage(frame)
+		}
+		raw, err := json.Marshal(frame)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		ct, err := a.mls.Encrypt(ctx, groupID, raw)
+		if err != nil {
+			t.Fatalf("encrypt: %v", err)
+		}
+		if !c.deliverCiphertext(groupID, ct) {
+			t.Fatal("c could not decrypt a frame a encrypted at the shared epoch")
+		}
+	}
+	send(true)
+	send(false)
+	if row, ok, err := c.store.MessageByID(theirs.ID); err != nil || !ok || row.Deleted || row.Content != "from b" {
+		t.Errorf("the group DM's starter deleted another member's message: err=%v found=%v deleted=%v content=%q", err, ok, row.Deleted, row.Content)
+	}
+
+	// The author's own delete still applies, and erases the text.
+	if err := b.DeleteMessage(ch, theirs.ID); err != nil {
+		t.Fatalf("DeleteMessage own: %v", err)
+	}
+	waitFor(t, 30*time.Second, func() bool {
+		row, ok, err := c.store.MessageByID(theirs.ID)
+		return err == nil && ok && row.Deleted && row.Content == ""
+	}, "the author's own delete did not apply in the group DM")
+}
+
