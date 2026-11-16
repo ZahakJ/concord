@@ -1671,6 +1671,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	go s.runEphemeralLoop()
 	// Once per device: every deleted body already at rest (deletedbodies.go).
 	go s.clearDeletedBodiesOnce()
+	go s.runBlobRefsBackfill()
 
 	// Resume rich presence if the user had it on.
 	if s.RichPresenceEnabled() {

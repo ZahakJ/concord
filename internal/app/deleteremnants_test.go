@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -307,5 +308,139 @@ func TestARevealAnswersInNoDirectMessage(t *testing.T) {
 		if got, err := s.RevealDeleted(ch, m.ID); err == nil {
 			t.Errorf("kind %q: the creator revealed a deleted direct message: %q", kind, got)
 		}
+	}
+}
+
+// testBlobToken is an image token naming blob id with a well-formed key.
+func testBlobToken(id string) string {
+	return "![image](concord://attach/v1/" + id + "/" + strings.Repeat("A", 75) + "/png/1x1)"
+}
+
+// serves reports whether s hands blob id to a peer that asks for it.
+func serves(t *testing.T, s *Service, id string) bool {
+	t.Helper()
+	req, _ := json.Marshal(attachRequest{BlobID: id})
+	ct, _ := s.handleAttachRequest(context.Background(), "", req)
+	return len(ct) > 0
+}
+
+// A message's pictures go with it where its body goes: a device that may not
+// reveal a deleted guild message removes, bans and stops serving a blob no
+// other message it holds names, while a moderator's device keeps it until
+// Empty trash. A member who names someone else's blob in a message of their
+// own and deletes it removes nothing the other message uses. A disappearing
+// message, and a message deleted by a tombstone history sync brings, take
+// their blobs too.
+func TestADeletedMessagesBlobGoesWhereItsBodyGoes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	owner := startService(t, ctx)
+	mod := startService(t, ctx)
+	reader := startService(t, ctx)
+	g := guildWith(t, owner, mod, reader)
+	ch := g.Channels[0].ID
+	modRole, err := owner.UpsertRole(g.ID, "", "Moderator", "", PermManageMessages, 1)
+	if err != nil {
+		t.Fatalf("UpsertRole: %v", err)
+	}
+	if err := owner.AssignRole(g.ID, mod.Fingerprint(), modRole, true); err != nil {
+		t.Fatalf("AssignRole: %v", err)
+	}
+	waitFor(t, 60*time.Second, func() bool {
+		return mod.hasPerm(g.ID, PermManageMessages) && reader.memberHasPerm(g.ID, mod.Fingerprint(), PermManageMessages)
+	}, "the moderator role never reached every member")
+	everyone := map[string]*Service{"owner": owner, "mod": mod, "reader": reader}
+	for _, s := range everyone {
+		if _, err := s.store.BackfillBlobRefs(); err != nil {
+			t.Fatalf("BackfillBlobRefs: %v", err)
+		}
+	}
+	blob := func(c string) string {
+		id := strings.Repeat(c, 64)
+		for _, s := range everyone {
+			if err := s.store.SaveAttachment(id, []byte("ciphertext "+c)); err != nil {
+				t.Fatalf("SaveAttachment: %v", err)
+			}
+		}
+		return id
+	}
+	send := func(from *Service, text string) domain.Message {
+		m, err := from.SendMessage(ch, text, "", "")
+		if err != nil {
+			t.Fatalf("SendMessage: %v", err)
+		}
+		waitFor(t, 30*time.Second, func() bool {
+			for _, s := range everyone {
+				if _, ok, _ := s.store.MessageByID(m.ID); !ok {
+					return false
+				}
+			}
+			return true
+		}, "a message never reached every member")
+		return m
+	}
+	deleteEverywhere := func(by *Service, id string) {
+		if err := by.DeleteMessage(ch, id); err != nil {
+			t.Fatalf("DeleteMessage: %v", err)
+		}
+		waitFor(t, 30*time.Second, func() bool {
+			for _, s := range everyone {
+				if row, ok, _ := s.store.MessageByID(id); !ok || !row.Deleted {
+					return false
+				}
+			}
+			return true
+		}, "a delete never reached every member")
+	}
+
+	x := blob("a")
+	pic := send(reader, "a picture "+testBlobToken(x))
+	deleteEverywhere(owner, pic.ID)
+	if serves(t, reader, x) || !reader.store.BlobBanned(x) {
+		t.Error("a device that may not reveal kept and served a deleted message's blob")
+	}
+	for _, name := range []string{"owner", "mod"} {
+		if !serves(t, everyone[name], x) {
+			t.Errorf("the %s's device dropped a blob it keeps for reveal", name)
+		}
+	}
+	if _, err := owner.EmptyTrash(g.ID); err != nil {
+		t.Fatalf("EmptyTrash: %v", err)
+	}
+	if serves(t, owner, x) || !owner.store.BlobBanned(x) {
+		t.Error("Empty trash kept the deleted message's blob")
+	}
+
+	// mod names the reader's blob in a message of its own, then deletes it.
+	z := blob("b")
+	theirs := send(reader, "mine "+testBlobToken(z))
+	copied := send(mod, "copied "+testBlobToken(z))
+	deleteEverywhere(mod, copied.ID)
+	for name, s := range everyone {
+		if !serves(t, s, z) || s.store.BlobBanned(z) {
+			t.Errorf("on %s, deleting a copy removed a blob the reader's message %s still names", name, theirs.ID)
+		}
+	}
+
+	w := blob("c")
+	gone := send(reader, "disappearing "+testBlobToken(w))
+	if err := mod.ExpireMessage(ch, gone.ID); err != nil {
+		t.Fatalf("ExpireMessage: %v", err)
+	}
+	if serves(t, mod, w) || !mod.store.BlobBanned(w) {
+		t.Error("an expired message's blob was kept")
+	}
+
+	// A tombstone taken by history sync keeps no body on any device, so on a
+	// moderator's device its blob goes with it too.
+	v := blob("d")
+	synced := send(reader, "deleted by sync "+testBlobToken(v))
+	serveSyncRows(t, ctx, owner, mod, g.ID, ch, tombstoneOf(synced))
+	if serves(t, mod, v) || !mod.store.BlobBanned(v) {
+		t.Error("a moderator's device kept the blob of a message a synced tombstone erased")
 	}
 }

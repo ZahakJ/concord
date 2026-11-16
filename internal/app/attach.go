@@ -340,6 +340,11 @@ func (s *Service) attachmentCiphertext(channelID, blobID string) ([]byte, error)
 	if ct, ok, err := s.store.GetAttachment(blobID); err == nil && ok {
 		return ct, nil
 	}
+	if s.store.BlobBanned(blobID) {
+		// Removed with the message that held it (releaseBlobs): not fetched
+		// again on this device.
+		return nil, errNotFound
+	}
 
 	s.mu.RLock()
 	guildID, tracked := s.channelToGuild[channelID]
@@ -377,7 +382,7 @@ func (s *Service) requestBlobFrom(p peer.ID, req []byte) ([]byte, error) {
 
 // handleAttachRequest serves a blob from the local store; an empty response
 // means "don't have it". Serving is deliberately ungated — see the package
-// comment above.
+// comment above — except for a blob removed and banned with its message.
 func (s *Service) handleAttachRequest(ctx context.Context, _ peer.ID, request []byte) ([]byte, error) {
 	var req attachRequest
 	if err := json.Unmarshal(request, &req); err != nil {
@@ -385,6 +390,9 @@ func (s *Service) handleAttachRequest(ctx context.Context, _ peer.ID, request []
 	}
 	if !blobIDRe.MatchString(strings.TrimSpace(req.BlobID)) {
 		return []byte{}, nil
+	}
+	if s.store.BlobBanned(req.BlobID) {
+		return []byte{}, nil // removed with its message; never served again
 	}
 	ct, ok, err := s.store.GetAttachment(req.BlobID)
 	if err != nil || !ok || len(ct) > cnet.MaxAttachResponse {

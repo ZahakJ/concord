@@ -2210,7 +2210,9 @@ func (s *Service) applyDelete(targetID string, bySender []byte, channelID string
 		return
 	}
 	if s.erasesDeletedBodies(guildID) {
-		_ = s.store.EraseContent(targetID)
+		if s.store.EraseContent(targetID) == nil {
+			s.releaseBlobs(targetID)
+		}
 	}
 	s.emitMessage(deleted)
 }
@@ -2250,7 +2252,9 @@ func (s *Service) ExpireMessage(channelID, messageID string) error {
 	if err != nil || !ok {
 		return err
 	}
-	_ = s.store.EraseContent(messageID)
+	if s.store.EraseContent(messageID) == nil {
+		s.releaseBlobs(messageID)
+	}
 	deleted.Expired = true
 	s.emitMessage(deleted)
 	return nil
@@ -2270,7 +2274,16 @@ func (s *Service) EmptyTrash(guildID string) (int, error) {
 		}
 		s.mu.RUnlock()
 	}
+	withBlobs, err := s.store.DeletedWithBlobs(channelIDs)
+	if err != nil {
+		return 0, err
+	}
 	n, err := s.store.PurgeDeletedContent(channelIDs)
+	if err == nil {
+		for _, id := range withBlobs {
+			s.releaseBlobs(id)
+		}
+	}
 	if err == nil && n > 0 {
 		s.emitGuildUpdate() // reloads messages; revealed content is now gone
 	}

@@ -1311,6 +1311,11 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 		}
 		for _, full := range changed {
 			anyNew = true
+			if full.Deleted {
+				// A deleted row taken from history sync keeps no body
+				// (store.UpsertSyncedMessage), so its blobs go with it.
+				s.releaseBlobs(full.ID)
+			}
 			// History, not news: a listener that notifies must not treat a
 			// week-old row that arrived on the catch-up like a message somebody
 			// just wrote (domain.Message.Backfill). But see syncedIsNews: the
