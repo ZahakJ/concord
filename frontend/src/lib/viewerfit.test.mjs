@@ -4,7 +4,7 @@
 // (40x40), each in a landscape desktop window (1440x900) and a portrait one
 // (900x1440): the viewer opens every one of them whole, inside the margin, and
 // never larger than it is.
-import { clampPan, fitSize, MARGIN_DESKTOP, maxZoom, toggleZoom, zoomAt } from "./viewerfit.js";
+import { clampPan, fitSize, MARGIN_DESKTOP, maxZoom, refit, toggleZoom, wheelSteps, zoomAt } from "./viewerfit.js";
 
 let failures = 0;
 const assert = (cond, msg) => {
@@ -117,6 +117,64 @@ for (const [wn, vp] of Object.entries(WINDOWS)) {
   near(toggleZoom(1 / f.scale, f.scale), 1, "100% -> fit");
   near(toggleZoom(1, 1), 2, "a picture fitted at its natural size doubles");
   assert(maxZoom(f.scale) >= 2 / f.scale, "200% of natural is always reachable");
+}
+
+// ---- the wheel ---------------------------------------------------------------
+// Feeds a run of wheel events (deltaY, deltaMode, gap in ms) and returns the
+// total steps taken, negative for zoom in.
+function wheelRun(events) {
+  let acc = null;
+  let t = 1000;
+  let total = 0;
+  for (const [dy, mode = 0, gap = 16] of events) {
+    t += gap;
+    const r = wheelSteps(acc, dy, mode, t);
+    acc = r.acc;
+    total += r.steps;
+  }
+  return total;
+}
+{
+  const many = (n, dy, mode = 0, gap = 16) => Array.from({ length: n }, () => [dy, mode, gap]);
+  // A mouse notch is one step, in each of the units browsers report it in.
+  assert(wheelRun([[-100]]) === -1, "a 100px notch up is one step in");
+  assert(wheelRun([[100]]) === 1, "a 100px notch down is one step out");
+  assert(wheelRun([[-120]]) === -1, "a 120px notch is one step");
+  assert(wheelRun([[-53]]) === -1, "a 53px notch is still one step");
+  assert(wheelRun([[-3, 1]]) === -1, "a 3-line notch is one step");
+  assert(wheelRun([[-1, 2]]) === -8, "a page is eight steps");
+  // Notches spaced out are a step each.
+  assert(wheelRun(many(5, -100, 0, 300)) === -5, "five separate notches are five steps");
+  // A touchpad's many small events add up: 40 events of 4px are 160px, one
+  // step, not 40.
+  assert(wheelRun(many(40, -4)) === -1, "forty 4px touchpad events are one step");
+  assert(wheelRun(many(100, -4)) === -4, "a hundred 4px events are four steps");
+  // A Chromium touchpad pinch: small ctrl+wheel deltas, also summed.
+  assert(wheelRun(many(30, 2.5)) === 0, "thirty 2.5px pinch events (75px) take no step yet");
+  assert(wheelRun(many(30, 10)) === 3, "thirty 10px pinch events are three steps out");
+  // A change of direction drops what had been summed the other way.
+  assert(wheelRun([...many(20, -4), ...many(20, 4)]) === 0, "80px up then 80px down is no step");
+  // A pause drops a partial sum.
+  assert(wheelRun([...many(20, -4), [-4, 0, 400], ...many(5, -4)]) === 0, "a pause drops 80px of partial scroll");
+}
+
+// ---- a window resize -----------------------------------------------------------
+{
+  const img = IMAGES.tall;
+  const big = WINDOWS.landscape;
+  const small = { w: 800, h: 500 };
+  const f1 = fitSize(img, big, M);
+  // Zoomed in and panned to the bottom edge in the big window.
+  let view = zoomAt({ zoom: 1, tx: 0, ty: 0 }, { x: 0, y: 0 }, 4, f1, big, f1.scale);
+  view = clampPan({ ...view, ty: -1e6 }, f1, big);
+  const f2 = fitSize(img, small, M);
+  const v = refit(view, f2, small, f2.scale);
+  const H = f2.h * v.zoom;
+  const top = small.h / 2 + v.ty - H / 2;
+  assert(top <= 1e-6 && top + H >= small.h - 1e-6, `after a resize the zoomed picture still covers the window (top ${top}, bottom ${top + H})`);
+  assert(v.zoom <= maxZoom(f2.scale), "after a resize the zoom stays within its bound");
+  const fitted = refit({ zoom: 1, tx: 0, ty: 0 }, f2, small, f2.scale);
+  assert(fitted.zoom === 1 && fitted.tx === 0 && fitted.ty === 0, "a fitted picture stays fitted and centred");
 }
 
 if (failures) {

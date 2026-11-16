@@ -27,7 +27,9 @@
     fitSize,
     MARGIN_DESKTOP,
     MARGIN_PHONE,
+    refit,
     toggleZoom,
+    wheelSteps,
     zoomAt,
     ZOOM_STEP_CLICK,
     ZOOM_STEP_WHEEL,
@@ -218,11 +220,21 @@
     const r = rectOf(overlayEl);
     vp = { w: r.w, h: r.h };
   }
+  // On a resize the fit changes, so a zoomed view is re-clamped to it: without
+  // that the picture could show an edge until the next drag or zoom.
+  function onResize() {
+    measure();
+    if (!fit) return;
+    const v = refit({ zoom, tx, ty }, fit, vp, fit.scale);
+    zoom = v.zoom;
+    tx = v.tx;
+    ty = v.ty;
+  }
   $effect(() => {
     if (!lightbox || !overlayEl) return;
     measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   });
   const fit = $derived.by(() => {
     const n = natural || (tok.w && tok.h ? { w: tok.w, h: tok.h } : null);
@@ -338,11 +350,16 @@
     ty = v.ty;
   }
 
-  // One wheel event is one step, in or out, toward the cursor.
+  // The wheel zooms toward the cursor, one step per ~100px of scroll
+  // (wheelSteps): a mouse notch is one step, and a touchpad's stream of small
+  // events adds up instead of stepping on every event.
+  let wheelAcc = null;
   function onWheel(e) {
     e.preventDefault(); // never scroll the chat behind the overlay
     if (!e.deltaY) return;
-    zoomAround(pointOf(e), e.deltaY < 0 ? zoom * ZOOM_STEP_WHEEL : zoom / ZOOM_STEP_WHEEL);
+    const r = wheelSteps(wheelAcc, e.deltaY, e.deltaMode, e.timeStamp);
+    wheelAcc = r.acc;
+    if (r.steps) zoomAround(pointOf(e), zoom * ZOOM_STEP_WHEEL ** -r.steps);
   }
 
   // A mouse click on the picture zooms in a step toward the cursor (back to fit

@@ -1,7 +1,9 @@
 // The image viewer opens a picture whole: a phone screenshot (1080x2400) and a
 // wide panorama (4000x600) each fit inside a 1440x900 window, never drawn
 // larger than they are. Double-click toggles fit and 100%, a drag is clamped,
-// the wheel zooms, Esc and a backdrop click close. In the feed, the
+// the wheel zooms by how far it scrolls, a resize keeps a zoomed picture
+// covering the window, a click zooms one step, focus stays inside the viewer
+// and returns to the thumbnail, Esc and a backdrop click close. In the feed, the
 // screenshot's thumbnail stays within the thumbnail height cap.
 import fs from "node:fs";
 import path from "node:path";
@@ -104,6 +106,9 @@ test("the image viewer opens tall and wide pictures fitted inside the window", a
         const r = el.getBoundingClientRect();
         return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, w: r.width, h: r.height };
       });
+      const inViewer = () => page.evaluate(() => !!document.activeElement?.closest(".lightbox"));
+      assert.ok(await inViewer(), "focus is inside the viewer when it opens");
+
       step("double-click shows 100%, a second double-click fits again");
       const cx = (m.left + m.right) / 2;
       const cy = (m.top + m.bottom) / 2;
@@ -134,8 +139,49 @@ test("the image viewer opens tall and wide pictures fitted inside the window", a
       const wheeled = await boxOf();
       assert.ok(wheeled.h > back.h * 1.1, `the wheel zoomed in: ${JSON.stringify(wheeled)}`);
 
-      step("Esc closes the viewer");
+      step("a touchpad's stream of small wheel events adds up instead of stepping on each one");
+      await page.keyboard.press("0");
+      await page.waitForTimeout(400);
+      for (let i = 0; i < 40; i++) await page.mouse.wheel(0, -5);
+      await page.waitForTimeout(500);
+      const pad = await boxOf();
+      // 200px of scroll is two steps (1.25 x 1.25), not forty.
+      assert.ok(pad.h > back.h * 1.1 && pad.h < back.h * 2, `forty 5px wheel events zoomed about two steps: ${JSON.stringify(pad)} from ${JSON.stringify(back)}`);
+
+      step("a window resize while zoomed keeps the picture covering the window");
+      await page.mouse.move(cx, cy);
+      await page.mouse.down();
+      await page.mouse.move(cx, cy - 3000, { steps: 10 });
+      await page.mouse.up();
+      await page.waitForTimeout(400);
+      const small = { width: 1000, height: 600 };
+      await page.setViewportSize(small);
+      await page.waitForTimeout(600);
+      const resized = await boxOf();
+      assert.ok(resized.top <= 0.5 && resized.bottom >= small.height - 0.5, `after the resize the zoomed picture still covers the window: ${JSON.stringify(resized)}`);
+      await page.setViewportSize(vp);
+      await page.waitForTimeout(400);
+
+      step("a single click on the picture zooms in one step");
+      await page.keyboard.press("0");
+      await page.waitForTimeout(400);
+      const fitted = await boxOf();
+      await page.mouse.click((fitted.left + fitted.right) / 2, (fitted.top + fitted.bottom) / 2);
+      await page.waitForTimeout(700);
+      const clicked = await boxOf();
+      assert.ok(Math.abs(clicked.h / fitted.h - 2) < 0.02, `a click doubled the zoom: ${JSON.stringify(clicked)} from ${JSON.stringify(fitted)}`);
+      await page.keyboard.press("0");
+
+      step("Tab and Shift+Tab keep focus inside the viewer");
+      for (const key of ["Tab", "Tab", "Tab", "Tab", "Shift+Tab", "Shift+Tab", "Shift+Tab", "Shift+Tab", "Shift+Tab"]) {
+        await page.keyboard.press(key);
+        assert.ok(await inViewer(), `focus is still inside the viewer after ${key}`);
+      }
+
+      step("Esc closes the viewer and focus returns to the thumbnail");
       await page.keyboard.press("Escape");
+      await page.locator(".lightbox").waitFor({ state: "detached" });
+      assert.ok(await thumb.evaluate((el) => document.activeElement === el.closest(".frame")), "focus is back on the thumbnail");
     } else {
       step("a click on the backdrop closes the viewer");
       await page.mouse.click(vp.width / 2, Math.max(5, m.top / 2));
