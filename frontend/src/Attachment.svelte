@@ -1,9 +1,10 @@
 <script>
   // One encrypted image attachment: reserves layout space from the token's
   // dimensions, fetches + decrypts through the backend, and renders with
-  // spinner / error+retry states. Clicking opens a lightbox: click zooms to
-  // the cursor, wheel zooms, drag pans, pinch works on touch,
-  // Esc / backdrop / ✕ close.
+  // spinner / error+retry states. Clicking opens a lightbox that shows the
+  // whole picture fitted to the window: click and wheel zoom toward the cursor
+  // in steps, double-click toggles fit and 100%, drag pans, pinch works on
+  // touch, Esc / backdrop / ✕ close.
   import Icon from "./Icon.svelte";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import {
@@ -19,6 +20,18 @@
   import { longpress, haptic } from "./lib/touch.js";
   import { pointOf, rectOf } from "./lib/place.js";
   import { portal } from "./lib/portal.js";
+  import { focusOnMount } from "./lib/focus.js";
+  import {
+    clampPan as clampView,
+    clampZoom,
+    fitSize,
+    MARGIN_DESKTOP,
+    MARGIN_PHONE,
+    toggleZoom,
+    zoomAt,
+    ZOOM_STEP_CLICK,
+    ZOOM_STEP_WHEEL,
+  } from "./lib/viewerfit.js";
 
   // `messageId`/`own` exist only for "Edit meme": editing a picture in place
   // means editing the message that carries it, and only its author may.
@@ -184,17 +197,41 @@
   });
 
   // ---- lightbox ----
-  // The image renders fitted to the viewport; zoom/pan are a transform on top:
-  // translate(tx,ty) then scale(s), both around the viewport center.
-  const ZMIN = 1;
-  const ZMAX = 8;
+  // The image is drawn at an explicit fitted size (lib/viewerfit.js: the whole
+  // picture inside the window less a margin, never past its natural size);
+  // zoom/pan are a transform on top: translate(tx,ty) then scale(s), both
+  // around the viewport center, so zoom 1 is "fitted".
   let lightbox = $state(false);
   let zoom = $state(1);
   let tx = $state(0);
   let ty = $state(0);
   let dragging = $state(false);
-  let overlayEl; // for backdrop-click detection and pointer math
-  let imgEl; // for pan clamping (fitted size × zoom = rendered size)
+  let overlayEl = $state(null); // for backdrop-click detection and pointer math
+  let imgEl; // the viewer's <img>, for its natural size
+  // The picture's natural size: the token's until the viewer's <img> reports
+  // its own.
+  let natural = $state(null);
+  // The viewer's box in layout pixels, re-read when the window resizes.
+  let vp = $state({ w: 0, h: 0 });
+  function measure() {
+    if (!overlayEl) return;
+    const r = rectOf(overlayEl);
+    vp = { w: r.w, h: r.h };
+  }
+  $effect(() => {
+    if (!lightbox || !overlayEl) return;
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  });
+  const fit = $derived.by(() => {
+    const n = natural || (tok.w && tok.h ? { w: tok.w, h: tok.h } : null);
+    if (!n || !vp.w) return null;
+    return fitSize(n, vp, vp.w < 768 ? MARGIN_PHONE : MARGIN_DESKTOP);
+  });
+  function onViewerLoad() {
+    if (imgEl?.naturalWidth) natural = { w: imgEl.naturalWidth, h: imgEl.naturalHeight };
+  }
 
   async function saveThis() {
     const how = await saveImageSrc(src, tok.name || `concord-${(tok.blobId || "image").slice(0, 8)}.png`);
@@ -206,6 +243,7 @@
     zoom = 1;
     tx = 0;
     ty = 0;
+    natural = null;
     lightbox = true;
   }
   // Next / previous between a message's pictures (gallery rows only). Each
@@ -228,10 +266,14 @@
     requestAnimationFrame(() => next.click());
   }
   function closeLightbox() {
+    if (!lightbox) return;
     lightbox = false;
     pointers.clear();
     dragging = false;
     flinging = false;
+    clearTimeout(clickTimer);
+    // Focus goes back to the picture the viewer was opened from.
+    if (frameEl?.isConnected) frameEl.focus({ preventScroll: true });
   }
 
   // Android's hardware back is the reflex for "get this picture off my screen".
@@ -245,13 +287,25 @@
 
   function onKeydown(e) {
     if (!lightbox) return;
-    if (e.key === "Escape") closeLightbox();
+    if (e.key === "Tab") trapTab(e);
+    else if (e.key === "Escape") closeLightbox();
     else if (e.key === "ArrowRight" && gallery.length > 1) step(1);
     else if (e.key === "ArrowLeft" && gallery.length > 1) step(-1);
 
     else if (e.key === "+" || e.key === "=") zoomAround(center(), zoom * 1.5);
     else if (e.key === "-") zoomAround(center(), zoom / 1.5);
     else if (e.key === "0") zoomAround(center(), 1);
+  }
+
+  // Focus stays inside the viewer while it is open: Tab and Shift+Tab cycle
+  // through its buttons.
+  function trapTab(e) {
+    const items = [...(overlayEl?.querySelectorAll("button:not(:disabled)") || [])];
+    if (!items.length) return;
+    const at = items.indexOf(document.activeElement);
+    e.preventDefault();
+    const next = e.shiftKey ? (at <= 0 ? items.length - 1 : at - 1) : at < 0 || at === items.length - 1 ? 0 : at + 1;
+    items[next].focus();
   }
 
   // Everything in here is LAYOUT pixels: tx/ty are written into a transform
@@ -264,37 +318,55 @@
   }
 
   // zoomAround rescales while keeping the point under `p` (client coords)
-  // visually fixed — the anchored zoom a map does. At fit scale (1) the
-  // pan resets so the image is always centered when fully zoomed out.
+  // fixed — the anchored zoom a map does — as far as the pan clamp allows. At
+  // fit (1) the picture re-centres.
   function zoomAround(p, next) {
-    next = Math.min(ZMAX, Math.max(ZMIN, next));
+    if (!fit) return;
     const c = center();
-    const k = next / zoom;
-    tx = p.x - c.x - (p.x - c.x - tx) * k;
-    ty = p.y - c.y - (p.y - c.y - ty) * k;
-    zoom = next;
-    if (zoom === 1) {
-      tx = 0;
-      ty = 0;
-    }
-    clampPan();
+    const v = zoomAt({ zoom, tx, ty }, { x: p.x - c.x, y: p.y - c.y }, next, fit, vp, fit.scale);
+    zoom = v.zoom;
+    tx = v.tx;
+    ty = v.ty;
   }
 
-  // clampPan keeps the image on screen: edges never pan past the viewport
-  // center-ish, so a wild drag can't strand you on an all-black overlay.
+  // clampPan keeps the picture on screen: a zoomed picture's edges never come
+  // inside the window, and an axis that fits stays centred.
   function clampPan() {
-    if (!imgEl || !overlayEl) return;
-    const r = rectOf(overlayEl);
-    const maxX = Math.max(0, (imgEl.offsetWidth * zoom - r.w) / 2) + r.w * 0.25;
-    const maxY = Math.max(0, (imgEl.offsetHeight * zoom - r.h) / 2) + r.h * 0.25;
-    tx = Math.max(-maxX, Math.min(maxX, tx));
-    ty = Math.max(-maxY, Math.min(maxY, ty));
+    if (!fit) return;
+    const v = clampView({ zoom, tx, ty }, fit, vp);
+    tx = v.tx;
+    ty = v.ty;
   }
 
+  // One wheel event is one step, in or out, toward the cursor.
   function onWheel(e) {
     e.preventDefault(); // never scroll the chat behind the overlay
-    const factor = Math.exp(-e.deltaY * 0.0015);
-    zoomAround(pointOf(e), zoom * factor);
+    if (!e.deltaY) return;
+    zoomAround(pointOf(e), e.deltaY < 0 ? zoom * ZOOM_STEP_WHEEL : zoom / ZOOM_STEP_WHEEL);
+  }
+
+  // A mouse click on the picture zooms in a step toward the cursor (back to fit
+  // from the furthest zoom). It waits out the double-click interval, so a
+  // double-click is one toggle between fit and 100% rather than two steps.
+  let clickTimer = 0;
+  const CLICK_WAIT_MS = 220;
+  function clickStep(p) {
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => {
+      if (!fit) return;
+      const next = clampZoom(zoom * ZOOM_STEP_CLICK, fit.scale);
+      zoomAround(p, next === zoom ? 1 : next);
+    }, CLICK_WAIT_MS);
+  }
+  // Mouse only: a touch double-tap is already two taps (in, then back to fit).
+  // On the picture only, judged at pointerdown: the overlay captures the
+  // pointer, so the dblclick itself is targeted at the overlay.
+  let lastPointer = "mouse";
+  let downOnImage = false;
+  function onDblClick(e) {
+    if (!fit || !downOnImage || lastPointer !== "mouse") return;
+    clearTimeout(clickTimer);
+    zoomAround(pointOf(e), toggleZoom(zoom, fit.scale));
   }
 
   // Pointers: one finger/button drags (pan) — or clicks (zoom toggle) when it
@@ -323,10 +395,13 @@
   );
 
   function onPointerDown(e) {
+    downOnImage = false;
     if (e.button !== 0 && e.pointerType === "mouse") return;
     if (e.target.closest?.(".lb-bar")) return; // let the ✕ button be a button
     pressedMenu = false;
+    lastPointer = e.pointerType;
     downOnBackdrop = e.target === overlayEl;
+    downOnImage = e.target === imgEl;
     overlayEl.setPointerCapture?.(e.pointerId);
     pointers.set(e.pointerId, pointOf(e));
     if (pointers.size === 1) moved = 0;
@@ -393,10 +468,13 @@
     const wasDrag = dragging || moved > 4;
     dragging = false;
     if (wasDrag || pressedMenu) return;
-    // A clean click: on the backdrop it closes; on the image it toggles zoom
-    // at the click point (in), or back to fit (out).
+    // A clean click: on the backdrop it closes. On the image a mouse steps the
+    // zoom (clickStep); a tap toggles zoom at the tap point (in), or back to
+    // fit (out).
     if (downOnBackdrop) {
       closeLightbox();
+    } else if (e.pointerType === "mouse") {
+      clickStep(pointOf(e));
     } else if (zoom === 1) {
       zoomAround(pointOf(e), 2.5);
     } else {
@@ -458,20 +536,25 @@
       onpointermove={onPointerMove}
       onpointerup={onPointerUp}
       onpointercancel={onPointerUp}
+      ondblclick={onDblClick}
     >
       <img
         {src}
-        alt="attachment full size"
+        alt={tok.desc || "attachment full size"}
         bind:this={imgEl}
+        onload={onViewerLoad}
         class:zoomed={zoom > 1}
         class:dragging
-        style="transform: translate({tx}px, {ty}px) scale({zoom})"
+        class:unsized={!fit}
+        style="{fit ? `width:${fit.w}px;height:${fit.h}px;` : ''}transform: translate({tx}px, {ty}px) scale({zoom})"
         draggable="false"
         oncontextmenu={imageMenu}
         use:longpress={{ handler: lightboxLongPress }}
       />
       <div class="lb-bar">
-        <span class="lb-zoom" class:show={zoom > 1}>{Math.round(zoom * 100)}%</span>
+        <!-- The share of the picture's natural size on screen, announced as it
+             changes. -->
+        <span class="lb-zoom" class:show={zoom > 1} role="status" aria-live="polite">{fit ? Math.round(zoom * fit.scale * 100) : 100}%</span>
         {#if tok.name}<span class="lb-name">{tok.name}</span>{/if}
         {#if gallery.length > 1}
           <button class="lb-close" onclick={() => step(-1)} disabled={gallery.indexOf(frameEl) <= 0} aria-label="Previous image">
@@ -485,7 +568,7 @@
         <button class="lb-close" onclick={saveThis} aria-label="Save image">
           <Icon name="download" size={18} />
         </button>
-        <button class="lb-close" onclick={closeLightbox} aria-label="Close image (Esc)">
+        <button class="lb-close" onclick={closeLightbox} aria-label="Close image (Esc)" use:focusOnMount>
           <Icon name="close" size={18} />
         </button>
       </div>
@@ -653,7 +736,9 @@
     background: rgba(0, 0, 0, var(--lb-dim, 0.85));
     display: grid;
     place-items: center;
-    padding: calc(4 * var(--vh)) calc(4 * var(--vw));
+    /* No padding: the margin is in the fitted size (lib/viewerfit.js), and the
+       picture's resting centre is the window's centre, which the zoom math
+       measures from. */
     overflow: hidden;
     touch-action: none; /* pointer events own pinch/drag */
     animation: lb-in var(--dur-standard) ease;
@@ -668,8 +753,8 @@
     }
   }
   .lightbox img {
-    max-width: 100%;
-    max-height: 100%;
+    max-width: none;
+    max-height: none;
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-pop);
     cursor: zoom-in;
@@ -677,6 +762,12 @@
     -webkit-user-drag: none;
     transition: transform var(--dur-standard) ease;
     will-change: transform;
+  }
+  /* Until the size is known (a picture with no dimensions in its token, for the
+     moment its bytes take to decode) it is kept out of sight rather than
+     flashed at full size. */
+  .lightbox img.unsized {
+    visibility: hidden;
   }
   .lightbox img.zoomed {
     cursor: grab;
