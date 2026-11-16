@@ -2468,6 +2468,20 @@ func (s *Store) UpdateContent(id string, bySender []byte, newContent string, new
 // moderator (force=true, decided by the caller from ManageMessages) may delete
 // anyone's. Returns the deleted message and whether a row changed.
 func (s *Store) MarkDeleted(id string, bySender []byte, force bool) (domain.Message, bool, error) {
+	return s.markDeleted(id, bySender, force, false)
+}
+
+// MarkDisappeared tombstones a message whose disappearing timer ran out on
+// this device, labels it "disappeared" and unpins it, in the same write. The
+// tombstone keeps its deadline only when the row was live and proven when it
+// expired: the unstamped-attachment sweep reads such a tombstone as the
+// sender's record of the timer they had on, and a deleted row's proof is not
+// kept (the delete clears the mark along with the signature).
+func (s *Store) MarkDisappeared(id string) (domain.Message, bool, error) {
+	return s.markDeleted(id, nil, true, true)
+}
+
+func (s *Store) markDeleted(id string, bySender []byte, force, expire bool) (domain.Message, bool, error) {
 	var m domain.Message
 	var chID string
 	var sent int64
@@ -2486,7 +2500,13 @@ func (s *Store) MarkDeleted(id string, bySender []byte, force bool) (domain.Mess
 	// The signature dies with the body it covered. Keeping it would make every
 	// tombstone a record that fails verification on the next peer to receive it,
 	// which is how deletes would stop propagating.
-	if _, err := s.db.Exec(`UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0 WHERE id = ?`, time.Now().UnixNano(), id); err != nil {
+	q := `UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0 WHERE id = ?`
+	if expire {
+		// The CASE reads the row as it was before this write.
+		q = `UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0, expired = 1, pinned = 0,
+		 expires = CASE WHEN deleted = 0 AND unverified = 0 THEN expires ELSE 0 END WHERE id = ?`
+	}
+	if _, err := s.db.Exec(q, time.Now().UnixNano(), id); err != nil {
 		return domain.Message{}, false, err
 	}
 	_, _ = s.db.Exec(`DELETE FROM hidden_messages WHERE message_id = ?`, id) // a tombstone needs no hide
@@ -2536,13 +2556,6 @@ func (s *Store) MessageContent(id string) (string, error) {
 		return "", err
 	}
 	return s.open(enc, nonceB)
-}
-
-// MarkExpired flags a tombstoned message as having disappeared via a timer
-// (rather than a manual delete), so the UI can label it "disappeared".
-func (s *Store) MarkExpired(id string) error {
-	_, err := s.db.Exec(`UPDATE messages SET expired = 1, pinned = 0 WHERE id = ?`, id)
-	return err
 }
 
 // PurgeDeletedContent permanently erases the retained body of every soft-deleted

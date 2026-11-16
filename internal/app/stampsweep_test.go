@@ -176,3 +176,74 @@ func TestInferDeadlinesIgnoresAbsurdTimers(t *testing.T) {
 		t.Fatalf("inferred %+v from a year-long stamp", got)
 	}
 }
+
+// A tombstone that arrives by history sync proves nothing about who wrote it,
+// so the sweep never reads it as a timer, whoever it names as sender.
+func TestSweepIgnoresTombstonesThatArriveBySync(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc := startServiceInDir(t, ctx, t.TempDir())
+	sender := []byte("member-whose-picture-it-is-32by!")
+	server := []byte("member-serving-the-history-32by!")
+	const pic = "![image](concord://attach/v1/" + "0000000000000000000000000000000000000000000000000000000000000000/k/png/1x1)"
+	base := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+	if _, err := svc.store.SaveMessage(domain.Message{ID: "pic", ChannelID: "cx", Sender: sender, Sent: base, Content: pic}); err != nil {
+		t.Fatal(err)
+	}
+	tomb := domain.Message{ID: "tomb", ChannelID: "cx", Sender: sender, Sent: base.Add(time.Second), Deleted: true,
+		Content: ephStamp(base.Add(2*time.Second)) + "x"}
+	if !messageAttestationFrom(&tomb, server) {
+		t.Fatal("the served tombstone was refused")
+	}
+	if _, err := svc.store.UpsertSyncedMessages([]domain.Message{tomb}, svc.id.Fingerprint(), false); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.SweepUnstampedAttachments(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Paired+got.Bracketed+got.Trailing != 0 || got.Applied != 0 {
+		t.Fatalf("a synced tombstone was read as a timer: %+v", got)
+	}
+	if m, _, _ := svc.store.MessageByID("pic"); m.Deleted || hasDeadline(t, svc, "pic") {
+		t.Fatal("the picture was given a deadline from a synced tombstone")
+	}
+}
+
+// A row whose sender was never proven is no timer evidence while it is live,
+// and its tombstone, once its own deadline has passed here, is none either.
+func TestSweepIgnoresUnprovenRowsAfterTheyExpire(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc := startServiceInDir(t, ctx, t.TempDir())
+	sender := []byte("member-whose-picture-it-is-32by!")
+	const pic = "![image](concord://attach/v1/" + "0000000000000000000000000000000000000000000000000000000000000000/k/png/1x1)"
+	base := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
+	if _, err := svc.store.SaveMessage(domain.Message{ID: "pic", ChannelID: "cx", Sender: sender, Sent: base, Content: pic}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.store.SaveMessage(domain.Message{ID: "unproven", ChannelID: "cx", Sender: sender, Sent: base.Add(time.Second), Unverified: true,
+		Content: ephStamp(base.Add(2*time.Second)) + "x"}); err != nil {
+		t.Fatal(err)
+	}
+	svc.sweepEphemeral(time.Now())
+	if r, _, _ := svc.store.MessageByID("unproven"); !r.Deleted || !r.Expired {
+		t.Fatalf("the unproven row did not disappear on its timer: %+v", r)
+	}
+	got, err := svc.SweepUnstampedAttachments(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Paired+got.Bracketed+got.Trailing != 0 || got.Applied != 0 {
+		t.Fatalf("an unproven row's tombstone was read as a timer: %+v", got)
+	}
+	if m, _, _ := svc.store.MessageByID("pic"); m.Deleted || hasDeadline(t, svc, "pic") {
+		t.Fatal("the picture was given a deadline from an unproven row")
+	}
+}

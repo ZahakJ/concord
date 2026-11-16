@@ -195,15 +195,18 @@ type StampSweepRow struct {
 
 // DisappearingChats returns, per channel that holds at least one row with a
 // deadline, its live ordinary messages oldest first, bodies opened, together
-// with the tombstones of deleted rows that carried a deadline. A stamped text
-// that has already disappeared is still the sender's record of the timer they
-// had on: its tombstone keeps sender, sent time and deadline, and is returned
-// with an empty body, so it can only ever be a neighbour, never a target.
-// Rows whose sender is not proven yet take no part: the sweep pairs by sender.
+// with the tombstones this device left when a proven row's timer ran out. Such
+// a tombstone is still the sender's record of the timer they had on: it keeps
+// sender, sent time and deadline (MarkDisappeared keeps the deadline only for
+// a row that was live and proven), and it is returned with an empty body, so
+// it can only ever be a neighbour, never a target. No other tombstone takes
+// part: a deleted row no longer says whether its sender was proven, and one
+// that arrived by sync is never marked expired. Live rows whose sender is not
+// proven yet take no part either: the sweep pairs by sender.
 func (s *Store) DisappearingChats() (map[string][]StampSweepRow, error) {
 	rows, err := s.rd().Query(
 		`SELECT channel_id, id, sender, sent, expires, deleted, content_enc, nonce FROM messages
-		 WHERE (deleted = 0 OR expires > 0) AND kind = '' AND unverified = 0 AND channel_id IN (SELECT DISTINCT channel_id FROM messages WHERE expires > 0)
+		 WHERE (deleted = 0 OR (expired = 1 AND expires > 0)) AND kind = '' AND unverified = 0 AND channel_id IN (SELECT DISTINCT channel_id FROM messages WHERE expires > 0)
 		 ORDER BY channel_id, sent`)
 	if err != nil {
 		return nil, err

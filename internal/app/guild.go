@@ -2188,12 +2188,11 @@ func (s *Service) applyDelete(targetID string, bySender []byte, channelID string
 // without any extra coordination. Idempotent; the content is wiped for real
 // (EraseContent), so an expired message leaves no recoverable trace here.
 func (s *Service) ExpireMessage(channelID, messageID string) error {
-	deleted, ok, err := s.store.MarkDeleted(messageID, s.PublicKey(), true)
+	deleted, ok, err := s.store.MarkDisappeared(messageID) // labelled "disappeared", not "deleted"
 	if err != nil || !ok {
 		return err
 	}
 	_ = s.store.EraseContent(messageID)
-	_ = s.store.MarkExpired(messageID) // label it "disappeared", not "deleted"
 	deleted.Expired = true
 	s.emitMessage(deleted)
 	return nil
