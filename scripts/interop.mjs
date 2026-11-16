@@ -878,8 +878,12 @@ async function linkThenUnlink(accountBase, deviceBase, deviceDir) {
     const list = (await rpc(accountBase, "LinkedDevices")) || [];
     return list.find((d) => !d.thisOne && !d.revokedAt && d.online);
   }, { timeout: 90000, interval: 1000 });
-  await rpc(accountBase, "UnlinkDevice", [other.key]);
   const evidence = [`unlinked device ${other.key.slice(0, 12)}`];
+  // Older builds report "unlinked, but a guild still lists the device" as an
+  // error; the unlink itself happened, and the erase below is the question.
+  const un = await tryRpc(accountBase, "UnlinkDevice", [other.key]);
+  if (!un.ok && !/: unlinked, but /.test(un.error)) throw new Error(un.error);
+  if (!un.ok) evidence.push(`the unlink said: ${un.error}`);
   await waitFor("the unlinked device has no identity", async () => (await rpc(deviceBase, "HasIdentity")) === false, {
     timeout: 120000,
     interval: 1000,
@@ -897,10 +901,10 @@ async function phaseUnlink() {
   if (!OLDLINK || !NEWLINK) throw new Error("INTEROP_OLDLINK/INTEROP_NEWLINK must be set");
   await ensureSession(OLD, PASS_OLD, "LegacyPeer");
   await ensureSession(NEW, PASS_NEW, "HeadPeer");
-  await lane("U1", "OLD unlinks a device running HEAD, which erases itself", () =>
+  await lane("UL1", "OLD unlinks a device running HEAD, which erases itself", () =>
     linkThenUnlink(OLD, NEWLINK, join(WORK, "newlink")),
   );
-  await lane("U2", "HEAD unlinks a device running OLD, which erases itself", () =>
+  await lane("UL2", "HEAD unlinks a device running OLD, which erases itself", () =>
     linkThenUnlink(NEW, OLDLINK, join(WORK, "oldlink")),
   );
   const st = loadState();
