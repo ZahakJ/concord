@@ -1505,7 +1505,7 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	if err := queueMedia(tx, m); err != nil {
 		return false, fmt.Errorf("store: save message: %w", err)
 	}
-	if err := insertBlobRefs(tx, m.ID, blobs); err != nil {
+	if err := insertBlobRefs(tx, m.ID, m.Sender, blobs); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1570,7 +1570,7 @@ func (s *Store) ProveRelayedMessage(m domain.Message) (bool, error) {
 	); err != nil {
 		return false, err
 	}
-	if err := noteBlobRefs(tx, m.ID, m.Content); err != nil {
+	if err := noteBlobRefs(tx, m.ID, m.Sender, m.Content); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -2564,7 +2564,7 @@ func (s *Store) UpdateContent(id string, bySender []byte, newContent string, new
 	if old, oerr := s.open(oldEnc, oldNonce); oerr == nil {
 		_ = s.recordVersion(tx, id, old, sent, newContent, time.Now().UnixNano())
 	}
-	if err := noteBlobRefs(tx, id, newContent); err != nil {
+	if err := noteBlobRefs(tx, id, sender, newContent); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -3501,7 +3501,7 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 		if err := queueMedia(q, m); err != nil {
 			return false, fmt.Errorf("store: upsert synced message: %w", err)
 		}
-		if err := noteBlobRefs(q, m.ID, m.Content); err != nil {
+		if err := noteBlobRefs(q, m.ID, m.Sender, m.Content); err != nil {
 			return false, err
 		}
 		changed = true
@@ -3581,7 +3581,7 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 				}
 				_ = s.recordVersion(q, m.ID, old, curSent, m.Content, at)
 			}
-			if err := noteBlobRefs(q, m.ID, m.Content); err != nil {
+			if err := noteBlobRefs(q, m.ID, m.Sender, m.Content); err != nil {
 				return false, err
 			}
 			changed = true

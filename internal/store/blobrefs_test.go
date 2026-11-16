@@ -435,3 +435,35 @@ func TestABlobAScheduledSendNamesStays(t *testing.T) {
 		t.Errorf("a blob nothing else names was kept (banned %v)", banned)
 	}
 }
+
+// A ban is lifted when this device stores a live message from another sender
+// that names the blob, and not by another message from the sender whose
+// message was released.
+func TestAnotherSendersMessageLiftsABan(t *testing.T) {
+	s := completeStore(t)
+	b := blobID('a')
+	holdBlob(t, s, b)
+	from := func(sender, body string) domain.Message {
+		t.Helper()
+		m, _ := domain.NewMessage("chan-1", []byte(sender), body)
+		if _, err := s.SaveMessage(m); err != nil {
+			t.Fatalf("SaveMessage: %v", err)
+		}
+		return m
+	}
+	x := from("x-key", "copied "+imageToken(b))
+	if banned, err := s.ReleaseBlobs(x.ID); err != nil || len(banned) != 1 || !s.BlobBanned(b) {
+		t.Fatalf("setup: the released blob was not banned: %v %v", banned, err)
+	}
+	from("x-key", "again "+imageToken(b))
+	if !s.BlobBanned(b) {
+		t.Error("a message from the sender whose message was released lifted the ban")
+	}
+	from("y-key", "the picture's own message "+imageToken(b))
+	if s.BlobBanned(b) {
+		t.Error("a message from another sender naming the blob left it banned")
+	}
+	if err := s.SaveAttachment(b, []byte("ciphertext again")); err != nil || !heldBlob(s, b) {
+		t.Errorf("the blob could not be stored again after the ban was lifted: %v", err)
+	}
+}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -74,10 +75,13 @@ CREATE TABLE IF NOT EXISTS blob_refs (
 CREATE INDEX IF NOT EXISTS idx_blob_refs_message ON blob_refs(message_id);
 CREATE TABLE IF NOT EXISTS banned_blobs (
   blob_id TEXT PRIMARY KEY,
-  at      INTEGER NOT NULL
+  at      INTEGER NOT NULL,
+  sender  BLOB
 )`); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
 	}
+	// A table made before the sender column: "duplicate column" is ignored.
+	_, _ = s.db.Exec(`ALTER TABLE banned_blobs ADD COLUMN sender BLOB`)
 	return nil
 }
 
@@ -137,17 +141,29 @@ func BlobIDsIn(body string) []string {
 	return out
 }
 
-// noteBlobRefs records the blobs body names as referenced by messageID.
-// References are only added here: a body that changes (an edit) keeps the
-// blobs of its earlier versions, which the message still holds until it is
-// deleted.
-func noteBlobRefs(q querier, messageID, body string) error {
-	return insertBlobRefs(q, messageID, BlobIDsIn(body))
+// noteBlobRefs records the blobs body names as referenced by messageID, a
+// message from sender. References are only added here: a body that changes
+// (an edit) keeps the blobs of its earlier versions, which the message still
+// holds until it is deleted.
+//
+// A blob banned when a message from another sender was released is let go
+// of its ban here, so the next fetch stores it again: the device holds a
+// message of its own that names it. A message from the sender whose message
+// was released does not lift the ban, and neither does any message for a
+// ban recorded without a sender.
+func noteBlobRefs(q querier, messageID string, sender []byte, body string) error {
+	return insertBlobRefs(q, messageID, sender, BlobIDsIn(body))
 }
 
-func insertBlobRefs(q querier, messageID string, ids []string) error {
+func insertBlobRefs(q querier, messageID string, sender []byte, ids []string) error {
 	for _, id := range ids {
 		if _, err := q.Exec(`INSERT INTO blob_refs (blob_id, message_id) VALUES (?, ?) ON CONFLICT DO NOTHING`, id, messageID); err != nil {
+			return fmt.Errorf("store: note blob refs: %w", err)
+		}
+		if len(sender) == 0 {
+			continue
+		}
+		if _, err := q.Exec(`DELETE FROM banned_blobs WHERE blob_id = ? AND sender IS NOT NULL AND sender != ?`, id, sender); err != nil {
 			return fmt.Errorf("store: note blob refs: %w", err)
 		}
 	}
@@ -175,20 +191,20 @@ func (s *Store) BackfillBlobRefs() (bool, error) {
 		return false, err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
-	rows, err := tx.Query(`SELECT rowid, id, content_enc, nonce FROM messages WHERE rowid > ? ORDER BY rowid LIMIT ?`, after, blobRefsBatch)
+	rows, err := tx.Query(`SELECT rowid, id, sender, content_enc, nonce FROM messages WHERE rowid > ? ORDER BY rowid LIMIT ?`, after, blobRefsBatch)
 	if err != nil {
 		return false, err
 	}
 	type row struct {
-		rowid      int64
-		id         string
-		enc, nonce []byte
+		rowid              int64
+		id                 string
+		sender, enc, nonce []byte
 	}
 	var batch []row
 	size, cut := 0, false
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.rowid, &r.id, &r.enc, &r.nonce); err != nil {
+		if err := rows.Scan(&r.rowid, &r.id, &r.sender, &r.enc, &r.nonce); err != nil {
 			rows.Close()
 			return false, err
 		}
@@ -203,12 +219,22 @@ func (s *Store) BackfillBlobRefs() (bool, error) {
 		return false, err
 	}
 	done := !cut && len(batch) < blobRefsBatch
+	// With no ban on the device (always so in the first backfill) there is
+	// nothing to lift, and the batch skips the probe per reference.
+	var anyBan int
+	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM banned_blobs)`).Scan(&anyBan); err != nil {
+		return false, err
+	}
 	last, refs := after, 0
 	for _, r := range batch {
 		last = r.rowid
 		if body, err := s.open(r.enc, r.nonce); err == nil {
 			ids := BlobIDsIn(body)
-			if err := insertBlobRefs(tx, r.id, ids); err != nil {
+			sender := r.sender
+			if anyBan == 0 {
+				sender = nil
+			}
+			if err := insertBlobRefs(tx, r.id, sender, ids); err != nil {
 				return false, err
 			}
 			refs += len(ids)
@@ -264,6 +290,10 @@ func (s *Store) ReleaseBlobs(messageID string) ([]string, error) {
 }
 
 func (s *Store) releaseBlobs(q querier, messageID string, complete bool) ([]string, error) {
+	var sender []byte
+	if err := q.QueryRow(`SELECT sender FROM messages WHERE id = ?`, messageID).Scan(&sender); err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
 	rows, err := q.Query(`SELECT blob_id FROM blob_refs WHERE message_id = ?`, messageID)
 	if err != nil {
 		return nil, err
@@ -312,7 +342,7 @@ func (s *Store) releaseBlobs(q querier, messageID string, complete bool) ([]stri
 		if _, err := q.Exec(`DELETE FROM attachments WHERE blob_id = ?`, id); err != nil {
 			return nil, err
 		}
-		if _, err := q.Exec(`INSERT INTO banned_blobs (blob_id, at) VALUES (?, ?) ON CONFLICT DO NOTHING`, id, time.Now().UnixNano()); err != nil {
+		if _, err := q.Exec(`INSERT INTO banned_blobs (blob_id, at, sender) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, id, time.Now().UnixNano(), nilIfEmpty(sender)); err != nil {
 			return nil, err
 		}
 		banned = append(banned, id)
