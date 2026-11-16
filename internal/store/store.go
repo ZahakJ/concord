@@ -1438,19 +1438,28 @@ func (s *Store) LeftGuilds() ([]string, error) {
 // SaveMessage stores a message, sealing its content at rest. Saving the same
 // message ID twice is a no-op, which makes gossip re-delivery and history sync
 // idempotent. The bool reports whether a new row was inserted.
+//
+// A message marked Deleted (an archive's tombstone) is stored as a tombstone:
+// no body, no signature, and labelled disappeared when it is marked Expired.
 func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	var nonce [nonceSize]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return false, err
 	}
+	expired := false
+	if m.Deleted {
+		m.Content, m.Sig, m.Unverified = "", nil, false
+		expired = m.Expired
+	}
 	sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 
 	res, err := s.db.Exec(
-		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent, sig, unverified, quiet, expires)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent, sig, unverified, quiet, expires, deleted, expired)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO NOTHING`,
 		m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir), sealed, nonce[:], m.Sent.UnixNano(),
 		nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)), EphemeralExpiry(m.Content),
+		boolToInt(m.Deleted), boolToInt(expired),
 	)
 	if err != nil {
 		return false, fmt.Errorf("store: save message: %w", err)

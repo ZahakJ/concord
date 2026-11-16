@@ -131,3 +131,28 @@ func TestASyncedTombstoneTakesWhatTheMessageLeavesBeside(t *testing.T) {
 	}
 	noRemnants(t, s, fresh.ID, "after a synced tombstone was inserted")
 }
+
+// SaveMessage stores a message marked Deleted as a tombstone, with no body
+// and no signature, labelled disappeared when it is marked Expired.
+func TestSaveMessageStoresATombstoneAsOne(t *testing.T) {
+	s, _ := openTestStore(t)
+	for _, expired := range []bool{false, true} {
+		m, _ := domain.NewMessage("chan-1", []byte("alice-key"), "should not be stored")
+		m.Deleted = true
+		m.Expired = expired
+		m.Sig = []byte("a signature over the words")
+		if added, err := s.SaveMessage(m); err != nil || !added {
+			t.Fatalf("SaveMessage: %v %v", added, err)
+		}
+		got, ok, err := s.MessageByID(m.ID)
+		if err != nil || !ok {
+			t.Fatalf("MessageByID: %v %v", err, ok)
+		}
+		if !got.Deleted || got.Expired != expired || got.Content != "" || len(got.Sig) != 0 {
+			t.Errorf("stored as deleted=%v expired=%v content=%q sig=%d", got.Deleted, got.Expired, got.Content, len(got.Sig))
+		}
+		if body, _ := s.MessageContent(m.ID); body != "" {
+			t.Errorf("a tombstone was stored with a body: %q", body)
+		}
+	}
+}

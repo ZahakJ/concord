@@ -122,3 +122,54 @@ func TestAGuildDeleteKeepsTheBodyOnlyWhereItCanBeRevealed(t *testing.T) {
 		t.Errorf("a device that erased the body revealed %q", got)
 	}
 }
+
+// An archive's tombstone is restored as a tombstone, never as a live empty
+// message, and with no pin, reaction or bookmark.
+func TestAnArchivedTombstoneRestoresAsATombstone(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	svc := startServiceInDir(t, ctx, t.TempDir())
+	g, err := svc.CreateGuild("Night Owls")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	ch := g.Channels[0].ID
+	kept, err := svc.SendMessage(ch, "kept", "", "")
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	gone, err := svc.SendMessage(ch, "gone", "", "")
+	if err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	if err := svc.DeleteMessage(ch, gone.ID); err != nil {
+		t.Fatalf("DeleteMessage: %v", err)
+	}
+	sealed, _, err := svc.ExportArchive("archive-pass", false)
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if _, err := svc.store.PruneMessagesBefore([]string{ch}, 1<<62); err != nil {
+		t.Fatalf("wipe: %v", err)
+	}
+	if _, err := svc.ImportArchive(sealed, "archive-pass"); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if row, ok, _ := svc.store.MessageByID(kept.ID); !ok || row.Deleted || row.Content != "kept" {
+		t.Fatalf("a live message did not come back live: %v %+v", ok, row)
+	}
+	row, ok, err := svc.store.MessageByID(gone.ID)
+	if err != nil || !ok {
+		t.Fatalf("the tombstone did not come back: %v %v", err, ok)
+	}
+	if !row.Deleted || row.Content != "" || row.Pinned || len(row.Reactions) != 0 {
+		t.Errorf("an archived tombstone came back as %+v", row)
+	}
+	if body := heldBody(t, svc, gone.ID); body != "" {
+		t.Errorf("an archived tombstone came back with a body: %q", body)
+	}
+}

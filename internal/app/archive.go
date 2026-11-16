@@ -250,6 +250,11 @@ func (s *Service) ImportArchive(sealed []byte, passphrase string) (ArchiveStats,
 			continue
 		}
 		st.Messages++
+		if m.Deleted {
+			// A tombstone came in as one (SaveMessage), and a deleted message
+			// keeps no pin and no reactions.
+			continue
+		}
 		if m.Pinned {
 			_ = s.store.SetPinned(m.ID, true)
 		}
@@ -261,6 +266,9 @@ func (s *Service) ImportArchive(sealed []byte, passphrase string) (ArchiveStats,
 	}
 
 	for _, id := range af.Saved {
+		if m, ok, err := s.store.MessageByID(id); err == nil && ok && m.Deleted {
+			continue // a deleted message keeps no bookmark
+		}
 		if err := s.store.SaveBookmark(id, "", time.Now().UnixNano()); err == nil {
 			st.Saved++
 		}
