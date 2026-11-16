@@ -688,3 +688,87 @@ func TestAKeyRecordFromOneGuildDecidesNothingInAnother(t *testing.T) {
 		t.Fatalf("the owner's leaf count in its own guild is %d", n)
 	}
 }
+
+// Seated and repeated describe two leaves under one credential. The member
+// holds the right key for the owner's account (from a guild they share). In
+// the mod's guild another leaf carries the owner's account key first; the
+// owner's own device is added after it, so its add is flagged seated. Once the
+// other leaf is removed, the owner's leaf is the only one under that key, and
+// the member takes its frames again.
+func TestASeatedFlagEndsWithThePair(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if testing.Short() {
+		t.Skip("networked")
+	}
+	holdSeatDefence(t)
+	owner, mod, member := startService(t, ctx), startService(t, ctx), startService(t, ctx)
+
+	// The member learns the owner's key from the owner's own leaf.
+	home, err := owner.CreateGuild("home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := owner.InviteCode(home.ID)
+	if _, err := member.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitMemberCount(t, 30*time.Second, home.ID, 2, owner, member)
+	genuine := owner.ownAccountSigningKey()
+	waitUntil(t, 20*time.Second, func() bool {
+		return bytes.Equal(member.recordedAccountKey(owner.myCredential), genuine)
+	}, "setup: the member never recorded the owner's key")
+
+	// The mod's guild: the member, then a leaf under the owner's account key.
+	g, err := mod.CreateGuild("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ = mod.InviteCode(g.ID)
+	if _, err := member.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitMemberCount(t, 30*time.Second, g.ID, 2, mod, member)
+	gid := rhGroup(mod, g.ID)
+	key := freshKey(t)
+	other := key.Public().(ed25519.PublicKey)
+	addLeafWithCredential(t, mod, gid, owner.myCredential, key)
+	waitUntil(t, 20*time.Second, func() bool {
+		f, ok := flagFor(member, g.ID, other)
+		return ok && f.Kind == seatKeyDiffers
+	}, "setup: the member does not flag the other leaf as unlike its record")
+
+	// The owner's own device joins.
+	if _, err := owner.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 30*time.Second, func() bool {
+		return len(leavesWith(member, gid, owner.myCredential)) == 2
+	}, "setup: the owner's device never reached the member's tree")
+	if !member.keyFlagged(g.ID, genuine) {
+		t.Fatal("setup: while two leaves carry the owner's key, the owner's leaf keeps its authority")
+	}
+
+	// The other leaf goes.
+	var idx uint32
+	for _, l := range leavesWith(mod, gid, owner.myCredential) {
+		if bytes.Equal(l.Key, other) {
+			idx = l.Index
+		}
+	}
+	if err := mod.publishLeafRemoval(gid, idx, other); err != nil {
+		t.Fatalf("publishLeafRemoval: %v", err)
+	}
+	waitUntil(t, 20*time.Second, func() bool {
+		ls := leavesWith(member, gid, owner.myCredential)
+		return len(ls) == 1 && bytes.Equal(ls[0].Key, genuine)
+	}, "the member did not apply the removal")
+	if member.keyFlagged(g.ID, genuine) {
+		t.Fatalf("the owner's only leaf still carries no authority: %+v", member.SeatFlags(g.ID))
+	}
+	if err := owner.SetNickname(g.ID, "counts again"); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 20*time.Second, func() bool { return member.NickOf(g.ID, owner.Fingerprint()) == "counts again" },
+		"the member dropped a frame from the owner's only leaf")
+}

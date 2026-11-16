@@ -477,6 +477,7 @@ func (s *Service) auditSeats(guildID string, groupID []byte) {
 	}
 
 	present := map[string]bool{}
+	var stale []string
 	var flags []SeatFlag
 	for _, l := range leaves {
 		hk := hex.EncodeToString(l.Key)
@@ -497,7 +498,13 @@ func (s *Service) auditSeats(guildID string, groupID []byte) {
 		case s.leafUnlikeRecord(l):
 			f.Kind = seatKeyDiffers
 		}
-		if c, ok := committed[hk]; ok {
+		if c, ok := committed[hk]; ok && (c.Kind == seatSeated || c.Kind == seatRepeated) &&
+			isAccountKeyCredential(l.Credential) && count[string(l.Credential)] == 1 && !bytes.Equal(l.Credential, s.PublicKey()) {
+			// Seated and repeated describe two leaves under one credential.
+			// Another account's key now sits on this one leaf alone, so the
+			// pair is gone and so is what the commit found.
+			stale = append(stale, hk)
+		} else if ok {
 			if f.Kind == "" {
 				f.Kind = c.Kind
 			}
@@ -514,6 +521,9 @@ func (s *Service) auditSeats(guildID string, groupID []byte) {
 		if !present[hk] {
 			delete(st.committed[guildID], hk)
 		}
+	}
+	for _, hk := range stale {
+		delete(st.committed[guildID], hk)
 	}
 	changed := !sameFlags(st.flags[guildID], flags)
 	if len(flags) == 0 {
