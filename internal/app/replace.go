@@ -184,7 +184,9 @@ func RestoreOverExisting(dataDir, phrase, passphrase, confirm string) error {
 	if err != nil {
 		return err
 	}
-	if !keep && HasIdentity(dataDir) {
+	// A linked device's data is bound to the device key that went with its
+	// keystore: without that keystore it is not kept for a restore either.
+	if !keep && (HasIdentity(dataDir) || hasDeviceMarker(dataDir)) {
 		if err := ResetIdentity(dataDir); err != nil {
 			return err
 		}
@@ -192,4 +194,11 @@ func RestoreOverExisting(dataDir, phrase, passphrase, confirm string) error {
 	// SaveKeystore writes beside the old file and renames over it, so the kept
 	// path is never without a keystore.
 	return identity.RestoreKeystore(keystorePathIn(dataDir), phrase, passphrase)
+}
+
+// hasDeviceMarker reports whether a linked-device marker is here, whatever
+// it certifies.
+func hasDeviceMarker(dataDir string) bool {
+	_, err := os.Lstat(deviceMarkerPath(dataDir))
+	return err == nil
 }
