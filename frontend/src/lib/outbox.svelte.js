@@ -36,9 +36,11 @@
 //
 // Only FAILED rows are persisted. A row still in flight at unload may well have
 // landed — the core stores before it answers — so writing it down as something
-// to retry is how you send the same message twice. A row still waiting for its
-// link card is the exception (`held`): the core has never seen it, so it is
-// written down as not sent, and goes out by itself once the core is back.
+// to retry is how you send the same message twice. A row that waited for its
+// link card is the exception: the core has never seen it while it waits
+// (`held`), and once the wait ends it stays written down until its send has
+// finished (`handed`), checked against the channel before it is sent again
+// (outbox.js, "rows that must outlive the page").
 //
 // LINK CARDS. A message with a link waits up to CARD_WAIT_MS for the card this
 // device fetches for it, and goes out the moment the card comes. The wait is
@@ -46,8 +48,17 @@
 // app going to the background, end it, and the message goes out first,
 // without its card.
 import { S, flash, scrollSoon, humanError, slowModeWait } from "./state.svelte.js";
-import { api, onTransportHealth, onBeforeSend } from "./api.js";
-import { unsettled, alreadySaid, toFlush, unheard } from "./outbox.js";
+import { api, onTransportHealth, onBeforeSend, clientID } from "./api.js";
+import {
+  unsettled,
+  alreadySaid,
+  toFlush,
+  unheard,
+  toPersist,
+  restorable,
+  toStore,
+  landedSince,
+} from "./outbox.js";
 import { makeCardGate } from "./cardgate.js";
 import { CARD_WAIT_MS, cardLink, wantsThumb, withCard, sendingCards } from "./linkcard.js";
 
@@ -61,35 +72,69 @@ if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") gate.releaseAll();
   });
-  window.addEventListener("pagehide", () => gate.releaseAll());
+  // On the web this is also a reload or a closed tab: the waiting message's
+  // send starts here and may be cut off, so its row stays written down until
+  // the send finishes (outbox.js toPersist), and the next page sends it if it
+  // never arrived. The claims go, so that page does not take this tab for
+  // one still sending it.
+  window.addEventListener("pagehide", () => {
+    gate.releaseAll();
+    dropClaims();
+  });
 }
 
 const STORE_KEY = "concord.outbox";
+const CLAIMS_KEY = "concord.outbox.claims";
+
+// Claims: which open tab is sending which waiting row, so a second tab of the
+// same browser, which reads the same storage, does not send it too (LC2-05).
+function readClaims() {
+  try {
+    const c = JSON.parse(localStorage.getItem(CLAIMS_KEY) || "{}");
+    return c && typeof c === "object" ? c : {};
+  } catch {
+    return {};
+  }
+}
+function writeClaims(c) {
+  try {
+    if (Object.keys(c).length) localStorage.setItem(CLAIMS_KEY, JSON.stringify(c));
+    else localStorage.removeItem(CLAIMS_KEY);
+  } catch {
+    /* private mode / quota */
+  }
+}
+function claim(sendId) {
+  if (sendId) writeClaims({ ...readClaims(), [sendId]: { tab: clientID, at: Date.now() } });
+}
+function unclaim(sendId) {
+  const c = readClaims();
+  if (!sendId || !c[sendId]) return;
+  delete c[sendId];
+  writeClaims(c);
+}
+function dropClaims() {
+  const c = readClaims();
+  for (const [k, v] of Object.entries(c)) if (v?.tab === clientID) delete c[k];
+  writeClaims(c);
+}
+function newSendId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function readStored() {
+  try {
+    return JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
 
 function persist() {
   try {
-    const keep = S.outbox
-      .filter((e) => (e.state === "failed" || e.held) && e.kind === "text" && e.body)
-      .map((e) => ({
-        id: e.id,
-        kind: "text",
-        channelId: e.channelId,
-        body: e.body,
-        replyTo: e.replyTo || "",
-        dir: e.dir || "",
-        match: e.match,
-        seen: e.seen,
-        state: "failed",
-        // A row that was waiting for its card when the app died: the core never
-        // had it, so it is "not sent" and flushes by itself (outbox.js toFlush).
-        error: e.held ? "Not sent" : e.error || "",
-        // A wall-clock moment survives the reload the same way it survives the
-        // next second: a slow-mode wait that expired while the app was closed
-        // comes back already expired, which is the truth.
-        retryAt: e.retryAt || 0,
-        offline: !!e.offline || !!e.held,
-        at: e.at,
-      }));
+    const keep = toStore(toPersist(S.outbox), readStored(), readClaims(), clientID);
     if (keep.length) localStorage.setItem(STORE_KEY, JSON.stringify(keep));
     else localStorage.removeItem(STORE_KEY);
   } catch {
@@ -108,7 +153,8 @@ function rehydrate() {
     return;
   }
   if (!Array.isArray(rows) || !rows.length) return;
-  S.outbox = rows.filter((e) => e && e.kind === "text" && e.channelId && e.body);
+  // A row another open tab is still sending is that tab's (LC2-05).
+  S.outbox = restorable(rows, readClaims(), clientID);
   // New ids must not collide with restored ones, or retry/discard would act on
   // the wrong row.
   for (const e of S.outbox) {
@@ -205,9 +251,11 @@ export function sendText(channelId, body, replyTo, dir) {
     // card's place), and whether it is still waiting.
     cardUrl,
     held: !!cardUrl,
+    sendId: cardUrl ? newSendId() : "",
     at: Date.now(),
   });
   if (!cardUrl) return run(entry);
+  claim(entry.sendId);
   persist();
   return new Promise((resolve) => {
     gate.hold(
@@ -222,6 +270,9 @@ export function sendText(channelId, body, replyTo, dir) {
           match: final,
           seen: alreadySaid(S.messages, S.identity.fingerprint, final),
           held: false,
+          // Still written down, as not sent, until the core answers: this
+          // send may be cut off by the page going away (LC2-03).
+          handed: true,
         });
         const now = S.outbox.find((e) => e.id === entry.id);
         resolve(now ? run(now) : false);
@@ -306,7 +357,7 @@ async function run(entry) {
     return true;
   } catch (err) {
     if (err === TIMED_OUT) {
-      patch(entry.id, { state: "failed", error: TIMED_OUT, retryAt: 0, timedOut: true });
+      patch(entry.id, { state: "failed", error: TIMED_OUT, retryAt: 0, timedOut: true, handed: false });
       return false;
     }
     // The row stays where it is and says so. It is NOT re-thrown: the caller
@@ -329,10 +380,16 @@ async function run(entry) {
       // The core never heard it — see toFlush.
       offline: unheard(err),
       timedOut: false,
+      // A request that died on the way (the page going away cuts it off) may
+      // still have reached the core: a row that was being sent after its
+      // card's wait keeps being checked against the channel before it goes
+      // again.
+      handed: unheard(err) && !!S.outbox.find((e) => e.id === entry.id)?.handed,
     });
     return false;
   } finally {
     clearTimeout(timer);
+    unclaim(entry.sendId);
   }
 }
 
@@ -349,6 +406,20 @@ export async function flushOutbox() {
   try {
     for (const e of toFlush(S.outbox)) {
       if (!S.outbox.some((x) => x.id === e.id && x.state === "failed")) continue;
+      // Its send had started when the last page went: it may have arrived.
+      if (e.handed) {
+        let msgs;
+        try {
+          msgs = (await api.messages(e.channelId)) || [];
+        } catch {
+          break;
+        }
+        if (landedSince(msgs, S.identity.fingerprint, e.body, e.at)) {
+          drop(e.id);
+          continue;
+        }
+      }
+      claim(e.sendId);
       patch(e.id, { state: "sending", error: "" });
       if (!(await run({ ...e, state: "sending" }))) break;
     }

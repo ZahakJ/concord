@@ -78,3 +78,89 @@ export function toFlush(entries, now = Date.now()) {
 export function unheard(err) {
   return !!err?.offline || /identity is locked/i.test(String(err?.message ?? err ?? ""));
 }
+
+// ---- rows that must outlive the page -----------------------------------------
+//
+// A message waiting for its link card has never reached the core, so it is
+// written down as "Not sent" and goes out by itself after a reload. It stays
+// written down until its send has FINISHED (`handed`): on the web a reload or
+// a closed tab ends the wait and starts the send in the same moment, and the
+// browser may cancel that request as the page goes. The row is removed only
+// when the core has answered (link-cards-2 review LC2-03).
+//
+// Keeping it that long means a reload can find a row whose send did reach the
+// core. So a row restored as `handed` is checked against the channel before it
+// is sent again (landedSince), and a row another open tab of this browser is
+// still sending is left to that tab (`sendId`, claimed while it waits and
+// sends: LC2-05).
+
+// How long a claim holds without its tab: a card's wait plus a text send's
+// deadline, and some slack. A tab that closes drops its claims at once.
+export const CLAIM_TTL_MS = 45000;
+
+// toPersist: the outbox rows to write down, in the form they come back in.
+export function toPersist(entries) {
+  return entries
+    .filter((e) => (e.state === "failed" || e.held || e.handed) && e.kind === "text" && e.body)
+    .map((e) => {
+      const unsent = !!(e.held || e.handed);
+      return {
+        id: e.id,
+        kind: "text",
+        channelId: e.channelId,
+        body: e.body,
+        replyTo: e.replyTo || "",
+        dir: e.dir || "",
+        match: e.match,
+        seen: e.seen,
+        state: "failed",
+        // Waiting for its card, or being sent, when the page went: the core
+        // may never have had it, so it is "not sent" and flushes by itself
+        // (toFlush) once the core is back.
+        error: unsent ? "Not sent" : e.error || "",
+        // A wall-clock moment survives the reload the same way it survives
+        // the next second: a slow-mode wait that expired while the app was
+        // closed comes back already expired, which is the truth.
+        retryAt: e.retryAt || 0,
+        offline: !!e.offline || unsent,
+        sendId: e.sendId || "",
+        // Its send had started: ask the channel before sending it again.
+        handed: !!e.handed,
+        at: e.at,
+      };
+    });
+}
+
+// claimedElsewhere: is this row being sent by another open tab right now?
+export function claimedElsewhere(claims, sendId, tab, now = Date.now()) {
+  const c = sendId && claims ? claims[sendId] : null;
+  return !!c && c.tab !== tab && now - (c.at || 0) < CLAIM_TTL_MS;
+}
+
+// restorable: of the rows written down, the ones a page loading now takes on.
+export function restorable(rows, claims, tab, now = Date.now()) {
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(
+    (e) => e && e.kind === "text" && e.channelId && e.body && !claimedElsewhere(claims, e.sendId, tab, now),
+  );
+}
+
+// toStore: what this tab writes down. Its own rows, plus any row already
+// written down that another open tab is still sending, which this tab never
+// took on and must not erase.
+export function toStore(mine, stored, claims, tab, now = Date.now()) {
+  const own = new Set(mine.map((e) => e.sendId).filter(Boolean));
+  const theirs = (Array.isArray(stored) ? stored : []).filter(
+    (e) => e && e.sendId && !own.has(e.sendId) && claimedElsewhere(claims, e.sendId, tab, now),
+  );
+  return [...mine, ...theirs];
+}
+
+// landedSince: did the channel get this exact message from us at or after
+// `since` (epoch ms)? A small allowance covers the core stamping its own time.
+export function landedSince(messages, me, body, since) {
+  const from = (since || 0) - 5000;
+  return (messages || []).some(
+    (m) => m.sender === me && !m.deleted && m.content === body && Date.parse(m.sent) >= from,
+  );
+}

@@ -14,6 +14,8 @@
 //   - the composer fetches nothing while a link is typed, and once at send;
 //   - a message sent after a link is never overtaken and never waits;
 //   - a send the core never answers does not hold the channel;
+//   - a reload while a link waits for its card loses nothing and sends
+//     nothing twice;
 //   - editing a card message shows the link, not the card's lines.
 //
 // No test fetches from the internet: the core's LinkCard answer is stubbed at
@@ -403,4 +405,73 @@ test("a send the core never answers does not hold the channel", async ({ world, 
   await a.composer().press("Enter");
   const got = await bashir.waitForMessage(general.id, "after the stuck one", { timeout: 20000 });
   assert.ok(got, "the message after a hung send never arrived");
+});
+
+// On the web a reload or a closed tab ends a link's wait and starts its send
+// as the page goes, and the browser may cut that request off. The row was
+// taken off the disk as the send started, so the message was lost (link-cards-2
+// review LC2-03). It now stays written down until the send has finished, and
+// the next page checks the channel before sending it again.
+test("a reload while a link waits for its card loses nothing and sends nothing twice", async ({ world, assert, step, sleep }) => {
+  const { alice, bashir, general } = await seed(world);
+  const a = await alice.open();
+  await cardsOn(a);
+  await a.openChannel(general.name, "Cards");
+  // On the context, so the next page gets the same answers. The card never
+  // comes in time: the message waits the whole 2 s. A link message's send is
+  // what the page going away does to its last request: "cut" never reaches
+  // the core; "landed" reaches it, but its answer never reaches the page.
+  const seen = { cut: 0, landed: 0 };
+  await a.ctx.route("**/rpc", async (route) => {
+    let body;
+    try {
+      body = JSON.parse(route.request().postData() || "{}");
+    } catch {
+      return route.continue();
+    }
+    if (body.method === "LinkCard") return; // never answered
+    const text = body.method === "SendMessage" ? String(body.args?.[1]) : "";
+    if (text.startsWith("cut ") && seen.cut++ === 0) return; // never sent
+    if (text.startsWith("landed ") && seen.landed++ === 0) {
+      await route.fetch().catch(() => {});
+      return; // the core has it; the page never hears so
+    }
+    return route.continue();
+  });
+  const copies = async (text) => (await bashir.messages(general.id)).filter((m) => m.content === text).length;
+  // The page is told it is going (the pagehide a reload or a closed tab
+  // fires), its send is caught as above, and then it is gone: frozen, so
+  // nothing more of it runs, and the next page opens beside it.
+  const goAway = async (caught) => {
+    await a.page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+    for (let i = 0; i < 50 && !caught(); i++) await sleep(100);
+    assert.ok(caught(), "the page going away sent the waiting message");
+    const cdp = await a.ctx.newCDPSession(a.page);
+    await cdp.send("Page.setWebLifecycleState", { state: "frozen" });
+    a.page = await a.ctx.newPage();
+    await a.unlock();
+  };
+
+  step("a send cut off as the page went goes out from the next page");
+  await a.composer().fill(`cut ${YT}`);
+  await a.composer().press("Enter");
+  await a.page.locator(".pmsg").first().waitFor({ timeout: 1500 });
+  await goAway(() => seen.cut === 1);
+  await bashir.waitForMessage(general.id, `cut ${YT}`, { timeout: 30000 });
+  assert.equal(seen.cut, 2, "sent again once, by the next page");
+  assert.equal(await copies(`cut ${YT}`), 1, "one copy");
+
+  step("a send that reached the core before the page went is not sent again");
+  await a.openChannel(general.name, "Cards");
+  await a.composer().fill(`landed ${YT}`);
+  await a.composer().press("Enter");
+  await a.page.locator(".pmsg").first().waitFor({ timeout: 1500 });
+  await goAway(() => seen.landed === 1);
+  await bashir.waitForMessage(general.id, `landed ${YT}`, { timeout: 30000 });
+  await a.openChannel(general.name, "Cards");
+  await a.message("landed").waitFor({ timeout: 15000 });
+  await sleep(3000);
+  assert.equal(seen.landed, 1, "the next page asked the channel and did not send it again");
+  assert.equal(await copies(`landed ${YT}`), 1, "one copy");
+  assert.equal(await a.page.locator(".pmsg").count(), 0, "no row left saying it is not sent");
 });
