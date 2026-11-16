@@ -783,3 +783,103 @@ func TestASeatedFlagEndsWithThePair(t *testing.T) {
 	waitUntil(t, 20*time.Second, func() bool { return member.NickOf(g.ID, owner.Fingerprint()) == "counts again" },
 		"the member dropped a frame from the owner's only leaf")
 }
+
+// An account seen signing has no unsigned deletes. In the mod's guild a second
+// leaf carries the owner's account key; the owner's device goes offline and
+// its leaf is removed, so the other leaf is alone and flagged only as unlike
+// the member's record. Its unsigned delete of the owner's signed message
+// changes nothing at the member, who has seen the owner sign.
+func TestAnAccountSeenSigningHasNoUnsignedDeletes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if testing.Short() {
+		t.Skip("networked")
+	}
+	holdSeatDefence(t)
+	owner, mod, member := startService(t, ctx), startService(t, ctx), startService(t, ctx)
+
+	g, err := mod.CreateGuild("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := mod.InviteCode(g.ID)
+	if _, err := member.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitMemberCount(t, 30*time.Second, g.ID, 2, mod, member)
+	if _, err := owner.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitMemberCount(t, 30*time.Second, g.ID, 3, mod, member, owner)
+	gid := rhGroup(mod, g.ID)
+	ch := g.Channels[0].ID
+	genuine := owner.ownAccountSigningKey()
+	waitUntil(t, 20*time.Second, func() bool {
+		return bytes.Equal(member.recordedAccountKey(owner.myCredential), genuine)
+	}, "setup: the member never recorded the owner's key")
+
+	row := func(id string) (domain.Message, bool) {
+		m, ok, err := member.store.MessageByID(id)
+		return m, err == nil && ok
+	}
+	target, err := owner.SendMessage(ch, "the owner's", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 30*time.Second, func() bool { _, ok := row(target.ID); return ok },
+		"setup: the member never received the owner's message")
+	if !member.seenSigning(owner.Fingerprint()) {
+		t.Fatal("setup: the member has not seen the owner sign")
+	}
+
+	// A second leaf under the owner's account key.
+	key := freshKey(t)
+	other := key.Public().(ed25519.PublicKey)
+	e := addLeafWithCredential(t, mod, gid, owner.myCredential, key)
+	waitUntil(t, 30*time.Second, func() bool {
+		a, _ := mod.mls.Epoch(ctx, gid)
+		b, _ := member.mls.Epoch(ctx, gid)
+		c, _ := e.Epoch(ctx, gid)
+		return a == b && b == c && len(leavesWith(member, gid, owner.myCredential)) == 2
+	}, "setup: the member never reached the epoch with the second leaf")
+
+	// The owner's device goes offline, and its leaf is removed.
+	_ = owner.Close()
+	var idx uint32
+	for _, l := range leavesWith(mod, gid, owner.myCredential) {
+		if bytes.Equal(l.Key, genuine) {
+			idx = l.Index
+		}
+	}
+	commit, err := mod.mls.RemoveLeaf(ctx, gid, idx, genuine)
+	if err != nil {
+		t.Fatalf("RemoveLeaf: %v", err)
+	}
+	mod.logCommit(gid, commit)
+	if err := e.ApplyCommit(ctx, gid, commit); err != nil {
+		t.Fatalf("ApplyCommit: %v", err)
+	}
+	if err := mod.ps.Publish(ctx, domain.ControlTopicID(gid), commit); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 20*time.Second, func() bool {
+		ls := leavesWith(member, gid, owner.myCredential)
+		return len(ls) == 1 && bytes.Equal(ls[0].Key, other)
+	}, "setup: the member did not apply the removal")
+	if member.keyFlagged(g.ID, other) {
+		t.Fatalf("setup: the lone leaf is flagged with loss of authority: %+v", member.SeatFlags(g.ID))
+	}
+
+	m := domain.Message{ID: "unsigned-delete", ChannelID: ch, Sender: owner.PublicKey(), Sent: time.Now(),
+		Kind: "delete", ReplyTo: target.ID, Content: "deleted"}
+	b, _ := json.Marshal(m)
+	ct, err := e.Encrypt(ctx, gid, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = mod.ps.Publish(ctx, domain.TopicID(gid, ch), ct)
+	time.Sleep(4 * time.Second)
+	if r, _ := row(target.ID); r.Deleted {
+		t.Fatal("an unsigned delete applied for an account seen signing")
+	}
+}

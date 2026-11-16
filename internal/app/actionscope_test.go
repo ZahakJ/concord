@@ -351,6 +351,11 @@ func TestAnUnsignedDeleteActsOnlyForItsAuthor(t *testing.T) {
 		m.Sig = nil
 		return m
 	}
+	// An unsigned delete comes from a build before 0.58, which never signs.
+	st := w.b.seatsState()
+	st.mu.Lock()
+	delete(st.signers, w.a.Fingerprint())
+	st.mu.Unlock()
 	w.deliver(t, ctx, w.groupA, unsigned(theirs.ID))
 	if w.row(t, theirs.ID).Deleted {
 		t.Error("an unsigned delete from the owner removed another member's message")
