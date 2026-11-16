@@ -122,6 +122,12 @@ func TestSweepGivesOldUnstampedAttachmentsTheirTimer(t *testing.T) {
 	// Chat 4: no disappearing messages at all.
 	plain := put("c4", me, base, pic)
 
+	// The repair runs on a device whose ephemeral sweeper has been running all
+	// along, so every stamped text above whose timer has run out is already a
+	// tombstone. Bring the store to that state rather than leave it to whether
+	// the service's own first pass happens to see these rows.
+	svc.sweepEphemeral(time.Now())
+
 	dry, err := svc.SweepUnstampedAttachments(false)
 	if err != nil {
 		t.Fatal(err)

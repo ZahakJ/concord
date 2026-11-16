@@ -183,8 +183,8 @@ func (s *Store) NextEphemeral() int64 {
 	return at
 }
 
-// StampSweepRow is one live message of a chat that holds disappearing
-// messages, as the unstamped-attachment sweep (app/stampsweep.go) reads it.
+// StampSweepRow is one message of a chat that holds disappearing messages, as
+// the unstamped-attachment sweep (app/stampsweep.go) reads it.
 type StampSweepRow struct {
 	ID      string
 	Sender  []byte
@@ -194,12 +194,16 @@ type StampSweepRow struct {
 }
 
 // DisappearingChats returns, per channel that holds at least one row with a
-// deadline, its live ordinary messages oldest first, bodies opened.
+// deadline, its live ordinary messages oldest first, bodies opened, together
+// with the tombstones of deleted rows that carried a deadline. A stamped text
+// that has already disappeared is still the sender's record of the timer they
+// had on: its tombstone keeps sender, sent time and deadline, and is returned
+// with an empty body, so it can only ever be a neighbour, never a target.
 // Rows whose sender is not proven yet take no part: the sweep pairs by sender.
 func (s *Store) DisappearingChats() (map[string][]StampSweepRow, error) {
 	rows, err := s.rd().Query(
-		`SELECT channel_id, id, sender, sent, expires, content_enc, nonce FROM messages
-		 WHERE deleted = 0 AND kind = '' AND unverified = 0 AND channel_id IN (SELECT DISTINCT channel_id FROM messages WHERE expires > 0)
+		`SELECT channel_id, id, sender, sent, expires, deleted, content_enc, nonce FROM messages
+		 WHERE (deleted = 0 OR expires > 0) AND kind = '' AND unverified = 0 AND channel_id IN (SELECT DISTINCT channel_id FROM messages WHERE expires > 0)
 		 ORDER BY channel_id, sent`)
 	if err != nil {
 		return nil, err
@@ -209,15 +213,18 @@ func (s *Store) DisappearingChats() (map[string][]StampSweepRow, error) {
 	for rows.Next() {
 		var ch string
 		var r StampSweepRow
+		var deleted bool
 		var enc, nonce []byte
-		if rows.Scan(&ch, &r.ID, &r.Sender, &r.Sent, &r.Expires, &enc, &nonce) != nil {
+		if rows.Scan(&ch, &r.ID, &r.Sender, &r.Sent, &r.Expires, &deleted, &enc, &nonce) != nil {
 			continue
 		}
-		body, err := s.open(enc, nonce)
-		if err != nil {
-			continue
+		if !deleted {
+			body, err := s.open(enc, nonce)
+			if err != nil {
+				continue
+			}
+			r.Content = body
 		}
-		r.Content = body
 		out[ch] = append(out[ch], r)
 	}
 	return out, rows.Err()

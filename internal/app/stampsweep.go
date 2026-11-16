@@ -15,7 +15,9 @@ import (
 // The timer itself is a per-device UI choice the core never sees, and the
 // receiving side never knew it at all, so a deadline is inferred from the
 // sender's own stamped messages around the attachment, which are
-// MLS-authenticated and say exactly what timer that sender had on:
+// MLS-authenticated and say exactly what timer that sender had on. A stamped
+// text whose own timer has already run out still counts: its tombstone keeps
+// the sender, sent time and deadline.
 //
 //   - paired: the sender's next message, within a few seconds, is stamped
 //     text. That is one send split in two, the caption half of a captioned
