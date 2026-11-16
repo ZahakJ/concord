@@ -214,7 +214,15 @@ func TestTypingOffReachesADeviceThatWasOffline(t *testing.T) {
 		return phone.TypingEnabled()
 	}, "the phone never saw typing turned on")
 
-	// The phone goes away; the desktop then turns it off. (Stamp strictly newer.)
+	// The phone goes away holding "on"; the desktop then turns it off. The
+	// phone's old choice is checked here, while it is up, and not after it
+	// restarts: the restarted phone can take the very hello this test is about
+	// before Start returns. (A restart keeping a stamped choice is
+	// TestTypingMigrationTurnsEveryoneOffOnce.)
+	if !phone.TypingEnabled() {
+		t.Fatal("the phone lost typing before it went offline")
+	}
+	phoneAt := phone.typingStamp()
 	if err := phone.Close(); err != nil {
 		t.Fatalf("close phone: %v", err)
 	}
@@ -222,11 +230,18 @@ func TestTypingOffReachesADeviceThatWasOffline(t *testing.T) {
 	if err := desk.SetTypingEnabled(false); err != nil {
 		t.Fatal(err)
 	}
-
-	phone = startServiceOn(t, ctx, phoneDir, boot)
-	if !phone.TypingEnabled() {
-		t.Fatal("the phone should still hold its old choice before it hears from the desktop")
+	deskAt := desk.typingStamp()
+	if deskAt <= phoneAt {
+		t.Fatalf("the desktop's off (stamp %d) is not newer than the phone's on (stamp %d)", deskAt, phoneAt)
 	}
+
+	// The off went out while the phone was down, so the live path cannot have
+	// carried it; only the reconnect can. The phone must end up off under the
+	// desktop's exact stamp, so the off is the desktop's and nothing local.
+	phone = startServiceOn(t, ctx, phoneDir, boot)
 	waitUntil(t, 60*time.Second, func() bool { return !phone.TypingEnabled() },
 		"a device that was offline kept broadcasting typing after it was turned off elsewhere")
+	if got := phone.typingStamp(); got != deskAt {
+		t.Fatalf("the phone is off under stamp %d, not the desktop's %d", got, deskAt)
+	}
 }
