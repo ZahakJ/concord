@@ -48,3 +48,26 @@ test("a change of mode closes what is still on screen", () => {
   setNotifyMode("name"); // already closed, not closed twice
   assert.equal(closed, 2);
 });
+
+test("a deleted message closes the notification that shows it, and only that one", async () => {
+  const { retractNotification } = await import("./notifprivacy.js");
+  setNotifyMode("full");
+  const fake = () => {
+    const n = { closed: 0, close: () => n.closed++ };
+    return n;
+  };
+  const a1 = trackNotification(fake(), { tag: "chan-a", id: "m1" });
+  const a2 = trackNotification(fake(), { tag: "chan-a", id: "m2" }); // replaced a1 on screen
+  const b = trackNotification(fake(), { tag: "chan-b", id: "m3" });
+  assert.equal(retractNotification("chan-a", "m1"), false, "m1 is no longer what chan-a shows");
+  assert.equal(a1.closed + a2.closed, 0);
+  assert.equal(retractNotification("chan-a", "m2"), true);
+  assert.equal(a2.closed, 1, "the notification showing the deleted message closed");
+  assert.equal(b.closed, 0, "another conversation's notification stayed");
+  assert.equal(retractNotification("chan-a", "m2"), false, "closed once");
+  assert.equal(retractNotification("chan-b", ""), false);
+  assert.equal(retractNotification("", "m3"), false);
+  setNotifyMode("nothing"); // closes b; a2 is no longer tracked
+  assert.equal(b.closed, 1);
+  assert.equal(a2.closed, 1);
+});

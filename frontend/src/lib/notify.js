@@ -12,7 +12,7 @@
 
 import { plainSnippet } from "./snippet.js";
 import { shouldNotify, notificationTitle } from "./notifs.js";
-import { redactNotification, getNotifyMode, trackNotification } from "./notifprivacy.js";
+import { redactNotification, getNotifyMode, trackNotification, retractNotification } from "./notifprivacy.js";
 
 // The native notification bridge (Android/iOS), or null on web/desktop.
 function nativeNotifier() {
@@ -172,7 +172,7 @@ export function notify(m, { selfFpr, direct = false, mention = false, where = {}
   // Desktop / browser: the web Notification API.
   if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
   try {
-    const n = trackNotification(new Notification(title, { body, tag: m.channelId }));
+    const n = trackNotification(new Notification(title, { body, tag: m.channelId }), { tag: m.channelId, id: m.id || "" });
     n.onclick = () => {
       window.focus();
       onClick?.();
@@ -181,4 +181,18 @@ export function notify(m, { selfFpr, direct = false, mention = false, where = {}
   } catch {
     /* WebView without Notification support */
   }
+}
+
+// retract takes a deleted or expired message out of the OS notification that
+// shows it. Desktop: the conversation's notification closes if this message is
+// its line. Android: the native side drops the message's line from the stack
+// and re-posts the rest, or removes the entry if it was the only line.
+export function retract(m) {
+  if (!m?.id || !m.channelId) return;
+  const native = nativeNotifier();
+  if (native?.retractNotification) {
+    native.retractNotification({ tag: m.channelId, id: m.id }).catch(() => {});
+    return;
+  }
+  retractNotification(m.channelId, m.id);
 }

@@ -5,7 +5,7 @@ import { tick, untrack } from "svelte";
 import { closeGuildSwitcher } from "./guildswitch.svelte.js";
 import { MOM } from "./momentsunseen.svelte.js";
 import { api, on, onTransportHealth, probeCore } from "./api.js";
-import { notify, wantsPermissionPrompt, trayPosts, asksLazily, sendNativePolicy } from "./notify.js";
+import { notify, retract, wantsPermissionPrompt, trayPosts, asksLazily, sendNativePolicy } from "./notify.js";
 import { createPolicySync } from "./nativepolicy.js";
 import { draftIn, noteDraft } from "./drafts.svelte.js";
 import { containsMention } from "./markdown.js";
@@ -4113,6 +4113,8 @@ function initEvents() {
   window.addEventListener("focus", syncReading);
 
   on("message", (m) => {
+    // Deleted or expired: its words leave the notification shade as well.
+    if (m.deleted) retract(m);
     // Is this the FIRST time we've seen this message id? The backend re-emits the
     // whole message on every edit/reaction/pin and on sync backfill, all reusing
     // the original id + `sent`. Deduping by id is what keeps those from inflating

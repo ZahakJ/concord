@@ -42,10 +42,33 @@ let current = DEFAULT_NOTIFY_MODE;
 // they were posted. A change of mode closes them, so nothing one showed
 // outlives the setting that allowed it.
 const shown = new Set();
-export const trackNotification = (n) => {
+// The message each conversation's notification shows, by tag. A post under a
+// tag the OS already shows replaces that notification, so the newest tracked
+// one per tag is the one on screen, and its message is its only line.
+const lastByTag = new Map();
+export const trackNotification = (n, { tag = "", id = "" } = {}) => {
   shown.add(n);
-  n.addEventListener?.("close", () => shown.delete(n));
+  if (tag) lastByTag.set(tag, { n, id });
+  n.addEventListener?.("close", () => {
+    shown.delete(n);
+    if (tag && lastByTag.get(tag)?.n === n) lastByTag.delete(tag);
+  });
   return n;
+};
+// A message deleted or expired: if it is what its conversation's notification
+// still shows, close that notification. A notification showing a later
+// message in the same conversation does not show this one and stays.
+export const retractNotification = (tag, id) => {
+  const e = tag && id ? lastByTag.get(tag) : null;
+  if (!e || e.id !== id) return false;
+  lastByTag.delete(tag);
+  shown.delete(e.n);
+  try {
+    e.n.close();
+  } catch {
+    /* already gone */
+  }
+  return true;
 };
 export const setNotifyMode = (v) => {
   const next = normalizeNotifyMode(v);
@@ -58,6 +81,7 @@ export const setNotifyMode = (v) => {
       }
     }
     shown.clear();
+    lastByTag.clear();
   }
   current = next;
   return current;

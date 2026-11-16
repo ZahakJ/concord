@@ -63,10 +63,16 @@ final class NativeNotifier implements concord.EventSink {
     private void handleMessage(String data) {
         try {
             JSONObject m = new JSONObject(data);
+            // A message deleted or expired leaves the tray entry that shows
+            // it, in any conversation (the page does the same while it runs:
+            // lib/notify.js retract).
+            if (m.optBoolean("deleted", false)) {
+                ConcordCorePlugin.retractMessageNotification(app, m.optString("channelId", ""), m.optString("id", ""));
+                return;
+            }
             // Same first rules as notify.js: never for system/app rows, never
-            // for deletions, never for your own words echoing back.
+            // for your own words echoing back.
             if (!m.optString("kind", "").isEmpty()) return;
-            if (m.optBoolean("deleted", false)) return;
             // History is not news. A catch-up after a week away, or the backlog
             // that follows a join, arrives through sync as ordinary message
             // events — and this sink runs precisely when the app is in the

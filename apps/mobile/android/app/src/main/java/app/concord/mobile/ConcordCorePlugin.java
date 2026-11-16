@@ -347,58 +347,11 @@ public class ConcordCorePlugin extends Plugin {
     private static final String MSG_CHANNEL_ID = "concord_messages";
     static final int MSG_NOTIF_ID = 2; // package-private: MarkReadReceiver cancels by it
 
-    // In-memory conversation history behind MessagingStyle: the last few
-    // (sender, text, time) lines per tag, so a second message stacks under the
-    // first instead of overwriting it — the tag-replace behavior above used to
-    // mean a busy channel's notification only ever showed its newest line.
-    // Process-local on purpose: the tray itself survives a process restart and
-    // simply restacks from one line again.
-    private static final int HISTORY_MAX = 6;
-    private static final long HISTORY_TTL_MS = 60L * 60 * 1000; // stale lines age out
-    private static final Map<String, ArrayDeque<MsgLine>> HISTORY = new HashMap<>();
-
-    private static final class MsgLine {
-        final String sender;
-        final String text;
-        final long at;
-
-        final boolean failed;
-        // The message this line shows, when known. The page and NativeNotifier
-        // can both post the same message (the WebView keeps running for a while
-        // after the activity leaves the screen), and the second post must not
-        // stack the line a second time.
-        final String id;
-
-        // sender == null is the device owner's own line (an inline reply).
-        MsgLine(String sender, String text, long at, boolean failed) {
-            this(sender, text, at, failed, "");
-        }
-
-        MsgLine(String sender, String text, long at, boolean failed, String id) {
-            this.sender = sender;
-            this.text = text;
-            this.at = at;
-            this.failed = failed;
-            this.id = id == null ? "" : id;
-        }
-
-        String label() {
-            return failed ? "Not sent: " + text : text;
-        }
-
-        // What the tray may show for this line. An own reply is the user's own
-        // words, so unless the setting is "full" it is not echoed either.
-        String shown(boolean full) {
-            if (full || sender != null) return label();
-            return failed ? "Not sent" : "Reply sent";
-        }
-    }
+    // The stacked lines behind each conversation's entry live in TrayHistory.
 
     /** Swiped away, tapped, or marked read: the stack is done with. */
     static void clearNotificationHistory(String tag) {
-        synchronized (HISTORY) {
-            HISTORY.remove(tag);
-        }
+        TrayHistory.clear(tag);
         synchronized (LAST_ALERT) {
             LAST_ALERT.remove(tag); // dismissed: the next message may sound
         }
@@ -456,16 +409,18 @@ public class ConcordCorePlugin extends Plugin {
             body = GENERIC_BODY;
         }
         long now = System.currentTimeMillis();
-        ArrayDeque<MsgLine> lines = appendLine(tag, new MsgLine(title, body, now, false, id));
-        if (lines == null) return;
-        // A burst in one conversation sounds once: inside the gap the entry is
-        // updated with setOnlyAlertOnce, no sound and no second heads-up.
-        boolean quiet;
-        synchronized (LAST_ALERT) {
-            quiet = !AlertRules.shouldAlert(LAST_ALERT.get(tag), now);
-            if (!quiet) LAST_ALERT.put(tag, now);
+        synchronized (TRAY_LOCK) {
+            ArrayDeque<TrayHistory.Line> lines = TrayHistory.append(tag, new TrayHistory.Line(title, body, now, false, id));
+            if (lines == null) return;
+            // A burst in one conversation sounds once: inside the gap the entry is
+            // updated with setOnlyAlertOnce, no sound and no second heads-up.
+            boolean quiet;
+            synchronized (LAST_ALERT) {
+                quiet = !AlertRules.shouldAlert(LAST_ALERT.get(tag), now);
+                if (!quiet) LAST_ALERT.put(tag, now);
+            }
+            render(ctx, tag, lines, quiet);
         }
-        render(ctx, tag, lines, quiet);
     }
 
     /**
@@ -478,45 +433,86 @@ public class ConcordCorePlugin extends Plugin {
      * words the user typed are never dropped without telling them.
      */
     static void postReplyResult(Context ctx, String tag, String text, boolean sent) {
-        render(ctx, tag, appendLine(tag, new MsgLine(null, text, System.currentTimeMillis(), !sent)), true);
+        synchronized (TRAY_LOCK) {
+            render(ctx, tag, TrayHistory.append(tag, new TrayHistory.Line(null, text, System.currentTimeMillis(), !sent)), true);
+        }
     }
 
     /** An empty reply: nothing to add, but the spinner still needs an update. */
     static void repostQuietly(Context ctx, String tag) {
-        ArrayDeque<MsgLine> lines;
-        synchronized (HISTORY) {
-            ArrayDeque<MsgLine> q = HISTORY.get(tag);
-            lines = q == null ? new ArrayDeque<>() : new ArrayDeque<>(q);
+        synchronized (TRAY_LOCK) {
+            render(ctx, tag, TrayHistory.snapshot(tag), true);
         }
-        render(ctx, tag, lines, true);
     }
 
-    private static ArrayDeque<MsgLine> appendLine(String tag, MsgLine line) {
-        // Append to the tag's history and render the WHOLE stack, MessagingStyle:
-        // sender names against their lines, newest at the bottom, like every
-        // other messenger's tray entry. A copy is rendered outside the lock.
-        synchronized (HISTORY) {
-            ArrayDeque<MsgLine> q = HISTORY.get(tag);
-            if (q == null) HISTORY.put(tag, q = new ArrayDeque<>());
-            while (!q.isEmpty()
-                && (q.size() >= HISTORY_MAX || line.at - q.peekFirst().at > HISTORY_TTL_MS)) {
-                q.pollFirst();
-            }
-            if (!line.id.isEmpty()) {
-                for (MsgLine l : q) {
-                    if (line.id.equals(l.id)) return null; // already on screen
+    /**
+     * A message deleted or expired: its line leaves the conversation's tray
+     * entry. The rest of the stack is re-posted quietly in place, or the entry
+     * is removed when that was its only line. Nothing happens when no line
+     * shows the message, or when the entry is no longer in the tray (swiped
+     * away or tapped): a retraction never brings an entry back.
+     */
+    static void retractMessageNotification(Context ctx, String tag, String id) {
+        if (tag == null || tag.isEmpty() || id == null || id.isEmpty()) return;
+        NotificationManager nm =
+            (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null) return;
+        synchronized (TRAY_LOCK) {
+            ArrayDeque<TrayHistory.Line> rest = TrayHistory.remove(tag, id);
+            boolean showing = false;
+            String[] trayIds = null;
+            for (android.service.notification.StatusBarNotification sb : nm.getActiveNotifications()) {
+                if (sb.getId() == MSG_NOTIF_ID && tag.equals(sb.getTag())) {
+                    showing = true;
+                    trayIds = sb.getNotification().extras.getStringArray(EXTRA_IDS);
                 }
             }
-            q.addLast(line);
-            return new ArrayDeque<>(q);
+            switch (TrayHistory.decide(rest, showing, trayIds, id)) {
+                case CANCEL:
+                    clearNotificationHistory(tag);
+                    nm.cancel(tag, MSG_NOTIF_ID);
+                    break;
+                case FORGET:
+                    clearNotificationHistory(tag);
+                    break;
+                case REPOST:
+                    render(ctx, tag, rest, true);
+                    break;
+                default:
+                    break;
+            }
         }
+    }
+
+    // The message ids an entry shows, kept in its extras: the tray outlives
+    // this process and TrayHistory with it, and a retraction after a restart
+    // still has to find the entry that shows the message.
+    static final String EXTRA_IDS = "concord.ids";
+
+    private static android.os.Bundle idsExtra(ArrayDeque<TrayHistory.Line> lines) {
+        android.os.Bundle b = new android.os.Bundle();
+        b.putStringArray(EXTRA_IDS, TrayHistory.ids(lines));
+        return b;
+    }
+
+    // Changes to a stack and the post that shows it happen together, so a
+    // retraction and a new line racing on two threads cannot post a stack the
+    // other has already changed.
+    private static final Object TRAY_LOCK = new Object();
+
+    @PluginMethod
+    public void retractNotification(PluginCall call) {
+        String tag = call.getString("tag", "");
+        String id = call.getString("id", "");
+        if (!tag.isEmpty() && !id.isEmpty()) retractMessageNotification(getContext(), tag, id);
+        call.resolve();
     }
 
     // quiet: re-render without sound, vibration or a second heads-up. Set for
     // an update the user is already looking at (the result of their own
     // reply), and for a message inside its conversation's alert gap
     // (AlertRules.ALERT_GAP_MS), so a burst sounds once.
-    private static void render(Context ctx, String tag, ArrayDeque<MsgLine> lines, boolean quiet) {
+    private static void render(Context ctx, String tag, ArrayDeque<TrayHistory.Line> lines, boolean quiet) {
         NotificationManager nm =
             (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
 
@@ -551,7 +547,7 @@ public class ConcordCorePlugin extends Plugin {
         String title = "Concord";
         String text = "";
         boolean lastFailed = false;
-        for (MsgLine l : lines) {
+        for (TrayHistory.Line l : lines) {
             if (l.sender != null) title = l.sender;
             text = l.shown(full);
             lastFailed = l.failed;
@@ -563,14 +559,14 @@ public class ConcordCorePlugin extends Plugin {
             // "You" is the device owner slot: a line with no sender Person is
             // the user's own, which is exactly what an inline reply appends.
             style = new Notification.MessagingStyle(new Person.Builder().setName("You").build());
-            for (MsgLine l : lines) {
+            for (TrayHistory.Line l : lines) {
                 style.addMessage(new Notification.MessagingStyle.Message(
                     l.shown(full), l.at,
                     l.sender == null ? null : new Person.Builder().setName(l.sender).build()));
             }
         } else {
             style = new Notification.MessagingStyle("You");
-            for (MsgLine l : lines) style.addMessage(l.shown(full), l.at, l.sender);
+            for (TrayHistory.Line l : lines) style.addMessage(l.shown(full), l.at, l.sender);
         }
 
         // Swipe-away (and tap, via autoCancel) must clear the stacked history,
@@ -592,6 +588,7 @@ public class ConcordCorePlugin extends Plugin {
         b.setContentTitle(title)
             .setContentText(text)
             .setStyle(style)
+            .addExtras(idsExtra(lines))
             .setSmallIcon(R.drawable.ic_stat_concord)
             .setColor(BRAND_TEAL)
             .setContentIntent(pi)
@@ -711,9 +708,7 @@ public class ConcordCorePlugin extends Plugin {
     }
 
     static void clearMessageNotifications(Context ctx) {
-        synchronized (HISTORY) {
-            HISTORY.clear();
-        }
+        TrayHistory.clearAll();
         NotificationManager nm =
             (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
