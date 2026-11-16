@@ -16,6 +16,7 @@
   import { api } from "../lib/api.js";
   import { tooltip } from "../lib/tooltip.js";
   import { PERM, has } from "../lib/perms.js";
+  import { pickedPicture } from "../lib/pickimage.js";
   import { TAG_LIMITS, LAYOUTS, validateTag, normalizeHex, runeLen, readBoardPrefs, writeBoardPrefs } from "../lib/forum.js";
 
   let { forum: forumProp, onClose } = $props();
@@ -51,21 +52,23 @@
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/png,image/jpeg,image/gif,image/webp";
-    input.onchange = () => {
+    input.onchange = async () => {
       const file = input.files?.[0];
       if (!file || !file.type.startsWith("image/")) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const url = String(reader.result);
-        // Said here as well as by the core so the answer is the limit, not a
-        // failure after a round trip.
-        if (url.length > MAX_ART) {
-          flash(`That image is ${Math.round(url.length / 1024)} KB — the limit is ${MAX_ART / 1024} KB`, "error");
-          return;
-        }
-        setArt(url);
-      };
-      reader.readAsDataURL(file);
+      let url;
+      try {
+        url = await pickedPicture(file, MAX_ART);
+      } catch {
+        flash("Couldn't read that image", "error");
+        return;
+      }
+      // Said here as well as by the core so the answer is the limit, not a
+      // failure after a round trip.
+      if (url.length > MAX_ART) {
+        flash(`That image is ${Math.round(url.length / 1024)} KB — the limit is ${MAX_ART / 1024} KB`, "error");
+        return;
+      }
+      setArt(url);
     };
     input.click();
   }

@@ -18,6 +18,7 @@
   import { PERM, has } from "../lib/perms.js";
   import { GUILD_BANNERS, GUILD_BANNER_GROUPS, guildBannerArt } from "../lib/guildbanners.js";
   import { guildInitials } from "../lib/rail.js";
+  import { pickedPicture } from "../lib/pickimage.js";
 
   let { onClose } = $props();
 
@@ -47,19 +48,22 @@
   // own name below the fold.
   let picking = $state(false);
 
-  // Read an image file to a data URI. Kept raw (no canvas re-encode) so animated
-  // GIF banners keep animating; rejected if too big for a gossip frame.
-  function applyImageFile(file, setter) {
+  // Read an image file to a data URI (see pickedPicture: kept raw so animated
+  // GIF banners keep animating); rejected if too big for a gossip frame.
+  async function applyImageFile(file, setter) {
     if (!file || !file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (String(reader.result).length > MAX) {
-        flash("Image too large — keep it under ~350 KB", "error");
-        return;
-      }
-      setter(reader.result);
-    };
-    reader.readAsDataURL(file);
+    let uri;
+    try {
+      uri = await pickedPicture(file, MAX);
+    } catch {
+      flash("Couldn't read that image", "error");
+      return;
+    }
+    if (uri.length > MAX) {
+      flash("Image too large — keep it under ~350 KB", "error");
+      return;
+    }
+    setter(uri);
   }
   function pickImage(setter) {
     const input = document.createElement("input");

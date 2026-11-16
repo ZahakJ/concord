@@ -5,6 +5,7 @@
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { isAnimated } from "../lib/animated.js";
+  import { pickedPicture } from "../lib/pickimage.js";
   import { PERM, has } from "../lib/perms.js";
 
   let { onClose } = $props();
@@ -39,7 +40,8 @@
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (isAnimated(bytes)) {
-        const uri = await asDataURI(file);
+        // Read under the type its bytes give (see pickedPicture).
+        const uri = await pickedPicture(file, MAX_BYTES);
         if (uri.length > MAX_BYTES) {
           // We can't shrink it for them, so say what would fix it.
           flash(
@@ -72,15 +74,6 @@
     if (!name)
       name = (file.name || "").replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 32);
   }
-
-  const asDataURI = (file) =>
-    new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload = () => res(String(r.result));
-      r.onerror = rej;
-      r.readAsDataURL(file);
-    });
-
 
   async function add() {
     if (busy || !pending) return;

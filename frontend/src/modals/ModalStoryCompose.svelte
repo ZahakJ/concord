@@ -12,6 +12,7 @@
   import { api } from "../lib/api.js";
   import { plural } from "../lib/plural.js";
   import { BANNERS, BANNER_GROUPS } from "../lib/banners.js";
+  import { pickedPicture } from "../lib/pickimage.js";
   import { confettiBurst } from "../lib/burst.js";
 
   let { onClose } = $props();
@@ -29,20 +30,22 @@
   // caps the whole string) — base64 costs a third, hence "~180 KB" of image.
   const MAX_SCENE = 250 * 1024;
 
-  // Read an image file to a data URI. Kept raw (no canvas re-encode) so
-  // animated GIF scenes keep animating — same trade as ModalGuildSettings'
-  // applyImageFile; rejected if too big for a story record.
-  function applyImageFile(file) {
+  // Read an image file to a data URI (see pickedPicture: kept raw so animated
+  // GIF scenes keep animating); rejected if too big for a story record.
+  async function applyImageFile(file) {
     if (!file || !file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (String(reader.result).length > MAX_SCENE) {
-        flash("Image too large — keep it under ~180 KB", "error");
-        return;
-      }
-      custom = String(reader.result);
-    };
-    reader.readAsDataURL(file);
+    let uri;
+    try {
+      uri = await pickedPicture(file, MAX_SCENE);
+    } catch {
+      flash("Couldn't read that image", "error");
+      return;
+    }
+    if (uri.length > MAX_SCENE) {
+      flash("Image too large — keep it under ~180 KB", "error");
+      return;
+    }
+    custom = uri;
   }
   function pickImage() {
     const input = document.createElement("input");

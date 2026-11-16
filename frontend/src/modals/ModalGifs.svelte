@@ -30,6 +30,7 @@
   import { S, activeGuild, flash, refreshGuilds, setOffDeviceSearch } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { loadAttachment } from "../lib/attachments.js";
+  import { pickedPicture } from "../lib/pickimage.js";
   import { PERM, has } from "../lib/perms.js";
 
   let { onClose } = $props();
@@ -225,13 +226,9 @@
       // Read the file byte-for-byte. Drawing it through a canvas would flatten
       // an animated GIF to a single frame (the same trap ModalEmoji documents),
       // and re-encoding an animation in the browser would mean shipping a GIF
-      // encoder — a dependency this app doesn't take.
-      const dataUrl = await new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(String(r.result));
-        r.onerror = rej;
-        r.readAsDataURL(file);
-      });
+      // encoder — a dependency this app doesn't take. Only a picture the core
+      // cannot clean (an AVIF, say) is drawn again (see pickedPicture).
+      const dataUrl = await pickedPicture(file, MAX_BYTES);
       let w = 0;
       let h = 0;
       try {
