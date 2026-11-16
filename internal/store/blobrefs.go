@@ -535,3 +535,55 @@ func placeholders(n int) string {
 	}
 	return string(b)
 }
+
+// BlobScope is who may be served a blob: the members of the channels whose
+// held rows, not deleted, name it, of the guilds whose GIF pack holds it or
+// whose archive pinned it here, and, for a blob an import pinned, the members
+// of any guild this device is in.
+type BlobScope struct {
+	Channels     []string
+	Guilds       []string
+	ImportPinned bool
+}
+
+// blobScopeChannels bounds the channels read for one blob: a picture is
+// named in a handful of channels, and one is enough to serve it.
+const blobScopeChannels = 16
+
+// BlobServeScope returns the scope of a blob BlobServable allows, and false
+// for any other.
+func (s *Store) BlobServeScope(blobID string) (BlobScope, bool) {
+	var sc BlobScope
+	if !s.BlobServable(blobID) {
+		return sc, false
+	}
+	read := func(q string, out *[]string) bool {
+		rows, err := s.rd().Query(q, blobID)
+		if err != nil {
+			return false
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var v string
+			if rows.Scan(&v) == nil {
+				*out = append(*out, v)
+			}
+		}
+		return rows.Err() == nil
+	}
+	if !read(`SELECT DISTINCT m.channel_id FROM blob_refs r JOIN messages m ON m.id = r.message_id
+		WHERE r.blob_id = ? AND m.deleted = 0 LIMIT `+strconv.Itoa(blobScopeChannels), &sc.Channels) {
+		return sc, false
+	}
+	if !read(`SELECT guild_id FROM guild_gifs WHERE id = ?1
+		UNION SELECT guild_id FROM chronicle_pins WHERE blob_id = ?1`, &sc.Guilds) {
+		return sc, false
+	}
+	var imp int
+	if err := s.rd().QueryRow(`SELECT EXISTS (SELECT 1 FROM attachments WHERE blob_id = ?1 AND pinned = 1)
+		AND NOT EXISTS (SELECT 1 FROM chronicle_pins WHERE blob_id = ?1)`, blobID).Scan(&imp); err != nil {
+		return sc, false
+	}
+	sc.ImportPinned = imp != 0
+	return sc, true
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/imgmeta"
 	cnet "github.com/ZahakJ/concord/internal/net"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 // Encrypted attachments: an image is sealed once with a random
@@ -25,10 +26,11 @@ import (
 // message carries only a ~190-char reference token — the key rides INSIDE the
 // MLS-encrypted message content. Blobs travel over a dedicated stream protocol
 // with its own large frame cap, so gossipsub and history sync never see image
-// bytes. Any peer holding a blob can serve it (the ciphertext is useless
-// without the key, and the blobID is an unguessable 256-bit capability), which
-// is what keeps images fetchable after the sender goes offline: every member
-// who viewed the image becomes a source.
+// bytes. Any member holding a blob can serve it to the other members of the
+// guild or DM it belongs to, which is what keeps images fetchable after the
+// sender goes offline: every member who viewed the image becomes a source.
+// A peer that shares no such guild or DM gets the answer for a blob nobody
+// holds (handleAttachRequest).
 //
 // Token format, embedded in message content in place of inline base64:
 //
@@ -384,9 +386,10 @@ func (s *Service) requestBlobFrom(p peer.ID, req []byte) ([]byte, error) {
 }
 
 // handleAttachRequest serves a blob from the local store; an empty response
-// means "don't have it". Serving is deliberately ungated — see the package
-// comment above — except for a blob removed and banned with its message.
-func (s *Service) handleAttachRequest(ctx context.Context, _ peer.ID, request []byte) ([]byte, error) {
+// means "don't have it". It is the same answer whether the blob is not held
+// or the asking peer may not have it, so the answer tells a peer nothing
+// about what this device holds.
+func (s *Service) handleAttachRequest(ctx context.Context, p peer.ID, request []byte) ([]byte, error) {
 	var req attachRequest
 	if err := json.Unmarshal(request, &req); err != nil {
 		return []byte{}, nil
@@ -394,14 +397,42 @@ func (s *Service) handleAttachRequest(ctx context.Context, _ peer.ID, request []
 	if !blobIDRe.MatchString(strings.TrimSpace(req.BlobID)) {
 		return []byte{}, nil
 	}
-	// Only a blob something on this device keeps: not one removed with its
-	// message, nor a cache entry no held message names any longer.
-	if !s.store.BlobServable(req.BlobID) {
-		return []byte{}, nil
+	return s.blobFor(s.presence(p).Fingerprint, req.BlobID), nil
+}
+
+// blobFor returns the blob for the account fingerprint, or an empty answer.
+// Only a blob something on this device keeps (store.BlobServable), and only
+// to a member of a guild or DM that keeps it here: a channel whose held
+// message names it, a guild whose GIF pack holds it or whose archive pinned
+// it, or, for a picture an import pinned, any guild this device is in.
+func (s *Service) blobFor(fingerprint, blobID string) []byte {
+	if fingerprint == "" {
+		return []byte{}
 	}
-	ct, ok, err := s.store.GetAttachment(req.BlobID)
+	scope, ok := s.store.BlobServeScope(blobID)
+	if !ok || !s.inBlobScope(fingerprint, scope) {
+		return []byte{}
+	}
+	ct, ok, err := s.store.GetAttachment(blobID)
 	if err != nil || !ok || len(ct) > cnet.MaxAttachResponse {
-		return []byte{}, nil
+		return []byte{}
 	}
-	return ct, nil
+	return ct
+}
+
+func (s *Service) inBlobScope(fingerprint string, scope store.BlobScope) bool {
+	guilds := scope.Guilds
+	s.mu.RLock()
+	for _, ch := range scope.Channels {
+		if g, ok := s.channelToGuild[ch]; ok {
+			guilds = append(guilds, g)
+		}
+	}
+	s.mu.RUnlock()
+	for _, g := range guilds {
+		if s.guildHasMember(g, fingerprint) {
+			return true
+		}
+	}
+	return scope.ImportPinned && s.sharesGuild(fingerprint)
 }

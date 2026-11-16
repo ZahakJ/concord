@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -130,11 +129,7 @@ func TestArchivePicturesReadByAMemberArePassedOn(t *testing.T) {
 	}
 
 	// The archive is removed: each device that held its pictures lets them go.
-	served := func(s *Service, id string) bool {
-		req, _ := json.Marshal(attachRequest{BlobID: id})
-		resp, _ := s.handleAttachRequest(ctx, "", req)
-		return len(resp) > 0
-	}
+	served := func(s *Service, id string) bool { return serves(t, s, id) }
 	if !served(b, pics[0].id) || !served(c, pics[0].id) {
 		t.Fatal("before the removal, B and C do not both pass on the picture")
 	}

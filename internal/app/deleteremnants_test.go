@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // tombstoneOf is the row as a source that applied its delete serves it.
@@ -316,12 +317,11 @@ func testBlobToken(id string) string {
 	return "![image](concord://attach/v1/" + id + "/" + strings.Repeat("A", 75) + "/png/1x1)"
 }
 
-// serves reports whether s hands blob id to a peer that asks for it.
+// serves reports whether s hands blob id to a member who asks for it: its
+// own account, a member of every guild and DM it holds.
 func serves(t *testing.T, s *Service, id string) bool {
 	t.Helper()
-	req, _ := json.Marshal(attachRequest{BlobID: id})
-	ct, _ := s.handleAttachRequest(context.Background(), "", req)
-	return len(ct) > 0
+	return len(s.blobFor(identity.FingerprintOf(s.id.PublicKey()), id)) > 0
 }
 
 // A message's pictures go with it where its body goes: a device that may not
