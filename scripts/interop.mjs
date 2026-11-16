@@ -1,7 +1,8 @@
 // Driver for scripts/interop.sh — see that file for the why.
 //
-// Talks to two already-running Concord peers over their loopback /rpc surface:
-// OLD is a shipped previous release, NEW is a build of HEAD. Each lane asserts
+// Talks to already-running Concord peers over their loopback /rpc surface:
+// OLD is a shipped previous release, NEW is a build of HEAD, and THIRD is a
+// second copy of HEAD that OLD admits to a guild NEW made. Each lane asserts
 // something a legacy peer must still be able to do, and records the evidence
 // (real message bodies, RPC results, member lists) so a failure names the thing
 // that actually broke instead of just "sync is down".
@@ -19,9 +20,11 @@ import { stagedImage } from "../frontend/src/lib/attachopts.js";
 
 const OLD = process.env.INTEROP_OLD;
 const NEW = process.env.INTEROP_NEW;
+// A second HEAD peer, admitted by OLD to a guild NEW made (lane L10).
+const THIRD = process.env.INTEROP_THIRD;
 const WORK = process.env.INTEROP_WORK;
-if (!OLD || !NEW || !WORK) {
-  console.error("interop.mjs: INTEROP_OLD/INTEROP_NEW/INTEROP_WORK must be set");
+if (!OLD || !NEW || !THIRD || !WORK) {
+  console.error("interop.mjs: INTEROP_OLD/INTEROP_NEW/INTEROP_THIRD/INTEROP_WORK must be set");
   process.exit(2);
 }
 const phase = process.argv[2];
@@ -29,6 +32,7 @@ const STATE = join(WORK, "state.json");
 
 const PASS_OLD = "interop-old-passphrase";
 const PASS_NEW = "interop-new-passphrase";
+const PASS_THIRD = "interop-third-passphrase";
 
 // A 1x1 red PNG — small enough to inline, real enough that an image decoder
 // on the far side accepts it.
@@ -685,6 +689,37 @@ async function phaseOnline() {
         `OLD JoinVoice+SignalCall ok=${b.ok} ${b.ok ? "" : b.error}`,
         `NEW RelaySignal->OLD ok=${relay.ok} ${relay.ok ? "" : relay.error}`,
         "NOT a full handshake: reaching connected state needs a browser WebRTC stack, which cannot run headlessly here. The signalling leg is what is covered.",
+      ],
+    };
+  });
+
+  // --- L10: OLD admits a third peer (HEAD) to NEW's guild ---------------------
+  await lane("L10", "a HEAD joiner admitted by OLD to NEW's guild takes NEW as owner", async () => {
+    // A guild made by HEAD has a group id derived from its founder's key, and
+    // a HEAD joiner checks the owner in the record it is sent against it. Here
+    // the record comes from an older member that knows nothing of the scheme.
+    const roleID = await rpc(NEW, "UpsertRole", [st.newGuildID, "", "Admitter", "#5865f2", 1, 5]);
+    await rpc(NEW, "AssignRole", [st.newGuildID, st.oldFP, roleID, true]);
+    const code = await waitFor("OLD can mint a code for NEW's guild", async () => {
+      const r = await tryRpc(OLD, "InviteCode", [st.newGuildID]);
+      return r.ok ? r.result : null;
+    });
+    const thirdID = await login(THIRD, PASS_THIRD, "ThirdPeer");
+    const joined = await rpc(THIRD, "JoinViaInvite", [code]);
+    const seen = await waitFor("THIRD sees NEW as the owner", async () => {
+      const g = (await rpc(THIRD, "Guilds")).find((x) => x.id === st.newGuildID);
+      return g && g.ownerFingerprint === st.newFP ? g : null;
+    });
+    if (seen.ownerUnverified) throw new Error("THIRD marks the owner unverified");
+    const members = await waitFor("NEW sees THIRD as a member", async () => {
+      const m = await rpc(NEW, "Members", [st.newGuildID]);
+      return m.some((x) => x.fingerprint === thirdID.fingerprint) ? m : null;
+    });
+    return {
+      evidence: [
+        `OLD minted a code for ${st.newGuildID} after NEW gave it Manage members`,
+        `THIRD JoinViaInvite -> id=${joined.id}; owner ${seen.ownerFingerprint === st.newFP ? "NEW" : seen.ownerFingerprint}, ownerUnverified=${!!seen.ownerUnverified}`,
+        `NEW's member list has ${members.length} entries, THIRD among them`,
       ],
     };
   });

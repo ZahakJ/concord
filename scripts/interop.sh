@@ -46,6 +46,7 @@ OLD_BIN="${1:-$REPO/dist-release/concord-linux-amd64-v0.41.0}"
 RV_PORT=${RV_PORT:-8961}
 OLD_WEB_PORT=${OLD_WEB_PORT:-8962}
 NEW_WEB_PORT=${NEW_WEB_PORT:-8963}
+THIRD_WEB_PORT=${THIRD_WEB_PORT:-8964}
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/concord-interop.XXXXXXXX")"
 # A binary started without CONCORD_HOME uses the default profile, which on a
@@ -167,10 +168,13 @@ note "starting OLD peer ($(basename "$OLD_BIN")) on :$OLD_WEB_PORT..."
 start_peer old "$OLD_BIN" "$OLD_WEB_PORT"
 note "starting NEW peer (HEAD) on :$NEW_WEB_PORT..."
 start_peer new "$NEW_BIN" "$NEW_WEB_PORT"
+note "starting THIRD peer (HEAD) on :$THIRD_WEB_PORT..."
+start_peer third "$NEW_BIN" "$THIRD_WEB_PORT"
 
 # --- lanes ---------------------------------------------------------------------
 export INTEROP_OLD="http://127.0.0.1:$OLD_WEB_PORT"
 export INTEROP_NEW="http://127.0.0.1:$NEW_WEB_PORT"
+export INTEROP_THIRD="http://127.0.0.1:$THIRD_WEB_PORT"
 export INTEROP_WORK="$WORK"
 
 drive() {
