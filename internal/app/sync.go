@@ -1170,6 +1170,8 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 			continue
 		}
 		if owner != guildID {
+			// Nothing was stored for it, so the cursor does not move over it.
+			failed[chID] = true
 			continue
 		}
 		accepted := make([]domain.Message, 0, len(msgs))
