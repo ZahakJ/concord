@@ -419,8 +419,9 @@ func TestNoRemovalBeforeCatchUp(t *testing.T) {
 	}
 }
 
-// Unsigned live messages: shown unverified, never allowed to change state,
-// and dropped once their account has been seen signing.
+// Unsigned live messages: shown unverified, never allowed to change state
+// beyond an author's delete of their own message, and dropped once their
+// account has been seen signing.
 func TestUnsignedLiveMessages(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -474,12 +475,22 @@ func TestUnsignedLiveMessages(t *testing.T) {
 	if m, _ := find("plain unsigned"); !m.Unverified {
 		t.Fatal("an unsigned message was not marked unverified")
 	}
-	unsigned(domain.Message{ID: "u2", Kind: "delete", ReplyTo: "u1"})
+	// An unsigned reaction changes nothing; an unsigned delete reaches no
+	// message but the sender's own (applyDelete).
+	owners, err := owner.SendMessage(ch, "the owner's", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsigned(domain.Message{ID: "u2", Kind: "reaction", ReplyTo: "u1", Content: "x"})
+	unsigned(domain.Message{ID: "u2b", Kind: "delete", ReplyTo: owners.ID})
 	time.Sleep(2 * time.Second)
 	msgs, _ := owner.Messages(ch, 50)
 	for _, m := range msgs {
-		if m.ID == "u1" && m.Deleted {
-			t.Fatal("an unsigned delete was applied")
+		if m.ID == "u1" && len(m.Reactions) != 0 {
+			t.Fatal("an unsigned reaction was applied")
+		}
+		if m.ID == owners.ID && m.Deleted {
+			t.Fatal("an unsigned delete removed another member's message")
 		}
 	}
 	sendUntilReceived(t, member, ch, "signed one", ro)

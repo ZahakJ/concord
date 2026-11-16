@@ -215,9 +215,9 @@ func (s *Service) holdForReadmit(carrier, guildID, fpr string, m domain.Message,
 }
 
 // releaseForTarget delivers again the actions waiting for a row that arrived.
-// Only signed actions are ever held (deliverMessage refuses an unsigned one
-// first), and a seat flag bears only on unsigned frames, so they are delivered
-// again as unflagged.
+// deliverMessage refuses an unsigned frame from a flagged leaf before it holds
+// anything, and a seat flag bears only on unsigned frames, so held actions are
+// delivered again as unflagged.
 func (s *Service) releaseForTarget(targetID string) {
 	if targetID == "" {
 		return

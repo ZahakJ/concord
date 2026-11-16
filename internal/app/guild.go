@@ -4261,18 +4261,22 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 	}
 	// Unsigned. Every build since 0.58 signs every live message, so an
 	// unsigned one comes from an older peer, and the MLS sender alone
-	// vouches for it. That is not enough to change state
-	// (delete, edit, react, pin), to speak for an account that has signed
-	// before, or to come from a leaf seatcheck.go flags. A plain message that
-	// passes all three is shown, marked unverified. The mark is ours to make,
-	// never the sender's to assert.
+	// vouches for it. Nothing unsigned from a leaf seatcheck.go flags is
+	// taken. An unsigned delete is what v0.57 and older send; it goes on to
+	// applyDelete, which lets it remove only its sender's own message. Other
+	// unsigned actions (edit, react, pin) change nothing, and an unsigned
+	// message from an account that has signed before is not shown. A plain
+	// message that passes is shown, marked unverified. The mark is ours to
+	// make, never the sender's to assert.
 	m.Unverified = false
 	if len(m.Sig) == 0 {
 		fpr := accountFingerprintOf(m.Sender)
 		switch {
-		case flagged, m.Kind == "delete", m.Kind == "reaction", m.Kind == "edit", m.Kind == "pin":
+		case flagged, m.Kind == "reaction", m.Kind == "edit", m.Kind == "pin":
 			refusedUnsigned.noteBecause(1, "live messages", fpr, "that carried no author signature")
 			return
+		case m.Kind == "delete":
+			// Author-only, judged by applyDelete.
 		case s.seenSigning(fpr):
 			refusedUnsigned.noteBecause(1, "live messages", fpr, "that carried no author signature, from an account seen signing")
 			return
