@@ -234,7 +234,7 @@ func (s *Service) dropPendingReadReceipts() {
 // is closing (stopBeats): a timer must not fire into a closed service.
 func (s *Service) armReceiptTimerLocked() {
 	if s.receiptTimer == nil && !s.beatsStopped.Load() {
-		s.receiptTimer = time.AfterFunc(ackBeat, s.flushReceipts)
+		s.receiptTimer = time.AfterFunc(ackBeat, s.beat(s.flushReceipts))
 	}
 }
 

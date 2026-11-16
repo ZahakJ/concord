@@ -116,7 +116,7 @@ func (s *Service) queueHide(r store.HideRec) {
 	}
 	s.pendingHide[r.ID] = r
 	if s.hideTimer == nil && !s.beatsStopped.Load() {
-		s.hideTimer = time.AfterFunc(800*time.Millisecond, s.flushHides)
+		s.hideTimer = time.AfterFunc(800*time.Millisecond, s.beat(s.flushHides))
 	}
 	s.hideMu.Unlock()
 }

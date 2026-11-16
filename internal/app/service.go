@@ -402,8 +402,12 @@ type Service struct {
 
 	// beatsStopped is set by Close (stopBeats). The coalescing timers for
 	// receipts, hides and read markers are not armed after it, and a flush
-	// that fires anyway publishes nothing.
+	// that fires anyway publishes nothing. beatFlights counts the flushes
+	// running now; Close waits for them after stopBeats, so none outlives the
+	// engine, host or store. beatGate orders that count against stopBeats.
 	beatsStopped atomic.Bool
+	beatGate     sync.Mutex
+	beatFlights  sync.WaitGroup
 
 	// gameSearchOn and gifSearchOn mirror the two off-device search switches
 	// (see offdevice.go), guarded by mu. They are read at the top of the two
@@ -2682,6 +2686,7 @@ func (s *Service) closeNow() {
 		s.cancel()
 	}
 	s.stopBeats()
+	s.beatFlights.Wait()
 	s.stopOfferGaps()
 	if s.peers != nil {
 		// Flush past the write throttle: everything learned in the last few
@@ -2705,7 +2710,9 @@ func (s *Service) closeNow() {
 // keeps them from being armed again. A timer left running would fire after
 // Close, into a service whose store and engine are gone.
 func (s *Service) stopBeats() {
+	s.beatGate.Lock()
 	s.beatsStopped.Store(true)
+	s.beatGate.Unlock()
 	for _, b := range []struct {
 		mu *sync.Mutex
 		t  **time.Timer
@@ -2716,6 +2723,22 @@ func (s *Service) stopBeats() {
 			*b.t = nil
 		}
 		b.mu.Unlock()
+	}
+}
+
+// beat wraps a coalescing flush for its timer: it runs only before stopBeats,
+// and Close waits for it to return.
+func (s *Service) beat(flush func()) func() {
+	return func() {
+		s.beatGate.Lock()
+		if s.beatsStopped.Load() {
+			s.beatGate.Unlock()
+			return
+		}
+		s.beatFlights.Add(1)
+		s.beatGate.Unlock()
+		defer s.beatFlights.Done()
+		flush()
 	}
 }
 
