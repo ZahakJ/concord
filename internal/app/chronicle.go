@@ -637,7 +637,13 @@ func (s *Service) ingestChronicle(guildID string, raw []byte) bool {
 		return false
 	}
 	inserted, err := s.store.SaveChronicleManifest(chronicleIDOf(raw), guildID, raw)
-	return err == nil && inserted
+	if err != nil || !inserted {
+		return false
+	}
+	// Pictures pinned for an archive the guild no longer shows go back to
+	// the cache.
+	s.unpinReplacedChronicles(guildID)
+	return true
 }
 
 // chroniclesForSync returns the raw manifests a responder serves for one guild,
@@ -990,7 +996,7 @@ func (s *Service) ChronicleMessages(guildID, channelID string, beforeNano int64,
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	m, _, ok := s.guildChronicle(guildID)
+	m, chronicleID, ok := s.guildChronicle(guildID)
 	if !ok {
 		return nil, fmt.Errorf("app: this guild has no archive")
 	}
@@ -1054,6 +1060,9 @@ func (s *Service) ChronicleMessages(guildID, channelID string, beforeNano int64,
 	if opened == 0 && lastErr != nil {
 		return nil, lastErr
 	}
+	// The pictures of this page: pinned if held, and remembered so a picture
+	// fetched for it is pinned when it arrives, within the bounds.
+	s.noteChroniclePictures(guildID, chronicleID, picked)
 
 	out := make([]ChronicleMessageView, 0, len(picked))
 	for i := len(picked) - 1; i >= 0; i-- { // back into reading order

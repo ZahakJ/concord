@@ -369,6 +369,9 @@ func (s *Service) attachmentCiphertext(channelID, blobID string) ([]byte, error)
 			continue // wrong or corrupted bytes; try the next peer
 		}
 		_ = s.store.SaveAttachment(blobID, ct)
+		// A picture of an archive page read here is pinned, so this device
+		// can pass it on (chroniclepins.go).
+		s.pinFetchedChroniclePicture(blobID)
 		return ct, nil
 	}
 	return nil, errNotFound

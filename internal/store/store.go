@@ -533,6 +533,9 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 	if err := s.migrateBlobRefs(); err != nil {
 		return err
 	}
+	if err := s.migrateChroniclePins(); err != nil {
+		return err
+	}
 	if err := s.migrateExpires(); err != nil {
 		return err
 	}
@@ -1373,6 +1376,11 @@ func (s *Store) DeleteGuild(guildID string) error {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM guild_ops WHERE guild_id = ?`, guildID); err != nil {
+		return err
+	}
+	// The pictures this device pinned while reading the guild's archive go
+	// back to the cache: a device that left does not pass them on.
+	if _, err := unpinChronicleTx(tx, `guild_id = ?`, guildID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM guilds WHERE id = ?`, guildID); err != nil {

@@ -24,7 +24,8 @@ import (
 // whose last referencing message is deleted for everyone or expires on this
 // device is removed and banned here, unless something else keeps it: another
 // message this device holds, the guild GIF pack, or a pin (a chronicle
-// import pins its pictures). A banned blob is neither served to peers nor
+// import pins its pictures, and a device that reads the archive pins those it
+// holds, within bounds: chroniclepins.go). A banned blob is neither served to peers nor
 // stored again from a fetch or an archive.
 //
 // The index is filled at every insert and body change. Rows stored before it

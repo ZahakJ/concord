@@ -460,6 +460,11 @@ type Service struct {
 	// because sharing one keyspace between two content-addressed namespaces is
 	// a collision waiting for somebody to reuse an id.
 	chronicleFlight singleflight.Group
+	// chronNamed remembers which guild archive named each picture on the
+	// archive pages read lately, so a picture fetched for one of them can be
+	// pinned (chroniclepins.go). Guarded by chronNamedMu.
+	chronNamedMu sync.Mutex
+	chronNamed   map[string]chronicleName
 
 	// Chat-export import (see chronimport.go). importMu guards both fields and
 	// is the enforcement of one-import-at-a-time: two running at once would
