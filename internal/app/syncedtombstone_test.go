@@ -29,6 +29,24 @@ func serveSyncRows(t *testing.T, ctx context.Context, from, to *Service, guildID
 	}
 }
 
+// The catch-up lane takes a deleted or an expired row without its body,
+// whoever served it.
+func TestAttestationTakesADeletedOrExpiredRowWithoutItsBody(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		deleted, expired bool
+	}{{"deleted", true, false}, {"expired", false, true}, {"deleted and expired", true, true}} {
+		m := signedMessage(mustID(t), "ch1", "a body in a tombstone")
+		m.Deleted, m.Expired = tc.deleted, tc.expired
+		if !messageAttestationFrom(&m, nil) {
+			t.Fatalf("%s: the row was refused", tc.name)
+		}
+		if m.Content != "" {
+			t.Errorf("%s: the row kept the body %q", tc.name, m.Content)
+		}
+	}
+}
+
 // A member serves a tombstone that carries a body, for a message this device
 // does not hold. The device keeps the tombstone and no body, so a moderator's
 // "Show original" has nothing to show.
