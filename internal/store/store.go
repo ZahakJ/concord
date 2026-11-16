@@ -3119,7 +3119,8 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 // adopted only when the remote copy changed more recently than ours; reaction
 // rows for fingerprints other than selfFingerprint are replaced by the remote
 // snapshot (own reactions are never touched, so un-synced local toggles
-// survive). Reports whether anything changed.
+// survive). Reports whether anything changed. A deleted row is stored with no
+// body, whether it is inserted or deletes a row held live.
 //
 // trusted gates the DESTRUCTIVE reconcile branches (tombstoning or overwriting a
 // message we already hold). Those mutate an existing, already-authenticated
@@ -3132,6 +3133,11 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, tr
 }
 
 func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint string, trusted bool) (bool, error) {
+	// A deleted row taken from history sync never keeps a body: not the one
+	// the serving member put in the tombstone, and not the one held here.
+	if m.Deleted {
+		m.Content = ""
+	}
 	var curDeleted, curEdited, curPinned, curUnverified int
 	var curUpdated, curSent int64
 	var cur domain.Message
@@ -3222,8 +3228,14 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 		}
 	default:
 		if m.Deleted && curDeleted == 0 {
+			var nonce [nonceSize]byte
+			if _, err := rand.Read(nonce[:]); err != nil {
+				return false, err
+			}
+			sealed := secretbox.Seal(nil, []byte(""), &nonce, &s.key)
 			if _, err := q.Exec(
-				`UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0 WHERE id = ?`, maxInt64(remoteUpdated, curUpdated), m.ID,
+				`UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0, content_enc = ?, nonce = ? WHERE id = ?`,
+				maxInt64(remoteUpdated, curUpdated), sealed, nonce[:], m.ID,
 			); err != nil {
 				return false, err
 			}
