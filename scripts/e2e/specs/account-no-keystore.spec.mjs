@@ -34,7 +34,7 @@ function untouched(assert, peer, before, what) {
 // pastTheChoice gets by the first screen's choice (account-stranded-first-
 // screen.spec.mjs) to the create form, the way "Keep it", then "Back" does.
 async function pastTheChoice(page) {
-  await page.getByRole("button", { name: "Keep it and restore from my recovery phrase", exact: true }).click();
+  await page.getByRole("button", { name: "Keep it and restore", exact: true }).click();
   await page.getByRole("button", { name: "Back", exact: true }).click();
 }
 

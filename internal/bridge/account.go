@@ -284,7 +284,7 @@ func (b *Bridge) startError(err error) error {
 	switch {
 	case errors.Is(err, appsvc.ErrDeviceUnlinked):
 		b.lockReason = LockUnlinked
-		return &CodedError{Code: CodeDeviceUnlinked, Msg: "This device was unlinked from its account, so Concord erased its copy of your identity, guilds and messages. Nothing was deleted from anyone else. Link it again from one of your other devices to get them back."}
+		return &CodedError{Code: CodeDeviceUnlinked, Msg: "This device was unlinked from its account, so Concord erased everything it held: your identity, guilds and messages. Your other devices still have them, and nothing changed for anyone else. To use this device again, link it from one of your other devices."}
 	case errors.Is(err, appsvc.ErrEraseUnfinished):
 		if errors.Is(err, appsvc.ErrDeviceUnlinkedNotErased) {
 			b.lockReason = LockUnlinkedNotErased
@@ -307,5 +307,5 @@ func eraseUnfinishedMsg(files []string) string {
 	default:
 		what = "The files " + strings.Join(files, ", ") + " are"
 	}
-	return "Concord couldn't finish erasing this device. " + what + " still here, probably because another program is using " + them + ". Close any other Concord windows, or restart the computer, and Concord finishes erasing the next time it starts."
+	return "Concord couldn't finish erasing this device. " + what + " still here, probably because another program is using " + them + ". Close any other Concord windows or restart the computer. Concord finishes erasing the next time it starts."
 }

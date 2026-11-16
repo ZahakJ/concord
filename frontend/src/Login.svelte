@@ -852,10 +852,7 @@
     {#if endedReason && !backupPhrase && !resumeBackup}
       <p class="notice" role="status">
         {#if endedReason === "unlinked"}
-          This device was unlinked from its account. Its copy of your identity,
-          your guilds and your messages has been erased here — nothing was deleted
-          from anyone else. Link it again from one of your other devices to get
-          them back.
+          {erasedAfterUnlink}
         {:else if endedReason === "unlinked-not-erased"}
           This device was unlinked from its account, but erasing it here has
           not finished, so some of your identity or data may still be on it.

@@ -11,7 +11,7 @@ export function strandedChoice(linked) {
     return {
       title: "This device holds data nobody can open",
       body:
-        "This device was linked to an account, and the key that unlocked its data is gone. Nobody can open this data again, not even with the recovery phrase. Erase it to use Concord here, or quit and leave it as it is.",
+        "This device was linked to an account, and the key that unlocked its data is gone. Nobody can open this data again, not even with the recovery phrase. Erase it to use Concord on this device, or quit and leave it as it is.",
       erase: "Erase it",
       other: "Quit",
       keepable: false,
@@ -20,9 +20,9 @@ export function strandedChoice(linked) {
   return {
     title: "This device holds data it can no longer open",
     body:
-      "Concord found an account's messages and settings here, but not the key that unlocks them. Erase it to start fresh, or keep it and restore the account with its recovery phrase, which opens it again.",
+      "Concord found an account's messages and settings here, but not the key that unlocks them. You can erase them and start fresh, or keep them and restore the account with its recovery phrase.",
     erase: "Erase it",
-    other: "Keep it and restore from my recovery phrase",
+    other: "Keep it and restore",
     keepable: true,
   };
 }
@@ -30,7 +30,7 @@ export function strandedChoice(linked) {
 // erasedAfterUnlink is said when a start finished erasing a device that
 // was unlinked from its account.
 export const erasedAfterUnlink =
-  "This device was unlinked from its account, so Concord erased its copy of your identity, guilds and messages. Nothing was deleted from anyone else. Link it again from one of your other devices to get them back.";
+  "This device was unlinked from its account, so Concord erased everything it held: your identity, guilds and messages. Your other devices still have them, and nothing changed for anyone else. To use this device again, link it from one of your other devices.";
 
 // eraseUnfinished is said when files could not be removed. files: their
 // names, as the core reports them.
@@ -38,7 +38,7 @@ export function eraseUnfinished(files) {
   const list = (files || []).filter(Boolean);
   const one = list.length === 1;
   const what = list.length === 0 ? "Some of its files are" : one ? `The file ${list[0]} is` : `The files ${list.join(", ")} are`;
-  return `Concord couldn't finish erasing this device. ${what} still here, probably because another program is using ${one ? "it" : "them"}. Close any other Concord windows, or restart the computer, and Concord finishes erasing the next time it starts.`;
+  return `Concord couldn't finish erasing this device. ${what} still here, probably because another program is using ${one ? "it" : "them"}. Close any other Concord windows or restart the computer. Concord finishes erasing the next time it starts.`;
 }
 
 // lockNotice is the lock screen's sentence for why the device is locked,

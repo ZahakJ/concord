@@ -1,9 +1,9 @@
 // A device that holds an account's data but not the keystore that opens it
 // asks first what happens to that data: its first screen is the choice, and
 // nothing is opened, kept up or created until one is made. Data a restore of
-// its own account can open again is offered "Erase it" or "Keep it and restore
-// from my recovery phrase"; a linked device's data, which nobody can open
-// again, is offered "Erase it" or "Quit".
+// its own account can open again is offered "Erase it" or "Keep it and
+// restore"; a linked device's data, which nobody can open again, is offered
+// "Erase it" or "Quit".
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -31,7 +31,7 @@ async function untouched(assert, peer, before, what) {
 
 const NEVER_LINKED = {
   title: "This device holds data it can no longer open",
-  other: "Keep it and restore from my recovery phrase",
+  other: "Keep it and restore",
 };
 const LINKED = { title: "This device holds data nobody can open", other: "Quit" };
 
@@ -136,7 +136,7 @@ test("Erase it, linked device's data: the choice is Erase it or Quit, and the da
   const { page, erase } = await firstScreen(phone, assert, LINKED, { viewport: "phone" });
   const text = await page.locator("form").innerText();
   assert.match(text, /Nobody can open this data again, not even with the recovery phrase\./, `the linked case is not said: ${text}`);
-  assert.doesNotMatch(text, /restore from my recovery phrase|everything on this device is kept/, "the screen offers to keep data nobody can open");
+  assert.doesNotMatch(text, /Keep it and restore|everything on this device is kept/, "the screen offers to keep data nobody can open");
   await untouched(assert, phone, before, "while the choice is shown");
 
   step("Erase it with the word typed erases the data, and a new account can be set up");
