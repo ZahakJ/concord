@@ -80,6 +80,8 @@ jobs:
       # integration job below.
       - name: Tests (race detector)
         run: go test -race -short ./...
+      - name: imgmeta on 32-bit
+        run: GOARCH=386 go test ./internal/imgmeta/...
 
   # The Android app, built far enough to know it still compiles. Nothing else
   # here touches apps/mobile, so a Capacitor or plugin bump, a Java edit or a
