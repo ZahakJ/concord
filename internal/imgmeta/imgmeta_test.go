@@ -303,7 +303,8 @@ func TestGIFAnimextsLoopIsKept(t *testing.T) {
 }
 
 // FuzzStrip checks, on any input, that the stripper does not panic, does not
-// grow its input by more than a fixed amount, accepts its own output, and,
+// grow its input by more than a fixed amount, accepts its own output and
+// leaves it unchanged, and,
 // wherever the standard library decodes the input, gives a picture that
 // decodes to the same pixels. Its seed corpus (the fixtures, cuts of them,
 // and the hostile inputs above) runs with every "go test" of this package,
@@ -318,6 +319,7 @@ func FuzzStrip(f *testing.F) {
 	for _, in := range hugeLengthInputs() {
 		f.Add(in)
 	}
+	f.Add(shortVP8X())
 	f.Fuzz(func(t *testing.T, in []byte) {
 		out, err := Strip(in)
 		if err != nil {
@@ -326,8 +328,12 @@ func FuzzStrip(f *testing.F) {
 		if len(out) > len(in)+64 {
 			t.Fatalf("output %d bytes from %d", len(out), len(in))
 		}
-		if _, err := Strip(out); err != nil {
+		again, err := Strip(out)
+		if err != nil {
 			t.Fatalf("cleaned output is refused: %v", err)
+		}
+		if !bytes.Equal(again, out) {
+			t.Fatalf("cleaning the cleaned output changed it: %d bytes became %d", len(out), len(again))
 		}
 		cfg, _, err := image.DecodeConfig(bytes.NewReader(in))
 		if err != nil || cfg.Width*cfg.Height > 1<<20 {
@@ -353,4 +359,24 @@ func FuzzStrip(f *testing.F) {
 			}
 		}
 	})
+}
+
+// shortVP8X is a WebP whose two VP8X chunks are empty: too short to hold the
+// flags byte.
+func shortVP8X() []byte {
+	body := cat([]byte("WEBP"), []byte("VP8X"), le32(0), []byte("VP8X"), le32(0))
+	return cat([]byte("RIFF"), le32(uint32(len(body))), body)
+}
+
+// The VP8X flags are rewritten only in a VP8X long enough to hold them, never
+// in the bytes of the chunk that follows.
+func TestShortVP8XLeavesTheNextChunkAlone(t *testing.T) {
+	in := shortVP8X()
+	out, err := Strip(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out, in) {
+		t.Fatalf("a picture with nothing to remove changed:\n in  %q\n out %q", in, out)
+	}
 }

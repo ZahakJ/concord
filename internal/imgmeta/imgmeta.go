@@ -414,7 +414,9 @@ func stripWebP(in []byte) ([]byte, error) {
 				}
 			}
 		case webpKeep[typ]:
-			if typ == "VP8X" && vp8x < 0 {
+			// Only a VP8X long enough to hold its flags counts; the flags
+			// of a shorter one would be the next chunk's bytes.
+			if typ == "VP8X" && vp8x < 0 && n >= 10 {
 				vp8x = len(out)
 			}
 			out = append(out, in[i:end]...)
@@ -424,7 +426,7 @@ func stripWebP(in []byte) ([]byte, error) {
 		}
 		i = end
 	}
-	if vp8x >= 0 && vp8x+9 <= len(out) {
+	if vp8x >= 0 {
 		f := out[vp8x+8] &^ 0x0C // XMP and EXIF flags
 		if hasExif {
 			f |= 0x08
