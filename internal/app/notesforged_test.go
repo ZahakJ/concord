@@ -35,10 +35,13 @@ func TestNotesShapedGroupWithAnotherAccountIsNotNotes(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	boot := testRendezvous(t, ctx)
-	u, p, gid, _ := guardedPair(t, ctx, boot)
+	u, p, gid, ch := guardedPair(t, ctx, boot)
 	canon, ok := u.findNotesDM()
 	if !ok {
 		t.Fatal("setup: no Notes")
+	}
+	if _, err := u.SendMessage(ch, "in the shared group", "", ""); err != nil {
+		t.Fatal(err)
 	}
 	shapeAsNotesOf(t, u, gid, u)
 	u.mu.RLock()
@@ -64,6 +67,16 @@ func TestNotesShapedGroupWithAnotherAccountIsNotNotes(t *testing.T) {
 	}
 	if !u.IsNotesGroup(canon.ID) || u.NotesCopy(canon.ID) {
 		t.Error("the real Notes does not read as the Notes")
+	}
+	// Opening Notes reopens hidden Notes copies that hold notes, and not the
+	// shared group.
+	u.hideDM(gid)
+	u.unhideNotesCopies()
+	u.mu.RLock()
+	hidden := u.hiddenDMs[gid]
+	u.mu.RUnlock()
+	if !hidden {
+		t.Error("unhideNotesCopies reopened the shared group")
 	}
 	if !p.guildHasMember(gid, u.Fingerprint()) {
 		t.Fatal("setup: the shared group lost U")
