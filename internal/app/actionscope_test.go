@@ -106,6 +106,7 @@ func TestMessageActionsApplyOnlyInTheGroupThatCarriedThem(t *testing.T) {
 	// Carried by a's guild, naming b's channel.
 	deliver(w.groupA, action(w.chB, "edit", w.byA.ID, "changed through a's group"))
 	deliver(w.groupA, action(w.chB, "delete", w.byA.ID, "deleted"))
+	deliver(w.groupA, action(w.chB, "reaction", w.byB.ID, "+2"))
 
 	got := w.row(t, w.byB.ID)
 	if got.Deleted {
@@ -126,11 +127,39 @@ func TestMessageActionsApplyOnlyInTheGroupThatCarriedThem(t *testing.T) {
 	if mine := w.row(t, w.byA.ID); mine.Content != "edited in place" {
 		t.Fatalf("an edit carried by the row's own guild must apply, got %q", mine.Content)
 	}
+	// So do a reaction and a pin carried by the row's own guild and channel.
+	deliver(w.groupB, action(w.chB, "reaction", w.byB.ID, "ok"))
+	if got := w.row(t, w.byB.ID); len(got.Reactions["ok"]) != 1 {
+		t.Errorf("a reaction in the row's own channel must apply, got %v", got.Reactions)
+	}
+	inA, err := w.a.SendMessage(w.chA, "pinned in a's guild", "", "")
+	if err != nil {
+		t.Fatalf("a SendMessage: %v", err)
+	}
+	waitFor(t, 30*time.Second, func() bool {
+		_, ok, err := w.b.store.MessageByID(inA.ID)
+		return err == nil && ok
+	}, "b never received a's message in a's guild")
+	deliver(w.groupA, action(w.chA, "pin", inA.ID, "pin"))
+	if !w.row(t, inA.ID).Pinned {
+		t.Error("a pin in the row's own channel must apply")
+	}
 
 	// The sending side refuses an action on a message outside the channel.
 	if err := w.a.DeleteMessage(w.chA, w.byA.ID); err == nil {
 		t.Error("DeleteMessage accepted a target from another channel")
 	}
+	// So does an edit: it is sent on the row's own channel.
+	if err := w.a.EditMessage(w.chA, w.byA.ID, "edited from a's channel", ""); err == nil {
+		t.Error("EditMessage accepted a target from another channel")
+	}
+	if err := w.a.EditMessage(w.chB, w.byA.ID, "edited on its own channel", ""); err != nil {
+		t.Errorf("EditMessage on the row's own channel: %v", err)
+	}
+	waitFor(t, 30*time.Second, func() bool {
+		row, ok, err := w.b.store.MessageByID(w.byA.ID)
+		return err == nil && ok && row.Content == "edited on its own channel"
+	}, "an edit sent on the row's own channel never reached b")
 }
 
 // History sync is read under one guild's group, and its source is trusted (or
@@ -201,4 +230,27 @@ func TestSyncPayloadChangesOnlyItsOwnGuild(t *testing.T) {
 	if f, _ := w.b.store.SyncFloor(w.chB); f != floorB {
 		t.Errorf("a sync payload for one guild moved another guild's catch-up position: %d, was %d", f, floorB)
 	}
+
+	// The same source still changes its own guild: a new row and a tombstone
+	// for a row held in ga's channel both apply.
+	own, err := w.a.SendMessage(w.chA, "in a's guild", "", "")
+	if err != nil {
+		t.Fatalf("a SendMessage: %v", err)
+	}
+	waitFor(t, 30*time.Second, func() bool {
+		_, ok, err := w.b.store.MessageByID(own.ID)
+		return err == nil && ok
+	}, "b never received a's message in a's guild")
+	fresh := domain.Message{ID: domain.NewID(), ChannelID: w.chA, Sender: w.a.PublicKey(), Content: "served under ga", Sent: time.Now().UTC()}
+	fresh.Sig = w.a.signMessage(fresh)
+	tomb := own
+	tomb.Deleted, tomb.Updated = true, time.Now().UTC()
+	apply(syncPayload{Guild: w.ga.Clone(), Messages: map[string][]domain.Message{w.chA: {fresh, tomb}}})
+	if _, held, _ := w.b.store.MessageByID(fresh.ID); !held {
+		t.Error("a sync payload did not store a row in its own guild")
+	}
+	if !w.row(t, own.ID).Deleted {
+		t.Error("a sync payload from the guild's owner did not apply a tombstone in its own guild")
+	}
 }
+
