@@ -244,8 +244,8 @@ func (s *Store) noteBlobRefsThrough() {
 }
 
 // ReleaseBlobs drops messageID's blob references, and removes and bans each
-// of its blobs that nothing else keeps: no other held message names it, it
-// is in no guild GIF pack, and it is not pinned. It returns the banned ids.
+// of its blobs that nothing else keeps: no other held message names it, no
+// scheduled send names it, it is in no guild GIF pack, and it is not pinned. It returns the banned ids.
 // Until the backfill is complete only the references are dropped.
 func (s *Store) ReleaseBlobs(messageID string) ([]string, error) {
 	tx, err := s.db.Begin()
@@ -253,7 +253,7 @@ func (s *Store) ReleaseBlobs(messageID string) ([]string, error) {
 		return nil, err
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
-	banned, err := releaseBlobs(tx, messageID, s.BlobRefsComplete())
+	banned, err := s.releaseBlobs(tx, messageID, s.BlobRefsComplete())
 	if err != nil {
 		return nil, err
 	}
@@ -263,7 +263,7 @@ func (s *Store) ReleaseBlobs(messageID string) ([]string, error) {
 	return banned, nil
 }
 
-func releaseBlobs(q querier, messageID string, complete bool) ([]string, error) {
+func (s *Store) releaseBlobs(q querier, messageID string, complete bool) ([]string, error) {
 	rows, err := q.Query(`SELECT blob_id FROM blob_refs WHERE message_id = ?`, messageID)
 	if err != nil {
 		return nil, err
@@ -288,6 +288,7 @@ func releaseBlobs(q querier, messageID string, complete bool) ([]string, error) 
 		return nil, nil
 	}
 	var banned []string
+	var queued map[string]bool
 	for _, id := range ids {
 		var kept int
 		err := q.QueryRow(`SELECT
@@ -300,6 +301,14 @@ func releaseBlobs(q querier, messageID string, complete bool) ([]string, error) 
 		if kept != 0 {
 			continue
 		}
+		if queued == nil {
+			if queued, err = s.queuedBlobIDs(q); err != nil {
+				return nil, err
+			}
+		}
+		if queued[id] {
+			continue
+		}
 		if _, err := q.Exec(`DELETE FROM attachments WHERE blob_id = ?`, id); err != nil {
 			return nil, err
 		}
@@ -309,6 +318,32 @@ func releaseBlobs(q querier, messageID string, complete bool) ([]string, error) 
 		banned = append(banned, id)
 	}
 	return banned, nil
+}
+
+// queuedBlobIDs is the set of blobs the bodies of this device's scheduled
+// sends name. A queued message is not yet a held row, so it has no
+// references; its blobs are kept until it is sent and indexed as one.
+func (s *Store) queuedBlobIDs(q querier) (map[string]bool, error) {
+	rows, err := q.Query(`SELECT content_enc, nonce FROM scheduled_sends`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var enc, nonce []byte
+		if err := rows.Scan(&enc, &nonce); err != nil {
+			return nil, err
+		}
+		body, err := s.open(enc, nonce)
+		if err != nil {
+			continue
+		}
+		for _, id := range BlobIDsIn(body) {
+			out[id] = true
+		}
+	}
+	return out, rows.Err()
 }
 
 // BlobBanned reports whether blobID was removed and banned on this device.

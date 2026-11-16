@@ -411,3 +411,27 @@ func TestRowsWrittenWithoutTheIndexAreIndexedAtTheNextStart(t *testing.T) {
 		t.Errorf("a blob a row written by an older build names was removed: %v %v", banned, err)
 	}
 }
+
+// A blob that a scheduled send names stays when the last held message naming
+// it goes.
+func TestABlobAScheduledSendNamesStays(t *testing.T) {
+	s := completeStore(t)
+	queued, alone := blobID('a'), blobID('b')
+	holdBlob(t, s, queued)
+	holdBlob(t, s, alone)
+	m := saveBody(t, s, imageToken(queued)+" "+imageToken(alone))
+	if err := s.AddScheduledSend(ScheduledSend{ID: "later-1", ChannelID: "chan-1",
+		Content: "forwarded later " + imageToken(queued), FireAt: 1 << 40, Created: 1}); err != nil {
+		t.Fatal(err)
+	}
+	banned, err := s.ReleaseBlobs(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !heldBlob(s, queued) || s.BlobBanned(queued) {
+		t.Errorf("a blob a scheduled send names was removed (banned %v)", banned)
+	}
+	if heldBlob(s, alone) || !s.BlobBanned(alone) {
+		t.Errorf("a blob nothing else names was kept (banned %v)", banned)
+	}
+}
