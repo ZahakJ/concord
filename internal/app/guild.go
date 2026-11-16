@@ -4127,6 +4127,11 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 	if drop := s.dropLive.Load(); drop != nil && (*drop)(m) {
 		return
 	}
+	// Every send gives a message an id (domain.NewMessage). One without names
+	// no row, and would match whatever else is keyed on an empty id.
+	if m.ID == "" {
+		return
+	}
 	// Ignore messages for channels we no longer track (e.g. a guild we left but
 	// whose gossipsub subscription is still live this session), and messages
 	// naming a channel of a guild other than the one whose group carried them:
