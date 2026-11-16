@@ -32,13 +32,20 @@ function untouched(assert, peer, before, what) {
 }
 
 // pastTheChoice gets by the first screen's choice (account-stranded-first-
-// screen.spec.mjs) to the create form, the way "Keep it", then "Back" does.
+// screen.spec.mjs) to the create form, the way "Keep it", "Use my recovery
+// phrase", then "Back" does (Back from the ways back returns to the choice).
+// The create form puts focus in "Your name" a frame after it shows; a fill
+// before that lands in the wrong field, which no person types fast enough for.
 async function pastTheChoice(page) {
   await page.getByRole("button", { name: "Keep it and restore", exact: true }).click();
+  await page.getByRole("button", { name: "Use my recovery phrase" }).click();
   await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Your name");
 }
 
 async function refusedCreate(page) {
+  // The same deferred focus after the form comes back from Cancel.
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Your name");
   await page.getByRole("textbox", { name: "Your name" }).fill("Someone new");
   await page.getByPlaceholder("Choose a passphrase").fill("a-new-passphrase");
   await page.getByPlaceholder("Confirm passphrase").fill("a-new-passphrase");
