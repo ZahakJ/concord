@@ -2501,6 +2501,53 @@ func (s *Store) PurgeDeletedContent(channelIDs []string) (int, error) {
 	return int(n), nil
 }
 
+// ClearDeletedBodies erases the body still held at rest by every deleted row
+// outside keepChannels, and returns how many rows it cleared. It works in
+// batches of pruneBatch rows, one statement each, so the single connection is
+// given back between them. A cleared body is the sealed empty string, as
+// EraseContent writes, and is not matched again: the loop ends on its own.
+func (s *Store) ClearDeletedBodies(keepChannels []string) (int, error) {
+	total := 0
+	for {
+		n, err := s.clearDeletedBodiesChunk(keepChannels, pruneBatch)
+		if err != nil {
+			return total, err
+		}
+		total += n
+		if n < pruneBatch {
+			return total, nil
+		}
+	}
+}
+
+func (s *Store) clearDeletedBodiesChunk(keepChannels []string, limit int) (int, error) {
+	var nonce [nonceSize]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return 0, err
+	}
+	sealed := secretbox.Seal(nil, []byte(""), &nonce, &s.key)
+	// A sealed empty body is exactly secretbox.Overhead bytes long, so a row
+	// still holding words is told apart without opening it.
+	where := `deleted = 1 AND length(content_enc) > ?`
+	args := []any{sealed, nonce[:], secretbox.Overhead}
+	if len(keepChannels) > 0 {
+		ph := make([]string, len(keepChannels))
+		for i, id := range keepChannels {
+			ph[i] = "?"
+			args = append(args, id)
+		}
+		where += ` AND channel_id NOT IN (` + strings.Join(ph, ",") + `)`
+	}
+	args = append(args, limit)
+	res, err := s.db.Exec(`UPDATE messages SET content_enc = ?, nonce = ?
+		 WHERE id IN (SELECT id FROM messages WHERE `+where+` LIMIT ?)`, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: clear deleted bodies: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // PruneMessagesBefore deletes messages in the given channels sent before cutoff
 // (UnixNano), and returns how many rows went.
 //
