@@ -31,6 +31,13 @@ function untouched(assert, peer, before, what) {
   assert.ok(!fs.existsSync(path.join(peer.home, "keystore.json")), `${what}: a keystore was created`);
 }
 
+// pastTheChoice gets by the first screen's choice (account-stranded-first-
+// screen.spec.mjs) to the create form, the way "Keep it", then "Back" does.
+async function pastTheChoice(page) {
+  await page.getByRole("button", { name: "Keep it and restore from my recovery phrase", exact: true }).click();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+}
+
 async function refusedCreate(page) {
   await page.getByRole("textbox", { name: "Your name" }).fill("Someone new");
   await page.getByPlaceholder("Choose a passphrase").fill("a-new-passphrase");
@@ -57,6 +64,7 @@ test("data without a keystore: unlocking deletes nothing, and the account's own 
   const app = await alice.open({ unlock: false });
   const { page } = app;
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
+  await pastTheChoice(page);
   await refusedCreate(page);
   const text = await page.locator("form").innerText();
   assert.match(text, /Nothing was deleted/, "the refusal does not say nothing was deleted");
@@ -91,6 +99,7 @@ test("data without a keystore: another account's phrase is asked about, declinin
   const app = await alice.open({ unlock: false });
   const { page } = app;
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
+  await pastTheChoice(page);
   // The create screen's way to the phrase (linking is offered first there).
   await page.getByRole("button", { name: /restore from my recovery phrase/i }).click();
   await fillRestore(page, bashirPhrase, "brand-new-pass");
@@ -134,6 +143,7 @@ test("data without a keystore: erasing it takes the typed word and a current con
   const app = await alice.open({ unlock: false });
   const { page } = app;
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
+  await pastTheChoice(page);
   await refusedCreate(page);
 
   step("the core refuses an erase without the typed word or a current ticket, whoever calls it");
@@ -183,38 +193,5 @@ test("data without a keystore: erasing it takes the typed word and a current con
   assert.notEqual(me.fingerprint, alice.fingerprint, "the old account came back");
 });
 
-test("data without a keystore on a linked install: nothing promises to keep it, and its own phrase is asked about", async ({ world, assert, waitFor, step }) => {
-  const [alice, bashir] = await world.peers(2);
-  const g = await world.guild({ name: "Kept?", members: [alice, bashir] });
-  const phone = await world.linkDevice(alice, { name: "AlicePhone" });
-  await world.settleGuild({ id: g.id, name: g.name }, [alice, bashir, phone]);
-  await bashir.send(g.allChannels[0].id, "a message the phone holds");
-  await phone.waitForMessage(g.allChannels[0].id, "a message the phone holds");
-  const phrase = await alice.rpc("RevealMnemonic", alice.passphrase);
-  const dbBefore = await keystoreLost(phone);
-
-  step("the choices say this data can't be kept, and why");
-  const app = await phone.open({ unlock: false, viewport: "phone" });
-  const { page } = app;
-  await page.goto(`${phone.url}/?t=${phone.token}`, { waitUntil: "domcontentloaded" });
-  await refusedCreate(page);
-  const text = await page.locator("form").innerText();
-  assert.match(text, /This device holds an account it can't open/, "heading");
-  assert.match(text, /was linked to that account/, `the linked case is not said: ${text}`);
-  assert.match(text, /This data can't be kept: you'll be asked before it is erased\./, "no honest phrase hint");
-  assert.doesNotMatch(text, /keeps everything|everything on this device is kept/, "the screen promises to keep data the core will erase");
-  untouched(assert, phone, dbBefore, "after the refused create");
-
-  step("the account's own phrase is asked about, in the linked words, and the erase names no account");
-  await page.getByRole("button", { name: "Use my recovery phrase" }).click();
-  await fillRestore(page, phrase, "brand-new-pass");
-  const ask = page.getByRole("alertdialog");
-  await ask.waitFor();
-  const asked = await ask.innerText();
-  assert.match(asked, /Its messages show it is the account the phrase\s+is for/, `the same account is not recognised: ${asked}`);
-  assert.match(asked, /can't be kept/, asked);
-  const yes = page.getByRole("button", { name: "Erase this data and restore" });
-  assert.ok(await yes.isDisabled(), "the erase is enabled before ERASE is typed");
-  await page.getByRole("button", { name: "Keep everything here" }).click();
-  untouched(assert, phone, dbBefore, "after declining");
-});
+// A linked install's data without its keystore: its first screen offers only
+// Erase it or Quit (account-stranded-first-screen.spec.mjs).

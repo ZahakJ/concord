@@ -794,7 +794,9 @@
   // One decision per screen, each named by its heading; the three steps of a
   // new account say where you are in them.
   const heading = $derived(
-    backupPhrase && verifying
+    checked && stranded && !confirmingReset
+      ? stranded.title
+      : backupPhrase && verifying
       ? "Check your recovery phrase"
       : backupPhrase || resumeBackup
         ? "Save your recovery phrase"
@@ -827,7 +829,7 @@
                           : "Create your account",
   );
   const step = $derived(
-    !checked || resumeBackup
+    !checked || resumeBackup || stranded
       ? ""
       : backupPhrase && verifying
         ? "3 of 3"
@@ -881,7 +883,6 @@
     {#if !checked}
       <p class="muted">Loading…</p>
     {:else if stranded && !confirmingReset}
-      <h2>{stranded.title}</h2>
       <p class="muted">{stranded.body}</p>
       <button class="primary" type="button" onclick={openReset}>{stranded.erase}</button>
       <button type="button" onclick={keepOrQuit}>{stranded.other}</button>
