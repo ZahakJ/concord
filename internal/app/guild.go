@@ -2165,19 +2165,33 @@ func (s *Service) applyDelete(targetID string, bySender []byte, channelID string
 	if err != nil || !ok {
 		return
 	}
-	// DMs get a REAL delete: wipe the content at rest so neither side can recover
-	// it in-app (the chosen model — unsend actually unsends). Guild deletes keep
-	// the content so a moderator can reveal it (see RevealDeleted).
-	s.mu.RLock()
-	isDM := false
-	if g, gok := s.guilds[guildID]; gok {
-		isDM = g.Kind == "dm"
-	}
-	s.mu.RUnlock()
-	if isDM {
+	if s.erasesDeletedBodies(guildID) {
 		_ = s.store.EraseContent(targetID)
 	}
 	s.emitMessage(deleted)
+}
+
+// erasesDeletedBodies reports whether this device erases the body of a
+// message deleted for everyone in guildID by a live delete. (A tombstone that
+// history sync brings never keeps a body; see store.UpsertSyncedMessage.)
+//
+// Only a device that may reveal a deleted message keeps its body: one whose
+// account holds ManageMessages in a guild that has moderators (see
+// RevealDeleted). Every other device erases it at rest. A direct message, one
+// to one or a group, has no moderators, so there unsend actually unsends on
+// every side.
+//
+// The decision is made once, when the delete is applied. A device that gains
+// ManageMessages later has nothing to reveal for what it erased before, and a
+// device that loses it keeps what it kept until Empty trash.
+func (s *Service) erasesDeletedBodies(guildID string) bool {
+	s.mu.RLock()
+	_, ok := s.guilds[guildID]
+	s.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	return s.noModerators(guildID) || !s.hasPerm(guildID, PermManageMessages)
 }
 
 // ExpireMessage erases THIS device's copy of a disappearing message whose
@@ -2228,15 +2242,11 @@ func (s *Service) EmptyTrash(guildID string) (int, error) {
 func (s *Service) RevealDeleted(channelID, messageID string) (string, error) {
 	s.mu.RLock()
 	guildID, ok := s.channelToGuild[channelID]
-	isDM := false
-	if g, gok := s.guilds[guildID]; ok && gok {
-		isDM = g.Kind == "dm"
-	}
 	s.mu.RUnlock()
 	if !ok {
 		return "", fmt.Errorf("app: unknown channel %s", channelID)
 	}
-	if isDM {
+	if s.noModerators(guildID) {
 		return "", fmt.Errorf("app: deleted direct messages can't be recovered")
 	}
 	if !s.hasPerm(guildID, PermManageMessages) {
@@ -2249,7 +2259,16 @@ func (s *Service) RevealDeleted(channelID, messageID string) (string, error) {
 	if !held || m.ChannelID != channelID || !m.Deleted {
 		return "", fmt.Errorf("app: no deleted message %s in this channel", messageID)
 	}
-	return s.store.MessageContent(messageID)
+	body, err := s.store.MessageContent(messageID)
+	if err != nil {
+		return "", err
+	}
+	if body == "" {
+		// Erased when the delete was applied (this device could not reveal it
+		// then), when history sync brought the delete, or by Empty trash.
+		return "", fmt.Errorf("app: this device did not keep the deleted message")
+	}
+	return body, nil
 }
 
 // trackGuild records a guild in memory and subscribes to its control and
