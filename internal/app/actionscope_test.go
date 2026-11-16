@@ -170,4 +170,35 @@ func TestSyncPayloadChangesOnlyItsOwnGuild(t *testing.T) {
 	if g, ok := w.b.channelGuild(w.chB); !ok || g != w.gb.ID {
 		t.Errorf("a sync payload for one guild moved another guild's channel: now in %q", g)
 	}
+
+	apply := func(payload syncPayload) (*syncPayload, map[string]bool) {
+		t.Helper()
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		ct, err := w.a.mls.Encrypt(ctx, w.groupA, raw)
+		if err != nil {
+			t.Fatalf("a encrypt: %v", err)
+		}
+		ok, got, failed := w.b.applySyncPayloadFrom(w.ga.ID, w.groupA, ct, w.a.Fingerprint())
+		if !ok {
+			t.Fatal("b could not read a sync payload a encrypted at the shared epoch")
+		}
+		return got, failed
+	}
+
+	// Rows served under another guild's channel are not stored, and the
+	// catch-up position of that channel stays where it was.
+	floorB, _ := w.b.store.SyncFloor(w.chB)
+	later := domain.Message{ID: domain.NewID(), ChannelID: w.chB, Sender: w.a.PublicKey(), Content: "served under gb", Sent: time.Now().Add(365 * 24 * time.Hour).UTC()}
+	later.Sig = w.a.signMessage(later)
+	got, failed := apply(syncPayload{Guild: w.ga.Clone(), Messages: map[string][]domain.Message{w.chB: {later}}})
+	w.b.advanceSyncCursor(w.a.host.PeerID(), syncCursor{since: map[string]int64{}}, got, failed)
+	if _, held, _ := w.b.store.MessageByID(later.ID); held {
+		t.Error("a sync payload for one guild stored a row under another guild's channel")
+	}
+	if f, _ := w.b.store.SyncFloor(w.chB); f != floorB {
+		t.Errorf("a sync payload for one guild moved another guild's catch-up position: %d, was %d", f, floorB)
+	}
 }
