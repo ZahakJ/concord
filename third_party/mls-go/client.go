@@ -749,6 +749,25 @@ func (c *Client) InviteMember(ctx context.Context, groupID, memberKeyPackageByte
 // most recently generated pending KeyPackage — if no match is found,
 // [ErrNoPendingKeyPackage] is returned.
 func (c *Client) JoinGroup(ctx context.Context, welcomeBytes []byte) ([]byte, error) {
+	return c.joinGroup(ctx, welcomeBytes, nil)
+}
+
+// ErrWrongGroup is returned by JoinGroupAs when the Welcome is for a group
+// other than the one the caller named.
+var ErrWrongGroup = errors.New("mls: the welcome is for another group")
+
+// JoinGroupAs is JoinGroup for a caller that knows which group it is joining:
+// the Welcome is processed, and if the group it is for is not want, nothing
+// is stored — no state for that group is created or replaced — and
+// ErrWrongGroup is returned. The pending KeyPackage stays pending.
+func (c *Client) JoinGroupAs(ctx context.Context, welcomeBytes, want []byte) ([]byte, error) {
+	if len(want) == 0 {
+		return nil, ErrEmptyGroupID
+	}
+	return c.joinGroup(ctx, welcomeBytes, want)
+}
+
+func (c *Client) joinGroup(ctx context.Context, welcomeBytes, want []byte) ([]byte, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.checkOpen(); err != nil {
@@ -790,6 +809,9 @@ func (c *Client) JoinGroup(ctx context.Context, welcomeBytes []byte) ([]byte, er
 			return nil, joinMatchErr
 		}
 		return nil, ErrNoPendingKeyPackage
+	}
+	if want != nil && !bytes.Equal(joinedGroup.ID().AsSlice(), want) {
+		return nil, ErrWrongGroup
 	}
 	entry := &groupEntry{}
 	if err := c.persistGroup(ctx, joinedGroup, entry); err != nil {

@@ -104,6 +104,11 @@ type Engine interface {
 	// Join enters a group from a welcome message and returns the group ID.
 	Join(ctx context.Context, welcome []byte) (GroupID, error)
 
+	// JoinAs is Join for a caller that knows which group it is joining. If
+	// the welcome is for any other group nothing is stored — no group state
+	// is created or replaced — and it fails.
+	JoinAs(ctx context.Context, welcome []byte, want GroupID) (GroupID, error)
+
 	// ApplyCommit advances an existing member to the epoch produced by a commit
 	// from another member.
 	ApplyCommit(ctx context.Context, gid GroupID, commit []byte) error
@@ -366,6 +371,14 @@ func (e *mlsEngine) discardOrphanProposals(ctx context.Context, gid GroupID) {
 
 func (e *mlsEngine) Join(ctx context.Context, welcome []byte) (GroupID, error) {
 	gid, err := e.c.JoinGroup(ctx, welcome)
+	if err != nil {
+		return nil, fmt.Errorf("mls: join group: %w", err)
+	}
+	return GroupID(gid), nil
+}
+
+func (e *mlsEngine) JoinAs(ctx context.Context, welcome []byte, want GroupID) (GroupID, error) {
+	gid, err := e.c.JoinGroupAs(ctx, welcome, want)
 	if err != nil {
 		return nil, fmt.Errorf("mls: join group: %w", err)
 	}
