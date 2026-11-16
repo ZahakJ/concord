@@ -152,6 +152,13 @@ async function waitChecked(box, want) {
   throw new Error(`the switch did not turn ${want ? "on" : "off"}`);
 }
 
+// Right after a send, before waiting for the message to arrive: no LinkCard
+// call within 1.5 s. A send that fetched first would make one at once.
+async function noCardCall(asked, sleep, assert, what) {
+  for (let i = 0; i < 15 && asked.length === 0; i++) await sleep(100);
+  assert.deepEqual(asked, [], what);
+}
+
 async function cardsOn(app) {
   await app.page.evaluate(() => {
     const p = JSON.parse(localStorage.getItem("concord.prefs") || "{}");
@@ -357,6 +364,7 @@ test("the composer fetches nothing while a link is typed, and the card once at s
   const asked = await stubLinkCard(a, () => ({ block }), sleep);
   await a.composer().fill(`default ${YT}`);
   await a.composer().press("Enter");
+  await noCardCall(asked, sleep, assert, "the first link was fetched before the question was answered");
   await bashir.waitForMessage(general.id, `default ${YT}`, { timeout: 30000 });
   await question.waitFor({ timeout: 5000 });
   assert.equal((await question.locator("span").first().innerText()).trim(), QUESTION, "the question's words");
@@ -430,8 +438,9 @@ test("phone: No thanks keeps links bare and is not asked again", async ({ world,
   assert.equal(await storedChoice(a), null, "undecided");
 
   step("the first link asks");
-  await stubLinkCard(a, () => ({ block }), sleep);
+  const asked = await stubLinkCard(a, () => ({ block }), sleep);
   await send(`first ${YT}`);
+  await noCardCall(asked, sleep, assert, "the first link was fetched before the question was answered");
   await bashir.waitForMessage(general.id, `first ${YT}`, { timeout: 30000 });
   await question.waitFor({ timeout: 5000 });
   assert.equal((await question.locator("span").first().innerText()).trim(), QUESTION, "the question's words");
@@ -443,6 +452,7 @@ test("phone: No thanks keeps links bare and is not asked again", async ({ world,
   await question.waitFor({ state: "detached", timeout: 5000 });
   assert.equal(await storedChoice(a), false, "No thanks was not stored");
   await send(`second ${YT}`);
+  await noCardCall(asked, sleep, assert, "a card was fetched after No thanks");
   await bashir.waitForMessage(general.id, `second ${YT}`, { timeout: 30000 });
   await sleep(1000);
   assert.equal(await question.count(), 0, "asked again after No thanks");
@@ -452,6 +462,7 @@ test("phone: No thanks keeps links bare and is not asked again", async ({ world,
   // The phone comes back in the channel it was in.
   await a.composer().waitFor({ timeout: 15000 });
   await send(`third ${YT}`);
+  await noCardCall(asked, sleep, assert, "a card was fetched after No thanks and a reload");
   await bashir.waitForMessage(general.id, `third ${YT}`, { timeout: 30000 });
   await sleep(1000);
   assert.equal(await question.count(), 0, "asked again after a reload");
