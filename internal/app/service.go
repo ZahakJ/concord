@@ -1051,6 +1051,11 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	} else if unlinked {
 		return nil, ErrDeviceUnlinked
 	}
+	// Account data with no keystore: nothing is opened, reused or created
+	// beside it until the user chooses what happens to it.
+	if stranded, _ := DataWithoutKeystore(cfg.DataDir); stranded {
+		return nil, ErrDataWithoutKeystore
+	}
 	id, freshIdentity, err := identity.LoadOrCreate(keystorePathIn(cfg.DataDir), cfg.Passphrase)
 	if err != nil {
 		return nil, fmt.Errorf("app: open identity: %w", err)

@@ -10,7 +10,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/ZahakJ/concord/internal/identity"
 )
@@ -138,7 +137,7 @@ func accountDataFiles(dataDir string) []string {
 // could not be removed is named.
 func eraseRecordedData(dataDir string) error {
 	if err := removeKeystoreFiles(dataDir); err != nil {
-		return fmt.Errorf("%w: still here: %s", ErrDataNotErased, filepath.Base(keystorePathIn(dataDir)))
+		return &DataLeftError{Files: []string{filepath.Base(keystorePathIn(dataDir))}}
 	}
 	if err := eraseStep("keystore"); err != nil {
 		return err
@@ -160,10 +159,10 @@ func eraseRecordedData(dataDir string) error {
 	}
 	_ = syncEraseDir(dataDir)
 	if len(left) > 0 {
-		return fmt.Errorf("%w: still here: %s", ErrDataNotErased, strings.Join(left, ", "))
+		return &DataLeftError{Files: left}
 	}
 	if err := removeEraseRecord(dataDir); err != nil {
-		return fmt.Errorf("%w: still here: %s", ErrDataNotErased, eraseRecordName)
+		return &DataLeftError{Files: []string{eraseRecordName}}
 	}
 	return nil
 }
@@ -225,4 +224,36 @@ func mlsDirIn(dataDir string) (string, error) {
 // leaves the old keystore readable.
 func ChangePassphrase(dataDir, current, next string) error {
 	return identity.ChangePassphrase(keystorePathIn(dataDir), current, next)
+}
+
+// ErrDataWithoutKeystore refuses to open or create anything on a device that
+// holds an account's data but no keystore to open it. Nothing is read,
+// reused or created beside it until the user chooses: erase it, or (on an
+// install that was never linked) restore the account from its recovery
+// phrase, which keeps the data.
+var ErrDataWithoutKeystore = errors.New("app: this device has an account's data but no keystore to open it")
+
+// hasAccountData reports whether any account data is here (accountDataFiles,
+// or anything in the group-state directory).
+func hasAccountData(dataDir string) bool {
+	for _, p := range accountDataFiles(dataDir) {
+		if _, err := os.Lstat(p); err == nil {
+			return true
+		}
+	}
+	entries, err := os.ReadDir(filepath.Join(dataDir, "mls"))
+	return err == nil && len(entries) > 0
+}
+
+// DataWithoutKeystore reports, for the first screen, whether this device
+// holds account data with no keystore, and whether that data is a linked
+// device's (which nobody can open again; a restore erases it).
+func DataWithoutKeystore(dataDir string) (stranded, linked bool) {
+	if _, err := os.Lstat(keystorePathIn(dataDir)); err == nil || erasePendingIn(dataDir) {
+		return false, false
+	}
+	if !hasAccountData(dataDir) {
+		return false, false
+	}
+	return true, hasDeviceMarker(dataDir)
 }

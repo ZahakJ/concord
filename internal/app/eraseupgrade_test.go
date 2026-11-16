@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -94,5 +95,32 @@ func TestARestoreDoesNotBringBackARevokedDevicesData(t *testing.T) {
 			t.Fatalf("recorded=%v: the revoked device's marker came back", recorded)
 		}
 		cancel()
+	}
+}
+
+// A device holding account data with no keystore opens nothing, reuses
+// nothing and creates no account beside it.
+func TestDataWithoutAKeystoreIsNotOpenedOrBuiltOn(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	s, err := Start(ctx, Config{DataDir: dir, Passphrase: "test-pass", DisableMDNS: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	_ = os.Remove(keystorePathIn(dir))
+	before := filesIn(t, dir)
+	if stranded, linked := DataWithoutKeystore(dir); !stranded || linked {
+		t.Fatalf("DataWithoutKeystore = %v, %v", stranded, linked)
+	}
+	if _, err := Start(ctx, Config{DataDir: dir, Passphrase: "new-pass", DisableMDNS: true}); !errors.Is(err, ErrDataWithoutKeystore) {
+		t.Fatalf("start: %v", err)
+	}
+	if keystoreFileHere(dir) {
+		t.Fatal("a new account was created beside the data")
+	}
+	if after := filesIn(t, dir); strings.Join(after, ",") != strings.Join(before, ",") {
+		t.Fatalf("the start touched the data: %v -> %v", before, after)
 	}
 }
