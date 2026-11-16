@@ -345,3 +345,24 @@ func TestUncleanablePicturesAreRefusedByName(t *testing.T) {
 		t.Fatalf("err = %v, want one naming HEIC or AVIF", err)
 	}
 }
+
+// The avatar is held to the same whole-URI check as every other picture, so
+// a URI the cleaner cannot read is refused rather than stored as it came.
+func TestAvatarMustBeAPlainBase64Picture(t *testing.T) {
+	svc, _, _ := cleanFixture(t)
+	b64 := base64.StdEncoding.EncodeToString(fixtureNamed("jpeg").Bytes)
+	for name, uri := range map[string]string{
+		"upper-case BASE64": "data:image/jpeg;BASE64," + b64,
+		"a name parameter":  "data:image/jpeg;name=a.jpg;base64," + b64,
+		"a newline inside":  "data:image/jpeg;base64," + b64[:40] + "\n" + b64[40:],
+		"an svg":            "data:image/svg+xml;base64,PHN2Zy8+",
+		"not base64 at all": "data:image/png,rawbytes",
+	} {
+		if err := svc.SetProfile(Profile{Name: "Sina", Avatar: uri}); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if err := svc.SetProfile(Profile{Name: "Sina", Avatar: "data:image/jpeg;base64," + b64}); err != nil {
+		t.Fatalf("a plain JPEG avatar: %v", err)
+	}
+}

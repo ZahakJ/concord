@@ -2302,8 +2302,8 @@ func (s *Service) SetProfile(p Profile) error {
 	if len(p.Avatar) > maxAvatarBytes {
 		return fmt.Errorf("app: avatar image too large (max %d KB)", maxAvatarBytes/1024)
 	}
-	if p.Avatar != "" && !strings.HasPrefix(p.Avatar, "data:image/") {
-		return fmt.Errorf("app: avatar must be an image data URI")
+	if p.Avatar != "" && !validImageDataURI(p.Avatar, maxAvatarBytes) {
+		return fmt.Errorf("app: avatar must be a base64 png/jpeg/gif/webp data URI")
 	}
 	if len(p.Banner) > maxProfileBannerBytes {
 		return fmt.Errorf("app: banner image too large (max %d KB)", maxProfileBannerBytes/1024)
