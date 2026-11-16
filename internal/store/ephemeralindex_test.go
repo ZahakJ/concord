@@ -170,3 +170,56 @@ func TestExpiresBackfillRunsInChunksAfterOpen(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// A row deleted or expired between the backfill's read and its write keeps
+// the deadline its tombstone was given. An unproven row's expired tombstone
+// carries none, so the backfill must not hand it the one it read: that would
+// make it look like the sender's proven record of a timer. A row still live
+// gets its deadline as before.
+func TestExpiresBackfillSkipsRowsDeletedSinceItsRead(t *testing.T) {
+	st := sidebarStore(t)
+	now := time.Now()
+	past := fmt.Sprintf("gone [eph](concord://eph/v1/%d)", now.Add(-time.Minute).Unix())
+	later := fmt.Sprintf("bye [eph](concord://eph/v1/%d)", now.Add(time.Hour).Unix())
+	for i, m := range []domain.Message{
+		{ID: "relayed", ChannelID: "c", Content: past, Unverified: true},
+		{ID: "deleted", ChannelID: "c", Content: later},
+		{ID: "live", ChannelID: "c", Content: later},
+	} {
+		m.Sender = []byte("s")
+		m.Sent = now.Add(time.Duration(i) * time.Second)
+		if _, err := st.SaveMessage(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// As written by a build that could not see deadlines: none recorded.
+	if _, err := st.db.Exec(`UPDATE messages SET expires = 0`); err != nil {
+		t.Fatal(err)
+	}
+	due, _, _, err := st.readExpiresChunk(0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(due) != 3 {
+		t.Fatalf("read %d deadlines, want 3: %v", len(due), due)
+	}
+	// Between the read and the write, the view expires the unproven row and
+	// the sender deletes another.
+	if _, ok, err := st.MarkDisappeared("relayed"); err != nil || !ok {
+		t.Fatalf("MarkDisappeared: ok=%v err=%v", ok, err)
+	}
+	if _, ok, err := st.MarkDeleted("deleted", []byte("s"), false); err != nil || !ok {
+		t.Fatalf("MarkDeleted: ok=%v err=%v", ok, err)
+	}
+	st.writeBackfilledExpires(due)
+
+	for id, want := range map[string]int64{"relayed": 0, "deleted": 0, "live": due["live"]} {
+		var at int64
+		if err := st.db.QueryRow(`SELECT expires FROM messages WHERE id = ?`, id).Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		if at != want {
+			t.Errorf("%s expires = %d after the backfill, want %d", id, at, want)
+		}
+	}
+}

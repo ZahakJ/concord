@@ -114,11 +114,23 @@ func (s *Store) backfillExpires(delay time.Duration) {
 // backfillExpiresChunk handles the live rows with rowid > from, at most limit
 // of them, and returns the last rowid it saw and whether there were no more.
 func (s *Store) backfillExpiresChunk(from int64, limit int) (int64, bool, error) {
+	due, last, done, err := s.readExpiresChunk(from, limit)
+	if err != nil {
+		return from, false, err
+	}
+	s.writeBackfilledExpires(due)
+	return last, done, nil
+}
+
+// readExpiresChunk reads the deadlines out of the live rows with rowid > from,
+// at most limit of them: the deadline by message id, the last rowid it saw and
+// whether there were no more.
+func (s *Store) readExpiresChunk(from int64, limit int) (map[string]int64, int64, bool, error) {
 	rows, err := s.rd().Query(
 		`SELECT rowid, id, content_enc, nonce FROM messages WHERE rowid > ? AND deleted = 0 ORDER BY rowid LIMIT ?`,
 		from, limit)
 	if err != nil {
-		return from, false, err
+		return nil, from, false, err
 	}
 	due := map[string]int64{}
 	last, n := from, 0
@@ -142,14 +154,20 @@ func (s *Store) backfillExpiresChunk(from int64, limit int) (int64, bool, error)
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
-		return from, false, err
+		return nil, from, false, err
 	}
+	return due, last, n < limit, nil
+}
+
+// writeBackfilledExpires records the deadlines readExpiresChunk read, only on
+// rows that are still live and have none: a row stored after the upgrade
+// already carries its own deadline, and a row deleted or expired since the
+// read keeps the deadline its tombstone was given (an expired row's tombstone
+// carries one only as the sender's proven record of the timer).
+func (s *Store) writeBackfilledExpires(due map[string]int64) {
 	for id, at := range due {
-		// Only where nothing has set it since: a row stored after the upgrade
-		// already carries its own deadline.
-		_, _ = s.db.Exec(`UPDATE messages SET expires = ? WHERE id = ? AND expires = 0`, at, id)
+		_, _ = s.db.Exec(`UPDATE messages SET expires = ? WHERE id = ? AND expires = 0 AND deleted = 0`, at, id)
 	}
-	return last, n < limit, nil
 }
 
 // DueMessage is a live row whose disappearing timer has run out.
