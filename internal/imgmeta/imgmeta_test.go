@@ -90,11 +90,11 @@ func TestTruncatedPicturesAreStillCleaned(t *testing.T) {
 func bigJPEG(tb testing.TB) []byte {
 	tb.Helper()
 	r := rand.New(rand.NewSource(1))
-	img := image.NewRGBA(image.Rect(0, 0, 2000, 1000))
+	img := image.NewRGBA(image.Rect(0, 0, 2000, 2560))
 	for i := range img.Pix {
 		img.Pix[i] = uint8(r.Intn(256))
 	}
-	for y := 0; y < 1000; y++ {
+	for y := 0; y < 2560; y++ {
 		img.Set(0, y, color.White)
 	}
 	var b bytes.Buffer
@@ -115,5 +115,14 @@ func BenchmarkStrip5MBJPEG(b *testing.B) {
 		if _, err := Strip(in); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestBenchInputIsFiveMegabytes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds a 5 MB picture")
+	}
+	if n := len(bigJPEG(t)); n < 4<<20 || n > 5<<20 {
+		t.Fatalf("benchmark input is %d bytes, want about 5 MB", n)
 	}
 }
