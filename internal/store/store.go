@@ -831,11 +831,15 @@ func decodeLinks(raw string) []string {
 	return out
 }
 
-// SaveCategory upserts a guild category (layout metadata).
+// SaveCategory upserts a guild category (layout metadata). Category ids are
+// one key across every guild this device holds, so an existing row is changed
+// only when it belongs to the same guild; a row of another guild is left as it
+// is.
 func (s *Store) SaveCategory(c domain.Category) error {
 	_, err := s.db.Exec(
 		`INSERT INTO categories (id, guild_id, name, position) VALUES (?, ?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET name=excluded.name, position=excluded.position`,
+		 ON CONFLICT(id) DO UPDATE SET name=excluded.name, position=excluded.position
+		 WHERE categories.guild_id = excluded.guild_id`,
 		c.ID, c.GuildID, c.Name, c.Position)
 	if err != nil {
 		return fmt.Errorf("store: save category: %w", err)
@@ -939,7 +943,7 @@ func (s *Store) DeleteCategory(guildID, categoryID string) error {
 	if _, err := tx.Exec(`UPDATE channels SET category='' WHERE guild_id=? AND category=?`, guildID, categoryID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM categories WHERE id=?`, categoryID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM categories WHERE id=? AND guild_id=?`, categoryID, guildID); err != nil {
 		return err
 	}
 	return tx.Commit()
