@@ -1890,6 +1890,11 @@ func (s *Store) open(enc, nonceB []byte) (string, error) {
 // ToggleReaction adds a reaction if absent, or removes it if present (so a
 // second tap of the same emoji un-reacts). Returns whether it is now added.
 func (s *Store) ToggleReaction(messageID, fingerprint, emoji string) (bool, error) {
+	// A deleted message takes no reactions: its delete removed them.
+	var deleted int
+	if err := s.rd().QueryRow(`SELECT deleted FROM messages WHERE id = ?`, messageID).Scan(&deleted); err == nil && deleted != 0 {
+		return false, nil
+	}
 	var one int
 	err := s.rd().QueryRow(
 		`SELECT 1 FROM reactions WHERE message_id=? AND fingerprint=? AND emoji=?`,
@@ -2060,15 +2065,19 @@ func (s *Store) messageByID(q querier, id string) (domain.Message, bool, error) 
 }
 
 // TogglePinned flips a message's pinned flag. Any guild member may pin (the
-// action itself arrives over the authenticated encrypted channel).
+// action itself arrives over the authenticated encrypted channel). A deleted
+// message is not pinned again: its delete unpinned it.
 func (s *Store) TogglePinned(id string) (bool, error) {
-	var pinned int
-	err := s.rd().QueryRow(`SELECT pinned FROM messages WHERE id = ?`, id).Scan(&pinned)
+	var pinned, deleted int
+	err := s.rd().QueryRow(`SELECT pinned, deleted FROM messages WHERE id = ?`, id).Scan(&pinned, &deleted)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
+	}
+	if deleted != 0 {
+		return false, nil
 	}
 	newVal := 1 - pinned
 	if _, err := s.db.Exec(`UPDATE messages SET pinned = ?, updated = ? WHERE id = ?`, newVal, time.Now().UnixNano(), id); err != nil {
@@ -2499,8 +2508,8 @@ func (s *Store) markDeleted(id string, bySender []byte, force, expire bool) (dom
 	}
 	// The signature dies with the body it covered. Keeping it would make every
 	// tombstone a record that fails verification on the next peer to receive it,
-	// which is how deletes would stop propagating.
-	q := `UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0 WHERE id = ?`
+	// which is how deletes would stop propagating. The pin goes with the message.
+	q := `UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0, pinned = 0 WHERE id = ?`
 	if expire {
 		// The CASE reads the row as it was before this write. A row expired a
 		// second time (the core's sweeper and the view can both reach it)
@@ -2508,13 +2517,18 @@ func (s *Store) markDeleted(id string, bySender []byte, force, expire bool) (dom
 		q = `UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0, expired = 1, pinned = 0,
 		 expires = CASE WHEN expired = 1 OR (deleted = 0 AND unverified = 0) THEN expires ELSE 0 END WHERE id = ?`
 	}
-	if _, err := s.db.Exec(q, time.Now().UnixNano(), id); err != nil {
+	tx, err := s.db.Begin()
+	if err != nil {
 		return domain.Message{}, false, err
 	}
-	_, _ = s.db.Exec(`DELETE FROM hidden_messages WHERE message_id = ?`, id) // a tombstone needs no hide
-	// Delete for everyone (and a disappearing message's expiry, which runs this
-	// too) takes every earlier version with it, not just the current body.
-	if err := dropVersions(s.db, id); err != nil {
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	if _, err := tx.Exec(q, time.Now().UnixNano(), id); err != nil {
+		return domain.Message{}, false, err
+	}
+	if err := dropRemnants(tx, id); err != nil {
+		return domain.Message{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
 		return domain.Message{}, false, err
 	}
 	m.ID = id
@@ -2522,6 +2536,25 @@ func (s *Store) markDeleted(id string, bySender []byte, force, expire bool) (dom
 	m.Deleted = true
 	m.Sent = time.Unix(0, sent).UTC()
 	return m, true, nil
+}
+
+// dropRemnants removes what a message leaves beside its row when it is deleted
+// for everyone or expires: its earlier versions, the reactions to it, the
+// receipts for it, this device's bookmark of it and any hide of it (a
+// tombstone needs no hide). The pin is a column of the row and is cleared by
+// the caller's own update.
+func dropRemnants(q querier, id string) error {
+	for _, stmt := range []string{
+		`DELETE FROM hidden_messages WHERE message_id = ?`,
+		`DELETE FROM reactions WHERE message_id = ?`,
+		`DELETE FROM msg_receipts WHERE message_id = ?`,
+		`DELETE FROM saved_messages WHERE message_id = ?`,
+	} {
+		if _, err := q.Exec(stmt, id); err != nil {
+			return fmt.Errorf("store: drop remnants: %w", err)
+		}
+	}
+	return dropVersions(q, id)
 }
 
 // EraseContent overwrites a message's stored body with an encrypted empty
@@ -3230,7 +3263,7 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified, quiet, expires)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir),
-			boolToInt(m.Deleted), boolToInt(m.Edited), boolToInt(m.Pinned),
+			boolToInt(m.Deleted), boolToInt(m.Edited), boolToInt(m.Pinned && !m.Deleted),
 			sealed, nonce[:], m.Sent.UnixNano(), remoteUpdated,
 			nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)), EphemeralExpiry(m.Content),
 		); err != nil {
@@ -3281,12 +3314,12 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 			}
 			sealed := secretbox.Seal(nil, []byte(""), &nonce, &s.key)
 			if _, err := q.Exec(
-				`UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0, content_enc = ?, nonce = ? WHERE id = ?`,
+				`UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0, pinned = 0, content_enc = ?, nonce = ? WHERE id = ?`,
 				maxInt64(remoteUpdated, curUpdated), sealed, nonce[:], m.ID,
 			); err != nil {
 				return false, err
 			}
-			if err := dropVersions(q, m.ID); err != nil {
+			if err := dropRemnants(q, m.ID); err != nil {
 				return false, err
 			}
 			changed = true
@@ -3320,8 +3353,8 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 	// Reconcile reactions when the remote copy is at least as fresh as ours — but
 	// only from a trusted source, or for a message we just inserted (whose reaction
 	// set arrives with it). An untrusted backfill peer must not rewrite the
-	// reaction rows of a message we already hold.
-	if remoteUpdated >= curUpdated && (trusted || inserted) {
+	// reaction rows of a message we already hold. A deleted message has none.
+	if remoteUpdated >= curUpdated && (trusted || inserted) && !m.Deleted && curDeleted == 0 {
 		if rc, err := replaceReactionsExceptSelf(q, m.ID, m.Reactions, selfFingerprint); err == nil && rc {
 			changed = true
 		}
