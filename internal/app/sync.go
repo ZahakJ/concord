@@ -1160,11 +1160,16 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 	failed := map[string]bool{}
 	arrived := s.guildArrivedNano(guildID)
 	for chID, msgs := range payload.Messages {
+		// Only this guild's own channels: the payload was read under its group,
+		// and trust in it (trustedSyncSource) was judged in this guild.
 		s.mu.RLock()
-		_, tracked := s.channelToGuild[chID]
+		owner, tracked := s.channelToGuild[chID]
 		s.mu.RUnlock()
 		if !tracked {
 			failed[chID] = true
+			continue
+		}
+		if owner != guildID {
 			continue
 		}
 		accepted := make([]domain.Message, 0, len(msgs))

@@ -3038,11 +3038,17 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 	var curUpdated, curSent int64
 	var cur domain.Message
 	var curEnc, curNonce []byte
+	var curChannel string
 	err := q.QueryRow(
-		`SELECT deleted, edited, pinned, updated, unverified, sender, name, kind, reply_to, dir, sent, content_enc, nonce
+		`SELECT deleted, edited, pinned, updated, unverified, sender, name, kind, reply_to, dir, sent, content_enc, nonce, channel_id
 		 FROM messages WHERE id = ?`, m.ID,
 	).Scan(&curDeleted, &curEdited, &curPinned, &curUpdated, &curUnverified,
-		&cur.Sender, &cur.Name, &cur.Kind, &cur.ReplyTo, &cur.Dir, &curSent, &curEnc, &curNonce)
+		&cur.Sender, &cur.Name, &cur.Kind, &cur.ReplyTo, &cur.Dir, &curSent, &curEnc, &curNonce, &curChannel)
+	// A row is the same message only in the same channel. A served row whose id
+	// we hold in another channel changes nothing here, reactions included.
+	if err == nil && curChannel != m.ChannelID {
+		return false, nil
+	}
 	// sameWords: the served copy says exactly what the row we hold says, by the
 	// same person, in the same place, stamped the same moment. Only then can
 	// what one copy proves about authorship be carried over to the other.
