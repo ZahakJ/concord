@@ -51,6 +51,7 @@ import { landsOnWelcome } from "./firstrun.js";
 import { isPersonDM, listedNotesCopy } from "./notes.js";
 import { momentsPlaylist } from "./moments.js";
 import { insertBySent, compareSent } from "./feedorder.js";
+import { forgetAttachments } from "./attachments.js";
 import { createFeedCache, reconcileFeed } from "./feedcache.js";
 import { dropMessage, withHidden, HIDE_TITLE, HIDE_BODY } from "./hidden.js";
 import { formatClock } from "./clockfmt.js";
@@ -4226,6 +4227,15 @@ function initEvents() {
     // to be sure about a row whose author's clock is wrong.
     const isLive = !m.backfill && Date.now() - new Date(m.sent).getTime() < 60000;
 
+    // A message deleted or disappeared takes its decrypted pictures out of
+    // memory, read from the copy shown before the update.
+    if (m.deleted) {
+      const prev =
+        m.channelId === S.activeChannelId
+          ? S.messages.find((x) => x.id === m.id)
+          : feedCache.peek(m.channelId, m.id);
+      if (prev && !prev.deleted) forgetAttachments(prev.content);
+    }
     // A channel kept for a fast return hears the same news the open one does.
     if (m.channelId !== S.activeChannelId) feedCache.apply(m);
     if (m.channelId === S.activeChannelId) {

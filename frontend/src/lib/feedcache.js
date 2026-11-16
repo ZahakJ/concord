@@ -34,6 +34,10 @@ export function createFeedCache({ max = 12, rows = 200 } = {}) {
       return v;
     },
     has: (id) => map.has(id),
+    // peek finds one message of a kept channel without touching recency.
+    peek(channelId, id) {
+      return map.get(channelId)?.find((x) => x.id === id) || null;
+    },
     // apply mirrors the open feed's handling of a message event.
     apply(m) {
       const list = m && map.get(m.channelId);

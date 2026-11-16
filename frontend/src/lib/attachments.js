@@ -168,6 +168,29 @@ export function onAttachmentCached(fn) {
   return () => cachedListeners.delete(fn);
 }
 
+// forgetAttachments drops from the cache the decrypted pictures a message
+// showed, its images and its link card's picture, when it is deleted or
+// disappears. Returns how many entries went. Another message showing the same
+// picture decrypts it again from this device's store.
+export function forgetAttachments(content) {
+  if (!content) return 0;
+  let n = 0;
+  const drop = (id) => {
+    settled.delete(id);
+    return cache.delete(id);
+  };
+  for (const t of parseAttachTokens(content)) if (drop(t.blobId)) n++;
+  return n;
+}
+
+// For tests: whether a blob's picture is cached, and a way to cache one
+// without the core.
+export const attachmentCached = (blobId) => cache.has(blobId);
+export function primeAttachmentCache(blobId, dataURL) {
+  cache.set(blobId, Promise.resolve(dataURL));
+  settled.set(blobId, dataURL);
+}
+
 // ---- "why isn't this here?" ------------------------------------------------
 
 // midTrunc shortens a file name from the MIDDLE, keeping its start and its

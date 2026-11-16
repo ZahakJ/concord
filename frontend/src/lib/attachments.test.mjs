@@ -19,6 +19,9 @@ import {
   parseFileTokens,
   placeholderName,
   displayFileName,
+  forgetAttachments,
+  attachmentCached,
+  primeAttachmentCache,
 } from "./attachments.js";
 
 let failures = 0;
@@ -165,6 +168,21 @@ eq(placeholderName({ name: "" }), "", "a v1 token has no name and gets no line")
   );
   eq(fileLabel("a.txt", 13), "TXT · 13 B", "the card's second line: kind and size");
   eq(fileLabel("README", 2048), "2 KB", "no extension: the size alone");
+}
+
+// A deleted or disappeared message takes its decrypted pictures, its images
+// and its link card's picture, out of the cache; another's stay.
+{
+  const keys = "A".repeat(75);
+  const img = "a".repeat(64), card = "b".repeat(64), other = "c".repeat(64);
+  const desc = Buffer.from("example.com").toString("base64url");
+  const body = `see https://example.com/x\n![image](concord://attach/v1/${img}/${keys}/png/1x1)\n` +
+    `[Example](https://example.com/x)\n![image](concord://attach/v2/${card}/${keys}/jpeg/480x270/2//${desc})`;
+  for (const id of [img, card, other]) primeAttachmentCache(id, "data:image/png;base64,AA==");
+  eq(forgetAttachments(body), 2, "the image and the card's picture are dropped");
+  assert(!attachmentCached(img) && !attachmentCached(card), "the deleted message's pictures are gone");
+  assert(attachmentCached(other), "another message's picture stays");
+  eq(forgetAttachments(""), 0, "an empty body drops nothing");
 }
 
 if (failures) {
