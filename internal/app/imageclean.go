@@ -2,8 +2,10 @@ package app
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/ZahakJ/concord/internal/imgmeta"
 )
@@ -13,26 +15,34 @@ import (
 // phone share one implementation, and a page path that forgets to clean
 // (paste, drop, the share sheet, a picker) cannot leak anything. The chat
 // paths meet in sealAttachment and SendFile; the pictures that travel as data
-// URIs (avatars, banners, guild icons, forum art, stories, custom emoji) go
-// through cleanImageURI in their setters. See package imgmeta for what is
-// kept and what is removed.
+// URIs (avatars, banners, the orbit-ring sprite, guild icons, forum art,
+// stories, custom emoji) go through cleanImageURI in their setters. See
+// package imgmeta for what is kept and what is removed.
 
 // cleanImage strips metadata from picture bytes about to leave this device.
 // Bytes in no picture format the stripper knows are returned unchanged.
 func cleanImage(plain []byte) ([]byte, error) {
 	out, err := imgmeta.Strip(plain)
-	if err != nil {
-		return nil, fmt.Errorf("app: couldn't remove the details stored inside this picture (%v); send it as a png, jpeg, gif or webp", err)
+	switch {
+	case errors.Is(err, imgmeta.ErrUnsupported):
+		return nil, fmt.Errorf("app: this picture is HEIC or AVIF, whatever its name says, and its details can't be removed here; save it as a jpeg or png and send that")
+	case err != nil:
+		return nil, fmt.Errorf("app: couldn't remove the details stored inside this picture because it looks damaged (%v)", err)
 	}
 	return out, nil
 }
 
-var imageURIRe = regexp.MustCompile(`^data:image/(png|jpeg|gif|webp);base64,([A-Za-z0-9+/=]+)$`)
+// imageURIRe admits any declared subtype: the format is read from the bytes,
+// and the setters' own validators (which accept "jpg" as well as "jpeg", for
+// one) decide afterwards what may be stored. A URI whose subtype is not
+// declared exactly this way is one no validator accepts.
+var imageURIRe = regexp.MustCompile(`^data:image/([^;,]*);base64,([A-Za-z0-9+/=]+)$`)
 
 // cleanImageURI is cleanImage for a picture held as a data URI. Anything that
-// is not a base64 raster URI ("", a "preset:<id>", a malformed value the
+// is not a base64 image URI ("", a "preset:<id>", a malformed value the
 // caller's own validation refuses) comes back as it is, and so does a picture
-// that had nothing to remove, byte for byte.
+// that had nothing to remove, byte for byte. The declared subtype is kept on
+// the cleaned URI.
 func cleanImageURI(uri string) (string, error) {
 	m := imageURIRe.FindStringSubmatch(uri)
 	if m == nil {
@@ -40,7 +50,12 @@ func cleanImageURI(uri string) (string, error) {
 	}
 	plain, err := base64.StdEncoding.DecodeString(m[2])
 	if err != nil {
-		return uri, nil
+		// Browsers decode base64 without its padding too, so a URI written
+		// that way is still a picture on every screen it reaches.
+		plain, err = base64.RawStdEncoding.DecodeString(strings.TrimRight(m[2], "="))
+		if err != nil {
+			return uri, nil
+		}
 	}
 	out, err := cleanImage(plain)
 	if err != nil {

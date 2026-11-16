@@ -267,3 +267,81 @@ func TestLinkCardPictureCarriesNoMetadata(t *testing.T) {
 		}
 	}
 }
+
+// The format is read from the bytes, not from the URI's declared subtype: a
+// JPEG declared as image/jpg (which the setters' validators accept, and which
+// some document providers report) is cleaned like any other, and keeps the
+// subtype it was declared with.
+func TestPicturesDeclaredAsJpgAreSentWithoutMetadata(t *testing.T) {
+	svc, gid, _ := cleanFixture(t)
+	jpg := fixtureNamed("jpeg")
+	uri := "data:image/jpg;base64," + base64.StdEncoding.EncodeToString(jpg.Bytes)
+	if err := svc.SetProfile(Profile{Name: "Sina", Avatar: uri}); err != nil {
+		t.Fatalf("SetProfile: %v", err)
+	}
+	if err := svc.SetGuildProfile(gid, "pictures", uri, "", ""); err != nil {
+		t.Fatalf("SetGuildProfile: %v", err)
+	}
+	stored := map[string]string{"avatar": svc.SelfProfile().Avatar}
+	for _, g := range svc.Guilds() {
+		if g.ID == gid {
+			stored["guild icon"] = g.Icon
+		}
+	}
+	if len(stored) != 2 {
+		t.Fatal("guild not found")
+	}
+	for what, got := range stored {
+		if !strings.HasPrefix(got, "data:image/jpg;base64,") {
+			t.Errorf("%s: declared subtype changed: %.30q", what, got)
+		}
+		if err := jpg.Check(uriBytes(t, got)); err != nil {
+			t.Errorf("%s: %v", what, err)
+		}
+	}
+	// Base64 written without its padding is still a picture to a browser.
+	unpadded := "data:image/jpeg;base64," + base64.RawStdEncoding.EncodeToString(jpg.Bytes)
+	if err := svc.SetGuildProfile(gid, "pictures", unpadded, "", ""); err != nil {
+		t.Fatalf("SetGuildProfile, unpadded: %v", err)
+	}
+	for _, g := range svc.Guilds() {
+		if g.ID == gid {
+			if err := jpg.Check(uriBytes(t, g.Icon)); err != nil {
+				t.Errorf("unpadded guild icon: %v", err)
+			}
+		}
+	}
+}
+
+// The orbit ring's sprite is a picture every member sees, so it is cleaned
+// with the avatar and banner.
+func TestRingSpriteIsSentWithoutMetadata(t *testing.T) {
+	svc, _, _ := cleanFixture(t)
+	png := fixtureNamed("png")
+	in := &Style{Sat: png.DataURL()}
+	if err := svc.SetProfile(Profile{Name: "Sina", Style: in}); err != nil {
+		t.Fatalf("SetProfile: %v", err)
+	}
+	if in.Sat != png.DataURL() {
+		t.Error("SetProfile changed the caller's Style")
+	}
+	p := svc.SelfProfile()
+	if p.Style == nil || p.Style.Sat == "" {
+		t.Fatal("sprite not stored")
+	}
+	if err := png.Check(uriBytes(t, p.Style.Sat)); err != nil {
+		t.Error(err)
+	}
+}
+
+// A HEIC or AVIF picture cannot be cleaned, so it is refused with an error
+// that says what the file is, whatever it is called.
+func TestUncleanablePicturesAreRefusedByName(t *testing.T) {
+	svc, _, ch := cleanFixture(t)
+	avif := append([]byte{0, 0, 0, 28}, "ftypavif"...)
+	avif = append(avif, make([]byte, 64)...)
+	_, err := svc.SendAttachment(ch, "data:image/jpeg;base64,"+base64.StdEncoding.EncodeToString(avif), 8, 8, "", false, "", "", "", "")
+	if err == nil || !strings.Contains(err.Error(), "HEIC or AVIF") {
+		t.Fatalf("err = %v, want one naming HEIC or AVIF", err)
+	}
+}

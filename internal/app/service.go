@@ -2292,6 +2292,13 @@ func (s *Service) SetProfile(p Profile) error {
 	if p.Banner, err = cleanImageURI(p.Banner); err != nil {
 		return err
 	}
+	if p.Style != nil {
+		st := *p.Style // a copy: the caller's Style is not ours to change
+		if st.Sat, err = cleanImageURI(st.Sat); err != nil {
+			return err
+		}
+		p.Style = &st
+	}
 	if len(p.Avatar) > maxAvatarBytes {
 		return fmt.Errorf("app: avatar image too large (max %d KB)", maxAvatarBytes/1024)
 	}
