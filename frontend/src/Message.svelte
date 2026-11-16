@@ -710,7 +710,7 @@
     // [embed](concord://…) token would show and could be mangled) — reopen it in
     // the advanced composer, which decodes the embed back into its builder.
     if (richEmbed) {
-      S.modal = { kind: "compose", initial: m.content, editId: m.id };
+      S.modal = { kind: "compose", initial: m.content, editId: m.id, editChannelId: m.channelId };
       return;
     }
     // The other encoded bodies have no builder to reopen. Say so instead of

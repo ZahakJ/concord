@@ -1687,6 +1687,11 @@ func (s *Service) sendAsWith(channelID, content, kind, replyTo, guestName, dir s
 	if kind == "" && s.postIsLocked(channelID) {
 		return domain.Message{}, fmt.Errorf("app: this post is closed")
 	}
+	// An action names a message in the channel it is sent on. Receivers refuse
+	// any other target, so sending one would change only this device.
+	if isMessageAction(kind) && !s.targetInChannel(replyTo, channelID) {
+		return domain.Message{}, fmt.Errorf("app: that message is not in this channel")
+	}
 
 	// Whatever sent it, a message into a chat with a disappearing timer
 	// carries the timer (chattimer.go).

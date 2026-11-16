@@ -17,7 +17,8 @@ func TestClosedPostRefusesAndDropsMessages(t *testing.T) {
 		t.Fatalf("CreateThread: %v", err)
 	}
 
-	if _, err := svc.send(post.ID, "still open", "", ""); err != nil {
+	open, err := svc.send(post.ID, "still open", "", "")
+	if err != nil {
 		t.Fatalf("an open post should accept messages: %v", err)
 	}
 	if err := svc.SetPostLocked(gid, post.ID, true); err != nil {
@@ -31,7 +32,7 @@ func TestClosedPostRefusesAndDropsMessages(t *testing.T) {
 	}
 	// A moderation action on an existing message is NOT a new message and must
 	// still work, or closing a thread would also freeze its cleanup.
-	if _, err := svc.send(post.ID, "👍", "reaction", ""); err != nil {
+	if _, err := svc.send(post.ID, "👍", "reaction", open.ID); err != nil {
 		t.Errorf("closing a post should not block moderation kinds: %v", err)
 	}
 

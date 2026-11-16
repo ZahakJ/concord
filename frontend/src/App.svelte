@@ -2373,6 +2373,7 @@
       <ModalView
         initial={S.modal.initial || ""}
         editId={S.modal.editId || ""}
+        editChannelId={S.modal.editChannelId || ""}
         onSent={S.modal.onSent}
         onClose={() => (S.modal = null)}
       />

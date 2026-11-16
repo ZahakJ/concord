@@ -25,7 +25,7 @@
   // editId set ⇒ editing an existing message rather than composing: `initial` is
   // that message's raw content, decoded back into the editor and the embed
   // builder, and saved with api.editMessage.
-  let { onClose, onSent, initial = "", editId = "" } = $props();
+  let { onClose, onSent, initial = "", editId = "", editChannelId = "" } = $props();
 
   const seededEmbed = parseEmbed(initial);
   // Keep the original disappearing-message token verbatim so an edit preserves
@@ -195,7 +195,7 @@
         content = content ? `${content}\n${token}` : token;
       }
       if (editId) {
-        await api.editMessage(chId, editId, ephToken + content);
+        await api.editMessage(editChannelId || chId, editId, ephToken + content);
       } else {
         // Attachments first, then the text — so a picture sits above its caption
         // in the feed, exactly like the inline composer.

@@ -126,6 +126,11 @@ func TestMessageActionsApplyOnlyInTheGroupThatCarriedThem(t *testing.T) {
 	if mine := w.row(t, w.byA.ID); mine.Content != "edited in place" {
 		t.Fatalf("an edit carried by the row's own guild must apply, got %q", mine.Content)
 	}
+
+	// The sending side refuses an action on a message outside the channel.
+	if err := w.a.DeleteMessage(w.chA, w.byA.ID); err == nil {
+		t.Error("DeleteMessage accepted a target from another channel")
+	}
 }
 
 // History sync is read under one guild's group, and its source is trusted (or
