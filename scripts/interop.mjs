@@ -38,6 +38,41 @@ const PNG_1PX =
 const GIF_1PX =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 
+// A real 16x8 JPEG with no metadata (Go's encoder), and a copy of it with a
+// phone's metadata planted in front for the stripping lane (L4e).
+const JPEG_16x8 =
+  "/9j/2wCEAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDIBCQkJDAsMGA0NGDIhHCEyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMv/AABEIAAgAEAMBIgACEQEDEQH/xAGiAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgsQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+gEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoLEQACAQIEBAMEBwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/2gAMAwEAAhEDEQA/APM7C16cV01ha9OKxbDtXTWHavqMXkmE/lPb4fqS0P/Z";
+const PLANTED = ["GPS-SECRET-DATUM", "XMP-SECRET", "COMMENT-SECRET"];
+// The orientation-only IFD0 the sender writes in place of the original EXIF.
+const ORIENTATION_6 = Buffer.from("4d4d002a000000080001011200030000000100060000", "hex");
+
+function plantedJpeg() {
+  const jpg = Buffer.from(JPEG_16x8, "base64");
+  const seg = (marker, payload) => {
+    const h = Buffer.from([0xff, marker, 0, 0]);
+    h.writeUInt16BE(payload.length + 2, 2);
+    return Buffer.concat([h, payload]);
+  };
+  // Little-endian TIFF: IFD0 (orientation 6, GPS pointer) at 8, the GPS IFD
+  // (map datum) at 38, its string at 56.
+  const datum = Buffer.from(PLANTED[0] + "\0", "latin1");
+  const t = Buffer.alloc(56);
+  t.write("II*\0", 0, "latin1");
+  t.writeUInt32LE(8, 4);
+  t.writeUInt16LE(2, 8);
+  t.writeUInt16LE(0x0112, 10); t.writeUInt16LE(3, 12); t.writeUInt32LE(1, 14); t.writeUInt16LE(6, 18);
+  t.writeUInt16LE(0x8825, 22); t.writeUInt16LE(4, 24); t.writeUInt32LE(1, 26); t.writeUInt32LE(38, 30);
+  t.writeUInt16LE(1, 38);
+  t.writeUInt16LE(0x0012, 40); t.writeUInt16LE(2, 42); t.writeUInt32LE(datum.length, 44); t.writeUInt32LE(56, 48);
+  return Buffer.concat([
+    jpg.subarray(0, 2),
+    seg(0xe1, Buffer.concat([Buffer.from("Exif\0\0", "latin1"), t, datum])),
+    seg(0xe1, Buffer.from(`http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x="adobe:ns:meta/">${PLANTED[1]}</x:xmpmeta>`, "latin1")),
+    seg(0xfe, Buffer.from(PLANTED[2], "latin1")),
+    jpg.subarray(2),
+  ]);
+}
+
 // ---------------------------------------------------------------- plumbing
 
 function loadState() {
@@ -468,6 +503,45 @@ async function phaseOnline() {
           "a v0.41.0 client shows a ~190-char raw token instead of the image"
       );
     }
+    return { evidence: ev };
+  });
+
+  // A phone picture: NEW removes its metadata before sealing, and OLD has to
+  // receive a JPEG it still decodes, with nothing planted surviving. The scan
+  // data must come through byte for byte (the pixels are never re-encoded) and
+  // the orientation must survive as a tag, so the picture still shows upright.
+  await lane("L4e", "a picture's metadata is removed and OLD still gets a valid JPEG", async () => {
+    const sent = plantedJpeg();
+    await rpc(NEW, "SendAttachment", [
+      st.newGuildChanNew, "data:image/jpeg;base64," + sent.toString("base64"), 16, 8, "", false, "", "",
+    ]);
+    const got = await waitFor("OLD receives the cleaned picture", async () => {
+      const msgs = await messagesIn(OLD, st.newGuildChanOld);
+      return msgs
+        .filter((m) => (m.content || "").includes("concord://attach/"))
+        .find((m) => !seenAttachments.has(m.content));
+    });
+    seenAttachments.add(got.content);
+    const fetched = await tryRpc(OLD, "FetchAttachment", attachArgs(got.content, st.newGuildChanOld));
+    if (!fetched.ok || !String(fetched.result || "").startsWith("data:image/jpeg;base64,")) {
+      throw new Error(`OLD could not fetch the picture: ${fetched.error || fetched.result}`);
+    }
+    const out = Buffer.from(String(fetched.result).split(",")[1], "base64");
+    const body = Buffer.from(JPEG_16x8, "base64").subarray(2);
+    const ev = [
+      `sent ${sent.length} bytes with EXIF (orientation 6, GPS IFD), XMP and a comment`,
+      `OLD fetched ${out.length} bytes: ${out.subarray(0, 40).toString("hex")}…`,
+    ];
+    for (const s of PLANTED) {
+      if (out.includes(Buffer.from(s, "latin1"))) throw new Error(`${s} reached OLD`);
+    }
+    if (out[0] !== 0xff || out[1] !== 0xd8 || !out.subarray(out.length - body.length).equals(body)) {
+      throw new Error("the JPEG that reached OLD is not the original picture data behind a clean header");
+    }
+    if (!out.includes(ORIENTATION_6)) {
+      throw new Error("the orientation tag was lost; the picture would show sideways");
+    }
+    ev.push("no planted string survived; the tables, scan data and end marker are the original's byte for byte; orientation 6 kept");
     return { evidence: ev };
   });
 
