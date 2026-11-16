@@ -724,6 +724,48 @@ async function phaseOnline() {
     };
   });
 
+  // --- L9c: a moderated delete takes the message's reactions and pin --------
+  // NEW owns the guild; THIRD (HEAD) is an ordinary member. OLD's message is
+  // reacted to and pinned, then NEW deletes it. Every peer tombstones it as
+  // before; the HEAD peers keep no reaction and no pin on the tombstone, and
+  // NEW, a moderator, can still reveal it. OLD's leftovers are recorded only.
+  await lane("L9c", "a moderated delete leaves no reactions or pin on HEAD peers", async () => {
+    const ch = st.newGuildChanNew;
+    const body = `reacted then deleted ${Date.now()}`;
+    await rpc(OLD, "SendMessage", [st.newGuildChanOld, body, ""]);
+    const got = await waitFor("THIRD and NEW receive OLD's message", async () => {
+      const a = await findMessage(NEW, ch, body);
+      const b = await findMessage(THIRD, ch, body);
+      return a && b ? a : null;
+    });
+    await rpc(NEW, "ToggleReaction", [ch, got.id, "👍"]);
+    await rpc(THIRD, "ToggleReaction", [ch, got.id, "🎉"]);
+    await rpc(NEW, "PinMessage", [ch, got.id]);
+    await waitFor("OLD sees both reactions and the pin", async () => {
+      const r = (await messagesIn(OLD, st.newGuildChanOld)).find((m) => m.id === got.id);
+      return r && r.pinned && Object.keys(r.reactions || {}).length === 2 ? r : null;
+    });
+    await rpc(NEW, "DeleteMessage", [ch, got.id]);
+    const ev = [];
+    for (const [label, base, chan] of [["NEW", NEW, ch], ["THIRD", THIRD, ch], ["OLD", OLD, st.newGuildChanOld]]) {
+      const row = await waitFor(`${label} tombstones it`, async () => {
+        const r = (await messagesIn(base, chan)).find((m) => m.id === got.id);
+        return r && r.deleted ? r : null;
+      });
+      const n = Object.keys(row.reactions || {}).length;
+      if (label !== "OLD" && (n !== 0 || row.pinned)) {
+        throw new Error(`${label} kept ${n} reactions, pinned=${row.pinned} on a deleted message`);
+      }
+      ev.push(`${label} deleted=${row.deleted} reactions=${n} pinned=${row.pinned}`);
+    }
+    const shown = await rpc(NEW, "RevealDeleted", [ch, got.id]);
+    if (shown !== body) throw new Error(`NEW could not reveal: ${JSON.stringify(shown)}`);
+    const third = await tryRpc(THIRD, "RevealDeleted", [ch, got.id]);
+    if (third.ok) throw new Error("THIRD, not a moderator, revealed the message");
+    ev.push(`NEW reveals the body; THIRD's reveal is refused`);
+    return { evidence: ev };
+  });
+
   await lane("U1", "nothing OLD sent live is marked unsigned on NEW", () => noneMarked(st, "live"));
 
   st.lanes = (st.lanes || []).concat(results);
