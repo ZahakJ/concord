@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,8 +77,11 @@ func dbPathIn(dataDir string) string {
 
 // HasIdentity reports whether an identity keystore already exists in dataDir,
 // so the UI can show "unlock" vs "create a passphrase".
+//
+// A device whose erase has not finished (erasePendingIn) has none: nothing of
+// the account it held is shown.
 func HasIdentity(dataDir string) bool {
-	return identity.HasKeystore(keystorePathIn(dataDir))
+	return identity.HasKeystore(keystorePathIn(dataDir)) && !erasePendingIn(dataDir)
 }
 
 // ResetIdentityIf wipes the identity and all data tied to it (keystore,
@@ -94,26 +98,118 @@ func HasIdentity(dataDir string) bool {
 // lock cannot be had (identity.ErrKeystoreBusy): without the lock, still
 // cannot be asked about what the erase would remove. A failure to remove the
 // keystore leaves the data; one removing the data is ErrDataNotErased.
+//
+// Once still has said yes, the erase record is written before anything is
+// removed (see eraserecord.go) and removed after everything else: an erase
+// stopped at any point is finished by the next start, restore or link
+// (finishInterruptedErase) before it opens anything. A failure to write the
+// record, or to remove the keystore, erases nothing and leaves no record.
 func ResetIdentityIf(dataDir string, still func() bool, first func()) error {
+	return resetIdentityIf(dataDir, false, still, first)
+}
+
+// resetIdentityIf is ResetIdentityIf, recording whether the erase is an
+// unlink's.
+func resetIdentityIf(dataDir string, unlinked bool, still func() bool, first func()) error {
 	if still == nil {
 		return errNoEraseCheck
 	}
-	var derr error
+	var rerr, derr error
+	recorded := false
 	err := removeKeystore(keystorePathIn(dataDir), func() bool {
 		if !still() {
 			return false
 		}
+		if rerr = writeEraseRecord(dataDir, unlinked); rerr != nil {
+			return false
+		}
+		recorded = true
 		if first != nil {
 			first()
 		}
 		return true
 	}, func() {
-		derr = resetDataIn(dataDir)
+		derr = eraseRecordedData(dataDir)
 	})
+	if rerr != nil {
+		return rerr
+	}
 	if err != nil {
+		if recorded {
+			// The keystore could not be removed: nothing was erased, and the
+			// erase is not left to be finished later.
+			_ = removeEraseRecord(dataDir)
+		}
 		return err
 	}
 	return derr
+}
+
+// eraseRecordedData is the part of a recorded erase after the keystore: the
+// account data, then the record. For a caller holding the keystore lock.
+func eraseRecordedData(dataDir string) error {
+	if err := eraseStep("keystore"); err != nil {
+		return err
+	}
+	if err := resetDataIn(dataDir); err != nil {
+		return err
+	}
+	if err := removeEraseRecord(dataDir); err != nil {
+		return fmt.Errorf("%w: still here: %s", ErrDataNotErased, eraseRecordName)
+	}
+	return nil
+}
+
+// finishInterruptedErase finishes an erase of dataDir that began and did not
+// finish (its record is here), under the keystore lock: the keystore it named,
+// then the account data, then the record. unlinked reports that it was an
+// unlink's erase and it is now finished. A record naming a keystore that is
+// not the one here is stale: it is removed, and nothing else is.
+//
+// While it returns an error the record stays, and so does the refusal to open
+// or create anything here (ErrEraseUnfinished).
+func finishInterruptedErase(dataDir string) (unlinked bool, err error) {
+	if !erasePendingIn(dataDir) {
+		return false, nil
+	}
+	rec, err := readEraseRecord(dataDir)
+	if err != nil {
+		return false, fmt.Errorf("%w: its record cannot be read: %w", ErrEraseUnfinished, err)
+	}
+	stale := false
+	var cerr, derr error
+	err = removeKeystore(keystorePathIn(dataDir), func() bool {
+		ok, aerr := eraseRecordApplies(dataDir, rec)
+		switch {
+		case aerr != nil:
+			cerr = aerr
+			return false
+		case !ok:
+			stale = true
+			cerr = removeEraseRecord(dataDir)
+			return false
+		}
+		return true
+	}, func() {
+		derr = eraseRecordedData(dataDir)
+	})
+	switch {
+	case stale && cerr == nil:
+		log.Printf("concord/app: an unfinished erase named a keystore that is no longer here; the keystore here is kept")
+		return false, nil
+	case cerr != nil:
+		return false, fmt.Errorf("%w: %w", ErrEraseUnfinished, cerr)
+	case err != nil:
+		return false, fmt.Errorf("%w: %w", ErrEraseUnfinished, err)
+	case derr != nil:
+		err = fmt.Errorf("%w: %w. %s", ErrEraseUnfinished, derr, eraseHeldAdvice)
+		if rec.Unlinked {
+			err = fmt.Errorf("%w: %w", ErrDeviceUnlinkedNotErased, err)
+		}
+		return false, err
+	}
+	log.Printf("concord/app: finished an erase of this device that had not finished")
+	return rec.Unlinked, nil
 }
 
 // errNoEraseCheck: ResetIdentityIf was called without a check. Nothing was
@@ -153,6 +249,9 @@ func init() { identity.CreateGuard = guardCreate }
 // only by an erase the user confirms in that moment (start over, the wipe,
 // or a confirmed restore or link), never on anyone's inference.
 func guardCreate(keystorePath string) error {
+	if erasePendingIn(filepath.Dir(keystorePath)) {
+		return ErrEraseUnfinished
+	}
 	if hasAccountData(filepath.Dir(keystorePath)) {
 		return ErrDataWithoutKeystore
 	}
@@ -166,7 +265,8 @@ func guardCreate(keystorePath string) error {
 func accountDataFiles(dataDir string) []string {
 	return []string{
 		dbPathIn(dataDir), dbPathIn(dataDir) + "-wal", dbPathIn(dataDir) + "-shm",
-		peerCachePath(dataDir), deviceMarkerPath(dataDir), deviceMarkerPath(dataDir) + ".tmp",
+		peerCachePath(dataDir), peerCachePath(dataDir) + ".tmp",
+		deviceMarkerPath(dataDir), deviceMarkerPath(dataDir) + ".tmp",
 	}
 }
 
@@ -258,11 +358,17 @@ func resetDataIn(dataDir string) error {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			left = append(left, filepath.Base(p))
 		}
+		if err := eraseStep(filepath.Base(p)); err != nil {
+			return err
+		}
 	}
 	// MLS state directory. A failure here must stop a restore or link before
 	// its new keystore lands beside part of the old account's group state.
 	if err := os.RemoveAll(filepath.Join(dataDir, "mls")); err != nil {
 		left = append(left, "mls")
+	}
+	if err := eraseStep("mls"); err != nil {
+		return err
 	}
 	// The linked-device marker goes last, and only once everything else is
 	// gone. It is the certificate saying "the account key signed FOR this
@@ -284,6 +390,9 @@ func resetDataIn(dataDir string) error {
 		}
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			left = append(left, filepath.Base(p))
+		}
+		if err := eraseStep(filepath.Base(p)); err != nil {
+			return err
 		}
 	}
 	// Removals are entries in the data directory, and a power cut can undo

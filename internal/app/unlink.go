@@ -482,6 +482,11 @@ func (s *Service) selfRevoked() (bool, error) {
 // tried again in the background, checked again each time, and the shell is
 // told when it finishes; the next start, which runs this before anything is
 // served, is the fallback.
+//
+// The erase runs in the session's erase gate: Close waits for an erase in
+// flight, and once Close has run no erase of this session starts or is tried
+// again (errClosedBeforeErase); the stored revocation, or the erase record of
+// one that began, has the next start finish it.
 func (s *Service) wipeSelf() error {
 	dir := s.dataDir
 	account, device := s.id.PublicKey(), s.id.DevicePublicKey()
@@ -489,13 +494,117 @@ func (s *Service) wipeSelf() error {
 	cbs := append([]func(error){}, s.onUnlinked...)
 	s.mu.RUnlock()
 
-	s.Close()
-	err := eraseRevokedDevice(dir, account, device)
+	g := s.erase
+	var err error
+	if !g.enter() {
+		err = errClosedBeforeErase
+	} else {
+		s.closeSession()
+		err = eraseRevokedDevice(dir, account, device)
+		g.leave()
+	}
 	tell(cbs, err)
-	if err != nil && !errors.Is(err, ErrDeviceUnlinkedReplaced) {
-		retryEraseRevokedDevice(dir, account, device, cbs)
+	if err != nil && !errors.Is(err, ErrDeviceUnlinkedReplaced) && !errors.Is(err, errClosedBeforeErase) {
+		retryEraseRevokedDevice(g, dir, account, device, cbs)
 	}
 	return err
+}
+
+// errClosedBeforeErase: the session was closed before its self-erase began.
+// Nothing was erased now; the revocation is stored, and the next start
+// erases the device before it opens anything.
+var errClosedBeforeErase = fmt.Errorf("%w; the app closed first, and the next start erases it", ErrDeviceUnlinkedNotErased)
+
+// eraseGate ties a session's self-erase to its Close. An erase attempt holds
+// the gate while it removes anything; Close shuts it, so no attempt starts
+// after, and waits (at most closeEraseWait) for an attempt in flight. One
+// still running then is logged and left: its record has the next start
+// finish it. Kept apart from the Service so a retry loop does not keep the
+// session (and the keys it holds) in memory. A nil gate (a Service not made
+// by Start) never shuts.
+type eraseGate struct {
+	mu   sync.Mutex
+	shut bool          // under mu
+	done chan struct{} // closed when the gate shuts
+	busy chan struct{} // holds one token while an attempt runs
+}
+
+// closeEraseWait bounds how long Close waits for an erase in flight. A
+// variable for tests.
+var closeEraseWait = 30 * time.Second
+
+func newEraseGate() *eraseGate {
+	return &eraseGate{done: make(chan struct{}), busy: make(chan struct{}, 1)}
+}
+
+func (g *eraseGate) isShut() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.shut
+}
+
+// enter takes the gate for one erase attempt; false once it is shut.
+func (g *eraseGate) enter() bool {
+	if g == nil {
+		return true
+	}
+	if g.isShut() {
+		return false
+	}
+	select {
+	case g.busy <- struct{}{}:
+	case <-g.done:
+		return false
+	}
+	if g.isShut() {
+		<-g.busy
+		return false
+	}
+	return true
+}
+
+func (g *eraseGate) leave() {
+	if g != nil {
+		<-g.busy
+	}
+}
+
+// shutAfterErase shuts the gate, then waits for an attempt in flight, at
+// most closeEraseWait.
+func (g *eraseGate) shutAfterErase() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	if !g.shut {
+		g.shut = true
+		close(g.done)
+	}
+	g.mu.Unlock()
+	t := time.NewTimer(closeEraseWait)
+	defer t.Stop()
+	select {
+	case g.busy <- struct{}{}:
+		<-g.busy
+	case <-t.C:
+		log.Printf("concord/app: closing while this device's erase is still running; the next start finishes it")
+	}
+}
+
+// wait sleeps for d, or until the gate shuts; false when it shut.
+func (g *eraseGate) wait(d time.Duration) bool {
+	if g == nil {
+		time.Sleep(d)
+		return true
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-g.done:
+		return false
+	}
 }
 
 // tell logs how a self-erase went and tells the shell.
@@ -514,7 +623,7 @@ func tell(cbs []func(error), err error) {
 // account and device keys are given, checked under the keystore lock.
 func eraseRevokedDevice(dir string, account, device ed25519.PublicKey) error {
 	var why error
-	err := ResetIdentityIf(dir, func() bool {
+	err := resetIdentityIf(dir, true, func() bool {
 		why = thisDeviceHere(dir, account, device)
 		return why == nil
 	}, nil)
@@ -523,7 +632,7 @@ func eraseRevokedDevice(dir string, account, device ed25519.PublicKey) error {
 		return nil
 	case errors.Is(err, ErrDataNotErased):
 		// Names what is still here.
-		return fmt.Errorf("%w: %w", ErrDeviceUnlinkedNotErased, err)
+		return fmt.Errorf("%w: %w. %s", ErrDeviceUnlinkedNotErased, err, eraseHeldAdvice)
 	case errors.Is(err, identity.ErrKeystoreChanged) && why != nil:
 		// Another account, or a device linked again (ErrDeviceUnlinkedReplaced),
 		// or a marker that cannot be read now.
@@ -581,7 +690,10 @@ func thisDeviceHere(dataDir string, account, device ed25519.PublicKey) error {
 // another account, or when it finds the device already erased (by the next
 // start, say); the shell is told each of those. Giving up is safe: the
 // revocation is stored, and the next start erases before it serves anything.
-func retryEraseRevokedDevice(dir string, account, device ed25519.PublicKey, cbs []func(error)) {
+//
+// The loop belongs to the session's erase gate g: an attempt holds the gate,
+// and the loop ends without another attempt once the session is closed.
+func retryEraseRevokedDevice(g *eraseGate, dir string, account, device ed25519.PublicKey, cbs []func(error)) {
 	fast, pause, slow, slowPause := selfEraseRetryAttempts, selfEraseRetryPause, selfEraseSlowAttempts, selfEraseSlowPause
 	if fast+slow == 0 {
 		return
@@ -594,16 +706,20 @@ func retryEraseRevokedDevice(dir string, account, device ed25519.PublicKey, cbs 
 		defer selfErasers.Done()
 		defer selfErasing.Delete(dir)
 		for i := 0; i < fast+slow; i++ {
-			if i < fast {
-				time.Sleep(pause)
-			} else {
-				time.Sleep(slowPause)
+			d := pause
+			if i >= fast {
+				d = slowPause
 			}
-			if !HasIdentity(dir) && !hasAccountData(dir) {
+			if !g.wait(d) || !g.enter() {
+				return // closed: the next start finishes the erase
+			}
+			if !HasIdentity(dir) && !hasAccountData(dir) && !erasePendingIn(dir) {
+				g.leave()
 				tell(cbs, nil) // erased meanwhile
 				return
 			}
 			err := eraseRevokedDevice(dir, account, device)
+			g.leave()
 			if err == nil || errors.Is(err, ErrDeviceUnlinkedReplaced) {
 				tell(cbs, err)
 				return

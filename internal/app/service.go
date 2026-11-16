@@ -51,6 +51,10 @@ type Service struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	dataDir string
+	// closeOnce makes Close (and the self-erase's own close) close the session
+	// once; erase ties the self-erase to Close (eraseGate).
+	closeOnce sync.Once
+	erase     *eraseGate
 
 	id    *identity.Identity
 	host  *cnet.Host
@@ -1130,6 +1134,13 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 			cancel()
 		}
 	}()
+	// An erase of this device that began and did not finish is finished
+	// before anything here is opened or created.
+	if unlinked, err := finishInterruptedErase(cfg.DataDir); err != nil {
+		return nil, err
+	} else if unlinked {
+		return nil, ErrDeviceUnlinked
+	}
 	id, freshIdentity, err := identity.LoadOrCreate(keystorePathIn(cfg.DataDir), cfg.Passphrase)
 	if err != nil {
 		return nil, fmt.Errorf("app: open identity: %w", err)
@@ -1265,6 +1276,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		inviteJoinNoted:  map[string]bool{},
 		previews:         newPreviewCache(),
 		bootstrap:        bootstrap,
+		erase:            newEraseGate(),
 	}
 	s.mbxPriv, s.mbxPub = deriveMailboxKeys(id)
 	ps.OnOverflow(s.noteLiveGap)
@@ -2632,7 +2644,22 @@ func (s *Service) VerifiedFingerprints() map[string]bool {
 }
 
 // Close shuts everything down.
+//
+// It returns once no self-erase of this session is in flight, and none
+// starts after it (see eraseGate). Closing again does nothing, so a Close
+// after the session's erase writes nothing into the erased directory.
 func (s *Service) Close() error {
+	s.closeSession()
+	s.erase.shutAfterErase()
+	return nil
+}
+
+// closeSession stops the session and closes what it holds, once.
+func (s *Service) closeSession() {
+	s.closeOnce.Do(s.closeNow)
+}
+
+func (s *Service) closeNow() {
 	// Stop the loops and topic readers before pulling the store and host out
 	// from under them.
 	if s.cancel != nil {
@@ -2641,8 +2668,10 @@ func (s *Service) Close() error {
 	s.stopOfferGaps()
 	if s.peers != nil {
 		// Flush past the write throttle: everything learned in the last few
-		// seconds of a session is exactly what the next launch wants.
-		_ = s.peers.Save(s.dataDir)
+		// seconds of a session is exactly what the next launch wants. The
+		// last write: a connection callback still running writes nothing after
+		// it, so nothing comes back into a directory being erased.
+		_ = s.peers.Close(s.dataDir)
 	}
 	if s.host != nil {
 		_ = s.host.Close()
@@ -2653,7 +2682,6 @@ func (s *Service) Close() error {
 	if s.store != nil {
 		_ = s.store.Close()
 	}
-	return nil
 }
 
 // VerifyPassphrase reports whether passphrase decrypts the keystore in dataDir.

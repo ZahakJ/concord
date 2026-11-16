@@ -319,6 +319,11 @@ func RestoreOverExisting(dataDir, phrase, passphrase, confirm string) error {
 	if err != nil {
 		return err
 	}
+	// An erase of this device that did not finish is finished first: the
+	// device restored onto is the erased one, not what the erase left.
+	if _, err := finishInterruptedErase(dataDir); err != nil {
+		return err
+	}
 	// The keystore as it is now. The gate below looks at it, the user's
 	// confirmation names the account it holds, and both the erase and the
 	// write go through only while the file is still exactly this: another

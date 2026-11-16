@@ -342,6 +342,11 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 	if passphrase == "" {
 		return LinkResult{}, errors.New("app: passphrase required")
 	}
+	// An erase of this device that did not finish is finished first: the
+	// device being linked is the erased one, not what the erase left.
+	if _, err := finishInterruptedErase(dataDir); err != nil {
+		return LinkResult{}, err
+	}
 	off, err := link.DecodeOffer(code)
 	if err != nil {
 		return LinkResult{}, err
