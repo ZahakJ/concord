@@ -393,8 +393,10 @@ export const api = {
   addGuildGif: (guildID, name, tags, dataURL, w, h) =>
     call("AddGuildGif", guildID, name, tags, dataURL, w, h),
   removeGuildGif: (guildID, id) => call("RemoveGuildGif", guildID, id),
-  sendGuildGif: (channelID, gifID, replyTo = "") =>
-    call("SendGuildGif", channelID, gifID, replyTo, stampFor(channelID, "")),
+  sendGuildGif: (channelID, gifID, replyTo = "") => {
+    sending(channelID);
+    return call("SendGuildGif", channelID, gifID, replyTo, stampFor(channelID, ""));
+  },
   // Tenor search, proxied through the user's own rendezvous. Note what is NOT
   // here: any way to get a URL. A result carries opaque handles, and both the
   // thumbnail and the full image come back from gifSearchMedia as inline data
@@ -404,8 +406,10 @@ export const api = {
   gifSearchStatus: () => call("GifSearchStatus"),
   searchGifs: (query, pos = "") => call("SearchGifs", query, pos),
   gifSearchMedia: (ref, full = false) => call("GifSearchMedia", ref, full),
-  sendSearchedGif: (channelID, ref, replyTo = "", w = 0, h = 0) =>
-    call("SendSearchedGif", channelID, ref, replyTo, w, h, stampFor(channelID, "")),
+  sendSearchedGif: (channelID, ref, replyTo = "", w = 0, h = 0) => {
+    sending(channelID);
+    return call("SendSearchedGif", channelID, ref, replyTo, w, h, stampFor(channelID, ""));
+  },
   saveSearchedGif: (guildID, name, tags, ref, w = 0, h = 0) =>
     call("SaveSearchedGif", guildID, name, tags, ref, w, h),
   // Guild calendar events. Times are UTC Unix seconds (endUnix 0 = no stated
