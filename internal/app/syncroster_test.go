@@ -67,41 +67,57 @@ func TestUntrustedRosterCannotRouteSomeoneElsesMail(t *testing.T) {
 	waitUntil(t, 10*time.Second, func() bool { return a.ProfileOf(c.Fingerprint()).Name != "" }, "A never learned C")
 	genuine := a.ProfileOf(c.Fingerprint()).MailboxPub
 
-	// C keeps announcing on its own schedule, and any announce of C's that
-	// lands between forgetting C and the doctored roster re-teaches A C's own
-	// copy, which rightly makes the roster's copy no first fill at all. That
-	// race is the network being honest, not the guard failing, so an attempt
-	// C's own copy won is run again. Every attempt still holds the guard to
-	// all of it: no planted key and no stranger, ever.
+	// Other writers keep running while the test works: C announces on its own
+	// schedule (its own copy, real key), and A's background syncs take honest
+	// rosters from B and C, which the guard itself fills in name-only (no key,
+	// no stamp). Either landing between forgetting C and the doctored roster
+	// re-teaches A some copy of C, which rightly makes the roster's copy no
+	// first fill at all. That race is the network being honest, not the guard
+	// failing, so such an attempt is run again. Every attempt still holds the
+	// guard to all of it: no planted key, no doctored stamp, no stranger, ever.
 	planted := bytes.Repeat([]byte{0xee}, 32)
+	doctoredAt := time.Now().UnixMilli() + (1 << 40)
 	var got Profile
 	for attempt := 0; ; attempt++ {
 		a.mu.Lock()
 		delete(a.profiles, c.Fingerprint())
 		a.mu.Unlock()
 		serveProfiles(t, a, b, guildID, map[string]Profile{
-			c.Fingerprint(): {Name: "C, says B", MailboxPub: planted, UpdatedAt: time.Now().UnixMilli() + (1 << 40)},
+			c.Fingerprint(): {Name: "C, says B", MailboxPub: planted, UpdatedAt: doctoredAt},
 			"NOT-A-MEMBER":  {Name: "a stranger"},
 		})
 		if got := a.ProfileOf("NOT-A-MEMBER").Name; got != "" {
 			t.Fatalf("a roster entry for a non-member was adopted: %q", got)
 		}
-		got = a.ProfileOf(c.Fingerprint())
+		var held bool
+		a.mu.RLock()
+		got, held = a.profiles[c.Fingerprint()]
+		a.mu.RUnlock()
 		if bytes.Equal(got.MailboxPub, planted) {
 			t.Fatal("an ordinary member planted a mailbox key for a third member")
+		}
+		if got.UpdatedAt >= doctoredAt {
+			t.Fatalf("an ordinary member's far-future stamp was kept for a third member: %+v", got)
 		}
 		if got.Name == "C, says B" {
 			break
 		}
-		if got.Name == "" || !bytes.Equal(got.MailboxPub, genuine) {
+		// Nobody re-taught A in between, and the doctored roster still left C
+		// unheld: the first fill itself was refused.
+		if !held {
 			t.Fatalf("a first fill for a member was refused outright: %+v", got)
 		}
-		// Capped: a guard that C's own copy beats every time is a guard this
+		// Some other copy won the race. It may carry C's real key or no key;
+		// any other key came from somewhere it must not have.
+		if len(got.MailboxPub) > 0 && !bytes.Equal(got.MailboxPub, genuine) {
+			t.Fatalf("A holds a mailbox key for C that is neither C's nor absent: %+v", got)
+		}
+		// Capped: a guard that another copy beats every time is a guard this
 		// test never exercised, and that must fail, not pass quietly.
 		if attempt >= maxRosterAttempts-1 {
-			t.Fatalf("C's own announce won all %d attempts; the first-fill guard went untested", maxRosterAttempts)
+			t.Fatalf("another copy of C won all %d attempts; the first-fill guard went untested", maxRosterAttempts)
 		}
-		time.Sleep(50 * time.Millisecond) // C's own announce got there first
+		time.Sleep(50 * time.Millisecond) // another copy of C got there first
 	}
 	if len(got.MailboxPub) > 0 {
 		t.Fatal("an ordinary member planted a mailbox key for a third member")
