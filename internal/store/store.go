@@ -3228,8 +3228,8 @@ type SyncRules struct {
 	Trusted bool
 	// NotBefore (UnixNano, 0 for none) is the channel's retention cutoff: a
 	// row sent before it that this device does not hold is skipped, unless it
-	// is pinned, which retention keeps. A row already held is reconciled as
-	// usual.
+	// is pinned, which retention keeps, and the source is trusted. A row
+	// already held is reconciled as usual.
 	NotBefore int64
 }
 
@@ -3275,7 +3275,7 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 	changed := false
 	inserted := false
 	switch {
-	case err == sql.ErrNoRows && !RetainedAt(m, rules.NotBefore):
+	case err == sql.ErrNoRows && !RetainedAt(servedForRetention(m, trusted), rules.NotBefore):
 		// Past the channel's retention: every device that keeps the policy
 		// has pruned it, so it is not taken back. Skipped, not refused: the
 		// rest of the batch goes on, and the cursor moves past it.
@@ -3387,6 +3387,16 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 		}
 	}
 	return changed, nil
+}
+
+// servedForRetention is m as the retention skip judges it: the pin a served
+// row claims counts only from a trusted source, the one whose pins this
+// device adopts for rows it holds.
+func servedForRetention(m domain.Message, trusted bool) domain.Message {
+	if !trusted {
+		m.Pinned = false
+	}
+	return m
 }
 
 // RetainedAt reports whether a channel whose retention cutoff is notBefore

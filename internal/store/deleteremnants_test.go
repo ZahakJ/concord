@@ -201,3 +201,23 @@ func TestASyncedRowPastRetentionIsSkipped(t *testing.T) {
 		t.Error("a held row past the cutoff did not take its tombstone")
 	}
 }
+
+// Past the retention cutoff, the pin a served row claims keeps it only when
+// the source is trusted.
+func TestASyncedRowPastRetentionIsKeptForItsPinOnlyFromATrustedSource(t *testing.T) {
+	s, _ := openTestStore(t)
+	const self = "fpr-self"
+	cutoff := time.Now().Add(-time.Hour)
+	for _, trusted := range []bool{false, true} {
+		m, _ := domain.NewMessage("chan-1", []byte("alice-key"), "pinned, says the source")
+		m.Sent = cutoff.Add(-time.Minute)
+		m.Pinned = true
+		if _, err := s.UpsertSyncedMessagesWith([]domain.Message{m}, self,
+			SyncRules{Trusted: trusted, NotBefore: cutoff.UnixNano()}); err != nil {
+			t.Fatalf("UpsertSyncedMessagesWith: %v", err)
+		}
+		if _, ok, _ := s.MessageByID(m.ID); ok != trusted {
+			t.Errorf("trusted=%v: a pinned row past the cutoff taken=%v, want %v", trusted, ok, trusted)
+		}
+	}
+}
