@@ -506,13 +506,20 @@ func TestOnlyAKeptBlobIsServed(t *testing.T) {
 	if err := s.EraseContent(m.ID); err != nil {
 		t.Fatal(err)
 	}
+	// Deleted with its body kept for reveal: held, and served to nobody.
+	keptForReveal := blobID('f')
+	holdBlob(t, s, keptForReveal)
+	k := saveBody(t, s, "kept for reveal "+imageToken(keptForReveal))
+	if _, ok, err := s.MarkDeleted(k.ID, nil, true); err != nil || !ok {
+		t.Fatalf("MarkDeleted: %v %v", ok, err)
+	}
 	if err := s.SaveGuildGif(GuildGifRow{GuildID: "g", ID: gif, Name: "n", Keys: testKeys, Subtype: "gif"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PinAttachment(pinned, true); err != nil {
 		t.Fatal(err)
 	}
-	for id, want := range map[string]bool{named: true, gif: true, pinned: true, orphan: false, erased: false} {
+	for id, want := range map[string]bool{named: true, gif: true, pinned: true, orphan: false, erased: false, keptForReveal: false} {
 		if got := s.BlobServable(id); got != want {
 			t.Errorf("blob %s…: servable %v, want %v", id[:4], got, want)
 		}

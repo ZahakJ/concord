@@ -404,8 +404,11 @@ func TestADeletedMessagesBlobGoesWhereItsBodyGoes(t *testing.T) {
 		t.Error("a device that may not reveal kept and served a deleted message's blob")
 	}
 	for _, name := range []string{"owner", "mod"} {
-		if !serves(t, everyone[name], x) {
+		if _, held, _ := everyone[name].store.GetAttachment(x); !held {
 			t.Errorf("the %s's device dropped a blob it keeps for reveal", name)
+		}
+		if serves(t, everyone[name], x) {
+			t.Errorf("the %s's device serves a deleted message's blob it keeps for reveal", name)
 		}
 	}
 	if _, err := owner.EmptyTrash(g.ID); err != nil {

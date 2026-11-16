@@ -468,20 +468,21 @@ func (s *Store) erasedWithBlobs() ([]string, error) {
 }
 
 // BlobServable reports whether blobID may be served to a peer: it is not
-// banned, and something on this device keeps it, as ReleaseBlobs counts it:
-// a held row that names it and whose body is not erased, the guild GIF pack,
-// or a pin. A blob that only an erased row named, or that no indexed row
-// names (a cache entry whose message is gone, or whose row the backfill has
-// not reached yet), is not served.
+// banned, and a held row that is not deleted names it, or it is in the guild
+// GIF pack, or it is pinned. A blob that only deleted rows name is not
+// served, even where this device keeps the body and the blob for reveal: a
+// moderator's device shows it there and passes it on to nobody. Nor is one
+// that no indexed row names (a cache entry whose message is gone, or whose
+// row the backfill has not reached yet).
 func (s *Store) BlobServable(blobID string) bool {
 	var ok int
 	err := s.rd().QueryRow(`SELECT
 		NOT EXISTS (SELECT 1 FROM banned_blobs WHERE blob_id = ?1)
 		AND (EXISTS (SELECT 1 FROM blob_refs r JOIN messages m ON m.id = r.message_id
-		             WHERE r.blob_id = ?1 AND (m.deleted = 0 OR length(m.content_enc) > ?2))
+		             WHERE r.blob_id = ?1 AND m.deleted = 0)
 		  OR EXISTS (SELECT 1 FROM guild_gifs WHERE id = ?1)
 		  OR EXISTS (SELECT 1 FROM attachments WHERE blob_id = ?1 AND pinned = 1))`,
-		blobID, secretbox.Overhead).Scan(&ok)
+		blobID).Scan(&ok)
 	return err == nil && ok != 0
 }
 

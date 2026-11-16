@@ -283,6 +283,9 @@ func clearAfterUpgrade(t *testing.T, firstClear bool) {
 		if !strings.HasPrefix(body, "a moderator's") || !held {
 			t.Errorf("a body the device may reveal, or its picture, was cleared: %q held %v", body, held)
 		}
+		if serves(t, member, modPic) {
+			t.Error("the picture of a deleted body kept for reveal is served")
+		}
 	} else {
 		if body != "" || held || !member.store.BlobBanned(modPic) || serves(t, member, modPic) {
 			t.Errorf("without the first clear, a moderator's body or picture was kept: %q held %v", body, held)
