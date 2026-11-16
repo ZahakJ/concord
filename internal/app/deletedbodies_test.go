@@ -8,10 +8,10 @@ import (
 	"github.com/ZahakJ/concord/internal/domain"
 )
 
-// The one-time clear of deleted bodies at rest: a device clears them in a
-// guild where it cannot reveal them, keeps the moderator's reveal in a guild
-// where it can, records the run, and does not run again.
-func TestDeletedBodiesAtRestAreClearedOnceWhereNotRevealable(t *testing.T) {
+// The one-time clear of deleted bodies at rest: a device clears every one it
+// holds, in a guild where it is no moderator and in one where it is, records
+// the run, and does not run again.
+func TestDeletedBodiesAtRestAreClearedOnce(t *testing.T) {
 	if testing.Short() {
 		t.Skip("network integration test")
 	}
@@ -48,7 +48,7 @@ func TestDeletedBodiesAtRestAreClearedOnceWhereNotRevealable(t *testing.T) {
 		t.Fatal(err)
 	}
 	ownCh := own.Channels[0].ID
-	mine, err := member.SendMessage(ownCh, "the moderator's to reveal", "", "")
+	mine, err := member.SendMessage(ownCh, "deleted by a moderator", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,10 +59,10 @@ func TestDeletedBodiesAtRestAreClearedOnceWhereNotRevealable(t *testing.T) {
 	member.clearDeletedBodiesOnce()
 
 	if body, _ := member.store.MessageContent(m.ID); body != "" {
-		t.Errorf("a deleted body this device cannot reveal was kept: %q", body)
+		t.Errorf("a deleted body in a guild without moderator rights was kept: %q", body)
 	}
-	if got, err := member.RevealDeleted(ownCh, mine.ID); err != nil || got != "the moderator's to reveal" {
-		t.Errorf("the moderator's reveal: %q %v", got, err)
+	if body, _ := member.store.MessageContent(mine.ID); body != "" {
+		t.Errorf("a deleted body in the moderator's own guild was kept: %q", body)
 	}
 	if v, _ := member.store.GetSetting(deletedBodiesClearedKey); v == "" {
 		t.Fatal("the run was not recorded")
