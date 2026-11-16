@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/ZahakJ/concord/internal/chronimport"
+	"github.com/ZahakJ/concord/internal/imgmeta"
 	"github.com/ZahakJ/concord/internal/imgmeta/imgfixture"
 	cnet "github.com/ZahakJ/concord/internal/net"
 )
@@ -249,6 +251,89 @@ func TestImportedPicturesAreSharedWithoutMetadata(t *testing.T) {
 		if err := f.Check(sealedBytes(t, svc, ch, tok, sentImageRe)); err != nil {
 			t.Error(err)
 		}
+	}
+}
+
+// An exported picture the stripper cannot read is not archived with its
+// metadata: the attachment is dropped and counted as a placeholder, and the
+// message still imports.
+func TestImportedPictureThatCannotBeCleanedIsDropped(t *testing.T) {
+	s := importTestService(t)
+	dir := t.TempDir()
+	good := fixtureNamed("jpeg")
+	// The fixture JPEG with a segment whose length field is below its own two
+	// bytes, which the stripper refuses as malformed. Every secret stays in it.
+	bad := append([]byte{0xFF, 0xD8, 0xFF, 0xFE, 0x00, 0x01}, good.Bytes[2:]...)
+	if _, err := imgmeta.Strip(bad); err == nil {
+		t.Fatal("the damaged JPEG was cleaned; the test needs one the stripper refuses")
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, b := range map[string][]byte{"good.jpg": good.Bytes, "bad.jpg": bad} {
+		if err := os.WriteFile(filepath.Join(dir, "assets", name), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	export := map[string]any{
+		"guild":   map[string]any{"id": "g1", "name": "Pictures"},
+		"channel": map[string]any{"id": "c1", "type": "GuildTextChat", "name": "photos"},
+		"messages": []map[string]any{
+			{"id": "m1", "type": "Default", "timestamp": "2020-01-01T10:00:00Z", "content": "the good one",
+				"author":      map[string]any{"id": "u1", "name": "ada"},
+				"attachments": []map[string]any{{"url": "assets/good.jpg", "fileName": "good.jpg", "fileSizeBytes": len(good.Bytes)}}},
+			{"id": "m2", "type": "Default", "timestamp": "2020-01-01T10:01:00Z", "content": "the broken one",
+				"author":      map[string]any{"id": "u1", "name": "ada"},
+				"attachments": []map[string]any{{"url": "assets/bad.jpg", "fileName": "bad.jpg", "fileSizeBytes": len(bad)}}},
+		},
+	}
+	raw, err := json.Marshal(export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "photos.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, acc := runImportOffline(t, s, dir, chronimport.DefaultPolicy())
+
+	if acc.sealed != 1 || acc.placeholders != 1 {
+		t.Fatalf("sealed %d, placeholders %d; want the good picture sealed and the broken one a placeholder",
+			acc.sealed, acc.placeholders)
+	}
+	var tokens []string
+	var brokenImported bool
+	for _, msgs := range acc.byChannel {
+		for _, m := range msgs {
+			tokens = append(tokens, m.Attach...)
+			if strings.Contains(m.Content, "the broken one") {
+				brokenImported = true
+				if len(m.Attach) != 0 {
+					t.Errorf("the broken picture's message carries %d attachments", len(m.Attach))
+				}
+			}
+		}
+	}
+	if !brokenImported {
+		t.Fatal("the message with the broken picture was not imported")
+	}
+	if len(tokens) != 1 {
+		t.Fatalf("%d attachment tokens archived, want 1", len(tokens))
+	}
+	if err := good.Check(sealedBytes(t, s, "c1", tokens[0], sentImageRe)); err != nil {
+		t.Error(err)
+	}
+	// Every blob in the store is the one the archive points at, so the broken
+	// picture's bytes were stored nowhere.
+	blobs, err := s.store.AttachmentBlobs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blobs) != 1 {
+		t.Fatalf("%d blobs stored, want only the cleaned picture's", len(blobs))
+	}
+	if id := sentImageRe.FindStringSubmatch(tokens[0])[1]; blobs[id] == nil {
+		t.Fatal("the stored blob is not the archived picture's")
 	}
 }
 

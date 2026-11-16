@@ -112,8 +112,9 @@ type ChatImportResult struct {
 	AttachmentsSealed     int64 `json:"attachmentsSealed"`
 	AttachmentBytesSealed int64 `json:"attachmentBytesSealed"`
 	// Placeholders is every attachment the archive names and does not hold: the
-	// remote-only ones, the ones the policy's tier excluded, and the ones whose
-	// file turned out to be unreadable.
+	// remote-only ones, the ones the policy's tier excluded, the ones whose
+	// file turned out to be unreadable, and pictures that could not be cleaned
+	// of their metadata.
 	Placeholders int64 `json:"placeholders"`
 
 	Channels          int `json:"channels"`
@@ -1065,14 +1066,18 @@ func (s *Service) sealImportedFile(path string, at chronimport.Attachment, size 
 	if sub != "" && len(raw) > maxAttachmentPlain {
 		sub = ""
 	}
-	// Cleaned like a live send. An imported picture the stripper cannot read
-	// keeps its bytes rather than failing the whole import: it came from an
-	// export of another service, not from this device's camera.
+	// Cleaned like a live send. A JPEG, PNG, GIF or WebP the stripper cannot
+	// read is never sealed with its raw bytes, which would carry its metadata
+	// to every member: the attachment is dropped, as importedAvatar drops a
+	// portrait it cannot read, and the caller writes a placeholder and counts
+	// it. The message itself still imports.
 	switch imgmeta.Format(raw) {
 	case "jpeg", "png", "gif", "webp":
-		if clean, err := imgmeta.Strip(raw); err == nil {
-			raw, size = clean, int64(len(clean))
+		clean, err := imgmeta.Strip(raw)
+		if err != nil {
+			return "", false
 		}
+		raw, size = clean, int64(len(clean))
 	}
 	blobID, keys, err := s.sealBlob(raw)
 	if err != nil {
