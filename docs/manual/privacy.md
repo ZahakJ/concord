@@ -82,7 +82,7 @@ Search runs on your device only. It decrypts and scans your own history, and the
 | Your rendezvous, for GIF search | As you type in the GIF picker | **GIF search**, on by default |
 | Steam store search | As you type a game title | **Game title search**, off by default |
 | Steam image CDN | When a profile lists games | **Game box art**, off by default |
-| The linked site, or YouTube's or Vimeo's oEmbed service | Once, when **you send** a message with a link. Readers contact nobody | **Preview cards for links you send**, off by default |
+| The linked site, or YouTube's or Vimeo's oEmbed service | Once, when **you send** a message with a link. Readers contact nobody | **Preview cards for links you send**, off until you answer the question asked at your first link |
 | YouTube | When you tap play on a YouTube card or placeholder | Per tap |
 
 All the switches are in **Settings → Privacy & safety**.

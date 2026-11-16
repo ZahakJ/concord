@@ -36,8 +36,9 @@ export const LINK_CARDS = true;
 //   "ask" — no card until the first time you send a link, then one question
 //           (CARD_QUESTION), answered once; Privacy changes it later;
 //   "on"  — cards from the start.
-// The owner's decision; "off" is the current default.
-export const SEND_DEFAULT = "off";
+// The owner's decision is "ask": nothing is fetched for a link you send until
+// you have answered the question once.
+export const SEND_DEFAULT = "ask";
 
 export const CARD_QUESTION =
   "Show a preview card for links you send? Your device fetches the page once, when you send. People who read it contact nobody.";

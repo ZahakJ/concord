@@ -11,6 +11,8 @@
 //   - a hand-typed [paypal.com](https://evil.example) cannot wear the name;
 //   - a page posing as YouTube is drawn as a page with its domain in full on
 //     a phone;
+//   - with the default ("ask"), the first link goes out bare and raises one
+//     question; Yes sends cards from then on, Not now keeps links bare;
 //   - the composer fetches nothing while a link is typed, and once at send;
 //   - a message sent after a link is never overtaken and never waits;
 //   - a send the core never answers does not hold the channel;
@@ -293,21 +295,34 @@ test("phone: holding a card, or its row, offers the link and its domain", async 
 
 test("the composer fetches nothing while a link is typed, and the card once at send", async ({ world, assert, step, sleep }) => {
   const { alice, bashir, general, ytThumb } = await seed(world);
-  const a = await alice.open();
+  const a = await alice.open({ viewport: DESKTOP });
   const block = `[Never Gonna Give You Up](${YT}) · youtube.com\n${thumbLine(ytThumb, "Rick Astley")}`;
   const traffic = watchTraffic(a.page);
 
-  step("with the default (off), a link goes out as typed and nothing is fetched");
+  step("with the default (ask), words without a link raise no question");
   await a.openChannel(general.name, "Cards");
+  const question = a.page.locator(".card-ask");
+  await a.composer().fill("no link here");
+  await a.composer().press("Enter");
+  await bashir.waitForMessage(general.id, "no link here", { timeout: 30000 });
+  assert.equal(await question.count(), 0, "a message without a link asked about cards");
+
+  step("the first link goes out as typed, nothing is fetched, and the question is asked");
+  const asked = await stubLinkCard(a, () => ({ block }), sleep);
   await a.composer().fill(`default ${YT}`);
   await a.composer().press("Enter");
   await bashir.waitForMessage(general.id, `default ${YT}`, { timeout: 30000 });
-  assert.deepEqual(traffic.methods.filter((m) => FETCHES.test(m)), [], "a card was fetched with the default");
+  await question.waitFor({ timeout: 5000 });
+  assert.deepEqual(traffic.methods.filter((m) => FETCHES.test(m)), [], "a card was fetched before the question was answered");
+  await shot(a.page, "desktop1280-first-link-question");
 
-  step("switched on: typing and pausing fetches nothing (ZL-10)");
-  await cardsOn(a);
-  await a.openChannel(general.name, "Cards");
-  const asked = await stubLinkCard(a, () => ({ block }), sleep);
+  step("Yes: the question goes, and the answer is kept");
+  await question.locator(".ca-yes").click();
+  await question.waitFor({ state: "detached", timeout: 5000 });
+  const pref = await a.page.evaluate(() => JSON.parse(localStorage.getItem("concord.prefs") || "{}").sendLinkPreviews);
+  assert.equal(pref, true, `the answer was stored as ${JSON.stringify(pref)}`);
+
+  step("cards on: typing and pausing fetches nothing (ZL-10)");
   const typedFetches = () => traffic.methods.filter((m) => FETCHES.test(m)).length;
   const before = typedFetches();
   await a.composer().pressSequentially("https://www.youtube.com/watch?v=dQw4", { delay: 30 });
@@ -327,6 +342,8 @@ test("the composer fetches nothing while a link is typed, and the card once at s
   await a.composer().press("Enter");
   await bashir.waitForMessage(general.id, (m) => m.content === `look ${YT} ok\n${block}`, { timeout: 30000 });
 
+  assert.equal(await question.count(), 0, "asked again after Yes");
+
   step("editing the card message shows the link, not the card's lines (ZL-07)");
   const row = a.page.locator(".msg[data-msg-id]", { has: a.page.locator(".lc") }).first();
   await row.waitFor();
@@ -336,6 +353,48 @@ test("the composer fetches nothing while a link is typed, and the card once at s
   const v = await edit.inputValue();
   assert.equal(v, `look ${YT} ok`, `the edit box holds ${JSON.stringify(v)}`);
   await edit.press("Escape");
+});
+
+// The owner's default is "ask": no card until the sender has answered once.
+// "Not now" is an answer: links go out bare, nothing is fetched, and the
+// question is not asked again, after a reload too.
+test("phone: Not now keeps links bare and is not asked again", async ({ world, assert, step, sleep }) => {
+  const { alice, bashir, general, ytThumb } = await seed(world);
+  const a = await alice.open({ viewport: "phone" });
+  const block = `[Never Gonna Give You Up](${YT}) · youtube.com\n${thumbLine(ytThumb, "Rick Astley")}`;
+  const traffic = watchTraffic(a.page);
+  await a.openChannel(general.name, "Cards");
+  const question = a.page.locator(".card-ask");
+  // On a phone Enter is a newline; the Send button sends.
+  const send = async (text) => {
+    await a.composer().fill(text);
+    await a.page.getByRole("button", { name: "Send", exact: true }).click();
+  };
+
+  step("the first link asks");
+  await stubLinkCard(a, () => ({ block }), sleep);
+  await send(`first ${YT}`);
+  await bashir.waitForMessage(general.id, `first ${YT}`, { timeout: 30000 });
+  await question.waitFor({ timeout: 5000 });
+  await shot(a.page, "phone390-first-link-question");
+
+  step("Not now: the question goes and the next link is sent bare, without a fetch");
+  await question.locator(".ca-no").click();
+  await question.waitFor({ state: "detached", timeout: 5000 });
+  await send(`second ${YT}`);
+  await bashir.waitForMessage(general.id, `second ${YT}`, { timeout: 30000 });
+  await sleep(1000);
+  assert.equal(await question.count(), 0, "asked again after Not now");
+
+  step("after a reload, still not asked and still nothing fetched");
+  await a.reload();
+  // The phone comes back in the channel it was in.
+  await a.composer().waitFor({ timeout: 15000 });
+  await send(`third ${YT}`);
+  await bashir.waitForMessage(general.id, `third ${YT}`, { timeout: 30000 });
+  await sleep(1000);
+  assert.equal(await question.count(), 0, "asked again after a reload");
+  assert.deepEqual(traffic.methods.filter((m) => FETCHES.test(m)), [], "a card was fetched after Not now");
 });
 
 test("a message sent after a link is never overtaken and never waits", async ({ world, assert, step, sleep }) => {

@@ -13,6 +13,7 @@ import {
   cardEditSave,
   sendingCards,
   askAboutCards,
+  SEND_DEFAULT,
   CARD_QUESTION,
 } from "./linkcard.js";
 import { plainSnippet } from "./snippet.js";
@@ -187,6 +188,13 @@ eq(askAboutCards(null, "ask"), true, "ask: the question comes while undecided");
 eq(askAboutCards(false, "ask"), false, "asked once: Not now is an answer");
 eq(askAboutCards(true, "ask"), false, "asked once: Yes is an answer");
 eq(askAboutCards(null, "off"), false, "off: never asked");
+// The default this build ships with (owner's decision): asked, not on. A
+// device that has not chosen sends its first link bare and gets the question.
+eq(SEND_DEFAULT, "ask", "the shipped default is ask");
+eq(sendingCards(null), false, "default: undecided sends no card");
+eq(askAboutCards(null), true, "default: undecided is asked");
+eq(sendingCards(true), true, "default: Yes sends cards");
+eq(askAboutCards(true) || askAboutCards(false), false, "default: asked once only");
 eq(
   CARD_QUESTION,
   "Show a preview card for links you send? Your device fetches the page once, when you send. People who read it contact nobody.",
