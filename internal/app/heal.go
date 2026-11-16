@@ -706,17 +706,17 @@ func (s *Service) healAsk(guildID string, pid peer.ID) (bool, string) {
 		want = g.GroupID
 	}
 	s.mu.RUnlock()
-	// JoinGroup overwrites our local group entry with the fresh membership at the
-	// current epoch — the ratchet is repaired.
-	joined, err := s.mls.Join(s.ctx, resp.Welcome)
-	if err != nil {
+	if len(want) == 0 {
 		return false, ""
 	}
-	// Only if the Welcome is for THIS guild's group. A Welcome carries its own
-	// group id, and a committer that answered with another group's (by mistake,
-	// or to move us) has repaired nothing here: the guild is still stranded,
-	// and nothing below may clear its flag or its latch.
-	if len(want) == 0 || !bytes.Equal(joined, want) {
+	// Only a Welcome for THIS guild's group. A Welcome carries its own group
+	// id, and one for another group has repaired nothing here: the guild is
+	// still stranded, and nothing below may clear its flag or its latch. The
+	// check is made inside the join, before anything is stored, so a Welcome
+	// for another group creates or replaces no group state on this device.
+	// For this group, the join overwrites our local entry with the fresh
+	// membership at the current epoch — the ratchet is repaired.
+	if _, err := s.mls.JoinAs(s.ctx, resp.Welcome, want); err != nil {
 		return false, ""
 	}
 	// A welcome we could join disproves the terminal state: somebody with
