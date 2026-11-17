@@ -1346,7 +1346,7 @@
           <span class="dm-notes-icon"><Icon name="back" size={15} /></span>
           <span class="dm-col">
             <span class="dm-name">Archived</span>
-            <span class="dm-sub">These still notify you. Mute a chat to silence it.</span>
+            <span class="dm-sub">They still notify you unless muted</span>
           </span>
         </button>
       {/if}
