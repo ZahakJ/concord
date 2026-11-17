@@ -17,6 +17,7 @@
   } from "./lib/attachments.js";
   import { knownRecipe } from "./lib/memerecipe.js";
   import { openContextMenu, flash, S, memberByFpr, nameFor } from "./lib/state.svelte.js";
+  import { humanError } from "./lib/errors.js";
   import { longpress, haptic } from "./lib/touch.js";
   import { pointOf, rectOf } from "./lib/place.js";
   import { portal } from "./lib/portal.js";
@@ -71,7 +72,7 @@
             await copyImageToClipboard(src);
             flash("Image copied", "success");
           } catch (err) {
-            flash(`Couldn't copy image: ${err?.message || err}`);
+            flash(`Couldn't copy image: ${humanError(err)}`);
           }
         },
       },

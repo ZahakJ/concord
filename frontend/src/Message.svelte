@@ -101,6 +101,7 @@
     focusComposer,
   } from "./lib/state.svelte.js";
   import { clampToBytes, TITLE_MAX_BYTES } from "./lib/postdraft.js";
+  import { humanError } from "./lib/errors.js";
   import { focusOnMount } from "./lib/focus.js";
   import { api } from "./lib/api.js";
   import { tooltip } from "./lib/tooltip.js";
@@ -1096,7 +1097,7 @@
               await copyImageToClipboard(img.src);
               flash("Image copied", "success");
             } catch (err) {
-              flash(`Couldn't copy image: ${err?.message || err}`);
+              flash(`Couldn't copy image: ${humanError(err)}`);
             }
           },
         },

@@ -5,6 +5,7 @@
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import { S, flash } from "../lib/state.svelte.js";
+  import { humanError } from "../lib/errors.js";
   import { TTL_OPTIONS, channelTTL, setChannelTTL } from "../lib/ephemeral.svelte.js";
 
   let { onClose } = $props();
@@ -16,7 +17,7 @@
     try {
       await setChannelTTL(channelId, secs);
     } catch (e) {
-      flash(`Couldn't change the timer: ${e?.message || e}`, "error");
+      flash(`Couldn't change the timer: ${humanError(e)}`, "error");
       return;
     }
     flash(secs ? `Messages now disappear after ${TTL_OPTIONS.find((o) => o.secs === secs)?.label}` : "Disappearing messages off", "success");

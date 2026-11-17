@@ -6,6 +6,7 @@
 // survived verbatim — "HTTP 500", on screen, under somebody's message. The
 // worklog's own comment uses that exact string as the example of what must
 // never be shown.
+import { readFileSync } from "node:fs";
 import { errorField, humanError, slowModeWait, looksRaw, UNKNOWN } from "./errors.js";
 
 let failures = 0;
@@ -162,6 +163,16 @@ eq(humanError(""), UNKNOWN, "an empty error");
 eq(looksRaw("they're already in this guild"), false, "a human sentence is not raw");
 eq(humanError("app: that name is taken"), "that name is taken", "a human sentence passes");
 console.warn = silence;
+
+// A toast that names what failed and then pastes the error after a colon put
+// the core's words on screen untouched: flash() maps only the start of the
+// string, and "Couldn't change the timer: app: …" does not start with the
+// prefix. These sites map the error themselves.
+for (const file of ["../modals/ModalDisappear.svelte", "../Message.svelte", "../Attachment.svelte"]) {
+  const src = readFileSync(new URL(file, import.meta.url), "utf8");
+  const raw = src.match(/flash\(`[^`]*\$\{\s*\w+\?\.message\s*\|\|[^`]*`/g) || [];
+  eq(raw.length, 0, `${file}: a toast prints the raw error (${raw.join("; ")})`);
+}
 
 if (failures) {
   console.error(`\n${failures} errors test(s) failed`);
