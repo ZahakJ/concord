@@ -229,6 +229,8 @@ test(
     const cdp = await a.ctx.newCDPSession(page);
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
     await page.getByRole("button", { name: "Members, pins and files" }).click();
+    await page.locator('aside[aria-label="Inspector"]').getByRole("tab", { name: "Media" }).waitFor();
+    await page.waitForTimeout(500); // the inspector's entrance
     const heap0 = await page.evaluate(() => performance.memory?.usedJSHeapSize || 0);
 
     step("open: tap on the Media tab to the first frame with tiles");
