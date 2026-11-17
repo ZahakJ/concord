@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // What the binary prints at startup goes to the service journal under
@@ -36,13 +35,12 @@ func TestStartupLineCarriesNoSecretOffATerminal(t *testing.T) {
 // It sits in a directory only this user can enter, the socket itself is
 // owner-only, and it goes when the process does.
 func TestLaunchSocketMintsCodesForTheOwnerOnly(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	run := t.TempDir()
-	path, err := serveLaunchSocket(ctx, run, "127.0.0.1:8787", func() string { return "fresh" })
+	path, stop, err := serveLaunchSocket(run, "127.0.0.1:8787", func() string { return "fresh" })
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer stop()
 	if want := filepath.Join(run, "concord", "launch-127.0.0.1_8787.sock"); path != want {
 		t.Fatalf("socket at %s, want %s", path, want)
 	}
@@ -64,15 +62,10 @@ func TestLaunchSocketMintsCodesForTheOwnerOnly(t *testing.T) {
 	if strings.TrimSpace(string(body)) != "fresh" {
 		t.Fatalf("socket said %q", body)
 	}
-	cancel()
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("socket left behind after shutdown")
-		}
-		time.Sleep(20 * time.Millisecond)
+	// Gone the moment stop returns, not some time after: the process exits
+	// right behind it, and a goroutine left to clean up never runs.
+	stop()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("socket still there after stop: %v", err)
 	}
 }

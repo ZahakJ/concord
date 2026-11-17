@@ -139,8 +139,10 @@ func main() {
 	// A launcher (concord-url.sh) asks this socket for a fresh code each time
 	// it opens the app, so nothing needs to scrape a log for a way in.
 	if run := os.Getenv("XDG_RUNTIME_DIR"); run != "" && !isSock {
-		if _, err := serveLaunchSocket(ctx, run, addr, srv.MintLaunchCode); err != nil {
+		if _, stopLaunch, err := serveLaunchSocket(run, addr, srv.MintLaunchCode); err != nil {
 			fmt.Fprintln(os.Stderr, "concord: launch socket:", err)
+		} else {
+			defer stopLaunch()
 		}
 	}
 	// Unlock from a file when asked: a service then comes up signed in, and

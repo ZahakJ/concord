@@ -25,7 +25,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -34,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -164,28 +164,29 @@ func readPassphraseFile(path string) (string, error) {
 // serveLaunchSocket answers GET /code on a unix socket with a fresh launch
 // code (internal/httpapi/launch.go), so a launcher can open the app without
 // the token ever being written anywhere. The socket lives in <runDir>/concord,
-// a directory only this user can enter, and is itself owner-only; it is
-// removed when ctx ends.
-func serveLaunchSocket(ctx context.Context, runDir, addr string, mint func() string) (string, error) {
+// a directory only this user can enter, and is itself owner-only. stop closes
+// it and removes the file before returning: a socket left behind would point
+// the launcher at a process that is gone.
+func serveLaunchSocket(runDir, addr string, mint func() string) (path string, stop func(), err error) {
 	dir := filepath.Join(runDir, "concord")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	name := strings.NewReplacer(":", "_", "/", "_", "[", "", "]", "").Replace(addr)
-	path := filepath.Join(dir, "launch-"+name+".sock")
+	path = filepath.Join(dir, "launch-"+name+".sock")
 	if err := clearStaleSocket(path); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	ln, err := net.Listen("unix", path)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		ln.Close()
-		return "", err
+		return "", nil, err
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/code", func(w http.ResponseWriter, r *http.Request) {
@@ -193,11 +194,13 @@ func serveLaunchSocket(ctx context.Context, runDir, addr string, mint func() str
 		_, _ = io.WriteString(w, mint()+"\n")
 	})
 	srv := &http.Server{Handler: mux}
-	go func() {
-		<-ctx.Done()
-		_ = srv.Close()
-		_ = os.Remove(path)
-	}()
 	go func() { _ = srv.Serve(ln) }()
-	return path, nil
+	var once sync.Once
+	stop = func() {
+		once.Do(func() {
+			_ = srv.Close()
+			_ = os.Remove(path)
+		})
+	}
+	return path, stop, nil
 }
