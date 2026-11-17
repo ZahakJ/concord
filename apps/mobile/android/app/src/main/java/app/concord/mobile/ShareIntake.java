@@ -25,7 +25,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Pictures and videos shared INTO Concord from another app's share sheet.
+ * Pictures and videos shared INTO Concord from another app's share sheet, or
+ * picked in the system photo picker from the "+" sheet (takePicked).
  *
  * The bytes arrive as content:// URIs that only this activity has been granted
  * to read, and only for a while. The page cannot open them, so they are copied
@@ -90,26 +91,43 @@ final class ShareIntake {
 
         final Context app = ctx.getApplicationContext();
         exec.execute(() -> {
-            JSArray files = new JSArray();
-            JSArray skipped = new JSArray();
-            int n = 0;
-            for (Uri uri : uris) {
-                if (n >= MAX_ITEMS) {
-                    skipped.put(skip(null, "count"));
-                    continue;
-                }
-                JSObject item = copy(app, uri, intentType, skipped);
-                if (item != null) {
-                    files.put(item);
-                    n++;
-                }
-            }
-            JSObject data = new JSObject();
+            JSObject data = copyAll(app, uris, intentType);
             if (!caption.isEmpty()) data.put("text", caption);
-            data.put("files", files);
-            if (skipped.length() > 0) data.put("skipped", skipped);
             ConcordCorePlugin.emitShare(data);
         });
+    }
+
+    /**
+     * What the system photo picker returned (ConcordCorePlugin.pickMedia):
+     * copied the same way as a share, under the same caps, off the main
+     * thread, and handed to {@code done} as {files, skipped?}.
+     */
+    static void takePicked(Context ctx, List<Uri> uris, java.util.function.Consumer<JSObject> done) {
+        final Context app = ctx.getApplicationContext();
+        final List<Uri> list = new ArrayList<>(uris);
+        exec.execute(() -> done.accept(copyAll(app, list, null)));
+    }
+
+    /** Copies up to MAX_ITEMS of the streams; the rest are reported as skipped. */
+    private static JSObject copyAll(Context app, List<Uri> uris, String intentType) {
+        JSArray files = new JSArray();
+        JSArray skipped = new JSArray();
+        int n = 0;
+        for (Uri uri : uris) {
+            if (n >= MAX_ITEMS) {
+                skipped.put(skip(null, "count"));
+                continue;
+            }
+            JSObject item = copy(app, uri, intentType, skipped);
+            if (item != null) {
+                files.put(item);
+                n++;
+            }
+        }
+        JSObject data = new JSObject();
+        data.put("files", files);
+        if (skipped.length() > 0) data.put("skipped", skipped);
+        return data;
     }
 
     /** Deletes staged copies the page has finished with. Only ever inside DIR. */
@@ -249,7 +267,7 @@ final class ShareIntake {
         return o;
     }
 
-    private static boolean isMedia(String type) {
+    static boolean isMedia(String type) {
         return type != null && (type.startsWith("image/") || type.startsWith("video/"));
     }
 

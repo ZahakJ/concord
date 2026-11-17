@@ -42,6 +42,7 @@
   import { displayFileName } from "./lib/attachments.js";
   import { fmtBytes } from "./lib/chronicle.js";
   import { midTrunc, fileLabel } from "./lib/attachments.js";
+  import { nativePicker, pickAndStage } from "./lib/pickmedia.js";
   import { wantsTypeToFocus } from "./lib/typetofocus.js";
   import { isPttKey } from "./lib/shortcuts.js";
 
@@ -1634,9 +1635,28 @@
     if (sealNext) haptic("light");
     composerEl?.focus();
   }
+  // The Android app opens the system photo picker from a "Photos and videos"
+  // tile at the top of the sheet (lib/pickmedia.js): the system shows the
+  // library, the app gets only what is picked, and no permission is asked.
+  // "Photo or file" is then "Files", the document picker it always was.
+  const picker = nativePicker(typeof window !== "undefined" ? window.Capacitor : null);
+  let picking = $state(false);
+  async function pickPhotos() {
+    if (picking) return;
+    picking = true;
+    try {
+      const r = await pickAndStage({ core: picker, cap: window.Capacitor, attach: attachFile });
+      if (r.note) flash(r.note, "error");
+    } catch (err) {
+      flash(`Couldn't open your photos: ${err?.message || err}`, "error");
+    } finally {
+      picking = false;
+    }
+  }
   const addItems = $derived(
     [
-      { id: "file", label: "Photo or file", icon: "attach", title: "Up to 5 MB images, 25 MB files", disabled: !ch || uploading > 0, run: () => fileInput.click() },
+      picker && { id: "media", label: "Photos and videos", icon: "image", wide: true, title: "Pick up to 10 from your photos — Concord sees only what you pick", disabled: !ch || uploading > 0 || picking, run: pickPhotos },
+      { id: "file", label: picker ? "Files" : "Photo or file", icon: "attach", title: "Up to 5 MB images, 25 MB files", disabled: !ch || uploading > 0, run: () => fileInput.click() },
       // coarse, not mobile: the sheet also shows in a narrowed desktop window,
       // where "take a photo" would open a file picker and shrug.
       coarse && { id: "camera", label: "Camera", icon: "camera", title: "Straight from the camera", disabled: !ch, run: () => cameraInput.click() },
@@ -2338,6 +2358,7 @@
         <button
           type="button"
           class="tile"
+          class:wide={it.wide}
           class:on={it.pressed}
           aria-pressed={it.pressed ?? undefined}
           disabled={it.disabled}
@@ -3718,6 +3739,22 @@
   }
   .tile:active {
     background: var(--bg-2);
+  }
+  /* The photo picker's tile: the whole first row, the thing a thumb is there
+     for most of the time. Icon beside the label rather than above it. */
+  .tile.wide {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--sp-3);
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--bg-2);
+  }
+  .tile.wide .tile-ic {
+    background: var(--bg-1);
+  }
+  .tile.wide .tile-lbl {
+    font-size: var(--fs-ui);
   }
   .tile:active .tile-ic {
     transform: scale(0.94);

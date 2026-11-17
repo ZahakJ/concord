@@ -20,6 +20,8 @@ import android.view.WindowManager;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResult;
+import androidx.activity.result.PickVisualMediaRequest;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.app.NotificationManagerCompat;
 
 import java.io.OutputStream;
@@ -158,6 +160,46 @@ public class ConcordCorePlugin extends Plugin {
             return;
         }
         p.notifyListeners("shareIn", data, true);
+    }
+
+    // ---- the "+" sheet's photo picker ----
+    //
+    // androidx's PickMultipleVisualMedia: the system photo picker where the
+    // device has one (Android 13+, and 11-12 through Google system updates),
+    // the Files picker filtered to pictures and videos where it does not. No
+    // permission is involved either way: the system draws the library and the
+    // app receives read access to the items picked, and nothing else. The
+    // picks are copied like a share (ShareIntake) and the call resolves with
+    // the same {files, skipped} shape the page already stages from.
+
+    @PluginMethod
+    public void pickMedia(PluginCall call) {
+        try {
+            Intent i = new ActivityResultContracts.PickMultipleVisualMedia(ShareIntake.MAX_ITEMS)
+                .createIntent(getContext(), new PickVisualMediaRequest.Builder()
+                    .setMediaType(ActivityResultContracts.PickVisualMedia.ImageAndVideo.INSTANCE)
+                    .build());
+            startActivityForResult(call, i, "pickMediaResult");
+        } catch (Exception e) {
+            call.reject("this device has no photo picker", e);
+        }
+    }
+
+    @ActivityCallback
+    private void pickMediaResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        java.util.List<Uri> uris = new java.util.ArrayList<>();
+        if (result != null && result.getResultCode() == Activity.RESULT_OK) {
+            uris.addAll(new ActivityResultContracts.PickMultipleVisualMedia(ShareIntake.MAX_ITEMS)
+                .parseResult(result.getResultCode(), result.getData()));
+        }
+        if (uris.isEmpty()) {
+            JSObject none = new JSObject();
+            none.put("files", new JSArray());
+            call.resolve(none);
+            return;
+        }
+        ShareIntake.takePicked(getContext(), uris, call::resolve);
     }
 
     /** The page has staged (or given up on) these shared copies: delete them. */
