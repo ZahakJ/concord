@@ -61,6 +61,7 @@ import {
 } from "./outbox.js";
 import { makeCardGate } from "./cardgate.js";
 import { CARD_WAIT_MS, cardLink, wantsThumb, withCard, sendingCards, cardChoice } from "./linkcard.js";
+import { asIsKind, asIsLine } from "./mediastrip.js";
 
 let seq = 0;
 
@@ -327,7 +328,9 @@ function deliver(entry) {
         entry.text || "",
         entry.dir || "",
       );
-    return api.sendFile(entry.channelId, a.dataUrl, a.name, entry.replyTo, entry.text || "", entry.dir || "");
+    // asIsChosen: the person pressed "Send as it is" on this row (sendAsIs).
+    const send = a.asIsChosen ? api.sendFileAsIs : api.sendFile;
+    return send(entry.channelId, a.dataUrl, a.name, entry.replyTo, entry.text || "", entry.dir || "");
   }
   return api.sendMessage(entry.channelId, entry.body, entry.replyTo, entry.dir);
 }
@@ -369,6 +372,14 @@ async function run(entry) {
     // A slow-mode refusal is a WAIT, not a failure, and the core told us how
     // long. Keeping the moment rather than the number is what lets the row tick
     // instead of freezing at "wait 28s" for the next half minute.
+    // A video or HEIC photo the core could not clean is held, not failed:
+    // the row says it would go as it is, location and all, and offers to send
+    // it that way. Nothing has left the device.
+    const asIs = asIsKind(err);
+    if (asIs) {
+      patch(entry.id, { state: "failed", error: asIsLine(asIs), asIs, retryAt: 0, offline: false, timedOut: false });
+      return false;
+    }
     const wait = slowModeWait(err);
     // The guild's kind only picks a noun ("guild" or "conversation") for the
     // one refusal that names it: a copy that cannot be repaired from here.
@@ -433,6 +444,16 @@ export function retry(id) {
   if (!entry || entry.state !== "failed") return;
   patch(id, { state: "sending", error: "", timedOut: false });
   run({ ...entry, state: "sending" });
+}
+
+// sendAsIs: the person read that this file's details could not be removed and
+// chose to send it as it is. Only a row the core held for that reason.
+export function sendAsIs(id) {
+  const entry = S.outbox.find((e) => e.id === id);
+  if (!entry || entry.state !== "failed" || !entry.asIs || entry.kind !== "att") return;
+  const att = { ...entry.att, asIsChosen: true };
+  patch(id, { state: "sending", error: "", asIs: "", att });
+  run({ ...entry, att, asIs: "", state: "sending" });
 }
 
 // discard: give up on a failed send. The body goes back to the clipboard rather

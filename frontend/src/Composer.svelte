@@ -1016,6 +1016,7 @@
 
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
   const NATIVE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+  const HEIF_TYPES = ["image/heic", "image/heif", "image/heic-sequence", "image/heif-sequence", "image/avif"];
 
   function readAsDataURL(blob) {
     return new Promise((res, rej) => {
@@ -1124,7 +1125,10 @@
         } catch (err) {
           // Named as one of the four and not decodable as anything: the
           // file path, as for a corrupt picture above.
-          if (NATIVE_TYPES.includes(file.type) && !String(err?.message || err).includes("too large")) return false;
+          // A HEIC/HEIF/AVIF photo this renderer cannot draw goes the same
+          // way: the core removes its location and device details itself
+          // (internal/bmffmeta), or holds it and says so (lib/mediastrip.js).
+          if ((NATIVE_TYPES.includes(file.type) || HEIF_TYPES.includes(file.type)) && !String(err?.message || err).includes("too large")) return false;
           throw err;
         }
       }

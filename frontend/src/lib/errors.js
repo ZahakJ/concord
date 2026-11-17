@@ -68,6 +68,11 @@ const BY_CODE = {
 // Each is about the field it names (see errorField): the old card painted the
 // passphrase boxes red for every one of them, a wrong link code included.
 const KNOWN = [
+  // A video or HEIC photo the core could not clean (lib/mediastrip.js). The
+  // message box offers to send it as it is; a dialog that sends files has
+  // no such button, so it says where to go.
+  [/details can't be removed from this (video|photo|file)/i, "",
+    "Concord couldn't remove the details stored in that file, so it wasn't sent. Attach it in the message box to choose whether it goes as it is, including any location stored in it."],
   [/^bad code( encoding)?$|^incomplete code$/i, "code",
     "That isn't a link code. Copy it again from Settings → Your devices on your other device."],
   [/^code expired$/i, "code",

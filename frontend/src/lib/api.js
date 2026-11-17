@@ -563,6 +563,12 @@ export const api = {
     sending(channelID);
     return call("SendFile", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir);
   },
+  // A video or HEIC photo the core could not clean, after the person chose to
+  // send it as it is (lib/mediastrip.js).
+  sendFileAsIs: (channelID, dataURL, filename, replyTo = "", text = "", dir = "") => {
+    sending(channelID);
+    return call("SendFileAsIs", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir);
+  },
   fetchFile: (channelID, blobID, keys, mime) =>
     call("FetchFile", channelID, blobID, keys, mime),
   // Sender side only, at send time: the card for one link of a message this
