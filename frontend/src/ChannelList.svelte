@@ -1017,7 +1017,7 @@
       {
         // Tidying, not muting: archived chats still notify by their own
         // notification setting.
-        label: isArchived(S.chatPrefs, dm) ? "Unarchive" : "Archive (does not mute)",
+        label: isArchived(S.chatPrefs, dm) ? "Unarchive" : "Archive",
         icon: "folder",
         onClick: () => setChatArchived(dm, !isArchived(S.chatPrefs, dm)),
       },
@@ -1346,7 +1346,7 @@
           <span class="dm-notes-icon"><Icon name="back" size={15} /></span>
           <span class="dm-col">
             <span class="dm-name">Archived</span>
-            <span class="dm-sub">Still notify as set. Archiving is not muting.</span>
+            <span class="dm-sub">These still notify you. Mute a chat to silence it.</span>
           </span>
         </button>
       {/if}
