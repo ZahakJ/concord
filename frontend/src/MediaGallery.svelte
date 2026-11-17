@@ -15,6 +15,7 @@
   // to fetch it while it is on screen, one at a time; on a billed connection
   // the core waits for a tap instead.
   import { onMount, untrack } from "svelte";
+  import { SvelteMap } from "svelte/reactivity";
   import Icon from "./Icon.svelte";
   import Segmented from "./Segmented.svelte";
   import GalleryViewer from "./GalleryViewer.svelte";
@@ -94,7 +95,7 @@
       items = [];
       next = "";
       loaded = false;
-      tileState = {};
+      tileState.clear();
       queue?.close();
       queue = makeQueue();
       if (scroller) scroller.scrollTop = 0;
@@ -197,7 +198,9 @@
   });
 
   // ---- what is not on this device ----
-  let tileState = $state({}); // itemKey -> "" | asking | local | metered | missing
+  // itemKey -> asking | local | metered | missing. Per key, so one tile's
+  // change redraws that tile and not the grid.
+  const tileState = new SvelteMap();
   let queue = null;
   let cacheTick = $state(0); // bumped when the viewer has decrypted something
   function onScreen(it) {
@@ -210,7 +213,7 @@
     return new FetchQueue({
       ensure: (it, allowMetered) => api.ensureMedia(it.channelId, it.blobId, allowMetered),
       stillWanted: (it) => onScreen(it),
-      onState: (k, st) => (tileState = { ...tileState, [k]: st }),
+      onState: (k, st) => tileState.set(k, st),
     });
   }
   $effect(() => {
@@ -225,7 +228,7 @@
     untrack(() => {
       for (const it of vis) {
         const k = itemKey(it);
-        if (tileState[k] || cachedAttachment(it.blobId)) continue;
+        if (tileState.has(k) || cachedAttachment(it.blobId)) continue;
         queue.push(it);
       }
     });
@@ -237,7 +240,8 @@
   function open(it) {
     const k = itemKey(it);
     // On a billed connection a tap is the go-ahead for this one.
-    if (tileState[k] === "metered" || tileState[k] === "missing") queue?.push(it, true);
+    const st = tileState.get(k);
+    if (st === "metered" || st === "missing") queue?.push(it, true);
     viewing = visual.findIndex((x) => itemKey(x) === k);
   }
   function goTo(it) {
@@ -279,6 +283,12 @@
     ]);
   }
 
+  // A long-press's item, from the node it landed on (see the tile markup).
+  const byKey = $derived(new Map(shown.map((it) => [itemKey(it), it])));
+  function menuAt(e) {
+    const it = byKey.get(e?.target?.closest?.("[data-k]")?.dataset.k);
+    if (it) menu(e, it);
+  }
   const who = (it) => nameFor(it.sender, it.senderName);
   const tileLabel = (it) =>
     it.spoiler
@@ -328,18 +338,22 @@
           <div class="gal-head" style="transform:translateY({m.top}px);height:{HEAD_H}px">{m.row.label}</div>
         {:else if tab === TAB_VISUAL}
           <div class="gal-row" style="transform:translateY({m.top}px);height:{tileW}px;grid-template-columns:repeat({cols}, {tileW}px);gap:{GAP}px">
-            {#each m.row.items as it (itemKey(it))}
-              {@const st = tileState[itemKey(it)] || ""}
-              {@const src = cacheTick >= 0 ? cachedAttachment(it.blobId) : ""}
+            <!-- Not keyed: scrolling hands the same tile nodes new items rather
+                 than building new ones. Handlers find their item through
+                 data-k, since an action's parameters are not updated. -->
+            {#each m.row.items as it}
+              {@const st = tileState.get(itemKey(it)) || ""}
+              {@const src = it.kind === KIND_PHOTO && cacheTick >= 0 ? cachedAttachment(it.blobId) : ""}
               <button
                 type="button"
                 class="tile"
                 class:spoiler={it.spoiler}
                 aria-label={tileLabel(it)}
                 data-msg={it.messageId}
+                data-k={itemKey(it)}
                 onclick={() => open(it)}
                 oncontextmenu={(e) => menu(e, it)}
-                use:longpress={{ handler: (e) => menu(e, it) }}
+                use:longpress={{ handler: menuAt }}
               >
                 {#if it.kind === KIND_PHOTO && src}
                   <img {src} alt="" decoding="async" draggable="false" />
@@ -368,9 +382,10 @@
             type="button"
             class="frow"
             style="transform:translateY({m.top}px);height:{FILE_H}px"
+            data-k={itemKey(it)}
             onclick={() => goTo(it)}
             oncontextmenu={(e) => menu(e, it)}
-            use:longpress={{ handler: (e) => menu(e, it) }}
+            use:longpress={{ handler: menuAt }}
           >
             <span class="fic"><Icon name={isVoice(it) ? "mic" : "attach"} size={16} /></span>
             <span class="ftext">

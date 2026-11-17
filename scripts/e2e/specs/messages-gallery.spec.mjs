@@ -253,55 +253,77 @@ test(
         }),
     );
 
-    step("fling: the whole grid, top to bottom, a screen per frame");
-    const fling = await page.evaluate(async () => {
-      const el = document.querySelector('[data-testid="gallery-scroll"]');
-      const deltas = [];
-      let maxTiles = 0;
-      let last = performance.now();
-      const frame = () => new Promise((r) => requestAnimationFrame(r));
-      const start = performance.now();
-      for (let guard = 0; guard < 20000; guard++) {
-        el.scrollTop += el.clientHeight * 0.9;
-        await frame();
-        const now = performance.now();
-        deltas.push(now - last);
-        last = now;
-        maxTiles = Math.max(maxTiles, el.querySelectorAll(".tile").length);
-        // done when at the bottom and no page is loading
-        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2 && !document.querySelector(".gal-more")) {
+    // Two scrolls. "steady" is a hand's fling: 100 px a frame (6,000 px/s at
+    // 60 Hz) for 300 frames. "jump" goes top to bottom at nine tenths of a
+    // screen a frame, so every mounted tile is replaced on every frame and
+    // every page is fetched on the way: the worst case, not a gesture.
+    step("steady scroll, then the whole grid a screen per frame");
+    const runScroll = (stepPx, maxFrames) =>
+      page.evaluate(
+        async ({ stepPx, maxFrames }) => {
+          const el = document.querySelector('[data-testid="gallery-scroll"]');
+          const deltas = [];
+          let maxTiles = 0;
+          const frame = () => new Promise((r) => requestAnimationFrame(r));
           await frame();
-          await frame();
-          if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) break;
-        }
-      }
-      return { deltas, maxTiles, ms: performance.now() - start, items: el.querySelector(".gal-space").style.height };
-    });
+          let last = performance.now();
+          const start = last;
+          for (let i = 0; i < maxFrames; i++) {
+            el.scrollTop += stepPx || el.clientHeight * 0.9;
+            await frame();
+            const now = performance.now();
+            deltas.push(now - last);
+            last = now;
+            maxTiles = Math.max(maxTiles, el.querySelectorAll(".tile").length);
+            if (!stepPx && el.scrollTop + el.clientHeight >= el.scrollHeight - 2 && !document.querySelector(".gal-more")) {
+              await frame();
+              await frame();
+              if (el.scrollTop + el.clientHeight >= el.scrollHeight - 2) break;
+            }
+          }
+          return { deltas, maxTiles, ms: performance.now() - start, height: el.querySelector(".gal-space").style.height };
+        },
+        { stepPx, maxFrames },
+      );
+    const summary = (r) => {
+      const d = r.deltas.slice(1);
+      return {
+        frames: d.length,
+        p50: +pct(d, 50).toFixed(1),
+        p95: +pct(d, 95).toFixed(1),
+        max: +Math.max(...d).toFixed(1),
+        over16_7pct: +((100 * d.filter((x) => x > 16.7).length) / d.length).toFixed(1),
+        maxTiles: r.maxTiles,
+        ms: Math.round(r.ms),
+      };
+    };
+    const steady = await runScroll(100, 300);
+    await page.evaluate(() => (document.querySelector('[data-testid="gallery-scroll"]').scrollTop = 0));
+    const fling = await runScroll(0, 20000);
     const heap1 = await page.evaluate(() => performance.memory?.usedJSHeapSize || 0);
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
-    const d = fling.deltas.slice(1);
-    const over = d.filter((x) => x > 16.7).length;
+    // The same two scrolls unthrottled, for scale.
+    await page.evaluate(() => (document.querySelector('[data-testid="gallery-scroll"]').scrollTop = 0));
+    const steady1 = await runScroll(100, 300);
+    await page.evaluate(() => (document.querySelector('[data-testid="gallery-scroll"]').scrollTop = 0));
+    const jump1 = await runScroll(0, 20000);
     const result = {
       items: N,
+      cpuThrottle: 4,
       openMs: Math.round(openMs),
-      frames: d.length,
-      p50: +pct(d, 50).toFixed(1),
-      p95: +pct(d, 95).toFixed(1),
-      max: +Math.max(...d).toFixed(1),
-      over16_7pct: +((100 * over) / d.length).toFixed(1),
-      maxTilesMounted: fling.maxTiles,
-      flingMs: Math.round(fling.ms),
-      gridHeight: fling.items,
+      steady: summary(steady),
+      jump: { ...summary(fling), gridHeight: fling.height },
       heapGrowthMB: +((heap1 - heap0) / 1048576).toFixed(1),
+      unthrottled: { steady: summary(steady1), jump: summary(jump1) },
     };
     log(`GALLERY-PERF ${JSON.stringify(result)}`);
     if (SHOTS) fs.writeFileSync(path.join(SHOTS, "perf.json"), JSON.stringify(result, null, 1));
     assert.ok(openMs > 0, "the grid opened");
-    assert.ok(fling.maxTiles <= 90, `at most 90 tiles mounted at once (saw ${fling.maxTiles})`);
+    assert.ok(Math.max(steady.maxTiles, fling.maxTiles) <= 90, `at most 90 tiles mounted at once (saw ${Math.max(steady.maxTiles, fling.maxTiles)})`);
     // Direction only under emulation; generous enough not to flake on a loaded
     // box, tight enough to catch a grid that renders every tile.
     assert.ok(openMs < 2500, `opening took ${openMs} ms`);
-    assert.ok(result.p95 < 100, `p95 frame ${result.p95} ms`);
+    assert.ok(result.steady.p95 < 100, `steady-scroll p95 frame ${result.steady.p95} ms`);
     await sleep(10);
   },
   { timeout: 30 * 60 * 1000 },
