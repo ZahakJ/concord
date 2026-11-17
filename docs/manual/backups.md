@@ -77,12 +77,12 @@ Your passphrase is never stored, so it cannot be looked up or reset. On the unlo
 | Option | What happens |
 |---|---|
 | **Re-link from my other device** | Link this device again from another of your devices and choose a new passphrase. Everything comes back. |
-| **Use my recovery phrase** | Restores your identity under a new passphrase. Before it erases this device's data, Concord names the account it will erase and asks you to type ERASE. You get the account key and your profile back, but not your guilds or history; see [The recovery phrase](#the-recovery-phrase). |
+| **Use my recovery phrase** | Restores your identity under a new passphrase. Before it erases this device's data, Concord names the account it will erase and asks you to type ERASE. You get the account key and your profile back, but not your guilds or history; see [The recovery phrase](#the-recovery-phrase). The exception is a device that was never linked: there this account's own phrase keeps everything on the device, and nothing is erased. |
 | **I have neither — start over (deletes everything)** | After you type ERASE, deletes the identity and all data on this device so you can create a new identity. Guilds carry on for their other members. A guild you own keeps this account as its owner, so unless the account comes back, only an heir you named can take it over. |
 
 ## If you lose a device
 
-If the lost device was linked to another of yours, unlink it from the remaining one (see [Remove a device](devices.md#remove-a-device)). That removes it from your guilds straight away. It erases its own copy only if it comes back online running Concord, so treat whatever was on it as exposed.
+If the lost device was linked to another of yours, unlink it from the remaining one (see [Remove a device](devices.md#remove-a-device)). That removes it at once from the guilds you own or moderate and the direct messages you started; elsewhere it stays until someone who can remove members there does. It erases its own copy only if it is unlocked again and reaches the device that unlinked it, so treat whatever was on it as exposed.
 
 If it was your only device, restore your identity from the recovery phrase on a new one, rejoin your guilds, and restore your latest backup file.
 

@@ -20,7 +20,7 @@ Linking needs both devices online at the same time and able to reach each other.
 
 The code is single-use and expires two minutes after it is shown. Anyone who scans it within that time can add a device to your account, so only scan it with a device you own.
 
-An already-set-up device can be re-linked from its unlock screen with **Re-link from another device**. This replaces the account material on it with your account's and sets a new passphrase, which is also the way to recover a device whose passphrase you have forgotten.
+An already-set-up device can be re-linked from its unlock screen with **Re-link from another device**. This replaces the account material on it with your account's and sets a new passphrase, which is also the way to recover a device whose passphrase you have forgotten. One case goes wrong once: a device that was unlinked while it was switched off, and is then re-linked with the same passphrase, is erased again the first time it reaches the device that unlinked it. Link it once more and it stays.
 
 ## What the new device receives
 
@@ -72,6 +72,6 @@ Unlinking takes effect in parts:
 
 - **Immediately**, the device stops counting as you, and it is removed from every guild and direct message where you can remove members: guilds you own or moderate, and direct messages you started. There it stops receiving anything new, and whoever holds it cannot undo that.
 - **Anywhere else it stays listed** until someone who can remove members there does: an owner or moderator in a guild, the person who started a direct message. The unlink still succeeds, and Concord then names each place and who can remove the device there. Until they do, it can still receive new messages in those places.
-- **The next time it comes online** with Concord running, the device erases its own copy of your identity, guilds and messages, and shows a notice that it was unlinked. A device that stays off keeps what it had already downloaded, and nothing can reach it to delete it. If a device was lost or stolen, treat everything on it as already read.
+- **The next time it is unlocked** and reaches the device that unlinked it, the device erases its own copy of your identity, guilds and messages, and shows a notice that it was unlinked. A device that stays off keeps what it had already downloaded, and nothing can reach it to delete it. If a device was lost or stolen, treat everything on it as already read.
 
 You cannot unlink the device you are using. To erase the current device, use **Settings → Privacy & safety → Delete everything on this device**, which asks you to type a confirmation phrase first. That removes the identity, guilds and history from this device only. If another of your devices is still linked, linking this one again brings everything back.
