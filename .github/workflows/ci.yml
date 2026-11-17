@@ -37,6 +37,8 @@ jobs:
         run: cd frontend && npm run build
       - name: Markdown/render tests
         run: cd frontend && npm test
+      - name: No photo-library or storage permission (source manifest)
+        run: node scripts/check-media-permissions.mjs apps/mobile/android/app/src/main/AndroidManifest.xml
       # The manual is published from the committed docs/manual/, so a source
       # edited without `make docs` would publish the old page. This also fails
       # on a link to a heading or file that does not exist.
@@ -120,6 +122,10 @@ jobs:
         run: cd apps/mobile && npm ci && npx cap sync android
       - name: Gradle debug build
         run: cd apps/mobile/android && ./gradlew --no-daemon assembleDebug -PconcordAbi=x86_64
+      # Concord never asks for photo-library or storage access. The merged
+      # manifest is the one that ships, plugins and libraries included.
+      - name: No photo-library or storage permission
+        run: node scripts/check-media-permissions.mjs --merged apps/mobile/android
 
   # The network integration suite: every test the gate above skips. Scheduled
   # rather than blocking, because it drives multi-node message propagation and
