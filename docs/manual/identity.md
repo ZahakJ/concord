@@ -35,7 +35,7 @@ Your local message database is encrypted under a key derived from your identity,
 Some things to know about the passphrase:
 
 - **It is per device.** Each device you link gets its own passphrase, chosen while linking. They do not have to match.
-- **It is never stored or sent anywhere,** so there is no reset link. A wrong passphrase and a damaged identity file can look the same to Concord, so when it refuses a passphrase it says that either may be the cause. A file that is empty, cut short or in a format Concord does not know is named as damaged, and an unlock that finds the file's unencrypted copy of the account key altered says so and corrects it.
+- **It is never stored or sent anywhere,** so there is no reset link. A wrong passphrase and a damaged identity file can look the same to Concord, so when it refuses a passphrase it says that either may be the cause. A file that is empty or cut short is named as damaged, one in a format this version of Concord does not know is reported as unsupported rather than damaged, and an unlock that finds the file's unencrypted copy of the account key altered says so and corrects it.
 - **There is no minimum.** The meter under the field estimates strength from length and variety. A few unrelated words score well.
 - **You can change it** in **Settings → Account → Passphrase** by typing the current one and the new one twice. Only this device changes. On Android, biometric unlock is turned off by the change and can be turned on again after the next unlock. If you have forgotten it, see [Backups and recovery](backups.md#if-you-forget-your-passphrase).
 - **Signing out** (**Settings → Account → Sign out (lock this device)**) locks the app until the passphrase is entered again.

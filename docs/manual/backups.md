@@ -77,7 +77,7 @@ Your passphrase is never stored, so it cannot be looked up or reset. On the unlo
 | Option | What happens |
 |---|---|
 | **Re-link from my other device** | Link this device again from another of your devices and choose a new passphrase. Everything comes back. |
-| **Use my recovery phrase** | Restores your identity under a new passphrase. Before it erases this device's data, Concord names the account it will erase and asks you to type ERASE. You get the account key and your profile back, but not your guilds or history; see [The recovery phrase](#the-recovery-phrase). The exception is a device that was never linked: there this account's own phrase keeps everything on the device, and nothing is erased. |
+| **Use my recovery phrase** | Restores your identity under a new passphrase. Before it erases this device's data, Concord says what it will erase, naming the account when it can tell, and asks you to type ERASE. You get the account key and your profile back, but not your guilds or history; see [The recovery phrase](#the-recovery-phrase). The exception is a device that was never linked: there this account's own phrase keeps everything on the device, and nothing is erased. |
 | **I have neither — start over (deletes everything)** | After you type ERASE, deletes the identity and all data on this device so you can create a new identity. Guilds carry on for their other members. A guild you own keeps this account as its owner, so unless the account comes back, only an heir you named can take it over. |
 
 ## If you lose a device
