@@ -15,6 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"golang.org/x/crypto/nacl/secretbox"
 
+	"github.com/ZahakJ/concord/internal/bmffmeta"
 	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/imgmeta"
 	cnet "github.com/ZahakJ/concord/internal/net"
@@ -236,6 +237,23 @@ func (s *Service) EditAttachment(channelID, targetID, dataURL string, w, h int) 
 //
 // text is optional, as for SendAttachment.
 func (s *Service) SendFile(channelID, dataURL, filename, replyTo, text, dir string) (domain.Message, error) {
+	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, false)
+}
+
+// SendFileAsIs is SendFile for a video or HEIF picture whose details could not
+// be removed, once the person has been told it goes as it is, location and
+// all, and has chosen to send it. Everything else is cleaned as in SendFile:
+// "as is" only covers a file the cleaner refused.
+func (s *Service) SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir string) (domain.Message, error) {
+	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, true)
+}
+
+// MediaAsIsMarker starts the error SendFile returns for a video or HEIF
+// picture it could not clean, followed by "video", "photo" or "file". The
+// page matches it (lib/mediastrip.js) to offer sending the file as it is.
+const MediaAsIsMarker = "details can't be removed from this "
+
+func (s *Service) sendFile(channelID, dataURL, filename, replyTo, text, dir string, asIs bool) (domain.Message, error) {
 	m := fileURLRe.FindStringSubmatch(dataURL)
 	if m == nil {
 		return domain.Message{}, fmt.Errorf("app: attachment must be a data URL")
@@ -251,13 +269,23 @@ func (s *Service) SendFile(channelID, dataURL, filename, replyTo, text, dir stri
 	// A picture that goes as a file is cleaned like any other: the composer
 	// has no "send the original" option, and it routes pictures here on its
 	// own (one the renderer cannot decode, or a file with no type). The format
-	// is read from the bytes, so the mime the page guessed does not matter;
-	// anything that is not png/jpeg/gif/webp (video, audio, documents, HEIC)
-	// is sent as it is.
-	switch imgmeta.Format(plain) {
-	case "jpeg", "png", "gif", "webp":
+	// is read from the bytes, so the mime the page guessed does not matter.
+	// Videos (MP4, MOV) and HEIF pictures (HEIC, AVIF) lose their location
+	// and device details in package bmffmeta; one it cannot clean is refused
+	// with MediaAsIsMarker unless the person chose to send it as it is.
+	// Anything else (audio other than MP4, documents) is sent as it is.
+	switch f := imgmeta.Format(plain); {
+	case f == "jpeg" || f == "png" || f == "gif" || f == "webp":
 		if plain, err = cleanImage(plain); err != nil {
 			return domain.Message{}, err
+		}
+	case bmffmeta.Sniff(plain):
+		out, kind, err := bmffmeta.StripBytes(plain)
+		switch {
+		case err == nil:
+			plain = out
+		case !asIs:
+			return domain.Message{}, fmt.Errorf("app: the %s%s, so it would be sent as it is", MediaAsIsMarker, mediaNoun(kind))
 		}
 	}
 
@@ -269,6 +297,17 @@ func (s *Service) SendFile(channelID, dataURL, filename, replyTo, text, dir stri
 	token := fmt.Sprintf("[file](concord://file/v1/%s/%s/%d/%s/%s)",
 		blobID, keys, len(plain), b64url.EncodeToString([]byte(mime)), b64url.EncodeToString([]byte(filename)))
 	return s.sendAs(channelID, withText(token, text), "", replyTo, "", dir)
+}
+
+// mediaNoun names a file the way the person thinks of it.
+func mediaNoun(k bmffmeta.Kind) string {
+	switch k {
+	case bmffmeta.KindVideo:
+		return "video"
+	case bmffmeta.KindPhoto:
+		return "photo"
+	}
+	return "file"
 }
 
 // fetchBlobPlaintext resolves a token's blob to its plaintext: local store

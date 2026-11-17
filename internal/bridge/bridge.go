@@ -2394,6 +2394,17 @@ func (b *Bridge) SendFile(channelID, dataURL, filename, replyTo, text, dir strin
 	return err
 }
 
+// SendFileAsIs is SendFile for a video or HEIF picture the cleaner refused,
+// after the person chose to send it as it is (see app.SendFileAsIs).
+func (b *Bridge) SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	_, err = svc.SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir)
+	return err
+}
+
 // FetchFile resolves a file token to a plaintext data URL of the given mime,
 // fetching the blob from guild members if not cached locally.
 func (b *Bridge) FetchFile(channelID, blobID, keys, mime string) (string, error) {
@@ -4253,6 +4264,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.EnsureMedia(argStr(args, 0), argStr(args, 1), argBool(args, 2))
 	case "SendFile":
 		return nil, b.SendFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5))
+	case "SendFileAsIs":
+		return nil, b.SendFileAsIs(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5))
 	case "SetChatTimer":
 		return nil, b.SetChatTimer(argStr(args, 0), int64(argInt(args, 1)))
 	case "SweepUnstampedAttachments":
