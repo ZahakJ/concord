@@ -226,7 +226,8 @@
     <SettingRow
       icon="bell"
       title="Notification shows"
-      sub="What a notification shows on your lock screen and in the notification shade. Concord can only hide what it writes; your phone may still show that Concord sent something."
+      sub="What shows on your lock screen and in the notification shade"
+      info="Concord can only hide what it writes. Your phone may still show that Concord sent something."
     >
       <Select
         label="Notification shows"
