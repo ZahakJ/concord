@@ -196,7 +196,7 @@
     <SettingRow
       icon="edit"
       title="Typing indicators"
-      sub="Off by default. Both ways: you show yours and see theirs"
+      sub="Show others when you're typing, and see when they are"
       info="Off by default. When on, people in a conversation with you see while you are typing, and you see when they are. It is only that you are typing: never what, never how much. It works both ways, so with it off you neither send nor see it. It is shared across your own devices. Off on both sides is the norm. Both ways is kept by the other person's app: with yours on, someone whose app was changed to ignore their own switch could still see you typing."
       checked={typing}
       onclick={toggleTyping}
