@@ -185,9 +185,11 @@
     quitApp(window);
   }
   // leaveForgot is Back from the ways back: to the choice when it came from
-  // there, else to the screen before.
+  // there, else to the screen before. Nothing opened after this came from the
+  // ways back, so fromForgot goes too (a stale erase leaves it set).
   function leaveForgot() {
     forgot = false;
+    fromForgot = false;
     if (keptFrom) {
       stranded = keptFrom;
       keptFrom = null;

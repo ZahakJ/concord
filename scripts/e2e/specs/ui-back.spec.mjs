@@ -90,3 +90,37 @@ test("Back from the recovery-phrase, re-link and erase screens returns to the wa
   await page.getByRole("button", { name: "Keep it and restore", exact: true }).waitFor();
   assert.equal(await alice.rpc("Session"), false, "an account was opened or created");
 });
+
+// Screens opened from the unlock screen return to it, even after an erase
+// from the ways back was refused as out of date.
+test("Back from the unlock screen's own screens returns to the unlock screen", async ({ world, assert, step, waitFor }) => {
+  const [alice] = await world.peers(1);
+  await alice.rpc("Logout");
+  const { page } = await alice.open({ unlock: false });
+  await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
+  const pass = page.locator('input[placeholder="Passphrase"]');
+  const menu = page.getByRole("button", { name: "Use my recovery phrase" });
+  await pass.waitFor();
+
+  step("Forgot passphrase?, an erase refused as out of date, then Back");
+  await page.getByRole("button", { name: "Forgot passphrase?" }).click();
+  await page.getByRole("button", { name: "I have neither — start over (deletes everything)" }).click();
+  const word = page.getByRole("textbox", { name: "Type ERASE to confirm" });
+  await word.waitFor();
+  await alice.rpc("BeginStartOver"); // replaces the confirmation's ticket
+  await word.fill("ERASE");
+  await page.getByRole("button", { name: "Yes, delete and start over" }).click();
+  await menu.waitFor();
+  assert.match(await page.getByRole("alert").filter({ hasText: /\S/ }).first().innerText(), /Nothing was deleted/, "the erase was not refused as out of date");
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await pass.waitFor();
+
+  step("Re-link from the unlock screen, then its Back");
+  await page.getByRole("button", { name: "Re-link from another device" }).click();
+  await page.getByRole("button", { name: "Link this device" }).waitFor();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await waitFor(async () => (await pass.isVisible()) || (await menu.count()) === 1, { message: "Back left the link screen" });
+  assert.equal(await menu.count(), 0, "Back from the unlock screen's re-link landed on the ways back");
+  assert.ok(await pass.isVisible(), "not back on the unlock screen");
+  assert.equal(await alice.rpc("Session"), false, "an account was opened");
+});
