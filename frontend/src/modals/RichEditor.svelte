@@ -525,6 +525,7 @@
   export async function attachFile(file) {
     if (!file || !attachments) return;
     if (file.type.startsWith("image/")) {
+      let asFile = false;
       reading++;
       try {
         let dataUrl, w, h;
@@ -543,12 +544,18 @@
         pending = [...pending, stagedImage({ id: uid(), dataUrl, w, h, fileName: file.name || "" })];
       } catch (err) {
         const msg = String(err?.message || err);
-        flash(msg.includes("too large") ? "Image too large (max 5 MB, even after compression)" : "Couldn't read that image format", "error");
+        // A picture this renderer cannot draw (HEIC, AVIF, TIFF, camera
+        // raw…) goes as a file, as in the message box: the core cleans it or
+        // holds it (lib/mediastrip.js).
+        if (msg.includes("too large")) flash("Image too large (max 5 MB, even after compression)", "error");
+        else asFile = true;
       } finally {
         reading--;
       }
-      onInput?.();
-      return;
+      if (!asFile) {
+        onInput?.();
+        return;
+      }
     }
     if (file.size > FILE_MAX_BYTES) {
       flash("File too large (max 25 MB)", "error");

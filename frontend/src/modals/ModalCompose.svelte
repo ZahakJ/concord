@@ -197,6 +197,9 @@
       if (editId) {
         await api.editMessage(editChannelId || chId, editId, ephToken + content);
       } else {
+        // A file the core would hold back is found before anything is sent,
+        // so the text does not go out without it (see ModalNewPost).
+        for (const a of pending) if (!a.isImage) await api.checkFile(a.dataUrl);
         // Attachments first, then the text — so a picture sits above its caption
         // in the feed, exactly like the inline composer.
         for (const a of pending) {

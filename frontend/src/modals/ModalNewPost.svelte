@@ -138,6 +138,12 @@
     step = "Creating the post…";
     let ch = null;
     try {
+      // A file the core would hold back (a video it cannot clean, one with
+      // subtitles, a format it has no cleaner for) is found BEFORE the post
+      // exists: the post is not created around an attachment that cannot go,
+      // and the toast says to send it from the message box, where the
+      // person can choose (lib/mediastrip.js).
+      for (const a of pending) if (!a.isImage) await api.checkFile(a.dataUrl);
       // The tags ride along with the create call (5th argument), so the post is
       // never briefly visible untagged on anyone's board.
       ch = await api.createThread(S.activeGuildId, forum.id, title.trim(), body.trim(), tags);
