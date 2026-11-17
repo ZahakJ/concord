@@ -145,6 +145,18 @@ func TestARepasteAfterAnUnnoticedKickIsRefused(t *testing.T) {
 		t.Fatalf("JoinViaInvite: %v", err)
 	}
 	waitMembers(t, 30*time.Second, 2, owner, member)
+	// The join starts a catch-up from the owner in the background. One still
+	// running when the kick lands is answered at the new epoch, which the
+	// member cannot read, and it flags the guild out of step: the member then
+	// no longer believes it is seated. Let it finish first.
+	syncKey := g.ID + "|" + owner.host.PeerID().String()
+	waitUntil(t, 20*time.Second, func() bool {
+		member.syncFlightMu.Lock()
+		defer member.syncFlightMu.Unlock()
+		_, busy := member.syncFlight[syncKey]
+		_, done := member.syncedAt[syncKey]
+		return done && !busy
+	}, "the join's catch-up from the owner never finished")
 
 	// Keep the kick from reaching the member, so the paste below is made by a
 	// device that still believes it is seated: neither its commit (control
@@ -160,7 +172,7 @@ func TestARepasteAfterAnUnnoticedKickIsRefused(t *testing.T) {
 	}, "the kicked member was not evicted")
 	epoch, _ := owner.mls.Epoch(ctx, g.GroupID)
 	if _, healthy := member.healthyMembership(g.ID); !healthy {
-		t.Fatal("the member already knew it was kicked; the case under test did not arise")
+		t.Fatalf("the member already knew it was kicked; the case under test did not arise (evicted %q, out of sync %v, member %v)", member.EvictedFrom(g.ID), member.OutOfSync(g.ID), member.guildHasMember(g.ID, member.Fingerprint()))
 	}
 
 	code2, _ := owner.InviteCode(g.ID)
