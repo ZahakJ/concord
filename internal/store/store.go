@@ -1463,7 +1463,15 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	}
 	sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 
-	res, err := s.db.Exec(
+	// The row and its place on the gallery's queue are one transaction: a
+	// row saved without its queue entry would never be indexed, since saving
+	// the same id again is a no-op.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, fmt.Errorf("store: save message: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	res, err := tx.Exec(
 		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent, sig, unverified, quiet, expires, deleted, expired)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO NOTHING`,
@@ -1476,9 +1484,12 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	}
 	n, _ := res.RowsAffected()
 	if n > 0 {
-		if err := queueMedia(s.db, m); err != nil {
-			return true, fmt.Errorf("store: save message: %w", err)
+		if err := queueMedia(tx, m); err != nil {
+			return false, fmt.Errorf("store: save message: %w", err)
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("store: save message: %w", err)
 	}
 	return n > 0, nil
 }
@@ -3270,7 +3281,21 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 // allowed so ordinary-member catch-up keeps working; only the caller-designated
 // trusted sources (guild owner / SyncHost) may mutate existing rows.
 func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, trusted bool) (bool, error) {
-	return s.upsertSyncedMessage(s.db, m, selfFingerprint, SyncRules{Trusted: trusted})
+	// One transaction, as a batch is: an inserted row and its place on the
+	// gallery's queue are written together or not at all.
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	changed, err := s.upsertSyncedMessage(tx, m, selfFingerprint, SyncRules{Trusted: trusted})
+	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return changed, nil
 }
 
 // SyncRules is what the caller decided about the rows one source served for

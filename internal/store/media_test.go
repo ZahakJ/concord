@@ -703,3 +703,179 @@ func mtDump(st *Store, ch string) string {
 	}
 	return b.String()
 }
+
+func mtCount(t *testing.T, st *Store, q string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := st.db.QueryRow(q, args...).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// Nothing deleted, disappeared, erased, purged, pruned or channel-deleted
+// keeps an index row or a queue entry: the page hides such rows by its join,
+// so only the table itself shows whether they linger on disk.
+func TestMediaIndexDropsRemovedMessages(t *testing.T) {
+	st := sidebarStore(t)
+	now := time.Now().Add(-time.Minute)
+	ids := []string{"old", "del", "dis", "era", "pur", "chan", "live"}
+	for i, id := range ids {
+		ch := "c"
+		if id == "chan" {
+			ch = "c2"
+		}
+		mtSave(t, st, id, ch, now.Add(time.Duration(i)*time.Second), mtImage(i)+mtFile(i+100))
+	}
+	mtAll(t, st, "c", 50)
+	mtAll(t, st, "c2", 50)
+	if n := mtCount(t, st, `SELECT COUNT(*) FROM media_index`); n != 14 {
+		t.Fatalf("index rows %d, want 14", n)
+	}
+	if _, _, err := st.MarkDeleted("del", nil, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.MarkDisappeared("dis"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.EraseContent("era"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.MarkDeleted("pur", nil, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PurgeDeletedContent(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PruneMessagesBefore([]string{"c"}, now.Add(500*time.Millisecond).UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DeleteChannel("c2"); err != nil {
+		t.Fatal(err)
+	}
+	mtAll(t, st, "c", 50) // drains
+	for _, id := range []string{"del", "dis", "era", "pur", "old", "chan"} {
+		if n := mtCount(t, st, `SELECT COUNT(*) FROM media_index WHERE message_id = ?`, id); n != 0 {
+			t.Errorf("%s: %d index rows linger", id, n)
+		}
+	}
+	if n := mtCount(t, st, `SELECT COUNT(*) FROM media_pending`); n != 0 {
+		t.Errorf("%d pending rows left after drain", n)
+	}
+	if n := mtCount(t, st, `SELECT COUNT(*) FROM media_index WHERE message_id = 'live'`); n != 2 {
+		t.Errorf("live rows %d, want 2", n)
+	}
+}
+
+// Writes, edits, deletes, the background drain and pages all at once; after
+// that the gallery equals the oracle and nothing is left on the queue.
+func TestMediaConcurrentWritesMatchOracle(t *testing.T) {
+	st := sidebarStore(t)
+	base := time.Now().Add(-time.Hour)
+	const n = 600
+	writer := make(chan struct{})
+	go func() {
+		defer close(writer)
+		for i := 0; i < n; i++ {
+			id := fmt.Sprintf("m%04d", i)
+			if _, err := st.SaveMessage(domain.Message{ID: id, ChannelID: "c", Sender: mtSender, Sent: base.Add(time.Duration(i) * time.Millisecond), Content: mtImage(i)}); err != nil {
+				t.Error(err)
+				return
+			}
+			if i%3 == 0 && i > 0 {
+				if _, err := st.UpdateContent(fmt.Sprintf("m%04d", i-1), mtSender, "words now", nil, "", false); err != nil {
+					t.Error(err)
+				}
+			}
+			if i%7 == 0 && i > 2 {
+				if _, _, err := st.MarkDeleted(fmt.Sprintf("m%04d", i-2), nil, true); err != nil {
+					t.Error(err)
+				}
+			}
+		}
+	}()
+	stop := make(chan struct{})
+	readers := make(chan struct{}, 2)
+	for g := 0; g < 2; g++ {
+		go func(g int) {
+			defer func() { readers <- struct{}{} }()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				var err error
+				if g == 0 {
+					_, err = st.drainMediaChunk("", 37)
+				} else {
+					_, _, err = st.MediaPage("c", 1, MediaCursor{}, 50)
+				}
+				if err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		}(g)
+	}
+	<-writer
+	close(stop)
+	<-readers
+	<-readers
+	if t.Failed() {
+		return
+	}
+	got, want := mtAll(t, st, "c", 64), mtOracle(t, st, "c")
+	if !mtEqual(got, want) {
+		t.Fatalf("gallery %d items, oracle %d", len(got), len(want))
+	}
+	if k := mtCount(t, st, `SELECT COUNT(*) FROM media_pending`); k != 0 {
+		t.Fatalf("%d pending left", k)
+	}
+	if k := mtCount(t, st, `SELECT COUNT(*) FROM media_index mi JOIN messages m ON m.id = mi.message_id WHERE m.deleted = 1`); k != 0 {
+		t.Fatalf("%d index rows for deleted messages", k)
+	}
+}
+
+// A message whose queue entry cannot be written is not saved either, so the
+// next delivery of the same message saves and queues it. Saved alone, the row
+// would turn every later delivery into a no-op and never reach the gallery.
+func TestMediaInsertAndQueueAreOneWrite(t *testing.T) {
+	st := sidebarStore(t)
+	sent := time.Now().Add(-time.Minute)
+	block := func() {
+		if _, err := st.db.Exec(`CREATE TRIGGER mt_block BEFORE INSERT ON media_pending
+			BEGIN SELECT RAISE(ABORT, 'queue refused'); END`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	unblock := func() {
+		if _, err := st.db.Exec(`DROP TRIGGER mt_block`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	msg := func(id string) domain.Message {
+		return domain.Message{ID: id, ChannelID: "c", Sender: mtSender, Sent: sent, Content: mtImage(1)}
+	}
+
+	block()
+	if _, err := st.SaveMessage(msg("saved")); err == nil {
+		t.Fatal("SaveMessage: no error with the queue refused")
+	}
+	if _, err := st.UpsertSyncedMessage(msg("synced"), "", false); err == nil {
+		t.Fatal("UpsertSyncedMessage: no error with the queue refused")
+	}
+	unblock()
+	if n := mtCount(t, st, `SELECT COUNT(*) FROM messages`); n != 0 {
+		t.Fatalf("%d messages kept without their queue entry", n)
+	}
+	if ok, err := st.SaveMessage(msg("saved")); err != nil || !ok {
+		t.Fatalf("SaveMessage again: inserted %v, %v", ok, err)
+	}
+	if ok, err := st.UpsertSyncedMessage(msg("synced"), "", false); err != nil || !ok {
+		t.Fatalf("UpsertSyncedMessage again: changed %v, %v", ok, err)
+	}
+	if got := mtAll(t, st, "c", 50); len(got) != 2 {
+		t.Fatalf("gallery has %d items, want 2:\n%s", len(got), mtDump(st, "c"))
+	}
+}
