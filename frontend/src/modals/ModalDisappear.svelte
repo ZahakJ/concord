@@ -28,7 +28,8 @@
 <Modal title="Disappearing messages" {onClose}>
   <p class="muted intro">
     Messages you send in this conversation from now on are deleted after the
-    time you choose. Your devices still on Concord 0.60 don't apply the timer.
+    time you choose. Messages sent from your devices still on Concord 0.60
+    don't get the timer.
   </p>
   <div class="choices" role="radiogroup" aria-label="Disappear timer">
     {#each TTL_OPTIONS as o (o.secs)}

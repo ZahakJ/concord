@@ -17,7 +17,9 @@ test("the timer picker's intro promises only what the timer does", async ({ worl
   const intro = (await dialog.locator(".intro").innerText()).replace(/\s+/g, " ").trim();
   assert.ok(!/every device/i.test(intro), `the intro promises every device: "${intro}"`);
   assert.match(intro, /^Messages you send in this conversation from now on are deleted after the time you choose\./);
-  assert.match(intro, /0\.60/, "the intro does not say older devices skip the timer");
+  // ZT-08: a 0.60 device of yours never learns the timer, so what it sends goes
+  // out unstamped; it still honours the stamps it receives.
+  assert.match(intro, / Messages sent from your devices still on Concord 0\.60 don't get the timer\.$/, "the intro does not say what 0.60 devices send goes without the timer");
 
   step("a choice is kept by the core for this chat");
   await dialog.getByRole("radio", { name: "5 minutes" }).click();
