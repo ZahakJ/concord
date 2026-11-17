@@ -168,7 +168,9 @@
     font-size: var(--fs-tiny);
     color: var(--text-muted);
   }
-  .eh-list {
+  /* The card sits inside the message body, whose markdown list rule indents
+     every <ol> by 22px; the card's own list must not inherit that. */
+  .eh-card .eh-list {
     list-style: none;
     margin: 0;
     padding: 0;
