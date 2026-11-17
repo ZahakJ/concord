@@ -32,14 +32,27 @@ import { tick } from "svelte";
 // keystroke usually replaces the name); `end` puts the caret after the text (an
 // edit box, where it usually continues). Neither, and the caret lands wherever
 // the browser puts it.
+//
+// Last, except over a person already typing: if focus has moved to another
+// text field since the surface mounted, somebody put it there in the meantime
+// (a tap, a click, a program that knows better), and taking it away would send
+// the rest of their typing into this field instead. A field that was focused
+// before the mount (the composer, under an edit box or a picker's search) is
+// still taken over, as before.
+const editable = (el) =>
+  !!el && (el.isContentEditable || el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !/^(button|checkbox|radio|range|submit|reset|file|color|image|hidden)$/i.test(el.type || "")));
+
 export function focusOnMount(node, opts = {}) {
   let cancelled = false;
   let frame = 0;
   const place = (o) => {
+    const before = document.activeElement;
     tick().then(() => {
       if (cancelled || !node.isConnected) return;
       frame = requestAnimationFrame(() => {
         if (cancelled || !node.isConnected) return;
+        const now = document.activeElement;
+        if (now !== node && now !== before && editable(now)) return;
         node.focus({ preventScroll: true });
         if (typeof node.setSelectionRange !== "function") return;
         const n = node.value?.length ?? 0;
