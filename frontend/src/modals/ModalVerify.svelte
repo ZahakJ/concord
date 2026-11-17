@@ -111,13 +111,13 @@
     color: var(--text);
   }
   .warn {
-    color: var(--danger, #e5484d);
+    color: var(--danger-text);
   }
   .qr {
     width: 220px;
     max-width: 70%;
     align-self: center;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: #fff;
   }
   .alt summary {
@@ -127,7 +127,7 @@
   }
   .fpr {
     display: block;
-    margin: 8px 0;
+    margin: var(--sp-2) 0;
     font-family: var(--font-mono, monospace);
     word-break: break-word;
   }
