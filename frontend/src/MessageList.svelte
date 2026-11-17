@@ -1912,7 +1912,7 @@
           {it.row.m.content}
           <button
             type="button"
-            class="dev-verify"
+            class="dev-verify tap-hit"
             onclick={() =>
               (S.modal = {
                 kind: "verify",
@@ -2555,19 +2555,23 @@
   .inv-join:hover {
     filter: brightness(1.08);
   }
+  /* The new-device line's Verify: the same quiet button as the invite line's
+     Join, the one other action that sits inside a system line. */
+  .device-note .dev-verify {
+    margin-inline-start: var(--sp-2);
+    padding: 2px 10px;
+    border-radius: var(--radius-sm);
+    border: none;
+    background: var(--bg-3);
+    color: var(--text);
+    font-size: var(--fs-small);
+    font-weight: 600;
+  }
+  .device-note .dev-verify:hover {
+    filter: brightness(1.08);
+  }
   /* A contact's new device: worth noticing, not worth alarming. The warn tint
      says "read this" without claiming their identity changed — it didn't. */
-  .device-note .dev-verify {
-    margin-left: 6px;
-    padding: 0 8px;
-    font: inherit;
-    font-weight: 600;
-    color: var(--accent, inherit);
-    background: none;
-    border: 1px solid currentColor;
-    border-radius: 999px;
-    cursor: pointer;
-  }
   .device-note .dev-ic {
     display: inline-grid;
     place-items: center;
