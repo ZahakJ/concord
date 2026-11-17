@@ -93,7 +93,7 @@ A link card shows a link's title, the site or channel name and a small picture, 
 
 Sending cards is **off until you choose**. The first time you send a link, it goes out as you typed it, and the app asks once: *Concord will look up the title and picture of each link you send, from your device, so others see a card.* **Yes** turns cards on from your next link; **No thanks** leaves them off, and the question is not asked again. **Settings → Privacy & safety → Preview cards for links you send** is the same choice: the line under it says whether you have chosen yet, and setting it there answers the question, which is then never asked. You can change it there at any time. With it on, when you send a message with a link:
 
-- your device loads the page once: for YouTube and Vimeo, their oEmbed service; for other sites, the page and the host of its picture. They see your IP address, as if you had opened the link;
+- your device loads the page once: for YouTube and Vimeo, their oEmbed service and the server of the video's picture; for other sites, the page and the host of its picture. They see your IP address, as if you had opened the link;
 - it reads at most 512 KiB of a page, gives up on the whole card after 6 seconds, sends no cookies or login details, and refuses addresses on your own machine or local network;
 - the message waits at most 2 seconds for its card, and goes out without one if the card is slower, if you send anything else into the conversation first, or if you leave the app;
 - nothing is fetched while you type, and a link sent again within 10 minutes reuses the card already made.
