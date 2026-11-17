@@ -1,6 +1,6 @@
 # Concord Privacy Policy
 
-*Last updated: 26 August 2026. This is the policy for the Concord application on
+*Last updated: 17 November 2026. This is the policy for the Concord application on
 every platform it ships for, including the Android app.*
 
 Concord is a peer-to-peer, end-to-end-encrypted messenger. This document states
@@ -64,6 +64,20 @@ reading it.
   between participants.
 - **Transport** hops are additionally Noise/DTLS-encrypted, so a network
   eavesdropper (Wi-Fi, ISP) sees only ciphertext either way.
+
+## What the people you talk to learn
+
+- **Delivery.** In a direct message or a group DM, each of your devices tells
+  the sender's devices when it has received a message. This cannot be switched
+  off, and it says nothing about whether you read the message. While you appear
+  invisible these notices wait, and any still waiting when the app closes are
+  dropped.
+- **Read receipts and typing indicators** are off by default and work both
+  ways: with one off, your device neither sends it nor shows other people's.
+  Read receipts exist only in direct messages and group DMs.
+- These notices travel inside the encrypted conversation, so no rendezvous or
+  relay learns anything new from them. See
+  [`internal/app/receipts.go`](internal/app/receipts.go).
 
 ## Local-first storage
 
@@ -200,18 +214,47 @@ you tap play. See
 [§12 of DESIGN.md](docs/DESIGN.md#12-assets-why-nothing-is-fetched-at-runtime).
 
 Link cards are made by the **sender**, never by the people who read them.
-With *Privacy & safety → Preview cards for links you send* switched on, which is
-**off until you choose** (the first link you send goes out without a card and
-the app asks once, unless you have already set the switch), your device loads a link's page once, when you send the
-message: YouTube's or Vimeo's oEmbed service for their videos, otherwise the
-page and the host of its picture. That site learns your IP address and the
-moment you sent the link, as if you had opened it. The title, the site's name
-and a small cleaned copy of the picture go inside your encrypted, signed
-message. Readers contact nobody: the picture reaches them from other members
-like any attachment. Nothing is fetched while you type. The old
-receive-side *Link previews* setting, which fetched every link that scrolled
-into view, is gone. See
-[`internal/app/linkcard.go`](internal/app/linkcard.go).
+*Privacy & safety → Preview cards for links you send* is **off until you
+choose**: the first link you send goes out without a card, and the app asks
+once, unless you have already set the switch. The choice is kept on each
+device. With it on, your device looks up the first link in a message once,
+when you send it: YouTube's or Vimeo's oEmbed service for their videos,
+otherwise the page and the host of its picture. That site learns your IP
+address and the moment you sent the link, as if you had opened it. The title,
+the site's name and a small copy of the picture, redrawn as a new JPEG of at
+most 480 by 270 pixels, go inside your encrypted, signed message; a
+disappearing message gets a card without a picture. Readers contact nobody:
+the picture reaches them from other members like any attachment, and a reader
+on Concord 0.60 sees the card as a titled link, its domain and a captioned
+picture. Nothing is fetched while you type. The old receive-side *Link
+previews* setting, which fetched every link that scrolled into view, is gone.
+See [`internal/app/linkcard.go`](internal/app/linkcard.go) and
+[`frontend/src/lib/linkcard.js`](frontend/src/lib/linkcard.js).
+
+## What a picture or file you send carries
+
+Before a picture leaves your device, Concord removes what is stored beside the
+picture data: location, camera make and model, dates, embedded thumbnails, XMP
+and IPTC data, comments and maker notes. It keeps the colour profile and, when
+the picture is not upright, a tag saying which way up it goes. This applies to
+PNG, JPEG, GIF and WebP pictures sent by any route, and to avatars, banners,
+guild icons, forum banners, stories, custom emoji and guild GIFs. A picture in
+another format, HEIC and AVIF among them, is redrawn as a JPEG when the app can
+display it, which leaves its details behind, and is refused when the app
+cannot. See [`internal/imgmeta/`](internal/imgmeta/imgmeta.go) and
+[`internal/app/imageclean.go`](internal/app/imageclean.go).
+
+Videos, voice messages and other audio, and documents are sent as they are,
+with whatever they hold, and a video recorded on a phone often holds the place
+where it was recorded. So is a HEIC or AVIF picture that reaches Concord
+without being marked as a picture. The composer says so under a staged video or
+HEIC photo before you send it. A chat export imported into a guild has its PNG,
+JPEG, GIF and WebP pictures cleaned in the same way, and its other files, HEIC
+and AVIF pictures and videos among them, go to the guild as they are. Pictures
+sent before Concord 0.61 keep their details on every device that holds them.
+
+On Android, the attach sheet opens the system photo picker. Concord asks for no
+access to your photo library and receives only the photos and videos you pick.
 
 ## How long anything is kept
 
@@ -220,9 +263,10 @@ copy to schedule. Your history is kept on your device until you delete it, and
 on the devices of the people you sent it to until *they* delete it. Three things
 shorten that on purpose:
 
-- **Disappearing messages.** An author can put a timer on a message. The timer
-  travels inside the encrypted content, so every device erases the body at the
-  same wall-clock instant without coordinating.
+- **Disappearing messages.** You can set a timer on a conversation, and your
+  own devices share it. Every message you send there, pictures and files
+  included, carries the timer inside its encrypted content, so every device
+  erases the body at the same wall-clock instant without coordinating.
 - **A guild retention policy.** A guild can set how long messages are kept, per
   guild or per channel, and each member's app prunes its own copy when it comes
   around to it. This is local enforcement and nothing else: two members with
@@ -243,24 +287,44 @@ rendezvous address you configured (`netconfig.json`), the record of a verified
 release download (`release.json`), and what the interface keeps in its own
 browser storage — display preferences, plus the text of any unsent draft or
 failed send. Nothing about you is retained anywhere else, because there is
-nowhere else for it to be retained.
+nowhere else for it to be retained. An erase that is interrupted finishes the
+next time Concord starts.
 
 Smaller erasures, for when the whole device is not what you meant:
 
-- **One message**, for everyone: delete it, and the deletion travels to the
-  group like any other message. In a direct message every honest client then
-  overwrites the text. In a guild each member's app keeps the deleted text,
-  still sealed, so that a moderator can reveal it; it is gone from a device
-  only once that device empties its trash.
+- **One message, for everyone**: delete it, and the deletion travels to the
+  group like any other message. In a direct message or a group DM every device
+  then erases the text. In a guild only the devices of members with *Manage
+  messages* keep it, still sealed, so that a moderator can reveal it; every
+  other device erases it. The message's earlier versions, reactions, receipts,
+  bookmark and pin go with it, and the database overwrites the space it freed.
+  Its notification is withdrawn wherever it is still shown. A device running
+  Concord 0.60 keeps the sealed text of a deleted guild message, and one that
+  ran 0.60.5 keeps the text of guild messages deleted while it did, until its
+  trash is emptied. See [`internal/app/guild.go`](internal/app/guild.go)
+  (`erasesDeletedBodies`) and [`internal/store/store.go`](internal/store/store.go)
+  (`markDeleted`).
+- **A deleted message's picture or file**: its encrypted copy stays in each
+  device's attachment cache until the cache needs the room. It cannot be opened
+  without the key, which was in the erased text.
+- **One message, for you only**: *Delete for me* hides it on your own devices,
+  and nobody else is told. The text and any attachment stay on your devices,
+  sealed, so that *Undo* can bring them back.
 - **Every deleted message's retained text** on this device: *Privacy & safety →
   Empty trash*.
-- **One linked device**: *Settings → Connection → Stats & diagnostics*, then
-  *Unlink* beside it. That removes it from your guilds at once, and it erases its
-  own copy when it next comes online.
+- **One linked device**: *Settings → Your devices*, then *Unlink* beside it. It
+  is removed at once from the guilds and direct messages where you can remove
+  members; elsewhere it stays listed until someone who can remove it there does.
+  It erases its own copy once it is unlocked and reaches the device that
+  unlinked it. A device that stays switched off keeps what it had.
 
 What deletion cannot do, and no feature of any peer-to-peer messenger can:
-**reach the copies other people already have.** A message you sent is on the
-recipient's device, sealed to them. There is no server holding the authoritative
+**make sure the copies other people already have are gone.** A message you sent
+is on the recipient's device, sealed to them. A deletion asks that device to
+erase the text, and an up-to-date Concord does; a modified app, a screenshot, a
+file already saved or a backup made earlier keeps it. An edit does not take back
+the earlier text either: each device that received a message keeps its earlier
+versions, sealed, until the message is deleted. There is no server holding the authoritative
 copy that could be told to forget, which is the same fact that makes the rest of
 this document true.
 
@@ -308,9 +372,11 @@ other open communication tool.
   someone who compromises that machine. That trade-off is yours to make;
   Concord's default is to ask for the passphrase.
 - **Not everything on your disk is encrypted.** Inside the database, only
-  message bodies, attachments and story captions are sealed; senders, timestamps,
-  reactions, profiles, guild and channel names, the governance log and settings
-  are in the clear. Unsent drafts and failed sends wait in the interface's own
+  message bodies and their earlier versions, attachments and story captions are
+  sealed; senders, timestamps, reactions, delivery and read receipts, the
+  messages you deleted for yourself, your pinned and archived chats and their
+  timers, which messages carry a photo, a video or a file, profiles, guild and
+  channel names, the governance log and settings are in the clear. Unsent drafts and failed sends wait in the interface's own
   browser storage, unencrypted. And two things sit beside the database in the
   clear, which a stolen or shared machine gives up even though your message
   bodies stay sealed:

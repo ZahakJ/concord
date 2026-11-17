@@ -68,8 +68,8 @@ backgrounds are drawn presets, not stock images pulled down on demand.
 
 Where a feature genuinely cannot be built without reaching a third party, the
 line holds by making the reach opt-in rather than by dropping the feature or
-quietly taking it: link previews, YouTube embeds and game box art all ship off,
-and §12 explains each. That "by default" is load-bearing, and the moment it
+quietly taking it: link cards fetch nothing until you have said yes, YouTube
+embeds and game box art ship off, and §12 explains each. That "by default" is load-bearing, and the moment it
 stops being true of something, this document is wrong rather than aspirational.
 
 ### What Concord does not have
@@ -1310,7 +1310,9 @@ Two things to underline:
   encrypted and equally authenticated. Each re-emits the updated state so every
   peer converges, and because storage is idempotent by message identifier,
   replays are harmless. Authorization is enforced where it can be checked: only
-  the original author may edit or delete, matched against the stored sender key.
+  the original author may edit, matched against the stored sender key, and only
+  the author may delete, except that in a guild a member holding Manage Messages
+  may delete anyone's message.
 
 ---
 
@@ -1573,19 +1575,36 @@ hand-waved:
   timestamps, message kinds, reply and pin state, reactions with the fingerprint
   that made them, guild and channel names, categories, profiles including
   avatars and banners, custom emoji images, nicknames, read state, the signed
-  governance log, and settings. The conversation gallery adds one fact per
+  governance log, settings, delivery and read receipts, the messages you deleted
+  for yourself, and your pinned and archived chats with their timers. The
+  conversation gallery adds one fact per
   attachment: which message carries a photo, a video or a file, in which
   channel and when (the attachment's name, size, blob id and key stay in the
   sealed body). Also outside the database: the MLS group state
   directory. So a stolen laptop without the passphrase yields the *shape* of your
   social life, who and where and when and in which rooms, while message content
   stays sealed. §13 states this as a gap rather than leaving you to infer it.
-- **Deletion depends on where the message was.** A deleted direct message has
-  its body overwritten with a sealed empty string and leaves a tombstone row, so
-  the content is gone rather than merely flagged. A deleted guild message is
-  tombstoned but keeps its sealed body on every member's device, so a moderator
-  holding Manage Messages can reveal the original; **Empty trash** in Privacy &
-  safety overwrites those retained bodies on this device.
+- **Edits keep their history.** Each device keeps the earlier bodies of a
+  message it received, sealed like the message, up to 20 versions or 64 KiB a
+  message, so that "(edited)" can show what it used to say. A device keeps only
+  versions it received itself; there is no protocol for fetching them.
+- **Deletion depends on who may reveal it.** A deleted message leaves a
+  tombstone row. Its body is overwritten with a sealed empty string on every
+  device except those whose account holds Manage Messages in a guild that has
+  moderators: those keep the sealed body so that a moderator can reveal the
+  original, until **Empty trash** in Privacy & safety overwrites it. A direct
+  message has no moderators, so there a delete erases the body on every side.
+  The decision is made once, when the delete is applied
+  (`erasesDeletedBodies`). The earlier versions, reactions, receipts, bookmark
+  and pin go in the same transaction, and the database runs with
+  `secure_delete` on, so freed pages are zeroed rather than left readable. A
+  device on 0.60.x keeps the body of every deleted guild message; the first
+  start of 0.61 on a device that skipped 0.60.5 clears what deleted rows hold,
+  once, as 0.60.5 did.
+- **Delete for me is a hide.** It is a per-message register synced to the
+  account's own devices through the Notes group; nothing is sent to the
+  conversation, and the body and its attachment stay on the device, sealed,
+  so that Undo works.
 
 **Search is local-only and has no index.** It walks your own messages newest
 first, decrypts each body, and matches in memory, stopping as soon as it has
@@ -1701,7 +1720,21 @@ is meaningless without the key and the 256-bit identifier is unguessable. The
 payoff is that every member who has viewed an image becomes a source, which is
 what keeps pictures loadable after the sender goes offline. Caps: 5 MiB per
 inline image, 25 MiB per generic file, a 1 GiB local cache evicted
-least-recently-used.
+least-recently-used. Deleting or hiding a message does not drop its blob: the
+same blob may back other messages, so it leaves under the same eviction.
+
+**Pictures are cleaned before they are sealed.** `internal/imgmeta` walks the
+container of a PNG, JPEG, GIF or WebP and copies only the parts that make up
+the picture, so the pixels are unchanged and location, camera details, dates,
+thumbnails, XMP, IPTC and comments are left behind; the colour profile stays,
+and so does the orientation, as a 32-byte tag. Every route meets it in the
+core (`internal/app/imageclean.go`): the composer, paste, drop, share sheet,
+GIF search, profile and guild pictures, stories, emoji and an imported chat
+export. A HEIC or AVIF picture the renderer can decode is redrawn as a JPEG
+before it is sent; one it cannot decode is refused. What the cleaner does not
+know is sent as it is: videos, audio, documents, and a HEIC or AVIF picture
+that arrives as a file with no picture type. For a video or a HEIC file the
+composer shows a line saying so before the send.
 
 ---
 
@@ -1728,11 +1761,17 @@ The same reasoning shapes four features that *could* have been remote:
   ordinary encrypted-attachment path (§11.3) and post as ordinary image
   messages. Nothing leaves the machine, and searching a pack is a local string
   match.
-- **Link previews and YouTube embeds** are off by default, and when off the
-  placeholder says why in plain words ("previews are off, this contacts
-  Google"). Turning them on is one click; so is a second click to load an embed.
-  Non-YouTube previews are fetched by the local backend behind an SSRF guard,
-  not by the browser.
+- **Link cards** are built by the sender, once, when the message is sent,
+  and only after the sender has said yes: the first link goes out bare and the
+  app asks, and Privacy & safety holds the same choice. The core fetches the
+  page, or YouTube's or Vimeo's oEmbed, behind an SSRF guard with a 6-second
+  budget and a 512 KiB cap, redraws the picture as a JPEG of at most 480×270,
+  and appends the card to the message as markdown that 0.60 already renders: a
+  titled link with the domain, and the picture as an ordinary sealed
+  attachment. The author's signature covers it, and readers fetch nothing
+  (`internal/app/linkcard.go`). A YouTube link with no card is a placeholder
+  that contacts nobody until it is tapped, and playing loads from
+  `youtube-nocookie.com`.
 - **Game box art.** A profile can list the games you play, and Steam's public
   storefront has the covers. Those are images on Valve's CDN, fetched by the app
   itself, so rendering one hands Valve your IP and the time — and a profile card
