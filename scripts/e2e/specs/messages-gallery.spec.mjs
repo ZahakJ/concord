@@ -153,7 +153,7 @@ test("desktop: the Media tab lists every picture and file, opens one fitted, and
   await waitFor(async () => (await tiles(page).count()) === 2, { timeout: 30000, message: "the deleted picture to leave the grid" });
   assert.equal(await page.locator(`.tile[data-msg="${pics[2].id}"]`).count(), 0);
 
-  step("Bashir hides one for himself: it leaves too, and comes back on undo");
+  step("Bashir hides one for himself: it leaves too");
   await bashir.rpc("HideMessage", ch.id, pics[1].id);
   await waitFor(async () => (await tiles(page).count()) === 1, { timeout: 15000, message: "the hidden picture to leave" });
   assert.equal(b.errors.length, 0, `page errors: ${b.errors.join(" | ")}`);
@@ -179,6 +179,7 @@ test("phone: a DM's Media page, the viewer and Go to message", async ({ world, a
   assert.deepEqual(tab.map((t) => t.trim()), ["Media"], "a DM's inspector is its media alone");
   const w = await tiles(page).first().evaluate((el) => el.getBoundingClientRect().width);
   assert.ok(w > 100 && w < 140, `three across a 390 px phone (tile ${w}px)`);
+  await page.waitForTimeout(500); // the page's slide-in
   await capture(b, "phone-390-grid");
 
   step("tap: the viewer, fitted to the phone");
