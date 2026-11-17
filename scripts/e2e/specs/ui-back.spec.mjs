@@ -143,4 +143,28 @@ test("Back from the unlock screen's own screens returns to the unlock screen", a
   assert.equal(await menu.count(), 0, "Back from the unlock screen's re-link landed on the ways back");
   assert.ok(await pass.isVisible(), "not back on the unlock screen");
   assert.equal(await alice.rpc("Session"), false, "an account was opened");
+
+  step("Escape while the erase is running does nothing, as Cancel is disabled then");
+  let seen, release;
+  const inFlight = new Promise((r) => (seen = r));
+  const held = new Promise((r) => (release = r));
+  await page.route("**/rpc", async (route) => {
+    if (JSON.parse(route.request().postData() || "{}").method === "ResetIdentity") {
+      seen();
+      await held;
+    }
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Forgot passphrase?" }).click();
+  await page.getByRole("button", { name: "I have neither — start over (deletes everything)" }).click();
+  await word.fill("ERASE");
+  await page.getByRole("button", { name: "Yes, delete and start over" }).click();
+  await inFlight;
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
+  const stayed = await word.isVisible();
+  release();
+  assert.ok(stayed, "Escape closed the erase confirmation while the erase was running");
+  await page.getByRole("button", { name: "Create identity" }).waitFor();
+  assert.equal(await menu.count(), 0, "the ways back showed after the erase");
 });
