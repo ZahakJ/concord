@@ -2,9 +2,11 @@ package net
 
 import (
 	"io"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // A responder on a one-request, one-response protocol reads the request's one
@@ -37,10 +39,46 @@ const maxDraining = 256
 
 var draining = make(chan struct{}, maxDraining)
 
+// maxDrainingPerPeer bounds how many of those slots one remote peer holds, so
+// a single peer cannot take them all and leave every other requester with
+// the close it had before the wait existed.
+const maxDrainingPerPeer = 16
+
+var drainingPeers = struct {
+	sync.Mutex
+	n map[peer.ID]int
+}{n: map[peer.ID]int{}}
+
+// takePeerSlot counts one more waiting stream for p, unless p already holds
+// maxDrainingPerPeer.
+func takePeerSlot(p peer.ID) bool {
+	drainingPeers.Lock()
+	defer drainingPeers.Unlock()
+	if drainingPeers.n[p] >= maxDrainingPerPeer {
+		return false
+	}
+	drainingPeers.n[p]++
+	return true
+}
+
+// releasePeerSlot undoes takePeerSlot; a peer with none left is forgotten.
+func releasePeerSlot(p peer.ID) {
+	drainingPeers.Lock()
+	defer drainingPeers.Unlock()
+	if drainingPeers.n[p]--; drainingPeers.n[p] <= 0 {
+		delete(drainingPeers.n, p)
+	}
+}
+
 // EndAnswer half-closes s after the responder's answer has been written and
 // waits, at most answerDrain, for the requester to half-close too. The caller
 // still closes s.
 func EndAnswer(s network.Stream) {
+	p := s.Conn().RemotePeer()
+	if !takePeerSlot(p) {
+		return
+	}
+	defer releasePeerSlot(p)
 	select {
 	case draining <- struct{}{}:
 	default:

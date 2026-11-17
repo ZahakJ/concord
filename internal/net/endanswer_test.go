@@ -6,6 +6,8 @@ import (
 	"errors"
 	"io"
 	"sort"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -204,14 +206,34 @@ type fakeStream struct {
 	readDeadline time.Time
 	read         int
 	endless      bool
+	from         peer.ID       // the remote peer; empty is a peer too
+	hold         chan struct{} // when set, Read waits for it to close, then ends
+	conn         network.Conn
 }
 
+type fakeConn struct {
+	network.Conn
+	remote peer.ID
+}
+
+func (c fakeConn) RemotePeer() peer.ID { return c.remote }
+
+func (f *fakeStream) Conn() network.Conn {
+	if f.conn == nil {
+		f.conn = fakeConn{remote: f.from}
+	}
+	return f.conn
+}
 func (f *fakeStream) CloseWrite() error { f.closedWrite = true; return nil }
 func (f *fakeStream) SetReadDeadline(d time.Time) error {
 	f.readDeadline = d
 	return nil
 }
 func (f *fakeStream) Read(p []byte) (int, error) {
+	if f.hold != nil {
+		<-f.hold
+		return 0, io.EOF
+	}
 	if !f.endless {
 		return 0, io.EOF
 	}
@@ -219,6 +241,8 @@ func (f *fakeStream) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// These tests fill the package-wide draining and drainingPeers, so no test
+// in this package may run in parallel with them.
 func TestEndAnswerIsBounded(t *testing.T) {
 	t.Run("waits at most answerDrain", func(t *testing.T) {
 		f := &fakeStream{}
@@ -253,7 +277,66 @@ func TestEndAnswerIsBounded(t *testing.T) {
 			t.Fatal("waited with maxDraining streams already waiting")
 		}
 	})
+	t.Run("one peer holds at most maxDrainingPerPeer", func(t *testing.T) {
+		hold := make(chan struct{})
+		var wg sync.WaitGroup
+		var waited, closedAtOnce atomic.Int32
+		const tries = maxDrainingPerPeer + 4
+		for range tries {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				f := &fakeStream{from: "one", hold: hold}
+				EndAnswer(f)
+				if f.closedWrite {
+					waited.Add(1)
+				} else {
+					closedAtOnce.Add(1)
+				}
+			}()
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for closedAtOnce.Load() < tries-maxDrainingPerPeer || len(draining) < maxDrainingPerPeer {
+			if time.Now().After(deadline) {
+				taken, atOnce := len(draining), closedAtOnce.Load()
+				close(hold)
+				wg.Wait()
+				t.Fatalf("after 5s: one peer holds %d slots and %d of its streams closed at once; want %d and %d", taken, atOnce, maxDrainingPerPeer, tries-maxDrainingPerPeer)
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		if n := len(draining); n != maxDrainingPerPeer {
+			close(hold)
+			wg.Wait()
+			t.Fatalf("one peer holds %d slots, want %d", n, maxDrainingPerPeer)
+		}
+		other := &fakeStream{from: "other"}
+		EndAnswer(other)
+		if !other.closedWrite {
+			t.Error("another peer got no slot while one peer held its share")
+		}
+		close(hold)
+		wg.Wait()
+		if waited.Load() != maxDrainingPerPeer {
+			t.Errorf("%d streams waited, want %d", waited.Load(), maxDrainingPerPeer)
+		}
+		drainingPeers.Lock()
+		left := len(drainingPeers.n)
+		drainingPeers.Unlock()
+		if left != 0 {
+			t.Errorf("%d peers still counted after their streams ended", left)
+		}
+	})
 	if len(draining) != 0 {
 		t.Fatalf("%d slots left taken", len(draining))
+	}
+}
+
+// BenchmarkEndAnswer is the path of a current requester, whose end of stream
+// is already there: one slot taken and given back.
+func BenchmarkEndAnswer(b *testing.B) {
+	f := &fakeStream{from: peer.ID(bytes.Repeat([]byte{1}, 38))} // a real ID's length
+	for b.Loop() {
+		EndAnswer(f)
 	}
 }
