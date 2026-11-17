@@ -151,6 +151,7 @@
       offHide?.();
       clearTimeout(refreshTimer);
       clearTimeout(expiryTimer);
+      clearTimeout(restTimer);
       queue?.close();
     };
   });
@@ -191,10 +192,14 @@
   const lay = $derived(layout(rows, rowH, HEAD_H));
   // One screen of rows either side of the viewport is mounted.
   const range = $derived(visibleRange(lay.tops, lay.height, scrollTop, viewH || 600, viewH || 600));
-  const mounted = $derived(rows.slice(range[0], range[1]).map((row, i) => ({ row, top: lay.tops[range[0] + i] })));
+  // Primitives, so a scroll that stays within the same rows changes nothing
+  // downstream.
+  const rStart = $derived(range[0]);
+  const rEnd = $derived(range[1]);
+  const mounted = $derived(rows.slice(rStart, rEnd).map((row, i) => ({ row, top: lay.tops[rStart + i] })));
 
   $effect(() => {
-    if (loaded && needMore(range, rows.length, next) && !loading) untrack(() => loadPage(false));
+    if (loaded && needMore([rStart, rEnd], rows.length, next) && !loading) untrack(() => loadPage(false));
   });
 
   // ---- what is not on this device ----
@@ -216,22 +221,25 @@
       onState: (k, st) => tileState.set(k, st),
     });
   }
+  // Asked once the grid has come to rest (150 ms without a scroll): a fling
+  // passes thousands of tiles nobody looked at, and asking the core about
+  // each one would cost the frames the fling needs.
+  let restTimer = 0;
   $effect(() => {
     if (tab !== TAB_VISUAL || !queue) return;
-    const vis = [];
     const lo = scrollTop;
     const hi = scrollTop + (viewH || 600);
-    for (const { row, top } of mounted) {
-      if (row.kind !== "tiles" || top + rowH <= lo || top >= hi) continue;
-      vis.push(...row.items);
-    }
-    untrack(() => {
-      for (const it of vis) {
-        const k = itemKey(it);
-        if (tileState.has(k) || cachedAttachment(it.blobId)) continue;
-        queue.push(it);
+    const rows_ = mounted;
+    clearTimeout(restTimer);
+    restTimer = setTimeout(() => {
+      for (const { row, top } of rows_) {
+        if (row.kind !== "tiles" || top + rowH <= lo || top >= hi) continue;
+        for (const it of row.items) {
+          if (tileState.has(itemKey(it)) || cachedAttachment(it.blobId)) continue;
+          queue.push(it);
+        }
       }
-    });
+    }, 150);
   });
 
   // ---- actions ----
