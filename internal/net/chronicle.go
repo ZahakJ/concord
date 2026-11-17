@@ -77,7 +77,9 @@ func (n *Host) HandleChronicle(responder ChronicleResponder) {
 		if err != nil {
 			return
 		}
-		_ = writeFrame(s, resp, MaxChronicleResponse)
+		if writeFrame(s, resp, MaxChronicleResponse) == nil {
+			EndAnswer(s)
+		}
 	})
 }
 

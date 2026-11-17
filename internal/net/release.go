@@ -75,7 +75,9 @@ func (n *Host) HandleRelease(responder ReleaseResponder) {
 		if err != nil {
 			return
 		}
-		_ = writeFrame(s, resp, MaxReleaseResponse)
+		if writeFrame(s, resp, MaxReleaseResponse) == nil {
+			EndAnswer(s)
+		}
 	})
 }
 

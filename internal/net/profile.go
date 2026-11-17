@@ -41,7 +41,9 @@ func (n *Host) HandleProfile(responder ProfileResponder) {
 		if err != nil {
 			return
 		}
-		_ = writeFrameProgress(s, resp, maxProfileFrame)
+		if writeFrameProgress(s, resp, maxProfileFrame) == nil {
+			EndAnswer(s)
+		}
 	})
 }
 

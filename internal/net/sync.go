@@ -44,7 +44,9 @@ func (n *Host) HandleSync(responder SyncResponder) {
 		if err != nil {
 			return
 		}
-		_ = writeFrame(s, resp, maxInviteFrame)
+		if writeFrame(s, resp, maxInviteFrame) == nil {
+			EndAnswer(s)
+		}
 	})
 }
 

@@ -42,7 +42,9 @@ func (n *Host) HandleLink(responder LinkResponder) {
 		if err != nil {
 			return
 		}
-		_ = writeFrame(s, resp, maxLinkFrame)
+		if writeFrame(s, resp, maxLinkFrame) == nil {
+			EndAnswer(s)
+		}
 	})
 }
 

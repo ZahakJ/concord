@@ -55,7 +55,9 @@ func (n *Host) HandleHello(responder HelloResponder) {
 		if err != nil {
 			return
 		}
-		_ = writeFrame(s, resp, maxHelloFrame)
+		if writeFrame(s, resp, maxHelloFrame) == nil {
+			EndAnswer(s)
+		}
 	})
 }
 

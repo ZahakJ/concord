@@ -47,7 +47,9 @@ func (n *Host) HandleAttachments(responder AttachResponder) {
 		if err != nil {
 			return
 		}
-		_ = writeFrameProgress(s, resp, MaxAttachResponse)
+		if writeFrameProgress(s, resp, MaxAttachResponse) == nil {
+			EndAnswer(s)
+		}
 	})
 }
 

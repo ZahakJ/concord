@@ -73,7 +73,9 @@ func ServeGifSearch(ctx context.Context, h host.Host, responder GifSearchRespond
 		if err != nil {
 			return
 		}
-		_ = writeFrame(s, resp, MaxGifSearchResponse)
+		if writeFrame(s, resp, MaxGifSearchResponse) == nil {
+			EndAnswer(s)
+		}
 	})
 }
 

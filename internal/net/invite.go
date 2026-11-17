@@ -41,7 +41,9 @@ func (n *Host) HandleInvites(responder InviteResponder) {
 		if err != nil {
 			return // no response; joiner will see EOF and fail
 		}
-		_ = writeFrame(s, resp, maxInviteFrame)
+		if writeFrame(s, resp, maxInviteFrame) == nil {
+			EndAnswer(s)
+		}
 	})
 }
 

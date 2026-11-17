@@ -14,6 +14,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 // Protocol is the mailbox stream protocol ID.
@@ -277,7 +279,11 @@ func (svc *Service) handle(s network.Stream) {
 	}
 
 	out, _ := json.Marshal(resp)
-	_ = writeFrame(s, out)
+	if writeFrame(s, out) == nil {
+		// A caller before 0.61 drops the answer if we stop reading before
+		// it half-closes; see cnet.EndAnswer.
+		cnet.EndAnswer(s)
+	}
 }
 
 // ---- framing (4-byte big-endian length prefix) ----
