@@ -785,7 +785,7 @@
               const name = mem.name;
               closeProfilePopover();
               S.modal = { kind: "verify", fingerprint, name };
-            }}>Show my code / Scan theirs</button
+            }}>Verify with a QR code</button
           >
           <button class="ghost verify-btn" onclick={verify}>It matches, verify</button>
         {/if}
