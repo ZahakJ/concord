@@ -62,6 +62,13 @@ type Store struct {
 	closing   chan struct{}
 	closeOnce sync.Once
 	bg        sync.WaitGroup
+
+	// A checkpoint that gave up is tried again later (CheckpointDeletes).
+	// ckptMu guards both flags; closed stops new retries before Close waits
+	// for bg.
+	ckptMu       sync.Mutex
+	ckptRetrying bool
+	closed       bool
 }
 
 // Open opens (creating if needed) the SQLite database at path and prepares the
@@ -2637,25 +2644,80 @@ func (s *Store) MessageContent(id string) (string, error) {
 // waits for every reader to leave the old snapshot. Under the store's usual
 // five-second busy timeout one open read held every write for five seconds,
 // so the checkpoint waits at most checkpointWait and then gives up; the work
-// left over is done by the next batch's checkpoint, or by SQLite's own
-// automatic checkpoint as the log grows.
+// left over is tried again in the background, a few times over about a
+// minute (checkpointRetries), each try bounded the same way. Past that it is
+// done by the next batch's checkpoint, or by SQLite's own automatic
+// checkpoint as the log grows. A one-time batch (ClearDeletedBodies at
+// start-up) may have no next batch for a long while.
 func (s *Store) CheckpointDeletes() {
+	if !s.checkpoint() {
+		s.retryCheckpoint()
+	}
+}
+
+// checkpoint runs one bounded TRUNCATE checkpoint and reports whether it
+// finished: the whole log written back and truncated.
+func (s *Store) checkpoint() bool {
 	ctx := context.Background()
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
-		return
+		return false
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA busy_timeout=%d`, checkpointWait.Milliseconds())); err != nil {
+		return false
+	}
+	var busy, logPages, done int
+	err = conn.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logPages, &done)
+	_, _ = conn.ExecContext(ctx, `PRAGMA busy_timeout=5000`)
+	return err == nil && busy == 0
+}
+
+// retryCheckpoint starts the background retries, unless they are already
+// running or the store is closing.
+func (s *Store) retryCheckpoint() {
+	s.ckptMu.Lock()
+	defer s.ckptMu.Unlock()
+	if s.closed || s.ckptRetrying {
 		return
 	}
-	_, _ = conn.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
-	_, _ = conn.ExecContext(ctx, `PRAGMA busy_timeout=5000`)
+	s.ckptRetrying = true
+	s.bg.Add(1)
+	go func() {
+		defer s.bg.Done()
+		defer func() {
+			s.ckptMu.Lock()
+			s.ckptRetrying = false
+			s.ckptMu.Unlock()
+		}()
+		wait := checkpointRetryFirst
+		for i := 0; i < checkpointRetries; i++ {
+			t := time.NewTimer(wait)
+			select {
+			case <-s.closing:
+				t.Stop()
+				return
+			case <-t.C:
+			}
+			if s.checkpoint() {
+				return
+			}
+			wait *= 2
+		}
+	}()
 }
 
 // checkpointWait bounds how long CheckpointDeletes holds the writer while a
 // reader finishes.
 const checkpointWait = 50 * time.Millisecond
+
+// A checkpoint that gave up is tried again checkpointRetries times, the first
+// after checkpointRetryFirst and each wait twice the one before (1 s to 32 s,
+// about a minute in all). Variables so the tests can shorten them.
+var (
+	checkpointRetries    = 6
+	checkpointRetryFirst = time.Second
+)
 
 // PurgeDeletedContent permanently erases the retained body of every soft-deleted
 // message (guild deletes keep content for moderator reveal). Returns how many
@@ -4587,6 +4649,9 @@ func (s *Store) AttachmentTotals() (count int64, bytes int64, err error) {
 
 // Close closes the database.
 func (s *Store) Close() error {
+	s.ckptMu.Lock()
+	s.closed = true
+	s.ckptMu.Unlock()
 	if s.closing != nil {
 		s.closeOnce.Do(func() { close(s.closing) })
 	}

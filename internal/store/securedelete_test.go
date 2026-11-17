@@ -267,3 +267,53 @@ func TestClearingDeletedBodiesEmptiesTheLog(t *testing.T) {
 		t.Fatalf("only %d of %d bodies never deleted are still there", left, len(kept))
 	}
 }
+
+// A checkpoint that gave up because a read was open is tried again once the
+// read is over, with no later batch of deletes to bring it: the one-time
+// clear of deleted bodies has none.
+func TestACheckpointThatGaveUpIsTriedAgain(t *testing.T) {
+	first := checkpointRetryFirst
+	checkpointRetryFirst = 20 * time.Millisecond
+	t.Cleanup(func() { checkpointRetryFirst = first })
+
+	s, path := openTestStore(t)
+	msgs, sealed := fillForDeletes(t, s, path, 400)
+	var cleared [][]byte
+	for i := range msgs {
+		if i%2 != 0 {
+			continue
+		}
+		if _, _, err := s.MarkDeleted(msgs[i].ID, nil, true); err != nil {
+			t.Fatal(err)
+		}
+		cleared = append(cleared, sealed[i])
+	}
+	s.CheckpointDeletes()
+
+	tx, err := s.rdb.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ClearDeletedBodies(nil); err != nil || got != len(cleared) {
+		t.Fatalf("cleared %d (%v), want %d", got, err, len(cleared))
+	}
+	if walSize(path) == 0 {
+		t.Fatal("the checkpoint finished with a read open; this test needs it to give up")
+	}
+	_ = tx.Rollback()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for walSize(path) != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if w := walSize(path); w != 0 {
+		t.Fatalf("the log still holds %d bytes after the read ended", w)
+	}
+	if left := sealedLeft(t, path, cleared); left != 0 {
+		t.Fatalf("%d of %d cleared bodies are still in the database file or its log", left, len(cleared))
+	}
+}
