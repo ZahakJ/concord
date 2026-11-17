@@ -569,6 +569,20 @@ export const api = {
     sending(channelID);
     return call("SendFileAsIs", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir);
   },
+  // A video whose subtitle, text and timecode tracks the person chose to
+  // have removed ("Remove and send", lib/mediastrip.js).
+  sendFileWithoutText: (channelID, dataURL, filename, replyTo = "", text = "", dir = "") => {
+    sending(channelID);
+    return call("SendFileWithoutText", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir);
+  },
+  // A voice message the composer recorded (Ogg or WebM audio).
+  sendVoiceClip: (channelID, dataURL, filename) => {
+    sending(channelID);
+    return call("SendVoiceClip", channelID, dataURL, filename);
+  },
+  // Resolves as SendFile would hold or send this file, without sending it:
+  // rejects with the same refusal. Dialogs ask before creating a post.
+  checkFile: (dataURL) => call("CheckFile", dataURL),
   fetchFile: (channelID, blobID, keys, mime) =>
     call("FetchFile", channelID, blobID, keys, mime),
   // Sender side only, at send time: the card for one link of a message this

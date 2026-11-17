@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -237,63 +238,63 @@ func (s *Service) EditAttachment(channelID, targetID, dataURL string, w, h int) 
 //
 // text is optional, as for SendAttachment.
 func (s *Service) SendFile(channelID, dataURL, filename, replyTo, text, dir string) (domain.Message, error) {
-	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, false)
+	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, sendClean)
 }
 
-// SendFileAsIs is SendFile for a video or HEIF picture whose details could not
-// be removed, once the person has been told it goes as it is, location and
-// all, and has chosen to send it. Everything else is cleaned as in SendFile:
-// "as is" only covers a file the cleaner refused.
+// SendFileAsIs is SendFile for a file whose details could not be removed (or
+// a video with text tracks), once the person has been told it goes as it is,
+// location and all, and has chosen to send it. Everything else is cleaned as
+// in SendFile: "as is" only covers what the cleaner would not clean.
 func (s *Service) SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir string) (domain.Message, error) {
-	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, true)
+	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, sendAsIs)
 }
 
-// MediaAsIsMarker starts the error SendFile returns for a video or HEIF
-// picture it could not clean, followed by "video", "photo" or "file". The
-// page matches it (lib/mediastrip.js) to offer sending the file as it is.
+// SendFileWithoutText is SendFile for a video with subtitle, text or
+// timecode tracks, once the person has chosen to have them removed with the
+// other details ("Remove and send").
+func (s *Service) SendFileWithoutText(channelID, dataURL, filename, replyTo, text, dir string) (domain.Message, error) {
+	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, sendDropText)
+}
+
+// SendVoiceClip sends a voice message the composer recorded: Ogg or WebM
+// audio, which is not held as a video container would be. Anything else is
+// refused.
+func (s *Service) SendVoiceClip(channelID, dataURL, filename string) (domain.Message, error) {
+	return s.sendFile(channelID, dataURL, filename, "", "", "", sendVoice)
+}
+
+// CheckFile answers as SendFile would for this file, without sending it:
+// nil, or the same refusal (MediaAsIsMarker, MediaTextMarker). A dialog that
+// sends files after creating something (a post) asks first, so nothing is
+// created around a file that would be held.
+func (s *Service) CheckFile(dataURL string) error {
+	_, _, err := prepareFile(dataURL, sendClean)
+	return err
+}
+
+// MediaAsIsMarker starts the error SendFile returns for a file it could not
+// clean, followed by "video", "photo" or "file". The page matches it
+// (lib/mediastrip.js) to offer sending the file as it is.
 const MediaAsIsMarker = "details can't be removed from this "
 
-func (s *Service) sendFile(channelID, dataURL, filename, replyTo, text, dir string, asIs bool) (domain.Message, error) {
-	m := fileURLRe.FindStringSubmatch(dataURL)
-	if m == nil {
-		return domain.Message{}, fmt.Errorf("app: attachment must be a data URL")
-	}
-	mime := m[1]
-	plain, err := base64.StdEncoding.DecodeString(m[2])
+// MediaTextMarker is in the error SendFile returns for a video it can clean
+// only by removing its subtitle, text or timecode tracks. The page matches
+// it to offer "Remove and send" (SendFileWithoutText) or "Send as it is".
+const MediaTextMarker = "video has subtitles or other text tracks"
+
+type sendMode int
+
+const (
+	sendClean    sendMode = iota
+	sendAsIs              // the person chose to send what cannot be cleaned
+	sendDropText          // the person chose to lose the text tracks
+	sendVoice             // a voice clip the composer recorded
+)
+
+func (s *Service) sendFile(channelID, dataURL, filename, replyTo, text, dir string, mode sendMode) (domain.Message, error) {
+	mime, plain, err := prepareFile(dataURL, mode)
 	if err != nil {
-		return domain.Message{}, fmt.Errorf("app: bad attachment encoding: %w", err)
-	}
-	if len(plain) == 0 || len(plain) > maxFilePlain {
-		return domain.Message{}, fmt.Errorf("app: file must be 1 byte – %d MB", maxFilePlain>>20)
-	}
-	// A picture that goes as a file is cleaned like any other: the composer
-	// has no "send the original" option, and it routes pictures here on its
-	// own (one the renderer cannot decode, or a file with no type). The format
-	// is read from the bytes, so the mime the page guessed does not matter.
-	// Videos (MP4, MOV) and HEIF pictures (HEIC, AVIF) lose their location
-	// and device details in package bmffmeta; one it cannot clean is refused
-	// with MediaAsIsMarker unless the person chose to send it as it is.
-	// Anything else (audio other than MP4, documents) is sent as it is.
-	switch f := imgmeta.Format(plain); {
-	case f == "jpeg" || f == "png" || f == "gif" || f == "webp":
-		if plain, err = cleanImage(plain); err != nil {
-			return domain.Message{}, err
-		}
-	case uncleanablePicture(plain):
-		// A picture format that can carry a camera's location and that
-		// nothing here cleans: held for the same choice as a video the
-		// cleaner refuses.
-		if !asIs {
-			return domain.Message{}, fmt.Errorf("app: the %sphoto, so it would be sent as it is", MediaAsIsMarker)
-		}
-	case bmffmeta.Sniff(plain):
-		out, kind, err := bmffmeta.StripBytes(plain)
-		switch {
-		case err == nil:
-			plain = out
-		case !asIs:
-			return domain.Message{}, fmt.Errorf("app: the %s%s, so it would be sent as it is", MediaAsIsMarker, mediaNoun(kind))
-		}
+		return domain.Message{}, err
 	}
 
 	blobID, keys, err := s.sealBlob(plain)
@@ -304,6 +305,100 @@ func (s *Service) sendFile(channelID, dataURL, filename, replyTo, text, dir stri
 	token := fmt.Sprintf("[file](concord://file/v1/%s/%s/%d/%s/%s)",
 		blobID, keys, len(plain), b64url.EncodeToString([]byte(mime)), b64url.EncodeToString([]byte(filename)))
 	return s.sendAs(channelID, withText(token, text), "", replyTo, "", dir)
+}
+
+// prepareFile decodes a file and cleans it for sending, or refuses it.
+func prepareFile(dataURL string, mode sendMode) (string, []byte, error) {
+	m := fileURLRe.FindStringSubmatch(dataURL)
+	if m == nil {
+		return "", nil, fmt.Errorf("app: attachment must be a data URL")
+	}
+	mime := m[1]
+	plain, err := base64.StdEncoding.DecodeString(m[2])
+	if err != nil {
+		return "", nil, fmt.Errorf("app: bad attachment encoding: %w", err)
+	}
+	if len(plain) == 0 || len(plain) > maxFilePlain {
+		return "", nil, fmt.Errorf("app: file must be 1 byte – %d MB", maxFilePlain>>20)
+	}
+	if mode == sendVoice {
+		if !voiceClip(plain) {
+			return "", nil, fmt.Errorf("app: a voice message must be Ogg or WebM audio")
+		}
+		return mime, plain, nil
+	}
+	asIs := mode == sendAsIs
+	// A picture that goes as a file is cleaned like any other: the composer
+	// has no "send the original" option, and it routes pictures here on its
+	// own (one the renderer cannot decode, or a file with no type). The format
+	// is read from the bytes, so the mime the page guessed does not matter.
+	// Videos (MP4, MOV) and HEIF pictures (HEIC, AVIF) lose the location and
+	// device details in their index in package bmffmeta; one it cannot clean
+	// is refused with MediaAsIsMarker unless the person chose to send it as
+	// it is, and one with text tracks with MediaTextMarker unless the person
+	// chose. Video containers nothing here reads (Matroska, WebM, AVI, MPEG
+	// transport and program streams, ASF, FLV) are held the same way.
+	// Anything else (documents, other audio) is sent as it is.
+	switch f := imgmeta.Format(plain); {
+	case f == "jpeg" || f == "png" || f == "gif" || f == "webp":
+		if plain, err = cleanImage(plain); err != nil {
+			return "", nil, err
+		}
+	case uncleanablePicture(plain):
+		// A picture format that can carry a camera's location and that
+		// nothing here cleans: held for the same choice as a video the
+		// cleaner refuses.
+		if !asIs {
+			return "", nil, fmt.Errorf("app: the %sphoto, so it would be sent as it is", MediaAsIsMarker)
+		}
+	case uncleanableVideo(plain):
+		if !asIs {
+			return "", nil, fmt.Errorf("app: the %svideo, so it would be sent as it is", MediaAsIsMarker)
+		}
+	case bmffmeta.Sniff(plain):
+		out, kind, err := bmffmeta.StripBytesWith(plain, bmffmeta.Options{DropText: mode == sendDropText})
+		switch {
+		case err == nil:
+			plain = out
+		case asIs:
+		case errors.Is(err, bmffmeta.ErrTextTracks):
+			return "", nil, fmt.Errorf("app: this %s, which can hold location", MediaTextMarker)
+		default:
+			return "", nil, fmt.Errorf("app: the %s%s, so it would be sent as it is", MediaAsIsMarker, mediaNoun(kind))
+		}
+	}
+	return mime, plain, nil
+}
+
+// uncleanableVideo reports video containers that can carry location (GPS in
+// tags, in a subtitle track, in the stream) and that no cleaner here reads.
+func uncleanableVideo(b []byte) bool {
+	for _, sig := range []string{
+		"\x1a\x45\xdf\xa3",                 // Matroska, WebM
+		"\x30\x26\xb2\x75\x8e\x66\xcf\x11", // ASF, WMV
+		"\x00\x00\x01\xba",                 // MPEG program stream
+		"FLV\x01",
+	} {
+		if strings.HasPrefix(string(b), sig) {
+			return true
+		}
+	}
+	if len(b) >= 12 && string(b[:4]) == "RIFF" && string(b[8:12]) == "AVI " {
+		return true
+	}
+	// MPEG transport stream: a sync byte every 188 bytes (every 192 with
+	// the 4-byte timestamp of M2TS/AVCHD).
+	for _, p := range [][2]int{{0, 188}, {4, 192}} {
+		if len(b) > p[0]+2*p[1] && b[p[0]] == 0x47 && b[p[0]+p[1]] == 0x47 && b[p[0]+2*p[1]] == 0x47 {
+			return true
+		}
+	}
+	return false
+}
+
+// voiceClip: Ogg, or WebM (Matroska) audio as the composer records it.
+func voiceClip(b []byte) bool {
+	return strings.HasPrefix(string(b), "OggS") || strings.HasPrefix(string(b), "\x1a\x45\xdf\xa3")
 }
 
 // uncleanablePicture reports picture formats that can carry location (in

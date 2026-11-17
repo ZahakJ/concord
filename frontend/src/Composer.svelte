@@ -1125,9 +1125,9 @@
           // Named as one of the four and not decodable as anything: the
           // file path, as for a corrupt picture above.
           // Any other picture this renderer cannot draw (HEIC, AVIF, TIFF,
-          // camera raw…) goes the same way: the core removes its location
-          // and device details itself (internal/bmffmeta), or holds it and
-          // says it would go as it is (lib/mediastrip.js).
+          // camera raw…) goes the same way: the core removes the location
+          // and device details its index stores (internal/bmffmeta), or
+          // holds it and says it would go as it is (lib/mediastrip.js).
           if (!String(err?.message || err).includes("too large")) return false;
           throw err;
         }
@@ -1402,7 +1402,7 @@
       const dataUrl = await readAsDataURL(blob);
       // The length and the shape ride in the filename, so the chip in the feed
       // can say "0:12" and draw the real thing without fetching a byte.
-      await api.sendFile(chId, dataUrl, voiceFileName(ext, secs, env));
+      await api.sendVoiceClip(chId, dataUrl, voiceFileName(ext, secs, env));
     } catch (err) {
       flash(err);
     } finally {

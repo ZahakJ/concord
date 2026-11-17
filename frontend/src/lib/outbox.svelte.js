@@ -61,7 +61,7 @@ import {
 } from "./outbox.js";
 import { makeCardGate } from "./cardgate.js";
 import { CARD_WAIT_MS, cardLink, wantsThumb, withCard, sendingCards, cardChoice } from "./linkcard.js";
-import { asIsKind, asIsLine } from "./mediastrip.js";
+import { heldRow, fileSendOp } from "./mediastrip.js";
 
 let seq = 0;
 
@@ -328,9 +328,8 @@ function deliver(entry) {
         entry.text || "",
         entry.dir || "",
       );
-    // asIsChosen: the person pressed "Send as it is" on this row (sendAsIs).
-    const send = a.asIsChosen ? api.sendFileAsIs : api.sendFile;
-    return send(entry.channelId, a.dataUrl, a.name, entry.replyTo, entry.text || "", entry.dir || "");
+    // The person's choice on a held row (sendAsIs, sendRemovingText), if any.
+    return api[fileSendOp(a)](entry.channelId, a.dataUrl, a.name, entry.replyTo, entry.text || "", entry.dir || "");
   }
   return api.sendMessage(entry.channelId, entry.body, entry.replyTo, entry.dir);
 }
@@ -372,12 +371,12 @@ async function run(entry) {
     // A slow-mode refusal is a WAIT, not a failure, and the core told us how
     // long. Keeping the moment rather than the number is what lets the row tick
     // instead of freezing at "wait 28s" for the next half minute.
-    // A video or HEIC photo the core could not clean is held, not failed:
-    // the row says it would go as it is, location and all, and offers to send
-    // it that way. Nothing has left the device.
-    const asIs = asIsKind(err);
-    if (asIs) {
-      patch(entry.id, { state: "failed", error: asIsLine(asIs), asIs, retryAt: 0, offline: false, timedOut: false });
+    // A file the core held back is waiting, not failed: the row says why
+    // (it would go as it is, location and all; or it has text tracks) and
+    // offers the choices. Nothing has left the device.
+    const held = heldRow(err);
+    if (held) {
+      patch(entry.id, held);
       return false;
     }
     const wait = slowModeWait(err);
@@ -452,8 +451,18 @@ export function sendAsIs(id) {
   const entry = S.outbox.find((e) => e.id === id);
   if (!entry || entry.state !== "failed" || !entry.asIs || entry.kind !== "att") return;
   const att = { ...entry.att, asIsChosen: true };
-  patch(id, { state: "sending", error: "", asIs: "", att });
-  run({ ...entry, att, asIs: "", state: "sending" });
+  patch(id, { state: "sending", error: "", asIs: "", textTracks: false, att });
+  run({ ...entry, att, asIs: "", textTracks: false, state: "sending" });
+}
+
+// sendRemovingText: the person chose to have a video's subtitle, text and
+// timecode tracks removed with its other details. Only a row held for that.
+export function sendRemovingText(id) {
+  const entry = S.outbox.find((e) => e.id === id);
+  if (!entry || entry.state !== "failed" || !entry.textTracks || entry.kind !== "att") return;
+  const att = { ...entry.att, dropTextChosen: true };
+  patch(id, { state: "sending", error: "", asIs: "", textTracks: false, att });
+  run({ ...entry, att, asIs: "", textTracks: false, state: "sending" });
 }
 
 // discard: give up on a failed send. The body goes back to the clipboard rather

@@ -73,6 +73,8 @@ const KNOWN = [
   // no such button, so it says where to go.
   [/details can't be removed from this (video|photo|file)/i, "",
     "Concord couldn't remove the details stored in that file, so it wasn't sent. Attach it in the message box to choose whether it goes as it is, including any location stored in it."],
+  [/video has subtitles or other text tracks/i, "",
+    "That video has subtitles or other text tracks, which can hold location, so it wasn't sent. Attach it in the message box to choose whether they are removed or it goes as it is."],
   [/^bad code( encoding)?$|^incomplete code$/i, "code",
     "That isn't a link code. Copy it again from Settings → Your devices on your other device."],
   [/^code expired$/i, "code",

@@ -15,11 +15,11 @@
   import { stripEphemeral } from "./lib/ephemeral.svelte.js";
   import { stripTimestamp } from "./lib/timestamp.js";
   import { stripLinkEmbed } from "./lib/linkembed.js";
-  import { retry, discard, sendAsIs } from "./lib/outbox.svelte.js";
+  import { retry, discard, sendAsIs, sendRemovingText } from "./lib/outbox.svelte.js";
   import { parseCard, restForDisplay, LINK_CARDS } from "./lib/linkcard.js";
   import { linkDomain } from "./lib/regdomain.js";
   import LinkPreview from "./LinkPreview.svelte";
-  import { AS_IS_BUTTON } from "./lib/mediastrip.js";
+  import { AS_IS_BUTTON, REMOVE_BUTTON } from "./lib/mediastrip.js";
 
   let { entry, first = false } = $props();
 
@@ -137,6 +137,9 @@
             {entry.error || "Couldn't send"}
           {/if}
         </span>
+        {#if entry.textTracks}
+          <button type="button" class="pbtn" onclick={() => sendRemovingText(entry.id)}>{REMOVE_BUTTON}</button>
+        {/if}
         {#if entry.asIs}
           <button type="button" class="pbtn" onclick={() => sendAsIs(entry.id)}>{AS_IS_BUTTON}</button>
         {:else}

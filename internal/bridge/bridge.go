@@ -2405,6 +2405,37 @@ func (b *Bridge) SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir s
 	return err
 }
 
+// SendFileWithoutText is SendFile for a video whose subtitle, text or
+// timecode tracks the person chose to remove (see app.SendFileWithoutText).
+func (b *Bridge) SendFileWithoutText(channelID, dataURL, filename, replyTo, text, dir string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	_, err = svc.SendFileWithoutText(channelID, dataURL, filename, replyTo, text, dir)
+	return err
+}
+
+// SendVoiceClip sends a voice message the composer recorded (see
+// app.SendVoiceClip).
+func (b *Bridge) SendVoiceClip(channelID, dataURL, filename string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	_, err = svc.SendVoiceClip(channelID, dataURL, filename)
+	return err
+}
+
+// CheckFile answers as SendFile would, without sending (see app.CheckFile).
+func (b *Bridge) CheckFile(dataURL string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.CheckFile(dataURL)
+}
+
 // FetchFile resolves a file token to a plaintext data URL of the given mime,
 // fetching the blob from guild members if not cached locally.
 func (b *Bridge) FetchFile(channelID, blobID, keys, mime string) (string, error) {
@@ -4266,6 +4297,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SendFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5))
 	case "SendFileAsIs":
 		return nil, b.SendFileAsIs(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5))
+	case "SendFileWithoutText":
+		return nil, b.SendFileWithoutText(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5))
+	case "SendVoiceClip":
+		return nil, b.SendVoiceClip(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	case "CheckFile":
+		return nil, b.CheckFile(argStr(args, 0))
 	case "SetChatTimer":
 		return nil, b.SetChatTimer(argStr(args, 0), int64(argInt(args, 1)))
 	case "SweepUnstampedAttachments":
