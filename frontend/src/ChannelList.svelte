@@ -1003,14 +1003,14 @@
       isPinned(S.chatPrefs, dm) &&
         !isArchived(S.chatPrefs, dm) &&
         arranged.pinned[0] !== dm && {
-          label: "Move pin up",
-          icon: "back",
+          label: "Move up",
+          icon: "chevron",
           onClick: () => moveChatPin(dm, -1),
         },
       isPinned(S.chatPrefs, dm) &&
         !isArchived(S.chatPrefs, dm) &&
         arranged.pinned[arranged.pinned.length - 1] !== dm && {
-          label: "Move pin down",
+          label: "Move down",
           icon: "chevron",
           onClick: () => moveChatPin(dm, 1),
         },
