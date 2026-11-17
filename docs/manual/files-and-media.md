@@ -4,7 +4,9 @@ How images, videos, voice messages and other files are sent, encrypted and fetch
 
 ## Attaching files
 
-Click **Attach a file** beside the composer, paste a file, or drop it onto the conversation. On a phone, use **+** → **Photo or file** or **Camera**. Attachments are staged above the text box and nothing is sent until you send the message.
+Click **Attach a file** beside the composer, paste a file, or drop it onto the conversation. On a phone, use **+**: **Photos and videos** at the top opens your phone's own photo picker, where you can pick up to 10; **Files** opens the file browser; **Camera** takes a picture. Attachments are staged above the text box and nothing is sent until you send the message.
+
+Concord never asks for access to your photo library or your phone's storage. The photo picker is drawn by Android, and Concord receives only the items you pick.
 
 An edit changes only a message's text, so pasting an image while you edit a message does nothing. Send the image as a new message.
 
@@ -13,7 +15,7 @@ An edit changes only a message's text, so pasting an image while you edit a mess
 | Images | 5 MB | Inline, in a grid when there are several. Click to open the viewer: click or scroll to zoom, drag to pan, `Esc` to close. |
 | Other files | 25 MB | Videos (`video/*`) play inline and load only when scrolled into view. Audio shows as a voice message player. Anything else is a card with name, size and a download button; it is fetched only when you click. |
 
-**Images** in PNG, JPEG, GIF or WebP format that are already under 5 MB are sent byte for byte, so an animated GIF stays animated, and any metadata inside the file (such as camera details or location) goes with it. Other image formats, and images over 5 MB, are re-encoded as JPEG to fit; if one still does not fit, the app says so and nothing is sent. An image the app cannot read is sent as a plain file instead.
+**Images** in PNG, JPEG, GIF or WebP format that are already under 5 MB keep their pixels exactly, so an animated GIF stays animated, but their metadata (camera details, location and the like) is removed before they are sent, whichever way they were attached. Other image formats, and images over 5 MB, are re-encoded as JPEG to fit; if one still does not fit, the app says so and nothing is sent. An image the app cannot read is sent as a plain file instead.
 
 Before sending, each staged image has its own controls:
 
@@ -26,6 +28,16 @@ Right-click an image (in the feed or the viewer) to **Copy image** or **Save ima
 ### Voice messages
 
 When the text box is empty, the composer shows **Record a voice message**. Record, then listen back, **Record again**, **Discard recording** or **Send voice message**. A voice message is an encrypted audio file like any other.
+
+## Media, files and links in a conversation
+
+Open the inspector and choose **Media** to see every photo, video and file this device holds for the conversation, not only what is loaded in the feed. **Photos and videos** is a grid by month, newest first; **Files** is a list. In a direct message, the **Media and files** button in the header (on a phone, in the top bar) opens it.
+
+- Tap a photo or video to open it. **Go to message** takes you to the message it came in.
+- Right-click (long-press on a phone) for **Go to message**, **Save** and **Copy image**.
+- Tap a file to go to its message.
+
+Deleted, hidden and expired messages never appear. A tile shows the picture once this device has opened it in this session; otherwise it shows a placeholder the shape of the picture. Pictures this device does not hold are fetched while their tiles are on screen; on a metered connection (mobile data) they wait for a tap. A video shows its length once it has been played here.
 
 ## How attachments travel
 

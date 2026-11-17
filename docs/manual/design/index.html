@@ -1328,7 +1328,10 @@ rest&quot; is often heard as more than it is: sender account keys, display names
 timestamps, message kinds, reply and pin state, reactions with the fingerprint
 that made them, guild and channel names, categories, profiles including
 avatars and banners, custom emoji images, nicknames, read state, the signed
-governance log, and settings. Also outside the database: the MLS group state
+governance log, and settings. The conversation gallery adds one fact per
+attachment: which message carries a photo, a video or a file, in which
+channel and when (the attachment's name, size, blob id and key stay in the
+sealed body). Also outside the database: the MLS group state
 directory. So a stolen laptop without the passphrase yields the <em>shape</em> of your
 social life, who and where and when and in which rooms, while message content
 stays sealed. §13 states this as a gap rather than leaving you to infer it.</li>

@@ -33,15 +33,16 @@
   <div class="scrim" data-scrim hidden></div>
   <main class="main" id="content">
     <div class="crumb">Talking</div>
-    <details class="toc-inline"><summary>On this page</summary><a class="toc__link toc__link--2" href="#attaching-files">Attaching files</a><a class="toc__link toc__link--3" href="#voice-messages">Voice messages</a><a class="toc__link toc__link--2" href="#how-attachments-travel">How attachments travel</a><a class="toc__link toc__link--2" href="#custom-emoji">Custom emoji</a><a class="toc__link toc__link--2" href="#gifs">GIFs</a><a class="toc__link toc__link--2" href="#doodles-memes-and-sounds">Doodles, memes and sounds</a><a class="toc__link toc__link--2" href="#link-cards">Link cards</a></details>
+    <details class="toc-inline"><summary>On this page</summary><a class="toc__link toc__link--2" href="#attaching-files">Attaching files</a><a class="toc__link toc__link--3" href="#voice-messages">Voice messages</a><a class="toc__link toc__link--2" href="#media-files-and-links-in-a-conversation">Media, files and links in a conversation</a><a class="toc__link toc__link--2" href="#how-attachments-travel">How attachments travel</a><a class="toc__link toc__link--2" href="#custom-emoji">Custom emoji</a><a class="toc__link toc__link--2" href="#gifs">GIFs</a><a class="toc__link toc__link--2" href="#doodles-memes-and-sounds">Doodles, memes and sounds</a><a class="toc__link toc__link--2" href="#link-cards">Link cards</a></details>
     <article class="doc">
 <h1 id="sharing-files-and-media">Sharing files and media</h1>
 <p>How images, videos, voice messages and other files are sent, encrypted and fetched, along with custom emoji, the guild GIF pack, doodles, memes, sounds, and the preview cards on links.</p>
 <h2 id="attaching-files"><a class="anchor" href="#attaching-files" aria-hidden="true">#</a>Attaching files</h2>
-<p>Click <strong>Attach a file</strong> beside the composer, paste a file, or drop it onto the conversation. On a phone, use <strong>+</strong> → <strong>Photo or file</strong> or <strong>Camera</strong>. Attachments are staged above the text box and nothing is sent until you send the message.</p>
+<p>Click <strong>Attach a file</strong> beside the composer, paste a file, or drop it onto the conversation. On a phone, use <strong>+</strong>: <strong>Photos and videos</strong> at the top opens your phone's own photo picker, where you can pick up to 10; <strong>Files</strong> opens the file browser; <strong>Camera</strong> takes a picture. Attachments are staged above the text box and nothing is sent until you send the message.</p>
+<p>Concord never asks for access to your photo library or your phone's storage. The photo picker is drawn by Android, and Concord receives only the items you pick.</p>
 <p>An edit changes only a message's text, so pasting an image while you edit a message does nothing. Send the image as a new message.</p>
 <div class="table"><table><thead><tr><th>Kind</th><th>Limit</th><th>How it shows</th></tr></thead><tbody><tr><td>Images</td><td>5 MB</td><td>Inline, in a grid when there are several. Click to open the viewer: click or scroll to zoom, drag to pan, <code>Esc</code> to close.</td></tr><tr><td>Other files</td><td>25 MB</td><td>Videos (<code>video/*</code>) play inline and load only when scrolled into view. Audio shows as a voice message player. Anything else is a card with name, size and a download button; it is fetched only when you click.</td></tr></tbody></table></div>
-<p><strong>Images</strong> in PNG, JPEG, GIF or WebP format that are already under 5 MB are sent byte for byte, so an animated GIF stays animated, and any metadata inside the file (such as camera details or location) goes with it. Other image formats, and images over 5 MB, are re-encoded as JPEG to fit; if one still does not fit, the app says so and nothing is sent. An image the app cannot read is sent as a plain file instead.</p>
+<p><strong>Images</strong> in PNG, JPEG, GIF or WebP format that are already under 5 MB keep their pixels exactly, so an animated GIF stays animated, but their metadata (camera details, location and the like) is removed before they are sent, whichever way they were attached. Other image formats, and images over 5 MB, are re-encoded as JPEG to fit; if one still does not fit, the app says so and nothing is sent. An image the app cannot read is sent as a plain file instead.</p>
 <p>Before sending, each staged image has its own controls:</p>
 <ul>
 <li><strong>Mark as spoiler</strong>: it arrives blurred until clicked.</li>
@@ -51,6 +52,14 @@
 <p>Right-click an image (in the feed or the viewer) to <strong>Copy image</strong> or <strong>Save image</strong>.</p>
 <h3 id="voice-messages"><a class="anchor" href="#voice-messages" aria-hidden="true">#</a>Voice messages</h3>
 <p>When the text box is empty, the composer shows <strong>Record a voice message</strong>. Record, then listen back, <strong>Record again</strong>, <strong>Discard recording</strong> or <strong>Send voice message</strong>. A voice message is an encrypted audio file like any other.</p>
+<h2 id="media-files-and-links-in-a-conversation"><a class="anchor" href="#media-files-and-links-in-a-conversation" aria-hidden="true">#</a>Media, files and links in a conversation</h2>
+<p>Open the inspector and choose <strong>Media</strong> to see every photo, video and file this device holds for the conversation, not only what is loaded in the feed. <strong>Photos and videos</strong> is a grid by month, newest first; <strong>Files</strong> is a list. In a direct message, the <strong>Media and files</strong> button in the header (on a phone, in the top bar) opens it.</p>
+<ul>
+<li>Tap a photo or video to open it. <strong>Go to message</strong> takes you to the message it came in.</li>
+<li>Right-click (long-press on a phone) for <strong>Go to message</strong>, <strong>Save</strong> and <strong>Copy image</strong>.</li>
+<li>Tap a file to go to its message.</li>
+</ul>
+<p>Deleted, hidden and expired messages never appear. A tile shows the picture once this device has opened it in this session; otherwise it shows a placeholder the shape of the picture. Pictures this device does not hold are fetched while their tiles are on screen; on a metered connection (mobile data) they wait for a tap. A video shows its length once it has been played here.</p>
 <h2 id="how-attachments-travel"><a class="anchor" href="#how-attachments-travel" aria-hidden="true">#</a>How attachments travel</h2>
 <p>Attachments are never stored on a server and never ride inside the message stream. (When two devices cannot connect directly, the encrypted bytes may pass through a relay, which cannot read them.)</p>
 <ol>
@@ -98,7 +107,7 @@
     <nav class="pager" aria-label="Previous and next"><a class="pager__link pager__link--prev" href="../direct-messages/"><span class="pager__kicker">Previous</span><span class="pager__title">Direct messages</span></a><a class="pager__link pager__link--next" href="../search/"><span class="pager__kicker">Next</span><span class="pager__title">Search</span></a></nav>
     <footer class="foot">Concord is free software under the GNU Affero General Public License, version 3 or later. These pages are built from the Markdown in the repository.</footer>
   </main>
-  <aside class="toc" aria-label="On this page"><div class="toc__title">On this page</div><a class="toc__link toc__link--2" href="#attaching-files">Attaching files</a><a class="toc__link toc__link--3" href="#voice-messages">Voice messages</a><a class="toc__link toc__link--2" href="#how-attachments-travel">How attachments travel</a><a class="toc__link toc__link--2" href="#custom-emoji">Custom emoji</a><a class="toc__link toc__link--2" href="#gifs">GIFs</a><a class="toc__link toc__link--2" href="#doodles-memes-and-sounds">Doodles, memes and sounds</a><a class="toc__link toc__link--2" href="#link-cards">Link cards</a></aside>
+  <aside class="toc" aria-label="On this page"><div class="toc__title">On this page</div><a class="toc__link toc__link--2" href="#attaching-files">Attaching files</a><a class="toc__link toc__link--3" href="#voice-messages">Voice messages</a><a class="toc__link toc__link--2" href="#media-files-and-links-in-a-conversation">Media, files and links in a conversation</a><a class="toc__link toc__link--2" href="#how-attachments-travel">How attachments travel</a><a class="toc__link toc__link--2" href="#custom-emoji">Custom emoji</a><a class="toc__link toc__link--2" href="#gifs">GIFs</a><a class="toc__link toc__link--2" href="#doodles-memes-and-sounds">Doodles, memes and sounds</a><a class="toc__link toc__link--2" href="#link-cards">Link cards</a></aside>
 </div>
 <script>window.__docs={base:"../"}</script>
 <script src="../docs.js" defer></script>
