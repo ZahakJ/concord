@@ -4,9 +4,11 @@
 // with "Go to message"; right-click (long-press on a phone) offers Go to
 // message, Save and Copy image; a message deleted while the grid is open
 // leaves it at once. In a DM the Media button opens the same tab, on the
-// desktop and on a phone. A last test measures opening and flinging a grid of
-// 5,000 items with the CPU throttled 4x (direction only: the owner's phone is
-// the measurement that counts).
+// desktop and on a phone. A last test records the frame times of opening and
+// flinging a grid of 5,000 items with the CPU throttled 4x (direction only:
+// the owner's phone is the measurement that counts; the test asserts only
+// regression tripwires), and checks that a new picture arriving with all
+// 5,000 loaded neither cuts the list nor moves the scroll.
 //
 // E2E_SHOTS_DIR, when set, receives the captures (desktop 1280, phone 390).
 import fs from "node:fs";
@@ -156,6 +158,16 @@ test("desktop: the Media tab lists every picture and file, opens one fitted, and
   step("Bashir hides one for himself: it leaves too");
   await bashir.rpc("HideMessage", ch.id, pics[1].id);
   await waitFor(async () => (await tiles(page).count()) === 1, { timeout: 15000, message: "the hidden picture to leave" });
+
+  step("staging a video says, before the send, that it goes out as it is; a document alone does not");
+  const fileIn = page.locator(".composer input[type=file]").first();
+  const note = page.locator('[data-testid="as-is-note"]');
+  await fileIn.setInputFiles({ name: "minutes.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 tiny") });
+  await page.locator(".att-chip").first().waitFor();
+  assert.equal(await note.count(), 0, "no line for a document");
+  await fileIn.setInputFiles({ name: "clip.mp4", mimeType: "video/mp4", buffer: Buffer.from("not really a video") });
+  await note.waitFor({ timeout: 10000 });
+  assert.equal(await note.innerText(), "Videos and HEIC photos are sent as they are, including any location stored in them");
   assert.equal(b.errors.length, 0, `page errors: ${b.errors.join(" | ")}`);
 });
 
@@ -211,7 +223,7 @@ const token = (i) =>
     : `![image](concord://attach/v1/${hex(i)}/${KEYS}/jpeg/${400 + (i % 5) * 100}x${300 + (i % 3) * 100})`;
 
 test(
-  "performance: a 5,000-item grid opens and flings within its frame budget (CPU 4x slower)",
+  "performance: a 5,000-item grid records open and fling frame times (CPU 4x slower); a new picture keeps every item loaded and the scroll where it was",
   async ({ world, assert, step, log, waitFor }) => {
     const [alice] = await world.peers(1);
     const g = await world.guild({ name: "Big", members: [alice] });
@@ -319,12 +331,33 @@ test(
     log(`GALLERY-PERF ${JSON.stringify(result)}`);
     if (SHOTS) fs.writeFileSync(path.join(SHOTS, "perf.json"), JSON.stringify(result, null, 1));
     assert.ok(openMs > 0, "the grid opened");
-    assert.ok(Math.max(steady.maxTiles, fling.maxTiles) <= 90, `at most 90 tiles mounted at once (saw ${Math.max(steady.maxTiles, fling.maxTiles)})`);
+    // 63 is what this window mounts (a screen of rows either side of it).
+    assert.ok(Math.max(steady.maxTiles, fling.maxTiles) <= 63, `at most 63 tiles mounted at once (saw ${Math.max(steady.maxTiles, fling.maxTiles)})`);
     // Direction only under emulation; generous enough not to flake on a loaded
     // box, tight enough to catch a grid that renders every tile.
     assert.ok(openMs < 2500, `opening took ${openMs} ms`);
+    // A tripwire, not the frame budget: that is the phone's to decide.
     assert.ok(result.steady.p95 < 100, `steady-scroll p95 frame ${result.steady.p95} ms`);
-    await sleep(10);
+
+    step("a new picture while all of them are loaded, scrolled to the bottom: nothing cut, the scroll stays");
+    const at = () =>
+      page.evaluate(() => {
+        const el = document.querySelector('[data-testid="gallery-scroll"]');
+        return { top: el.scrollTop, height: parseFloat(el.querySelector(".gal-space").style.height) };
+      });
+    const before = await at();
+    assert.ok(before.top > 0, "scrolled down the grid");
+    await alice.sendRaw(ch.id, token(N));
+    const fresh = await alice.waitForMessage(ch.id, (m) => m.content === token(N));
+    await sleep(3000); // the gallery's refresh waits 400 ms, then fetches
+    const after = await at();
+    assert.ok(after.height >= before.height, `the grid kept its height (${before.height} -> ${after.height} px)`);
+    assert.ok(Math.abs(after.top - before.top) < 200, `the scroll stayed (${before.top} -> ${after.top} px)`);
+    await page.evaluate(() => (document.querySelector('[data-testid="gallery-scroll"]').scrollTop = 0));
+    await waitFor(async () => (await page.locator(`.tile[data-msg="${fresh.id}"]`).count()) === 1, { timeout: 30000, message: "the new picture at the top" });
+    const end = await at();
+    assert.ok(end.height >= before.height, `still every item loaded once the new one is in (${before.height} -> ${end.height} px)`);
+    assert.equal(a.errors.length, 0, `page errors: ${a.errors.join(" | ")}`);
   },
   { timeout: 30 * 60 * 1000 },
 );

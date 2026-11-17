@@ -6,7 +6,7 @@
 // This is a regression test with a real history: seeding the staged record's
 // `name` from the OS file name looked harmless and silently opted EVERY
 // picked/dropped/pasted image into v2.
-import { stagedImage, emitsLegacyToken } from "./attachopts.js";
+import { stagedImage, emitsLegacyToken, sentAsIs, AS_IS_NOTE } from "./attachopts.js";
 
 let failures = 0;
 const assert = (cond, msg) => {
@@ -61,6 +61,17 @@ assert(
   !emitsLegacyToken({ ...plain, spoiler: true, name: "x", desc: "y" }),
   "every option set at once must still be v2",
 );
+
+// --- sent as they are: the line shown before the send -----------------------
+
+assert(sentAsIs({ type: "video/mp4", name: "clip.mp4" }), "a video is sent as it is");
+assert(sentAsIs({ type: "image/heic", name: "IMG_1.HEIC" }), "a HEIC photo staged as a file is");
+assert(sentAsIs({ type: "image/heif", name: "x" }), "HEIF by type");
+assert(sentAsIs({ type: "", name: "IMG_2.heif" }), "HEIF by name when the type is missing");
+assert(sentAsIs({ type: "application/octet-stream", name: "IMG_3.HEIC" }), "HEIC by name under a generic type");
+assert(!sentAsIs({ type: "application/pdf", name: "minutes.pdf" }), "a document is not flagged");
+assert(!sentAsIs({ type: "image/jpeg", name: "a.jpg" }), "a JPEG is not: its metadata is removed");
+assert(AS_IS_NOTE === "Videos and HEIC photos are sent as they are, including any location stored in them", "the wording");
 
 if (failures) {
   console.error(`attachopts.test.mjs: ${failures} failure(s)`);

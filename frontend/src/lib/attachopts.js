@@ -59,3 +59,17 @@ export function dataUrlBytes(dataUrl) {
 export function emitsLegacyToken(a) {
   return !a.spoiler && !a.name && !a.desc;
 }
+
+// What the core sends as it is, metadata included: a video, and a HEIC or
+// HEIF photo this renderer could not decode, which goes out as a plain file.
+// (A picture the composer stages as an image has its metadata removed when it
+// is sealed; one it re-encodes never had any.) The composer says so on the
+// staged item, before the send, in AS_IS_NOTE.
+export const AS_IS_NOTE = "Videos and HEIC photos are sent as they are, including any location stored in them";
+
+export function sentAsIs(file) {
+  const type = String(file?.type || "").toLowerCase();
+  const name = String(file?.name || "").toLowerCase();
+  if (type.startsWith("video/")) return true;
+  return /^image\/hei[cf](-sequence)?$/.test(type) || /\.(heic|heif)$/.test(name);
+}

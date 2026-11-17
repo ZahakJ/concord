@@ -17,6 +17,8 @@ An edit changes only a message's text, so pasting an image while you edit a mess
 
 **Images** in PNG, JPEG, GIF or WebP format that are already under 5 MB keep their pixels exactly, so an animated GIF stays animated, but their metadata (camera details, location and the like) is removed before they are sent, whichever way they were attached. Other image formats, and images over 5 MB, are re-encoded as JPEG to fit; if one still does not fit, the app says so and nothing is sent. An image the app cannot read is sent as a plain file instead.
 
+**Videos**, and **HEIC or HEIF photos** the app cannot read, are sent as they are, including any location stored in them. The composer says so under the staged item before you send.
+
 Before sending, each staged image has its own controls:
 
 - **Mark as spoiler**: it arrives blurred until clicked.

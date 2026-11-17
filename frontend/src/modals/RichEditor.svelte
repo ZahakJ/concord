@@ -41,7 +41,7 @@
   import { highlightCode } from "../lib/highlight.js";
   import { activeShortcode, searchEmoji, replaceShortcodes } from "../lib/emoji.js";
   import { S, customEmojiMap, mentionRefs, selfMember, flash } from "../lib/state.svelte.js";
-  import { stagedImage } from "../lib/attachopts.js";
+  import { stagedImage, sentAsIs, AS_IS_NOTE } from "../lib/attachopts.js";
   import {
     wrap,
     linePrefix,
@@ -559,7 +559,7 @@
       const dataUrl = await readAsDataURL(file);
       pending = [
         ...pending,
-        { id: uid(), dataUrl, name: file.name || "file", isImage: false, isVideo: file.type.startsWith("video/"), bytes: file.size },
+        { id: uid(), dataUrl, name: file.name || "file", isImage: false, isVideo: file.type.startsWith("video/"), asIs: sentAsIs(file), bytes: file.size },
       ];
     } catch (err) {
       flash(err);
@@ -796,6 +796,7 @@
       {#if reading > 0}<div class="chip loading"><span class="spin"></span></div>{/if}
     </div>
     {#if attachNote}<p class="attnote">{attachNote}</p>{/if}
+    {#if pending.some((p) => p.asIs)}<p class="attnote" data-testid="as-is-note">{AS_IS_NOTE}</p>{/if}
     {#if editingAtt && pending.some((p) => p.id === editingAtt)}
       {@const p = pending.find((x) => x.id === editingAtt)}
       <div class="attedit">

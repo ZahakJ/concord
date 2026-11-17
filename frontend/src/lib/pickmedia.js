@@ -9,9 +9,11 @@
 // What comes back has the shape of a share-sheet event: the native side
 // copied each pick into the app's private cache (ShareIntake, same caps and
 // skip reasons), so staging is the share path's, through the composer's own
-// attachFile. Location and the rest of a photo's metadata are removed when
-// the picture is sealed (cleanImage in internal/app), as for every other way
-// a picture is attached.
+// attachFile. A PNG, JPEG, GIF or WebP photo has its location and the rest
+// of its metadata removed when it is sealed (cleanImage in internal/app), as
+// for every other way a picture is attached. A video, and a HEIC or HEIF photo
+// this renderer cannot read, go out as they are; the composer says so on the
+// staged item (AS_IS_NOTE in lib/attachopts.js).
 
 import { parseShare, fileSrc, skippedNote } from "./sharein.js";
 
