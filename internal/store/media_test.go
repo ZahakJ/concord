@@ -458,7 +458,7 @@ func TestMediaBackfillOfExistingHistory(t *testing.T) {
 	// Make it the database an older build left: no index, no triggers, no mark.
 	for _, q := range []string{
 		`DROP TRIGGER media_msg_update`, `DROP TRIGGER media_msg_delete`,
-		`DROP TABLE media_index`, `DROP TABLE media_pending`, `DELETE FROM settings WHERE key = '` + mediaIndexKey + `'`,
+		`DROP TABLE media_index`, `DELETE FROM settings WHERE key = '` + mediaIndexKey + `'`,
 	} {
 		if _, err := st.db.Exec(q); err != nil {
 			t.Fatal(err)
@@ -476,6 +476,10 @@ func TestMediaBackfillOfExistingHistory(t *testing.T) {
 		mtSave(t, st, fmt.Sprintf("old%04d", i), "c", now.Add(time.Duration(i)*time.Millisecond), b)
 	}
 	if _, _, err := st.MarkDeleted("old0003", nil, true); err != nil {
+		t.Fatal(err)
+	}
+	// The inserts above queued themselves; an older build's would not have.
+	if _, err := st.db.Exec(`DROP TABLE media_pending`); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Close(); err != nil {
