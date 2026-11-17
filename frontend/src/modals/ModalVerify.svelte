@@ -76,7 +76,10 @@
     <p class="warn" role="alert">That isn't a Concord safety code. Nothing was marked.</p>
   {/if}
 
-  <p class="hint">Show your code to {who} and scan theirs. Both phones should agree.</p>
+  <p class="hint">
+    Do this in person: show your code to {who} and scan theirs. A code sent to you in a message
+    proves nothing.
+  </p>
   {#if qr}
     <img class="qr" src={qr} alt="Your safety code for {who}" />
   {/if}
