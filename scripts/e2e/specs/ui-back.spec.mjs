@@ -1,5 +1,7 @@
 // The browser's Back button inside the web build: it used to leave the app
 // (and coming back meant reloading and typing the passphrase again).
+import fs from "node:fs";
+import path from "node:path";
 import { test } from "../harness.mjs";
 
 const back = (page) => page.evaluate(() => history.back());
@@ -38,4 +40,53 @@ test("phone: Back from a conversation shows the channel list", async ({ world, a
     message: "the channel list is showing",
   });
   assert.equal(a.page.url(), url, "still on the app's page");
+});
+
+// From the ways back, Restore, Re-link and the erase confirmation each return
+// there, by their own Back (or Cancel) and by Escape, which pops the same
+// stack the phone's back does. They used to
+// drop to the screen under the menu: over data without its keystore, a create
+// form the core can only refuse.
+test("Back from the recovery-phrase, re-link and erase screens returns to the ways back", async ({ world, assert, step, waitFor }) => {
+  const [alice] = await world.peers(1);
+  const notes = (await alice.rpc("NotesDM")).channels[0].id;
+  await alice.send(notes, "kept");
+  await alice.rpc("Logout");
+  await alice.stop();
+  fs.rmSync(path.join(alice.home, "keystore.json"));
+  await alice.start();
+  const { page } = await alice.open({ unlock: false });
+  await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Keep it and restore", exact: true }).click();
+  const menu = page.getByRole("button", { name: "Use my recovery phrase" });
+  await menu.waitFor();
+  const onMenu = async (what) => {
+    await waitFor(async () => (await menu.count()) === 1, { message: `${what}: not back on the ways back` });
+    assert.equal(await page.getByRole("button", { name: "Create identity" }).count(), 0, `${what}: the create form is showing`);
+  };
+  const ways = [
+    ["Use my recovery phrase", () => page.getByRole("textbox", { name: "Recovery phrase" })],
+    ["Re-link from my other device", () => page.getByRole("button", { name: "Link this device" })],
+  ];
+  for (const [open, shown] of ways) {
+    for (const how of ["its Back", "Escape"]) {
+      step(`${open}, then ${how}`);
+      await page.getByRole("button", { name: open }).click();
+      await shown().waitFor();
+      if (how === "its Back") await page.getByRole("button", { name: "Back", exact: true }).click();
+      else await page.keyboard.press("Escape");
+      await onMenu(`${open}, ${how}`);
+    }
+  }
+
+  step("Erase, then Cancel");
+  await page.getByRole("button", { name: "Erase this data and start over" }).click();
+  await page.getByRole("textbox", { name: "Type ERASE to confirm" }).waitFor();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await onMenu("erase, Cancel");
+
+  step("Back from the ways back still returns to the first screen's choice");
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.getByRole("button", { name: "Keep it and restore", exact: true }).waitFor();
+  assert.equal(await alice.rpc("Session"), false, "an account was opened or created");
 });

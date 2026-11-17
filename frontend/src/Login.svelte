@@ -138,10 +138,21 @@
       resetTicket = v.ticket;
       resetTyped = "";
       confirmingReset = true;
+      fromForgot = forgot;
       forgot = false;
     } catch (err) {
       fail(err, "");
     }
+  }
+  // Cancel goes back to where the erase was asked from: the ways back, or the
+  // first screen's choice, which stays set under the confirmation.
+  function leaveReset() {
+    confirmingReset = false;
+    resetTyped = "";
+    resetTicket = "";
+    error = "";
+    if (fromForgot) forgot = true;
+    fromForgot = false;
   }
   // dataNoKeystore: the core refused to create because this device holds an
   // account's data without its keystore; the choices are worded for that.
@@ -186,6 +197,18 @@
   let restoring = $state(false);
   let restorePhrase = $state("");
   let linking = $state(false); // "link this device to an existing account" flow
+  // fromForgot: Restore, Link or the erase confirmation was opened from the
+  // ways back, so its Back (or Cancel) returns there. It used to drop to the screen under the menu, which over
+  // data without a keystore is a create form that can only be refused.
+  let fromForgot = false;
+  function leaveRestoreOrLink() {
+    restoring = false;
+    linking = false;
+    scanned = false;
+    error = "";
+    if (fromForgot) forgot = true;
+    fromForgot = false;
+  }
   let linkCode = $state("");
   let scanning = $state(false); // in-app QR scanner overlay
   // Restore, Link and Forgot are screens stepped into from the first one, each
@@ -195,11 +218,11 @@
   // what the Back link does.
   $effect(() => {
     if (!restoring) return;
-    return pushLayer("onboarding", () => ((restoring = false), (error = "")));
+    return pushLayer("onboarding", leaveRestoreOrLink);
   });
   $effect(() => {
     if (!linking) return;
-    return pushLayer("onboarding", () => ((linking = false), (scanned = false), (error = "")));
+    return pushLayer("onboarding", leaveRestoreOrLink);
   });
   $effect(() => {
     if (!forgot) return;
@@ -228,6 +251,7 @@
       S.pendingLinkCode = "";
       linking = true;
       forgot = false;
+      fromForgot = false;
       error = "";
     }
   });
@@ -777,6 +801,7 @@
       dataNoKeystore = false;
       stranded = null;
       keptFrom = null;
+      fromForgot = false;
       passphrase = "";
       confirmPass = "";
     } catch (err) {
@@ -1207,7 +1232,7 @@
         type="button"
         class="primary"
         disabled={busy}
-        onclick={() => ((confirmingReset = false), (resetTyped = ""), (resetTicket = ""), (error = ""))}
+        onclick={leaveReset}
       >
         Cancel
       </button>
@@ -1279,7 +1304,7 @@
       <button class="primary" type="button" disabled={busy} onclick={doLink}>
         {busy ? "Linking…" : "Link this device"}
       </button>
-      <button type="button" class="link" onclick={() => ((linking = false), (scanned = false), (error = ""))}>
+      <button type="button" class="link" onclick={leaveRestoreOrLink}>
         Back
       </button>
     {:else if restoring}
@@ -1355,7 +1380,7 @@
       <button class="primary" type="button" disabled={busy} onclick={doRestore}>
         {busy ? "Restoring…" : "Restore account"}
       </button>
-      <button type="button" class="link" onclick={() => ((restoring = false), (error = ""))}>
+      <button type="button" class="link" onclick={leaveRestoreOrLink}>
         Back
       </button>
     {:else if forgot}
@@ -1389,7 +1414,7 @@
         </p>
       {/if}
       <div class="error slot" role="alert">{error}</div>
-      <button class="primary" type="button" onclick={() => ((linking = true), (forgot = false), (error = ""))}>
+      <button class="primary" type="button" onclick={() => ((linking = true), (forgot = false), (fromForgot = true), (error = ""))}>
         Re-link from my other device
       </button>
       <p class="muted small">
@@ -1397,7 +1422,7 @@
           ? "If the account is still open on another device, it comes back from there."
           : "If the account is still open on another device, everything comes back."}
       </p>
-      <button type="button" class="ghost" onclick={() => ((restoring = true), (forgot = false), (error = ""))}>
+      <button type="button" class="ghost" onclick={() => ((restoring = true), (forgot = false), (fromForgot = true), (error = ""))}>
         Use my recovery phrase
       </button>
       <p class="muted small">

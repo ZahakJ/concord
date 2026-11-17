@@ -31,26 +31,18 @@ function untouched(assert, peer, before, what) {
   assert.ok(!fs.existsSync(path.join(peer.home, "keystore.json")), `${what}: a keystore was created`);
 }
 
-// pastTheChoice gets by the first screen's choice (account-stranded-first-
-// screen.spec.mjs) to the create form, the way "Keep it", "Use my recovery
-// phrase", then "Back" does (Back from the ways back returns to the choice).
-// The create form puts focus in "Your name" a frame after it shows; a fill
-// before that lands in the wrong field, which no person types fast enough for.
-async function pastTheChoice(page) {
+// waysBack gets by the first screen's choice (account-stranded-first-
+// screen.spec.mjs) to the ways back with "Keep it and restore". No screen
+// from there leads to the create form while the data is here: Back from the
+// restore and re-link screens and Cancel on the erase return to the ways back
+// (ui-back.spec.mjs), so the core's refusal to create is asked of it directly.
+async function waysBack(page) {
   await page.getByRole("button", { name: "Keep it and restore", exact: true }).click();
-  await page.getByRole("button", { name: "Use my recovery phrase" }).click();
-  await page.getByRole("button", { name: "Back", exact: true }).click();
-  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Your name");
+  await page.getByRole("button", { name: "Use my recovery phrase" }).waitFor();
 }
 
-async function refusedCreate(page) {
-  // The same deferred focus after the form comes back from Cancel.
-  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Your name");
-  await page.getByRole("textbox", { name: "Your name" }).fill("Someone new");
-  await page.getByPlaceholder("Choose a passphrase").fill("a-new-passphrase");
-  await page.getByPlaceholder("Confirm passphrase").fill("a-new-passphrase");
-  await page.getByRole("button", { name: "Create identity" }).click();
-  await page.getByRole("button", { name: "Use my recovery phrase" }).waitFor();
+async function refusedCreate(assert, peer) {
+  await assert.rejects(peer.rpc("Login", "a-new-passphrase"), /Nothing was deleted, and no new account was created beside it/);
 }
 
 async function fillRestore(page, phrase, pass) {
@@ -67,14 +59,13 @@ test("data without a keystore: unlocking deletes nothing, and the account's own 
   await alice.send(notes, "a note that has to survive");
   const dbBefore = await keystoreLost(alice);
 
-  step("the screen offers to create; creating is refused and the ways back are offered");
+  step("creating is refused, and the ways back are worded for this data");
   const app = await alice.open({ unlock: false });
   const { page } = app;
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
-  await pastTheChoice(page);
-  await refusedCreate(page);
+  await refusedCreate(assert, alice);
+  await waysBack(page);
   const text = await page.locator("form").innerText();
-  assert.match(text, /Nothing was deleted/, "the refusal does not say nothing was deleted");
   assert.match(text, /holds data from an account it can't open/, "the choices are not worded for this state");
   // Never linked, with a message to check a phrase against: the core says
   // this data can be kept, and only then may the screen promise it.
@@ -106,9 +97,8 @@ test("data without a keystore: another account's phrase is asked about, declinin
   const app = await alice.open({ unlock: false });
   const { page } = app;
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
-  await pastTheChoice(page);
-  // The create screen's way to the phrase (linking is offered first there).
-  await page.getByRole("button", { name: /restore from my recovery phrase/i }).click();
+  await waysBack(page);
+  await page.getByRole("button", { name: "Use my recovery phrase" }).click();
   await fillRestore(page, bashirPhrase, "brand-new-pass");
   const ask = page.getByRole("alertdialog");
   await ask.waitFor();
@@ -150,8 +140,8 @@ test("data without a keystore: erasing it takes the typed word and a current con
   const app = await alice.open({ unlock: false });
   const { page } = app;
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
-  await pastTheChoice(page);
-  await refusedCreate(page);
+  await refusedCreate(assert, alice);
+  await waysBack(page);
 
   step("the core refuses an erase without the typed word or a current ticket, whoever calls it");
   const { ticket } = await alice.rpc("BeginStartOver");
@@ -180,17 +170,20 @@ test("data without a keystore: erasing it takes the typed word and a current con
   assert.ok(await word.isVisible(), "Enter with a wrong word left the confirmation (it submitted the form behind it)");
   untouched(assert, alice, dbBefore, "after wrong words");
 
-  step("cancelling keeps everything");
+  step("cancelling keeps everything and returns to the ways back");
   await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Use my recovery phrase" }).waitFor();
   untouched(assert, alice, dbBefore, "after cancelling the erase");
 
   step("with the word typed, the data goes and a new account can be set up");
-  await refusedCreate(page);
   await page.getByRole("button", { name: "Erase this data and start over" }).click();
   await word.fill(" erase ");
   assert.ok(await yes.isEnabled(), "the erase button stays disabled with the word typed");
   await yes.click();
   await waitFor(async () => !fs.existsSync(path.join(alice.home, "concord.db")), { message: "the confirmed erase removes the database" });
+  // The create form puts focus in "Your name" a frame after it shows; a fill
+  // before that lands in the wrong field, which no person types fast enough for.
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Your name");
   await page.getByRole("textbox", { name: "Your name" }).fill("Someone new");
   await page.getByPlaceholder("Choose a passphrase").fill("a-new-passphrase");
   await page.getByPlaceholder("Confirm passphrase").fill("a-new-passphrase");
