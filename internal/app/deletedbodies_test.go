@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -82,5 +83,57 @@ func TestDeletedBodiesAtRestAreClearedOnce(t *testing.T) {
 	member.clearDeletedBodiesOnce()
 	if body, _ := member.store.MessageContent(again.ID); body != "after the run" {
 		t.Errorf("the clear ran a second time: %q", body)
+	}
+}
+
+// fakeClearer stands in for the store in the one-time clear: each call can be
+// made to fail, and it records what was cleared and set.
+type fakeClearer struct {
+	getErr, clearErr error
+	settings         map[string]string
+	clears           int
+}
+
+func (f *fakeClearer) GetSetting(k string) (string, error) {
+	if f.getErr != nil {
+		return "", f.getErr
+	}
+	return f.settings[k], nil
+}
+
+func (f *fakeClearer) SetSetting(k, v string) error {
+	f.settings[k] = v
+	return nil
+}
+
+func (f *fakeClearer) ClearDeletedBodies([]string) (int, error) {
+	f.clears++
+	return 0, f.clearErr
+}
+
+// An error on the way does not record the run, so it runs again at the next
+// launch; a run that finishes is recorded and not repeated.
+func TestDeletedBodiesClearIsRecordedOnlyWhenItFinishes(t *testing.T) {
+	failing := errors.New("disk I/O error")
+
+	f := &fakeClearer{getErr: failing, settings: map[string]string{}}
+	clearDeletedBodiesOnceIn(f)
+	if f.clears != 0 || f.settings[deletedBodiesClearedKey] != "" {
+		t.Fatalf("an unreadable record: cleared %d, recorded %q", f.clears, f.settings[deletedBodiesClearedKey])
+	}
+
+	f = &fakeClearer{clearErr: failing, settings: map[string]string{}}
+	clearDeletedBodiesOnceIn(f)
+	if f.settings[deletedBodiesClearedKey] != "" {
+		t.Fatal("a clear that failed was recorded as done")
+	}
+	f.clearErr = nil
+	clearDeletedBodiesOnceIn(f)
+	if f.clears != 2 || f.settings[deletedBodiesClearedKey] == "" {
+		t.Fatalf("the next launch: cleared %d times, recorded %q", f.clears, f.settings[deletedBodiesClearedKey])
+	}
+	clearDeletedBodiesOnceIn(f)
+	if f.clears != 2 {
+		t.Fatalf("a recorded run ran again: %d clears", f.clears)
 	}
 }
