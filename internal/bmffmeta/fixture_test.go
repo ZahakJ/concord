@@ -207,12 +207,24 @@ func synthVideo(o vopts) []byte {
 		m = buildMoov(start)
 		out := cat(head, m, topMeta, mdat)
 		if o.frag {
-			out = cat(out, bx("moof", []byte("MOOF-DATA")), bx("mdat", []byte("FRAG-SAMPLES")))
+			out = cat(out, synthFragment(1, []byte("FRAG-SAMPLES")))
 		}
 		return out
 	}
 	start := len(head) + 8
 	return cat(head, mdat, topMeta, buildMoov(start))
+}
+
+// synthFragment is one movie fragment of the given track and its mdat: a
+// moof whose single run (base: the moof) holds samples.
+func synthFragment(track int, samples []byte) []byte {
+	moof := func(dataOff int) []byte {
+		return bx("moof", fb("mfhd", 0, 0, u32(1)),
+			bx("traf", fb("tfhd", 0, 0x20000, u32(track)),
+				fb("trun", 0, 0x201, u32(1), u32(dataOff), u32(len(samples)))))
+	}
+	m := moof(0)
+	return cat(moof(len(m)+8), bx("mdat", samples))
 }
 
 // ---- an independent reader ----

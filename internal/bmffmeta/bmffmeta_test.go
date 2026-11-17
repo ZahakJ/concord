@@ -138,8 +138,8 @@ func TestFragmentedVideoKeepsEveryOffset(t *testing.T) {
 		t.Fatalf("length %d became %d", len(in), len(out))
 	}
 	noSecrets(t, out, videoSecrets)
-	for _, s := range []string{"MOOF-DATA", "FRAG-SAMPLES"} {
-		if bytes.Index(out, []byte(s)) != bytes.Index(in, []byte(s)) {
+	for _, s := range []string{"moof", "FRAG-SAMPLES"} {
+		if i := bytes.Index(in, []byte(s)); i < 0 || bytes.Index(out, []byte(s)) != i {
 			t.Errorf("%s moved", s)
 		}
 	}

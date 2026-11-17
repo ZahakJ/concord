@@ -32,7 +32,28 @@
 //
 // What a picture loses: its Exif items (GPS, camera make and model), its mime
 // items (XMP) and its uri items, with their entries in iinf, iloc, iref and
-// ipma, and their bytes zeroed where they lie (mdat or idat).
+// ipma; item names; the handler's name; and every item property that is not
+// on an allow-list (a user description, a uuid), which becomes a free box so
+// the property indexes still hold.
+//
+// Media bytes that nothing kept points at are zeroed, in mdat and in idat:
+// the samples of dropped tracks and items, and anything a camera or an
+// earlier tool left there unlisted (a GPS block whose index box is gone, an
+// Exif payload without an item). For a video this needs every kept track's
+// chunk lengths; where one is not provable (a single sample size, which old
+// QuickTime sound entries do not mean literally) and there are unlisted
+// bytes, the file is refused.
+//
+// Only the file's index and the bytes outside kept samples are touched.
+// Nothing inside the coded picture or sound is read or changed: an
+// encoder's settings string, or a location a camera writes into the video
+// stream itself, stays.
+//
+// A video with subtitle, text or timecode tracks is cleaned only when the
+// caller asks for those tracks to go (Options.DropText): they are content
+// the person may have meant to send, and they can also hold location.
+// Without it Strip answers ErrTextTracks. An audio-only file keeps its
+// title, artist and album tags and loses every other tag.
 //
 // Fragmented MP4 (moof boxes) keeps every byte where it was: the rebuilt moov
 // is padded with a free box to its old length and a dropped top-level box
@@ -54,7 +75,16 @@ var (
 	// ErrRefused: a file this package will not rewrite (an index too large,
 	// external data, protected items, layouts it cannot prove it keeps).
 	ErrRefused = errors.New("bmffmeta: file layout this cleaner does not rewrite")
+	// ErrTextTracks: a video that can be cleaned, but only by dropping its
+	// subtitle, text or timecode tracks, which the caller did not allow.
+	ErrTextTracks = errors.New("bmffmeta: video has subtitle, text or timecode tracks")
 )
+
+// Options change what Strip may remove.
+type Options struct {
+	// DropText lets a video lose its subtitle, text and timecode tracks.
+	DropText bool
+}
 
 // Kind says what a file is, as far as its boxes tell: it picks the words the
 // app uses ("this video", "this photo") even for a file that was refused.
@@ -66,10 +96,19 @@ const (
 	KindPhoto
 )
 
+// Bounds on what an index may make this package hold. A real phone file is
+// far below each of them (an hour of 60 fps video with its sound is about
+// 400 000 samples, a 48-tile HEIC about 60 items); above them the file is
+// refused before anything is allocated for it, so a small file cannot make
+// the cleaner hold hundreds of megabytes.
 const (
 	maxIndex    = 32 << 20 // the most of moov or meta read into memory
 	maxTopBoxes = 4096
-	maxBoxes    = 1 << 20 // child boxes visited, all levels together
+	maxBoxes    = 1 << 17 // child boxes visited, all levels together
+	maxChunks   = 1 << 19 // chunks and fragment runs, all tracks together
+	maxSamples  = 1 << 22 // samples, all tracks together
+	maxItems    = 1 << 16 // HEIF items in iloc, and entries in ipma
+	maxExtents  = 1 << 18 // HEIF item extents, all items together
 )
 
 // keepKeys are the QuickTime metadata keys a video keeps: how fast it was
@@ -80,24 +119,80 @@ var keepKeys = map[string]bool{
 	"com.apple.quicktime.full-frame-rate-playback-intent": true,
 }
 
+// audioKeys are the QuickTime metadata keys an audio-only file also keeps.
+var audioKeys = map[string]bool{
+	"com.apple.quicktime.title":  true,
+	"com.apple.quicktime.artist": true,
+	"com.apple.quicktime.album":  true,
+}
+
+// audioTags are the iTunes-style tags (moov/udta/meta/ilst) an audio-only
+// file keeps: title, artist, album. Every other tag goes, the date, the
+// encoder, a comment, cover art and any location among them.
+var audioTags = map[string]bool{"\xa9nam": true, "\xa9ART": true, "\xa9alb": true}
+
 // keepHandlers are the tracks a video keeps.
 var keepHandlers = map[string]bool{"vide": true, "soun": true, "auxv": true}
 
-// Sniff reports whether b starts like an ISO base media file: an ftyp box, or
-// one of the boxes an older QuickTime file starts with when it has no ftyp.
+// textHandlers are the dropped tracks a person may have meant to send:
+// subtitles, captions, text and timecode. See ErrTextTracks.
+var textHandlers = map[string]bool{"sbtl": true, "subt": true, "text": true, "clcp": true, "tmcd": true}
+
+// Sniff reports whether b starts like an ISO base media file: an ftyp box,
+// one of the boxes an older QuickTime file starts with when it has no ftyp,
+// or any run of plausible box headers with ftyp, moov or mdat among the
+// first four (a segment that starts with styp, a uuid or a vendor box first).
+// A file it names is cleaned or refused, never sent unread.
 func Sniff(b []byte) bool {
-	if len(b) < 8 {
-		return false
-	}
-	sz := binary.BigEndian.Uint32(b)
-	if sz != 0 && sz != 1 && sz < 8 {
-		return false
-	}
-	switch string(b[4:8]) {
-	case "ftyp", "moov", "mdat", "wide", "free", "skip", "pnot":
-		return true
+	off := uint64(0)
+	for i := 0; i < 4; i++ {
+		if uint64(len(b))-off < 8 {
+			return false
+		}
+		h := b[off:]
+		sz := uint64(binary.BigEndian.Uint32(h))
+		typ := string(h[4:8])
+		switch {
+		case !boxType(typ):
+			return false
+		case sz == 0:
+			sz = uint64(len(h)) // to the end
+		case sz == 1:
+			if len(h) < 16 {
+				return false
+			}
+			if sz = binary.BigEndian.Uint64(h[8:]); sz < 16 {
+				return false
+			}
+		case sz < 8:
+			return false
+		}
+		switch typ {
+		case "ftyp", "moov", "mdat":
+			return true
+		case "wide", "free", "skip", "pnot":
+			if i == 0 {
+				return true
+			}
+		}
+		if sz > uint64(len(h)) {
+			return false
+		}
+		off += sz
 	}
 	return false
+}
+
+// boxType: four characters a box type is made of (letters, digits, space,
+// a few marks, and the © that QuickTime user data starts with).
+func boxType(t string) bool {
+	for i := 0; i < len(t); i++ {
+		c := t[i]
+		if (c < 0x20 || c > 0x7e) && c != 0xa9 {
+			return false
+		}
+	}
+	return true
 }
 
 // box is a box's place in its parent, in the parent's coordinates.
@@ -282,12 +377,15 @@ func (p *plan) addZero(off, n uint64) bool {
 	return true
 }
 
-// checkKept fails when a kept range overlaps a zeroed one.
-func (p *plan) checkKept(kept []rng) bool {
-	sort.Slice(p.zero, func(i, j int) bool { return p.zero[i].off < p.zero[j].off })
-	// Merge the zero ranges so the sweep below is a binary search.
-	m := p.zero[:0]
-	for _, z := range p.zero {
+// union sorts rs and merges the ranges that overlap or touch, in place, so
+// the result is disjoint and searchable.
+func union(rs []rng) []rng {
+	sort.Slice(rs, func(i, j int) bool { return rs[i].off < rs[j].off })
+	m := rs[:0]
+	for _, z := range rs {
+		if z.n == 0 {
+			continue
+		}
 		if len(m) > 0 && z.off <= m[len(m)-1].off+m[len(m)-1].n {
 			last := &m[len(m)-1]
 			if e := z.off + z.n; e > last.off+last.n {
@@ -297,17 +395,62 @@ func (p *plan) checkKept(kept []rng) bool {
 		}
 		m = append(m, z)
 	}
-	p.zero = m
-	for _, k := range kept {
-		if k.n == 0 {
-			continue
+	return m
+}
+
+// meets reports whether r overlaps any range of u, a union.
+func meets(u []rng, r rng) bool {
+	if r.n == 0 {
+		return false
+	}
+	i := sort.Search(len(u), func(i int) bool { return u[i].off+u[i].n > r.off })
+	return i < len(u) && u[i].off < r.off+r.n
+}
+
+// gaps calls f for each part of [at, end) that no range of u (a union)
+// covers.
+func gaps(u []rng, at, end uint64, f func(off, n uint64)) {
+	i := sort.Search(len(u), func(i int) bool { return u[i].off+u[i].n > at })
+	for ; at < end; i++ {
+		if i >= len(u) || u[i].off >= end {
+			f(at, end-at)
+			return
 		}
-		i := sort.Search(len(m), func(i int) bool { return m[i].off+m[i].n > k.off })
-		if i < len(m) && m[i].off < k.off+k.n {
+		if u[i].off > at {
+			f(at, u[i].off-at)
+		}
+		at = u[i].off + u[i].n
+	}
+}
+
+// checkKept fails when a kept range overlaps a zeroed one.
+func (p *plan) checkKept(kept []rng) bool {
+	p.zero = union(p.zero)
+	for _, k := range kept {
+		if meets(p.zero, k) {
 			return false
 		}
 	}
 	return true
+}
+
+// clearUnkept zeroes every byte of each copied mdat's payload that no kept
+// range covers, and reports whether there was any. kept is made a union.
+func (p *plan) clearUnkept(kept []rng) bool {
+	u := union(kept)
+	found := false
+	for _, pt := range p.parts {
+		b := pt.copyOf
+		if b == nil || b.typ != "mdat" {
+			continue
+		}
+		gaps(u, uint64(b.payload()), uint64(b.end), func(off, n uint64) {
+			found = true
+			p.zero = append(p.zero, rng{off, n})
+		})
+	}
+	p.zero = union(p.zero)
+	return found
 }
 
 // patch fills the offset fields of the rebuilt index for its new place.
@@ -467,6 +610,11 @@ func readBox(r io.ReaderAt, b box) ([]byte, error) {
 // runs before the first write, so after a successful plan only the reader
 // or the writer can fail.
 func Strip(r io.ReaderAt, size int64, w io.Writer) (Kind, error) {
+	return StripWith(r, size, w, Options{})
+}
+
+// StripWith is Strip with options.
+func StripWith(r io.ReaderAt, size int64, w io.Writer, o Options) (Kind, error) {
 	top, err := scanTop(r, size)
 	if err != nil {
 		return headKind(r, size), err
@@ -477,7 +625,7 @@ func Strip(r io.ReaderAt, size int64, w io.Writer) (Kind, error) {
 	}
 	var p *plan
 	if kind == KindVideo {
-		p, err = planVideo(r, top)
+		p, err = planVideo(r, top, o)
 	} else {
 		p, err = planPhoto(r, top)
 	}
@@ -489,9 +637,13 @@ func Strip(r io.ReaderAt, size int64, w io.Writer) (Kind, error) {
 
 // StripBytes is Strip for a file held in memory.
 func StripBytes(b []byte) ([]byte, Kind, error) {
+	return StripBytesWith(b, Options{})
+}
+
+// StripBytesWith is StripWith for a file held in memory.
+func StripBytesWith(b []byte, o Options) ([]byte, Kind, error) {
 	var out bytes.Buffer
-	out.Grow(len(b))
-	k, err := Strip(bytes.NewReader(b), int64(len(b)), &out)
+	k, err := StripWith(bytes.NewReader(b), int64(len(b)), &growWriter{&out, len(b)}, o)
 	if err != nil {
 		return nil, k, err
 	}
@@ -536,7 +688,7 @@ func headKind(r io.ReaderAt, size int64) Kind {
 
 func classify(r io.ReaderAt, top []box) (Kind, error) {
 	var moov, meta int
-	photoBrand := false
+	photoBrand, misplaced := false, false
 	for i, b := range top {
 		switch b.typ {
 		case "moov":
@@ -545,7 +697,8 @@ func classify(r io.ReaderAt, top []box) (Kind, error) {
 			meta++
 		case "ftyp":
 			if i != 0 || b.end-b.start > 4096 {
-				return KindUnknown, ErrRefused
+				misplaced = true
+				continue
 			}
 			fb, err := readBox(r, b)
 			if err != nil {
@@ -563,6 +716,12 @@ func classify(r io.ReaderAt, top []box) (Kind, error) {
 		}
 	}
 	switch {
+	case misplaced && moov > 0:
+		return KindVideo, ErrRefused
+	case misplaced && meta > 0:
+		return KindPhoto, ErrRefused
+	case misplaced:
+		return KindUnknown, ErrRefused
 	case moov == 1 && !(photoBrand && meta > 0):
 		return KindVideo, nil
 	case moov == 0 && meta == 1:
@@ -573,6 +732,21 @@ func classify(r io.ReaderAt, top []box) (Kind, error) {
 		return KindVideo, ErrRefused
 	}
 	return KindUnknown, ErrRefused
+}
+
+// growWriter grows its buffer to the input's size on the first write: a file
+// that is refused (every check runs before the first write) costs nothing.
+type growWriter struct {
+	b *bytes.Buffer
+	n int
+}
+
+func (g *growWriter) Write(p []byte) (int, error) {
+	if g.n > 0 {
+		g.b.Grow(g.n)
+		g.n = 0
+	}
+	return g.b.Write(p)
 }
 
 func be32(b []byte) uint32 { return binary.BigEndian.Uint32(b) }

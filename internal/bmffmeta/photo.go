@@ -1,7 +1,6 @@
 package bmffmeta
 
 import (
-	"bytes"
 	"encoding/binary"
 	"io"
 )
@@ -33,6 +32,7 @@ type iloc struct {
 type photo struct {
 	w       walker
 	removed map[uint32]bool
+	named   map[uint32]bool // every item iinf names
 }
 
 // dropItemTypes are the item types that carry metadata and nothing to see.
@@ -53,7 +53,7 @@ func planPhoto(r io.ReaderAt, top []box) (*plan, error) {
 	if len(mp) < 4 || mp[0] != 0 {
 		return nil, ErrRefused
 	}
-	ph := &photo{removed: map[uint32]bool{}}
+	ph := &photo{removed: map[uint32]bool{}, named: map[uint32]bool{}}
 	body := mp[4:]
 	kids, err := ph.w.children(body)
 	if err != nil {
@@ -101,6 +101,10 @@ func planPhoto(r io.ReaderAt, top []box) (*plan, error) {
 			idat = append([]byte(nil), pl...)
 		case "ipro", "fiin", "ipmc":
 			return nil, ErrRefused
+		case "dinf":
+			if err := checkDinf(&ph.w, pl); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if !hasHdlr || !hasPitm || loc == nil {
@@ -109,6 +113,38 @@ func planPhoto(r io.ReaderAt, top []box) (*plan, error) {
 	if ph.removed[primary] {
 		return nil, ErrRefused
 	}
+
+	// Items stored in idat (construction method 1): a removed one may not
+	// share a byte with a kept one, and every idat byte no kept item uses is
+	// cleared.
+	var keptIdat, goneIdat []rng
+	for _, it := range loc.items {
+		if !ph.named[it.id] {
+			// Bytes with no item info: nothing says what they are.
+			return nil, ErrRefused
+		}
+		if it.cm != 1 {
+			continue
+		}
+		for _, e := range it.ext {
+			abs := it.base + e.off
+			if abs < it.base || e.n > uint64(len(idat)) || abs > uint64(len(idat))-e.n {
+				return nil, ErrMalformed
+			}
+			if ph.removed[it.id] {
+				goneIdat = append(goneIdat, rng{abs, e.n})
+			} else {
+				keptIdat = append(keptIdat, rng{abs, e.n})
+			}
+		}
+	}
+	keptIdat = union(keptIdat)
+	for _, g := range goneIdat {
+		if meets(keptIdat, g) {
+			return nil, ErrRefused
+		}
+	}
+	gaps(keptIdat, 0, uint64(len(idat)), func(off, n uint64) { clear(idat[off : off+n]) })
 
 	// Layout first: the meta box's new length does not depend on the offset
 	// values in it, so it is built once and patched.
@@ -150,9 +186,6 @@ func planPhoto(r io.ReaderAt, top []box) (*plan, error) {
 					keptR = append(keptR, rng{abs, e.n})
 				}
 			case 1:
-				if e.n > uint64(len(idat)) || abs > uint64(len(idat))-e.n {
-					return nil, ErrMalformed
-				}
 			default:
 				return nil, ErrRefused
 			}
@@ -161,6 +194,9 @@ func planPhoto(r io.ReaderAt, top []box) (*plan, error) {
 	if !p.checkKept(keptR) {
 		return nil, ErrRefused
 	}
+	// Item lengths are exact, so whatever mdat bytes no kept item uses go:
+	// the removed items' and anything left there without an item.
+	p.clearUnkept(keptR)
 	for _, s := range sites {
 		if err := s(p, out); err != nil {
 			return nil, err
@@ -188,10 +224,11 @@ func (ph *photo) readIinf(pl []byte) error {
 		if e.typ != "infe" {
 			continue
 		}
-		id, typ, err := infe(pl[hdr:][e.payload():e.end])
+		id, typ, _, err := infe(pl[hdr:][e.payload():e.end])
 		if err != nil {
 			return err
 		}
+		ph.named[id] = true
 		if dropItemTypes[typ] {
 			ph.removed[id] = true
 		}
@@ -199,32 +236,34 @@ func (ph *photo) readIinf(pl []byte) error {
 	return nil
 }
 
-// infe reads an item info entry, version 2 or 3.
-func infe(p []byte) (uint32, string, error) {
+// infe reads an item info entry, version 2 or 3, and says where its fixed
+// fields end (the item name follows).
+func infe(p []byte) (uint32, string, int, error) {
 	if len(p) < 4 {
-		return 0, "", ErrMalformed
+		return 0, "", 0, ErrMalformed
 	}
 	var id uint32
 	var prot uint16
 	var typ string
+	var n int
 	switch p[0] {
 	case 2:
 		if len(p) < 12 {
-			return 0, "", ErrMalformed
+			return 0, "", 0, ErrMalformed
 		}
-		id, prot, typ = uint32(be16(p[4:])), be16(p[6:]), string(p[8:12])
+		id, prot, typ, n = uint32(be16(p[4:])), be16(p[6:]), string(p[8:12]), 12
 	case 3:
 		if len(p) < 14 {
-			return 0, "", ErrMalformed
+			return 0, "", 0, ErrMalformed
 		}
-		id, prot, typ = be32(p[4:]), be16(p[8:]), string(p[10:14])
+		id, prot, typ, n = be32(p[4:]), be16(p[8:]), string(p[10:14]), 14
 	default:
-		return 0, "", ErrRefused
+		return 0, "", 0, ErrRefused
 	}
 	if prot != 0 {
-		return 0, "", ErrRefused
+		return 0, "", 0, ErrRefused
 	}
-	return id, typ, nil
+	return id, typ, n, nil
 }
 
 func sizeOK(n int) bool { return n == 0 || n == 4 || n == 8 }
@@ -245,16 +284,16 @@ func parseIloc(p []byte) (*iloc, error) {
 	if !sizeOK(l.offSz) || !sizeOK(l.lenSz) || !sizeOK(l.baseSz) || !sizeOK(l.idxSz) {
 		return nil, ErrRefused
 	}
-	rd := bytes.NewReader(p[6:])
+	q := p[6:]
 	u := func(n int) (uint64, error) {
-		var b [8]byte
-		if _, err := io.ReadFull(rd, b[:n]); err != nil {
+		if len(q) < n {
 			return 0, ErrMalformed
 		}
-		v, _ := getN(b[:], n)
-		if n == 2 {
-			v = uint64(be16(b[:]))
+		var v uint64
+		for _, c := range q[:n] {
+			v = v<<8 | uint64(c)
 		}
+		q = q[n:]
 		return v, nil
 	}
 	cw := 2
@@ -265,6 +304,10 @@ func parseIloc(p []byte) (*iloc, error) {
 	if err != nil {
 		return nil, err
 	}
+	if cnt > maxItems {
+		return nil, ErrRefused
+	}
+	exts := uint64(0)
 	for i := uint64(0); i < cnt; i++ {
 		var it ilocItem
 		id, err := u(cw)
@@ -301,9 +344,13 @@ func parseIloc(p []byte) (*iloc, error) {
 		if l.ver > 0 {
 			per += l.idxSz
 		}
-		if per == 0 || ne*uint64(per) > uint64(rd.Len()) {
+		if per == 0 || ne*uint64(per) > uint64(len(q)) {
 			return nil, ErrMalformed
 		}
+		if exts += ne; exts > maxExtents {
+			return nil, ErrRefused
+		}
+		it.ext = make([]ilocExt, 0, ne)
 		for j := uint64(0); j < ne; j++ {
 			var e ilocExt
 			if l.ver > 0 && l.idxSz > 0 {
@@ -453,7 +500,15 @@ func (ph *photo) emitMeta(hdr, vf, body []byte, kids []box, loc *iloc, idat []by
 		b := body[k.start:k.end]
 		pl := body[k.payload():k.end]
 		switch k.typ {
-		case "hdlr", "pitm", "dinf":
+		case "hdlr":
+			// The handler's name is cleared in place (it can name the
+			// camera's software).
+			at := len(out)
+			out = append(out, b...)
+			if name := at + int(k.hdr) + 24; name < len(out) {
+				clear(out[name:])
+			}
+		case "pitm", "dinf":
 			out = append(out, b...)
 		case "iinf":
 			var err error
@@ -480,18 +535,7 @@ func (ph *photo) emitMeta(hdr, vf, body []byte, kids []box, loc *iloc, idat []by
 			}
 			out = append(out, b...)
 		case "idat":
-			for _, it := range loc.items {
-				if it.cm != 1 || !ph.removed[it.id] {
-					continue
-				}
-				for _, e := range it.ext {
-					abs := it.base + e.off
-					if abs < it.base || e.n > uint64(len(idat)) || abs > uint64(len(idat))-e.n {
-						return nil, nil, ErrMalformed
-					}
-					clear(idat[abs : abs+e.n])
-				}
-			}
+			// Cleared by planPhoto where no kept item uses it.
 			var ia int
 			out, ia = begin(out, "idat")
 			out = append(out, idat...)
@@ -516,17 +560,24 @@ func (ph *photo) emitIinf(out []byte, pl []byte) ([]byte, error) {
 	out = append(out, pl[:4]...)
 	var kept [][]byte
 	for _, e := range ents {
-		eb := pl[hdr:][e.start:e.end]
-		if e.typ == "infe" {
-			id, _, err := infe(pl[hdr:][e.payload():e.end])
-			if err != nil {
-				return nil, err
-			}
-			if ph.removed[id] {
-				continue
-			}
+		if e.typ != "infe" {
+			continue
 		}
-		kept = append(kept, eb)
+		ep := pl[hdr:][e.payload():e.end]
+		id, _, n, err := infe(ep)
+		if err != nil {
+			return nil, err
+		}
+		if ph.removed[id] {
+			continue
+		}
+		// The entry without its item name ("IMG_4032"): the fixed fields
+		// and an empty name. The types kept (coded images, grids,
+		// thumbnails) carry nothing after the name.
+		eb := binary.BigEndian.AppendUint32(nil, uint32(8+n+1))
+		eb = append(eb, "infe"...)
+		eb = append(eb, ep[:n]...)
+		kept = append(kept, append(eb, 0))
 	}
 	if hdr == 6 {
 		out = appendN(out, 2, uint64(len(kept)))
@@ -589,10 +640,53 @@ func (ph *photo) emitIprp(out []byte, pl []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Properties not on the allow-list become free boxes of the same size,
+	// so the 1-based indexes in ipma still name the same properties.
+	gone := map[int]bool{}
+	ipcos := 0
+	for _, k := range kids {
+		if k.typ != "ipco" {
+			continue
+		}
+		if ipcos++; ipcos > 1 {
+			return nil, ErrRefused
+		}
+		props, err := ph.w.children(pl[k.payload():k.end])
+		if err != nil {
+			return nil, err
+		}
+		for i, pr := range props {
+			if !keepProps[pr.typ] {
+				gone[i+1] = true
+			}
+		}
+	}
 	var at int
 	out, at = begin(out, "iprp")
 	for _, k := range kids {
 		b := pl[k.start:k.end]
+		if k.typ == "ipco" {
+			cp := pl[k.payload():k.end]
+			props, err := ph.w.children(cp)
+			if err != nil {
+				return nil, err
+			}
+			var ca int
+			out, ca = begin(out, "ipco")
+			for i, pr := range props {
+				pb := cp[pr.start:pr.end]
+				if !gone[i+1] {
+					out = append(out, pb...)
+					continue
+				}
+				h := len(out)
+				out = append(out, pb[:pr.hdr]...)
+				copy(out[h+4:], "free")
+				out = append(out, make([]byte, len(pb)-int(pr.hdr))...)
+			}
+			out = end(out, ca)
+			continue
+		}
 		if k.typ != "ipma" {
 			out = append(out, b...)
 			continue
@@ -610,6 +704,9 @@ func (ph *photo) emitIprp(out []byte, pl []byte) ([]byte, error) {
 			aw = 2
 		}
 		n := be32(mp[4:])
+		if n > maxItems {
+			return nil, ErrRefused
+		}
 		rest := mp[8:]
 		var ents [][]byte
 		for i := uint32(0); i < n; i++ {
@@ -627,6 +724,19 @@ func (ph *photo) emitIprp(out []byte, pl []byte) ([]byte, error) {
 				return nil, ErrMalformed
 			}
 			if !ph.removed[id] {
+				// A property this item cannot be shown without may not be
+				// one that was replaced.
+				for j := idw + 1; j < sz; j += aw {
+					a := int(rest[j])
+					ess, idx := a&0x80 != 0, a&0x7f
+					if aw == 2 {
+						a = int(be16(rest[j:]))
+						ess, idx = a&0x8000 != 0, a&0x7fff
+					}
+					if ess && gone[idx] {
+						return nil, ErrRefused
+					}
+				}
 				ents = append(ents, rest[:sz])
 			}
 			rest = rest[sz:]
@@ -641,6 +751,16 @@ func (ph *photo) emitIprp(out []byte, pl []byte) ([]byte, error) {
 		out = end(out, ia)
 	}
 	return end(out, at), nil
+}
+
+// keepProps are the item properties copied: what a decoder needs to show
+// the picture. Others (a user description udes, a uuid) become free boxes.
+var keepProps = map[string]bool{
+	"ispe": true, "pixi": true, "colr": true, "hvcC": true, "av1C": true, "vvcC": true,
+	"avcC": true, "lhvC": true, "oinf": true, "tols": true, "irot": true, "imir": true,
+	"clap": true, "pasp": true, "auxC": true, "clli": true, "mdcv": true, "cclv": true,
+	"amve": true, "lsel": true, "a1op": true, "a1lx": true, "rloc": true, "jpgC": true,
+	"uncC": true, "cmpd": true, "ccst": true, "mskC": true,
 }
 
 // checkGrpl refuses a group that names a removed item.
