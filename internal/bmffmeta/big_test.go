@@ -81,7 +81,7 @@ func bigVideo(t *testing.T, size int) {
 	os2, _ := out.Stat()
 	t.Logf("input %d bytes (%d chunks, moov %d bytes) -> output %d bytes in %v; allocated %d bytes",
 		st.Size(), n, len(m), os2.Size(), el, b.TotalAlloc-a.TotalAlloc)
-	if alloc := b.TotalAlloc - a.TotalAlloc; alloc > 16<<20 {
+	if alloc := b.TotalAlloc - a.TotalAlloc; alloc > 4<<20 {
 		t.Errorf("allocated %d bytes for a %d-byte file", alloc, st.Size())
 	}
 	// The GPS chunks are zeros now; spot-check the last one.

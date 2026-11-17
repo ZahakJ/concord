@@ -159,6 +159,24 @@ func TestSniffFindsQuickTimeWithoutFtyp(t *testing.T) {
 	}
 }
 
+// A file too damaged to read whole is still named for what it starts as.
+func TestDamagedFilesKeepTheirKind(t *testing.T) {
+	v, _ := os.ReadFile(filepath.Join("testdata", "android-fast.mp4"))
+	p, _ := os.ReadFile(filepath.Join("testdata", "photo.heic"))
+	for name, c := range map[string]struct {
+		in   []byte
+		want Kind
+	}{
+		"video with stray bytes": {append(append([]byte(nil), v...), 1, 2, 3), KindVideo},
+		"cut photo":              {p[:len(p)-5], KindPhoto},
+		"cut video":              {v[:100], KindVideo},
+	} {
+		if _, k, err := StripBytes(c.in); err == nil || k != c.want {
+			t.Errorf("%s: kind %v (%v), want %v and an error", name, k, err, c.want)
+		}
+	}
+}
+
 // Every way a file can point outside what is kept is refused, never written.
 func TestUnprovableLayoutsAreRefused(t *testing.T) {
 	base := synthVideo(vopts{moovFirst: false, gps: true})

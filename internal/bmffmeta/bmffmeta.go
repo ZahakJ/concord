@@ -399,13 +399,22 @@ func (p *plan) copyBox(r io.ReaderAt, w io.Writer, b *box, buf []byte) error {
 			}
 			next = z.off
 		}
-		if _, err := io.CopyBuffer(w, io.NewSectionReader(r, int64(off), int64(next-off)), buf); err != nil {
+		// plainWriter: an *os.File's ReadFrom would bring its own buffer for
+		// every piece, which on a file with many chunks is most of the memory
+		// this package uses.
+		if _, err := io.CopyBuffer(plainWriter{w}, io.NewSectionReader(r, int64(off), int64(next-off)), buf); err != nil {
 			return err
 		}
 		off = next
 	}
 	return nil
 }
+
+// plainWriter hides any ReadFrom method, so io.CopyBuffer uses the buffer
+// it is given.
+type plainWriter struct{ w io.Writer }
+
+func (p plainWriter) Write(b []byte) (int, error) { return p.w.Write(b) }
 
 func writeZeros(w io.Writer, n int64, buf []byte) error {
 	clear(buf)
@@ -460,7 +469,7 @@ func readBox(r io.ReaderAt, b box) ([]byte, error) {
 func Strip(r io.ReaderAt, size int64, w io.Writer) (Kind, error) {
 	top, err := scanTop(r, size)
 	if err != nil {
-		return KindUnknown, err
+		return headKind(r, size), err
 	}
 	kind, err := classify(r, top)
 	if err != nil {
@@ -492,6 +501,37 @@ func StripBytes(b []byte) ([]byte, Kind, error) {
 var photoBrands = map[string]bool{
 	"heic": true, "heix": true, "heim": true, "heis": true, "mif1": true,
 	"mif2": true, "avif": true, "avci": true, "jpeg": true, "miaf": true,
+}
+
+// headKind guesses, from the first box alone, what a file that could not be
+// read whole was meant to be, so the person is told "this video" rather than
+// "this file".
+func headKind(r io.ReaderAt, size int64) Kind {
+	var h [64]byte
+	n := int64(len(h))
+	if size < n {
+		n = size
+	}
+	if n < 8 {
+		return KindUnknown
+	}
+	if _, err := r.ReadAt(h[:n], 0); err != nil && !errors.Is(err, io.EOF) {
+		return KindUnknown
+	}
+	b := h[:n]
+	if string(b[4:8]) != "ftyp" {
+		return KindVideo // an older QuickTime file starts at moov, mdat or wide
+	}
+	end := int64(binary.BigEndian.Uint32(b))
+	if end > n {
+		end = n
+	}
+	for j := int64(8); j+4 <= end; j += 4 {
+		if j != 12 && photoBrands[string(b[j:j+4])] {
+			return KindPhoto
+		}
+	}
+	return KindVideo
 }
 
 func classify(r io.ReaderAt, top []box) (Kind, error) {
