@@ -14,45 +14,82 @@ import (
 )
 
 // freePort asks the kernel for a port nothing is using, then hands it back.
-// There is an unavoidable race with the rest of the machine; the alternative
-// is a hard-coded port that collides with whatever the developer runs.
+// The host pins TCP and UDP on every address (portFree), so the port has to
+// be free for both there: a TCP port taken on loopback alone left the UDP
+// twin to chance, and on a machine running other peers it was often taken.
+// There is still a race with the rest of the machine between this and the
+// bind; pinnedLaunch retries past it. The alternative is a hard-coded port
+// that collides with whatever the developer runs.
 func freePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("reserve port: %v", err)
+	for range 100 {
+		l, err := net.Listen("tcp4", "0.0.0.0:0")
+		if err != nil {
+			t.Fatalf("reserve port: %v", err)
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+		p, err := net.ListenPacket("udp4", fmt.Sprintf("0.0.0.0:%d", port))
+		_ = l.Close()
+		if err != nil {
+			continue
+		}
+		_ = p.Close()
+		return port
 	}
-	port := l.Addr().(*net.TCPAddr).Port
-	_ = l.Close()
-	return port
+	t.Fatal("reserve port: no port free for both TCP and UDP in 100 tries")
+	return 0
+}
+
+// pinnedLaunch starts a host pinned to port and reports whether it listened
+// there and whether it called the port taken. A port that something else on
+// the machine took after freePort let it go (taken, and still not bindable
+// once the host is closed) is no answer about the host: retry says to start
+// again on a new port.
+func pinnedLaunch(t *testing.T, id *identity.Identity, port int) (found, taken, retry bool, addrs []multiaddr.Multiaddr) {
+	t.Helper()
+	h, err := New(context.Background(), Config{Identity: id, ListenPort: port})
+	if err != nil {
+		t.Fatalf("New host: %v", err)
+	}
+	addrs = h.Addrs()
+	for _, a := range addrs {
+		if addrPort(a) == port {
+			found = true
+		}
+	}
+	taken = h.PinnedPortTaken()
+	_ = h.Close()
+	if taken && portFree(port) != nil {
+		return found, taken, true, addrs
+	}
+	return found, taken, false, addrs
 }
 
 // The point of the setting: the port a user forwards on their router must be
 // the port the node is on, every launch.
 func TestListenPortIsPinnedAcrossRestarts(t *testing.T) {
 	id, _ := identity.Generate()
-	port := freePort(t)
-
-	for range 2 {
-		h, err := New(context.Background(), Config{Identity: id, ListenPort: port})
-		if err != nil {
-			t.Fatalf("New host: %v", err)
-		}
-		found := false
-		for _, a := range h.Addrs() {
-			if addrPort(a) == port {
-				found = true
+	for attempt := 1; ; attempt++ {
+		port := freePort(t)
+		retried := false
+		for range 2 {
+			found, taken, retry, addrs := pinnedLaunch(t, id, port)
+			if retry && attempt < 5 {
+				t.Logf("port %d was taken by something else on the machine; starting again on another", port)
+				retried = true
+				break
+			}
+			if !found {
+				t.Fatalf("want a listen addr on port %d, got %v", port, addrs)
+			}
+			// The bind checks must not cry wolf: a false positive here demotes every
+			// user with a working forward to an ephemeral port, silently.
+			if taken {
+				t.Fatalf("port %d bound fine but was reported as taken", port)
 			}
 		}
-		taken := h.PinnedPortTaken()
-		_ = h.Close()
-		if !found {
-			t.Fatalf("want a listen addr on port %d, got %v", port, h.Addrs())
-		}
-		// The bind checks must not cry wolf: a false positive here demotes every
-		// user with a working forward to an ephemeral port, silently.
-		if taken {
-			t.Fatalf("port %d bound fine but was reported as taken", port)
+		if !retried {
+			return
 		}
 	}
 }
