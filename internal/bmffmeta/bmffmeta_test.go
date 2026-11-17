@@ -238,8 +238,8 @@ func TestHugeLengthsAreNotTrusted(t *testing.T) {
 		cat(bx("ftyp", []byte("isom")), bx("moov", bx("trak", bx("mdia", fb("hdlr", 0, 0, u32(0), []byte("vide"), make([]byte, 12)),
 			bx("minf", bx("stbl", fb("stco", 0, 0, u32(0x7fffffff)))))))),
 		cat(bx("ftyp", []byte("isom")), bx("moov", bx("trak", bx("mdia", fb("hdlr", 0, 0, u32(0), []byte("vide"), make([]byte, 12)),
-			bx("minf", bx("stbl", fb("stco", 0, 0, u32(1), u32(0)), fb("stsc", 0, 0, u32(1), u32(1), u32(0xffffffff), u32(1)),
-				fb("stsz", 0, 0, u32(0), u32(0xffffffff)))))))),
+			bx("minf", bx("stbl", fb("stco", 0, 0, u32(1), u32(0)), fb("stsc", 0, 0, u32(1), u32(1), u32(-1), u32(1)),
+				fb("stsz", 0, 0, u32(0), u32(-1)))))))),
 		cat(bx("ftyp", []byte("heic")), fb("meta", 0, 0, fb("hdlr", 0, 0, u32(0), []byte("pict"), make([]byte, 12)),
 			fb("pitm", 0, 0, u16(1)), fb("iloc", 1, 0, []byte{0x44, 0x40}, u16(0xffff)))),
 	}

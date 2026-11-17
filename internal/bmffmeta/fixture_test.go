@@ -11,8 +11,10 @@ import (
 	"testing"
 )
 
-func u16(v int) []byte    { return binary.BigEndian.AppendUint16(nil, uint16(v)) }
-func u32(v int) []byte    { return binary.BigEndian.AppendUint32(nil, uint32(v)) }
+func u16(v int) []byte { return binary.BigEndian.AppendUint16(nil, uint16(v)) }
+func u32(v int) []byte {
+	return /* -1 is 0xffffffff, for 32-bit builds */ binary.BigEndian.AppendUint32(nil, uint32(v))
+}
 func u64(v uint64) []byte { return binary.BigEndian.AppendUint64(nil, v) }
 
 func cat(ps ...[]byte) []byte {
