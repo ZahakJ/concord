@@ -109,8 +109,9 @@ func Open(path string, dataKey []byte) (*Store, error) {
 		return nil, err
 	}
 	s.rdb = openReader(path)
-	s.bg.Add(1)
+	s.bg.Add(2)
 	go s.backfillExpires(expiresBackfillDelay)
+	go s.mediaDrainLoop(expiresBackfillDelay + mediaDrainAfterBackfill)
 	return s, nil
 }
 
@@ -521,6 +522,9 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 		return err
 	}
 	if err := s.migrateChatTimer(); err != nil {
+		return err
+	}
+	if err := s.migrateMedia(); err != nil {
 		return err
 	}
 	if err := s.migrateProfileRecords(); err != nil {
@@ -1471,6 +1475,11 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 		return false, fmt.Errorf("store: save message: %w", err)
 	}
 	n, _ := res.RowsAffected()
+	if n > 0 {
+		if err := queueMedia(s.db, m); err != nil {
+			return true, fmt.Errorf("store: save message: %w", err)
+		}
+	}
 	return n > 0, nil
 }
 
@@ -3337,6 +3346,9 @@ func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint
 			sealed, nonce[:], m.Sent.UnixNano(), remoteUpdated,
 			nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)), EphemeralExpiry(m.Content),
 		); err != nil {
+			return false, fmt.Errorf("store: upsert synced message: %w", err)
+		}
+		if err := queueMedia(q, m); err != nil {
 			return false, fmt.Errorf("store: upsert synced message: %w", err)
 		}
 		changed = true

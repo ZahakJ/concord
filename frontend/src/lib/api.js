@@ -569,6 +569,12 @@ export const api = {
   // device is sending (internal/app/linkcard.go). Readers never fetch anything
   // for a card; it travels inside the message.
   linkCard: (url, withThumb = true) => call("LinkCard", url, withThumb),
+  // The conversation's gallery (lib/gallery.js): one page of tab 1 (photos
+  // and videos) or tab 2 (files), newest first. Resolves to { items, next }.
+  mediaPage: (channelID, tab, cursor = "", limit = 120) => call("MediaPage", channelID, tab, cursor, limit),
+  // Make sure an item's blob is on this device. Resolves to "local",
+  // "fetched", or "metered" (nothing fetched: billed connection, not asked).
+  ensureMedia: (channelID, blobID, allowMetered = false) => call("EnsureMedia", channelID, blobID, allowMetered),
   checkForUpdate: () => call("CheckForUpdate"),
   checkPeerUpdate: () => call("CheckPeerUpdate"),
   applyPeerUpdate: () => call("ApplyPeerUpdate"),

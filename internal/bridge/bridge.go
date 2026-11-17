@@ -4247,6 +4247,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.EditAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt(args, 3), argInt(args, 4))
 	case "FetchAttachment":
 		return b.FetchAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+	case "MediaPage":
+		return b.MediaPage(argStr(args, 0), argInt(args, 1), argStr(args, 2), argInt(args, 3))
+	case "EnsureMedia":
+		return b.EnsureMedia(argStr(args, 0), argStr(args, 1), argBool(args, 2))
 	case "SendFile":
 		return nil, b.SendFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5))
 	case "SetChatTimer":
