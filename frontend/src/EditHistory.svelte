@@ -65,16 +65,15 @@
 
 <!-- edited-tag: the class every reader of a message's text knows to leave out
      (its own words, without the mark). -->
-<span class="eh edited-tag" class:block bind:this={root} onkeydown={onKey} role="presentation">
-  <button
+<span class="eh edited-tag" class:block bind:this={root} onkeydown={onKey} role="presentation"
+  ><button
     type="button"
     class="eh-btn"
     bind:this={btn}
     aria-haspopup="dialog"
     aria-expanded={open}
     onclick={toggle}>(edited)</button
-  >
-  {#if open}
+  >{#if open}
     <div class="eh-card" role="dialog" aria-label="Edit history" use:clamp>
       <div class="eh-h">Edit history</div>
       {#if failed}
@@ -101,8 +100,8 @@
         </ol>
       {/if}
     </div>
-  {/if}
-</span>
+  {/if}</span
+>
 
 <style>
   .eh {
