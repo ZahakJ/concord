@@ -258,8 +258,10 @@
       linkCode = S.pendingLinkCode;
       S.pendingLinkCode = "";
       linking = true;
+      // Over the ways back (or a screen opened from them), Back from the link
+      // returns there, not to whatever lies under them.
+      fromForgot = fromForgot || forgot;
       forgot = false;
-      fromForgot = false;
       error = "";
     }
   });

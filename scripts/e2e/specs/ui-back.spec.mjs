@@ -168,3 +168,50 @@ test("Back from the unlock screen's own screens returns to the unlock screen", a
   await page.getByRole("button", { name: "Create identity" }).waitFor();
   assert.equal(await menu.count(), 0, "the ways back showed after the erase");
 });
+
+// A link code arriving from the phone's camera while the ways back (or a
+// screen opened from them) is up opens the link screen; its Back returns to
+// the ways back, not to the create form under them.
+test("a link code that arrives over the ways back: Back returns to them", async ({ world, assert, step, waitFor }) => {
+  const [alice] = await world.peers(1);
+  const notes = (await alice.rpc("NotesDM")).channels[0].id;
+  await alice.send(notes, "kept");
+  await alice.rpc("Logout");
+  await alice.stop();
+  fs.rmSync(path.join(alice.home, "keystore.json"));
+  await alice.start();
+  const { page } = await alice.open({ unlock: false });
+  // The phone's app plugin, enough to hand the page a concord:// link.
+  await page.addInitScript(() => {
+    const on = {};
+    window.__openURL = (url) => on.appUrlOpen?.({ url });
+    window.Capacitor = {
+      Plugins: {
+        App: {
+          getLaunchUrl: async () => ({}),
+          addListener: (name, fn) => ((on[name] = fn), { remove() {} }),
+        },
+      },
+    };
+  });
+  await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Keep it and restore", exact: true }).click();
+  const menu = page.getByRole("button", { name: "Use my recovery phrase" });
+  await menu.waitFor();
+  for (const from of ["the ways back", "Restore opened from them"]) {
+    step(`a link code over ${from}, then its Back`);
+    if (from !== "the ways back") {
+      await menu.click();
+      await page.getByRole("textbox", { name: "Recovery phrase" }).waitFor();
+    }
+    await page.evaluate(() => window.__openURL("concord://link?c=notarealcode"));
+    await page.getByRole("button", { name: "Link this device" }).waitFor();
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await waitFor(async () => (await menu.count()) === 1 || (await page.getByRole("button", { name: "Create identity" }).count()) === 1, {
+      message: "Back left the link screen",
+    });
+    assert.equal(await page.getByRole("button", { name: "Create identity" }).count(), 0, `${from}: Back landed on the create form`);
+    assert.equal(await menu.count(), 1, `${from}: not back on the ways back`);
+  }
+  assert.equal(await alice.rpc("Session"), false, "an account was opened or created");
+});
