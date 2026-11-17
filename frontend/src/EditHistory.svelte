@@ -134,9 +134,7 @@
     text-decoration: underline;
   }
   .eh-btn:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
   }
   .eh-card {
     position: absolute;
