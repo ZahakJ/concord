@@ -79,11 +79,14 @@ test("Back from the recovery-phrase, re-link and erase screens returns to the wa
     }
   }
 
-  step("Erase, then Cancel");
-  await page.getByRole("button", { name: "Erase this data and start over" }).click();
-  await page.getByRole("textbox", { name: "Type ERASE to confirm" }).waitFor();
-  await page.getByRole("button", { name: "Cancel" }).click();
-  await onMenu("erase, Cancel");
+  for (const how of ["Cancel", "Escape"]) {
+    step(`Erase, then ${how}`);
+    await page.getByRole("button", { name: "Erase this data and start over" }).click();
+    await page.getByRole("textbox", { name: "Type ERASE to confirm" }).waitFor();
+    if (how === "Cancel") await page.getByRole("button", { name: "Cancel" }).click();
+    else await page.keyboard.press("Escape");
+    await onMenu(`erase, ${how}`);
+  }
 
   step("Back from the ways back still returns to the first screen's choice");
   await page.getByRole("button", { name: "Back", exact: true }).click();

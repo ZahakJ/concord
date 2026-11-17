@@ -230,6 +230,11 @@
     if (!forgot) return;
     return pushLayer("onboarding", leaveForgot);
   });
+  // The erase confirmation too: back does what its Cancel does.
+  $effect(() => {
+    if (!confirmingReset) return;
+    return pushLayer("onboarding", leaveReset);
+  });
   // Scan is offered where a camera makes sense: touch devices with getUserMedia.
   const canScan =
     typeof navigator !== "undefined" &&
