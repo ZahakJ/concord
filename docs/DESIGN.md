@@ -1764,7 +1764,7 @@ The same reasoning shapes four features that *could* have been remote:
 - **Link cards** are built by the sender, once, when the message is sent,
   and only after the sender has said yes: the first link goes out bare and the
   app asks, and Privacy & safety holds the same choice. The core fetches the
-  page, or YouTube's or Vimeo's oEmbed, behind an SSRF guard with a 6-second
+  page, or YouTube's or Vimeo's oEmbed and the video's picture server, behind an SSRF guard with a 6-second
   budget and a 512 KiB cap, redraws the picture as a JPEG of at most 480×270,
   and appends the card to the message as markdown that 0.60 already renders: a
   titled link with the domain, and the picture as an ordinary sealed

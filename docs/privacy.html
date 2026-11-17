@@ -151,7 +151,7 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);f
         <li><a href="#local">Where your data lives</a></li>
         <li><a href="#rendezvous">The untrusted rendezvous node</a></li>
         <li><a href="#outbound">Every outbound call, named</a></li>
-        <li><a href="#media">What a picture or file carries</a></li>
+        <li><a href="#media">What a picture or file you send carries</a></li>
         <li><a href="#retention">How long anything is kept</a></li>
         <li><a href="#deletion">Deleting your data</a></li>
         <li><a href="#children">Children</a></li>
@@ -323,8 +323,8 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);f
     safety → Preview cards for links you send</em> is <b>off until you choose</b>: the first link you
     send goes out without a card, and the app asks once, unless you have already set the switch. The
     choice is kept on each device. With it on, your device looks up the first link in a message
-    once, when you send it: YouTube's or Vimeo's oEmbed service for their videos, otherwise the page
-    and the host of its picture. That site learns your IP address and the moment you sent the link,
+    once, when you send it: YouTube's or Vimeo's oEmbed service and the server of the
+    video's picture for their videos, otherwise the page and the host of its picture. That site learns your IP address and the moment you sent the link,
     as if you had opened it. The title, the site's name and a small copy of the picture, redrawn as a
     new JPEG of at most 480 by 270 pixels, go inside your encrypted, signed message; a disappearing
     message gets a card without a picture. Readers contact nobody: the picture reaches them from
@@ -384,9 +384,10 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);f
       only the devices of members with <em>Manage messages</em> keep it, still sealed, so that a
       moderator can reveal it; every other device erases it. The message's earlier versions,
       reactions, receipts, bookmark and pin go with it, and the database overwrites the space it
-      freed. Its notification is withdrawn wherever it is still shown. A device running Concord 0.60
-      keeps the sealed text of a deleted guild message, and one that ran 0.60.5 keeps the text of
-      guild messages deleted while it did, until its trash is emptied.</li>
+      freed. Its notification is withdrawn wherever it is still shown. A device running Concord
+      0.60.x keeps the sealed text of a deleted guild message. A device that ran 0.60.5 also keeps,
+      after updating, the text of guild messages deleted while it ran 0.60.5, until its trash is
+      emptied.</li>
     <li><b>A deleted message's picture or file:</b> its encrypted copy stays in each device's
       attachment cache until the cache needs the room. It cannot be opened without the key, which
       was in the erased text.</li>
@@ -397,7 +398,8 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);f
       Empty trash</em>.</li>
     <li><b>One linked device:</b> <em>Settings → Your devices</em>, then <em>Unlink</em> beside it.
       It is removed at once from the guilds and direct messages where you can remove members;
-      elsewhere it stays listed until someone who can remove it there does. It erases its own copy
+      elsewhere it stays listed, and can still receive new messages there, until someone who
+      can remove it there does. It erases its own copy
       once it is unlocked and reaches the device that unlinked it. A device that stays switched off
       keeps what it had.</li>
   </ul>

@@ -218,8 +218,9 @@ Link cards are made by the **sender**, never by the people who read them.
 choose**: the first link you send goes out without a card, and the app asks
 once, unless you have already set the switch. The choice is kept on each
 device. With it on, your device looks up the first link in a message once,
-when you send it: YouTube's or Vimeo's oEmbed service for their videos,
-otherwise the page and the host of its picture. That site learns your IP
+when you send it: YouTube's or Vimeo's oEmbed service and the server
+of the video's picture for their videos, otherwise the page and the host of its
+picture. That site learns your IP
 address and the moment you sent the link, as if you had opened it. The title,
 the site's name and a small copy of the picture, redrawn as a new JPEG of at
 most 480 by 270 pixels, go inside your encrypted, signed message; a
@@ -299,9 +300,9 @@ Smaller erasures, for when the whole device is not what you meant:
   other device erases it. The message's earlier versions, reactions, receipts,
   bookmark and pin go with it, and the database overwrites the space it freed.
   Its notification is withdrawn wherever it is still shown. A device running
-  Concord 0.60 keeps the sealed text of a deleted guild message, and one that
-  ran 0.60.5 keeps the text of guild messages deleted while it did, until its
-  trash is emptied. See [`internal/app/guild.go`](internal/app/guild.go)
+  Concord 0.60.x keeps the sealed text of a deleted guild message. A device that
+  ran 0.60.5 also keeps, after updating, the text of guild messages deleted while
+  it ran 0.60.5, until its trash is emptied. See [`internal/app/guild.go`](internal/app/guild.go)
   (`erasesDeletedBodies`) and [`internal/store/store.go`](internal/store/store.go)
   (`markDeleted`).
 - **A deleted message's picture or file**: its encrypted copy stays in each
@@ -314,7 +315,8 @@ Smaller erasures, for when the whole device is not what you meant:
   Empty trash*.
 - **One linked device**: *Settings → Your devices*, then *Unlink* beside it. It
   is removed at once from the guilds and direct messages where you can remove
-  members; elsewhere it stays listed until someone who can remove it there does.
+  members; elsewhere it stays listed, and can still receive
+  new messages there, until someone who can remove it there does.
   It erases its own copy once it is unlocked and reaches the device that
   unlinked it. A device that stays switched off keeps what it had.
 
