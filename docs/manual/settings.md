@@ -12,12 +12,12 @@ Settings in Concord are kept per device. Your theme, sounds and microphone on yo
 
 | Group | Page | What is there |
 |---|---|---|
-| Personal | **Account** | Who you are on this device, your safety net (**Backup & restore** and **Recovery phrase**), the installed version and updates, and **Sign out (lock this device)** |
+| Personal | **Account** | Who you are on this device, your safety net (**Backup & restore** and **Recovery phrase**), your passphrase, the installed version and updates, and **Sign out (lock this device)** |
 | Personal | **Your profile** | Name, picture, banner, availability, status, bio, birthday, profile colors and your fingerprint |
 | Personal | **Appearance** | Theme, accent color, corners, typeface, density, scale, links, name colors, clock, layout, motion and effects |
 | Alerts | **Notifications & sounds** | Do Not Disturb, sound volume and effects, call ringtone, alert words, system notifications, and on a phone **Stay connected** |
 | Alerts | **Voice & video** | Microphone, speaker and camera, voice activity or push-to-talk, noise reduction, noise gate, microphone boost, call volume and a record-and-play-back test |
-| Privacy | **Privacy & safety** | What leaves this device, typing indicators, deleted messages, message requests and blocked users, app lock, and erasing the device |
+| Privacy | **Privacy & safety** | What leaves this device, typing indicators, read receipts, what notifications show, deleted messages, message requests and blocked users, app lock, and erasing the device |
 | Privacy | **Bookings** | Office hours and your public booking page |
 | This device | **Connection** | Rendezvous server, fixed port, public DHT fallback, and the diagnostics panel |
 | This device | **Your devices** | Every device on this account, unlinking, and the QR code for adding another |
@@ -34,7 +34,7 @@ The details live on the pages for each topic:
 
 ### Privacy & safety at a glance
 
-The **What leaves this device** group lists every feature that makes a request outside your conversations, each with its own switch: **Preview cards for links you send**, **Game title search**, **Game box art**, **GIF search**, **Hide my IP on calls**, **No third-party call servers** and **Rich presence**. **Typing indicators** works both ways: turn it off and you stop sending them and stop seeing other people's. Under **Deleted messages**, **Show deleted messages** leaves a faint marker where a message was removed, and **Empty trash** erases the text kept for deleted messages. **People** holds **Message requests** and **Blocked users**; blocking hides someone on this device only.
+The **What leaves this device** group lists every feature that makes a request outside your conversations, each with its own switch: **Preview cards for links you send**, **Game title search**, **Game box art**, **GIF search**, **Hide my IP on calls**, **No third-party call servers** and **Rich presence**. It also holds **Typing indicators** and **Read receipts**, both off by default and both working both ways: with one off you neither send nor see it. **Notification shows** sets how much a notification reveals (see [Notifications](notifications.md#what-a-notification-shows)). Under **Deleted messages**, **Show deleted messages** leaves a faint marker where a message was removed, and **Empty trash** erases the text a moderator's device keeps for deleted messages. **People** holds **Message requests** and **Blocked users**; blocking hides someone on this device only.
 
 ## Appearance
 

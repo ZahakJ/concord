@@ -96,15 +96,19 @@ Who may delete other people's messages depends on where they are:
 
 What happens depends on where the message was:
 
-- **In a guild or a meeting**, the message disappears for members, but every member's app keeps the original, still encrypted, so that moderators can choose **Show original** on it later.
-- **In a direct message**, the text is erased for everyone in the conversation.
+- **In a guild or a meeting**, the message disappears for members. The devices of members with **Manage messages** keep the original, sealed, so that they can choose **Show original** on it later; every other device erases it.
+- **In a direct message**, one-to-one or with several people, the text is erased on every device in the conversation.
+
+Either way the message's reactions go with it, and it is unpinned. **Delete for me**, on any message, hides it on your own devices only and tells nobody.
 
 Two settings in **Settings → Privacy & safety** control what you see of deleted messages:
 
 - **Show deleted messages** (off by default) leaves a faint marker where a deleted message was.
-- **Empty trash** erases every deleted message's retained text on this device for good. Other members' devices keep their copies until they do the same.
+- **Empty trash** erases every deleted message's retained text on this device for good. Other moderators' devices keep their copies until they do the same.
 
-Edited messages show **(edited)**. Only the latest version is kept.
+The first time Concord 0.60.5 or later starts on a device, it erases the kept text of every message deleted before then, on moderators' devices too.
+
+Edited messages show **(edited)**. Each device keeps the earlier versions it received, up to 20 versions or 64 KB per message, and shows them when you click **(edited)**. They are erased with the message.
 
 ## Other guild tools
 

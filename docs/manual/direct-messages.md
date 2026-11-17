@@ -6,7 +6,9 @@ Private conversations outside any guild: one-to-one messages, group DMs, your ow
 
 Click **Messages** (the speech-bubble button) at the start of the guild shortcuts at the top of the sidebar, or at the top of the guild column in the Rail layout. The channel list becomes **Direct messages**, with **Notes** (a conversation with yourself, synced to your own linked devices), your conversations, and **Message requests** when any are waiting.
 
-Every DM is its own end-to-end-encrypted group, just like a guild, with no roles or permissions inside it. Everyone in it can pin. Each person can delete only their own messages, in a group conversation too, and a delete erases the text for real on every device rather than leaving it for a moderator to reveal.
+Every DM is its own end-to-end-encrypted group, just like a guild, with no roles or permissions inside it. Everyone in it can pin. Each person can delete only their own messages for everyone, in a group conversation too, and a delete erases the text for real on every device rather than leaving it for a moderator to reveal. **Delete for me** hides any message, yours or theirs, on your own devices only; nobody else is told.
+
+Under your own messages, ticks show when a device of the person you wrote to has received each one and, if you and they both have **Read receipts** on, when they have read it. See [Privacy and encryption](privacy.md#what-other-people-see).
 
 ## Starting a conversation
 
@@ -22,6 +24,10 @@ Pick two or more contacts in **New message** to make a **group DM**. Every perso
 
 In a group DM, the chat header menu has **Rename group**.
 
+## Pinning and archiving
+
+Right-click a conversation in the list (long-press on a phone) and choose **Pin to top** to keep it above the others; up to ten can be pinned, and **Move pin up** and **Move pin down** order them. **Archive (does not mute)** moves a conversation under a single **Archived** row, which shows its unread count. An archived conversation stays archived when messages arrive and still notifies by its own level. Pins and archives sync to your own devices and to nobody else.
+
 ## Closing a conversation
 
 Right-click a 1:1 conversation in the list and choose **Close DM**. It is hidden from your list, not deleted: messaging each other brings it back with its history.
@@ -30,7 +36,7 @@ For a group DM the item is **Leave group**, and it works like leaving a guild: y
 
 ## Disappearing messages
 
-**Disappearing messages…** in the conversation's menu sets a timer (**5 minutes** to **1 week**) for the messages *you* send there from then on. Each one erases itself on every device when its time runs out. See [Guilds and channels](guilds.md#disappearing-messages).
+**Disappearing messages…** in the conversation's menu sets a timer (**5 minutes** to **1 week**) for the messages *you* send there from then on: text, pictures, files, GIFs, polls and the rest. Each one erases itself on every device when its time runs out. The timer is kept for the conversation on all your devices, so a reply from a notification or a scheduled message carries it too. See [Guilds and channels](guilds.md#disappearing-messages).
 
 ## Message requests
 

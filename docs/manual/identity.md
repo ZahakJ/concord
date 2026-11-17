@@ -22,9 +22,9 @@ Your messages and guild memberships are not part of the account. They are stored
 
 Other people recognize your key by its **fingerprint**, also called a safety number: 32 letters and digits in groups of four, derived from your public key. It is the same on every device you link, because it comes from the account key.
 
-You can see your own at the bottom of **Settings → Your profile**, under "Your identity fingerprint". To check someone else's, open their profile card, reveal their safety number, and compare it with them over a channel you trust, such as in person or on a call. If they match, select **Verify identity**. Verification is a note you keep for yourself on your own devices; nobody else is told. It matters in two places: you can add a verified contact to a guild directly, without an invite code, and a guild invitation from a verified contact is accepted automatically.
+You can see your own at the bottom of **Settings → Your profile**, under "Your identity fingerprint". To check someone else's, open their profile card and reveal their safety number. In person, choose **Show my code / Scan theirs** and scan each other's QR codes; otherwise compare the number with them over a channel you trust, such as a call, and select **It matches, verify** if it does. Verification is a note you keep for yourself on your own devices; nobody else is told. It matters in two places: you can add a verified contact to a guild directly, without an invite code, and a guild invitation from a verified contact is accepted automatically.
 
-When a contact links a new device, Concord posts a notice in your conversation with them, because their fingerprint does not change when their set of devices does.
+When a contact links a new device, Concord posts a notice in your conversation with them, with a **Verify** button, because their fingerprint does not change when their set of devices does.
 
 ## Your passphrase
 
@@ -35,9 +35,9 @@ Your local message database is encrypted under a key derived from your identity,
 Some things to know about the passphrase:
 
 - **It is per device.** Each device you link gets its own passphrase, chosen while linking. They do not have to match.
-- **It is never stored or sent anywhere,** so there is no reset link. A wrong passphrase looks the same to Concord as a damaged file.
+- **It is never stored or sent anywhere,** so there is no reset link. A wrong passphrase and a damaged identity file can look the same to Concord, so when it refuses a passphrase it says that either may be the cause. A file that is empty, cut short or in a format Concord does not know is named as damaged, and an unlock that finds the file's unencrypted copy of the account key altered says so and corrects it.
 - **There is no minimum.** The meter under the field estimates strength from length and variety. A few unrelated words score well.
-- **There is no screen for changing it.** Setting a new one means re-linking the device from another of your devices, or restoring it from the recovery phrase, as described in [Backups and recovery](backups.md#if-you-forget-your-passphrase).
+- **You can change it** in **Settings → Account → Passphrase** by typing the current one and the new one twice. Only this device changes. On Android, biometric unlock is turned off by the change and can be turned on again after the next unlock. If you have forgotten it, see [Backups and recovery](backups.md#if-you-forget-your-passphrase).
 - **Signing out** (**Settings → Account → Sign out (lock this device)**) locks the app until the passphrase is entered again.
 
 On Android you can store the passphrase in the phone's secure hardware and unlock with a fingerprint or your face instead. Concord offers this after your first unlock. With biometric unlock on, **Settings → Privacy & safety → App lock** also asks for your fingerprint every time the app opens.
@@ -48,7 +48,7 @@ The recovery phrase is your account key written as 24 words from the standard BI
 
 Anyone who has these words can become you, on any device, without your passphrase. Keep them offline and never share them.
 
-The phrase brings back the **key**, and only the key. A device restored from it is you, to everyone who has verified you, but it starts with no profile, no guilds and no history. [Backups and recovery](backups.md) explains how to get those back.
+The phrase brings back the **key**. A device restored from it is you, to everyone who has verified you. It gets your profile back from another of your devices or from someone you share a guild with, if one of them is online, but it starts with no guilds and no history. [Backups and recovery](backups.md) explains how to get those back.
 
 ## Your profile
 

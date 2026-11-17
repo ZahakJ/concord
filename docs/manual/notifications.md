@@ -68,7 +68,19 @@ On Linux, macOS, Windows and the web build, Concord asks for permission to show 
 - a new message arrives in a channel set to **All messages**, while the window is hidden;
 - you are mentioned, an alert word matches, or a direct message arrives, while the window is hidden or just not focused.
 
-Only new messages from other people notify. Catching up on history after being offline does not. The notification shows the sender's name (with `@` in front for a mention) and the first 120 characters of the message; there is no setting to hide the text. Each channel has at most one notification at a time. Click it to jump to the channel.
+Only new messages from other people notify. Catching up on history after being offline does not. Each channel has at most one notification at a time. Click it to jump to the channel. When the message a notification shows is deleted or disappears, the notification closes, unless it already shows a later message from the same conversation.
+
+### What a notification shows
+
+**Settings → Privacy & safety → Notification shows** decides how much of a message reaches the lock screen and the notification shade, on the desktop, the web build and Android:
+
+| Choice | What appears |
+|---|---|
+| **Nothing** (the default) | "Concord" and "New message": no sender, no place, no text |
+| **Name only** | The sender's name and where it was sent, and "New message" |
+| **Name and message** | The sender's name (with `@` in front for a mention), where it was sent, and the first 120 characters of the message |
+
+The setting is kept on this device only. Changing it takes down the notifications already on screen. Concord can hide only what it writes itself: the system may still show that Concord sent something.
 
 Incoming calls ring inside the app; they do not post a system notification. Neither do message requests.
 
@@ -80,7 +92,7 @@ The window title shows how many mentions are waiting, for example `(3) #general 
 - The **Inbox** (the bell beside the **Jump to** field above the channel list, on the guild column in the Rail layout, or the **Inbox** tab on a phone) collects every mention, reply and alert word aimed at you, with **Mentions** and **Replies** filters and **Mark all read**.
 - **Mark as read** is on every guild, channel and direct message menu, and on the new-messages divider. `Esc` marks the current channel read, and `Shift+Esc` marks everything read.
 
-Read state syncs to your other linked devices and to nobody else.
+Read state syncs to your other linked devices. Nobody else learns it, except the people in a direct message or group DM when you and they both have **Read receipts** on; see [Privacy and encryption](privacy.md#what-other-people-see).
 
 ## Android
 
@@ -94,6 +106,8 @@ Messages stack by conversation, up to six lines each. Tap one to open the channe
 
 - **Reply** answers from the notification. It needs the phone unlocked on Android 12 and later, and is not offered when **App lock** is on.
 - **Mark read** marks the conversation read on all your devices and clears the notification.
+
+With **Name and message** chosen, a secured lock screen shows what **Nothing** shows, and the name and text appear once the phone is unlocked. When a message is deleted or disappears, its line leaves the stacked notification, and the notification is removed if that was its only line. A notification you already swiped away does not come back.
 
 ### What delivers them
 

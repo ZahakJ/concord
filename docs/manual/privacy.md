@@ -24,18 +24,19 @@ Every guild is one encrypted group, using MLS (Messaging Layer Security, [RFC 94
 
 | Who | What they learn |
 |---|---|
-| Members of a guild you are in | Everything you post there, your profile (name, avatar, bio, status), whether you are online, your typing indicator, and your presence in voice rooms. |
+| Members of a guild you are in | Everything you post there, your profile (name, avatar, bio, status), whether you are online, your typing indicator if you and they both have typing indicators on, and your presence in voice rooms. |
 | Anyone you connect to directly | Your IP address. Calls connect directly too, unless they are relayed (see below). |
 | A stranger who sends you a message request | Nothing until you accept: not your profile, not your presence, not even that you are online. See [Message requests](moderation.md#message-requests). |
-| Your own linked devices | Your read state. It never goes to anyone else, so there are no read receipts to switch off. |
+| The people in a direct message or group DM with you | When one of your devices has received each of their messages (the delivered tick). When you have read them, only if you and they both have read receipts on. |
+| Your own linked devices | Your read state, the chats you pinned or archived, the messages you deleted for yourself, and your choices for typing indicators, read receipts and disappearing messages. None of this goes to anyone else. |
 
-Typing indicators can be switched off in **Settings → Privacy & safety → Typing indicators**. They work both ways: switch them off and you stop seeing other people's too. **Rich presence**, which shows what your music player is playing, is a separate switch on the same page; it works only where the platform exposes a music player (MPRIS, on Linux).
+Typing indicators and read receipts are off by default. Each is switched on in **Settings → Privacy & safety** and works both ways: with it off you neither send nor see it. The choice applies to all your devices. Both ways depends on the other person's app: someone running a modified app could see your typing or your receipts while not showing their own. Read receipts are sent only in direct messages and group DMs, inside the encrypted conversation. Delivered ticks are always on there, and they say only that a message reached one of your devices, not that you looked at it. **Rich presence**, which shows what your music player is playing, is a separate switch on the same page; it works only where the platform exposes a music player (MPRIS, on Linux).
 
 ### Safety numbers
 
-Every account has a **safety number**, a fingerprint of its public key. Open someone's profile, choose **Show** beside **Safety number**, and compare it with them over a channel you trust: in person, or on a phone call. If it matches, choose **Verify identity**. Verification is a private note on your own device; nobody else sees it. It protects against the one attack encryption cannot catch by itself: someone handing you their key while pretending to be your friend.
+Every account has a **safety number**, a fingerprint of its public key. Open someone's profile and choose **Show** beside **Safety number**. In person, choose **Show my code / Scan theirs**: each of you shows a QR code and scans the other's, and a match marks them verified. Otherwise compare the number with them over a channel you trust, such as a phone call, and choose **It matches, verify** if it does. Verification is a private note on your own devices; nobody else sees it. It protects against the one attack encryption cannot catch by itself: someone handing you their key while pretending to be your friend.
 
-Concord also posts a notice in the conversation when a contact's set of devices grows, so an account quietly gaining a new reader does not go unnoticed. See [Multiple devices and sync](devices.md).
+Concord also posts a notice in the conversation when a contact adds a device, for example "Ann added a new device (iPhone, 11-14). If this wasn't Ann, verify.", so an account quietly gaining a new reader does not go unnoticed. See [Multiple devices and sync](devices.md).
 
 ## What a rendezvous node sees
 
@@ -55,7 +56,7 @@ It cannot learn who is in a guild, or that a guild exists, and it cannot forge o
 
 Your history is a SQLite database on each of your devices. There is no server copy.
 
-- **Encrypted:** message bodies, attachments and story captions. Your identity key is encrypted with your passphrase (Argon2id).
+- **Encrypted:** message bodies, the earlier versions of edited messages, attachments and story captions. Your identity key is encrypted with your passphrase (Argon2id).
 - **Not encrypted:** who sent each message and when, reactions, profiles and avatars, guild and channel names, the guild's governance log, and settings. So is `peers.json`, a list of up to 64 peers you have connected to recently (entries are forgotten after a month without contact), and the `mls/` folder holding each group's key state.
 - **Unsent drafts** and failed sends wait in the interface's own browser storage, unencrypted, until they are sent or discarded.
 
@@ -68,7 +69,7 @@ Search runs on your device only. It decrypts and scans your own history, and the
 - **Metadata.** Peer-to-peer means peers and relays see connections and timing. Concord is not an anonymity tool.
 - **Your IP on calls.** Call media connects directly unless your rendezvous runs a TURN relay. Turn on **Settings → Privacy & safety → Hide my IP on calls** to force relaying; if the rendezvous has no relay, the setting says so and calls still connect directly. Meetings with browser guests always relay when a relay exists.
 - **Members you invited.** Encryption cannot stop a member copying or screenshotting what you sent.
-- **Deleted guild messages.** A message deleted in a guild stays, sealed, on every member's device so that moderators can reveal it. Each device holds it until it empties its trash with **Settings → Privacy & safety → Empty trash**. Deleted direct messages are overwritten for real.
+- **Deleted guild messages.** When a message is deleted for everyone in a guild, the devices of members with **Manage messages** keep its text, sealed, so that they can reveal it; every other device erases it. A moderator's device holds it until **Settings → Privacy & safety → Empty trash** is used there. In a direct message or a group DM, every device erases it. Space freed by an erase is overwritten, not just marked free. The first time Concord 0.60.5 or later starts, it erases the kept text of every message deleted earlier, on moderators' devices too.
 - **Copies others hold.** Nothing you do can erase a message from someone else's device.
 
 ## Connections that are not to your peers
@@ -89,4 +90,4 @@ All the switches are in **Settings → Privacy & safety**.
 
 ## Deleting your data
 
-**Settings → Privacy & safety → Delete everything on this device** erases your identity, the database, the group keys and the peer list from this device after you type your profile name to confirm. It reaches nothing outside this device. If another of your devices is still linked, re-linking brings your guilds and history back; your 24-word recovery phrase alone restores only the account key. See [Backups and recovery](backups.md).
+**Settings → Privacy & safety → Delete everything on this device** erases your identity, the database, the group keys and the peer list from this device after you type your profile name to confirm. It reaches nothing outside this device. If another of your devices is still linked, re-linking brings your guilds and history back; your 24-word recovery phrase alone restores the account key and, when another of your devices or someone you share a guild with is online, your profile, but no guilds or history. See [Backups and recovery](backups.md).

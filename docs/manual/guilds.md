@@ -155,21 +155,22 @@ Type `/` at the start of a message for the list.
 | `/timestamp [message]` | Seals the exact send time onto the message |
 | `/confetti`, `/fireworks`, `/hearts` | Sends with an animation |
 | `/meme`, `/gif`, `/doodle`, `/sound`, `/game` | Opens the matching editor or picker |
-| `/clear <n>` | Deletes the last *n* messages, up to 100 (needs **Manage messages**) |
+| `/clear <n>` | Deletes the last *n* messages in a guild channel, up to 100 (needs **Manage messages**). It does not work in direct messages. |
 
 ### Acting on a message
 
 Hover a message for its toolbar, or right-click it (long-press on a phone). The menu offers:
 
 - **Reply**, **Add reaction**, **Copy text**, **Copy message link**, **Forward** (to any text channel or direct message), **Save message**, **Mark unread**, **Remind me**.
-- **Edit**, on your own messages. `↑` in an empty composer edits your last message. Edited messages show **(edited)**.
+- **Edit**, on your own messages. `↑` in an empty composer edits your last message. Edited messages show **(edited)**; click it to see the earlier versions your device received.
 - **Start thread**, in text channels.
 - **Pin** / **Unpin**. In a guild this needs **Manage messages**; the pinned list is under **Pinned messages** in the chat header.
 - **Publish**, in announcement channels.
 - **Report message**, on other people's messages; see [Moderation and safety](moderation.md).
-- **Delete**, on your own messages, and on anyone's with **Manage messages**.
+- **Delete for me**, on any message: it disappears from your own devices only, and nobody else is told. **Undo** brings it back.
+- **Delete for everyone**, on your own messages, and on anyone's with **Manage messages**.
 
-A deleted message disappears from the conversation. In a guild its text is still kept on each member's device: turn on **Settings → Privacy & safety → Show deleted messages** to leave a faint marker in its place, and a member with **Manage messages** can right-click the marker and choose **Show original**. **Empty trash** in the same section erases the kept text on your device for good. Deleting in a direct message erases the text for real.
+A message deleted for everyone disappears from the conversation, with its reactions and its pin. In a guild, the devices of members with **Manage messages** keep its text, and every other device erases it. Turn on **Settings → Privacy & safety → Show deleted messages** to leave a faint marker in its place; a member with **Manage messages** can right-click the marker and choose **Show original**. **Empty trash** in the same section erases the kept text on that device for good. Deleting in a direct message erases the text for real on every device.
 
 ### Polls
 
@@ -181,7 +182,7 @@ In a text channel, **Start thread** on a message (or **+ → Start a thread**) o
 
 ### Disappearing messages
 
-**Disappearing messages…** in a channel's or conversation's menu sets a timer of **5 minutes**, **1 hour**, **8 hours**, **1 day** or **1 week** (or **Off**). It is your choice for this conversation: messages *you* send afterwards carry the expiry and are erased on every device when it passes.
+**Disappearing messages…** in a channel's or conversation's menu sets a timer of **5 minutes**, **1 hour**, **8 hours**, **1 day** or **1 week** (or **Off**). It is your choice for this conversation: everything *you* send there afterwards, pictures and files included, carries the expiry and is erased on every device when it passes. The choice is kept on all your devices.
 
 ## Events
 
@@ -216,6 +217,7 @@ The owner can bring a community's older history into a guild from a chat export:
 What to expect:
 
 - **Nothing is fetched.** An attachment the export points at on a remote site, rather than including as a file, becomes a line naming the file and its size.
+- **Pictures are cleaned** of location and camera details, as when you send one (see [Sharing files and media](files-and-media.md#attaching-files)). A picture too damaged to clean is left out, and its message is imported without it.
 - **The history is an archive, not live messages.** It appears above the start of each channel's live history, signed by the owner. It does not raise anyone's unread count, and archived messages cannot be reacted to.
 - **Members fetch pages as they scroll** to them, from other members, and keep what they read. **Guild settings → Archive** shows how much is on this device and offers **Keep the full archive on this device**. On a phone on a metered connection, pages are not fetched until you ask.
 - Importing again replaces the archive the guild carries.

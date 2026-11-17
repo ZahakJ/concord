@@ -42,7 +42,10 @@ Once linked, every device is a full member of your guilds and conversations, so 
 |---|---|
 | Messages and guild changes | Each device receives them as a member, and catches up from other members (including your other devices) after being offline |
 | Your profile | An edit on one device is adopted by the others |
-| What you have read | Read positions are shared between your own devices only, so reading a channel on one clears it on the others |
+| What you have read | Read positions are shared between your own devices only, so reading a channel on one clears it on the others. Sending a message marks the conversation read up to it. |
+| Your chat list | Pinned and archived direct messages |
+| Messages you deleted for yourself | **Delete for me** hides a message on all your devices, and **Undo** brings it back on all of them |
+| A few privacy choices | Typing indicators, read receipts, and each conversation's disappearing-messages timer |
 | Your Notes | A private conversation whose only members are your own devices |
 | Bookings | Bookings people make on your booking page land in your Notes, on every device |
 

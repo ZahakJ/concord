@@ -9,6 +9,7 @@ Concord keeps no copy of anything on a server. Two separate things live on your 
 | What | Recovered by |
 |---|---|
 | Your identity (the account key) | The 24-word recovery phrase, or another linked device |
+| Your profile | Another linked device, or anyone you share a guild with, once the account key is back |
 | Your guilds, conversations and history | Another linked device, a backup file, or rejoining and syncing from other members |
 
 The two are recovered separately on purpose. The recovery phrase holds no messages, and a backup file holds no identity. **Settings → Account** puts both under "Your safety net": **Backup & restore** and **Recovery phrase**.
@@ -19,9 +20,9 @@ The most complete safety net is a second linked device (see [Multiple devices](d
 
 Your recovery phrase is your account key written as 24 words. It is shown when the identity is created and can be revealed again in **Settings → Account → Recovery phrase**. Write it down on paper or in a password manager.
 
-To use it on a new or reset device, choose **I lost my devices — restore from my recovery phrase** on the first-run screen (if another device still has the account, choose **Add this device to my account** instead: a phrase restored beside a running device makes a copy that cannot see it), enter the 24 words, choose a new passphrase for the device, and select **Restore account**.
+To use it on a new or reset device, choose **I lost my devices — restore from my recovery phrase** on the first-run screen (if another device still has the account, choose **Add this device to my account** instead: a phrase restored beside a running device makes a copy that cannot see it), enter the 24 words, choose a new passphrase for the device, and select **Restore account**. The restore screen also asks for a rendezvous address, filled in when this device or this copy of Concord already has one: a phrase carries no settings, and without a rendezvous the device can reach only peers on the same network.
 
-What comes back is the key: you are the same person, with the same fingerprint, to everyone who has verified you. What does not come back is everything else. The restored device starts with no name, no guilds and no history. To fill it in:
+What comes back is the key: you are the same person, with the same fingerprint, to everyone who has verified you. After the restore, the screen looks for your profile: another of your devices, or anyone you share a guild with, that is online and reachable hands back the latest profile your account signed, and the screen shows it. You can go in before it arrives, with a name for now that gives way to the real profile. Guilds and history do not come back from the phrase. To fill them in:
 
 - If another of your devices is still linked, link from that device instead; everything comes with it.
 - Otherwise, ask someone in each guild for a fresh invite. Once you are back in, recent history syncs from the members who are online.
@@ -76,8 +77,8 @@ Your passphrase is never stored, so it cannot be looked up or reset. On the unlo
 | Option | What happens |
 |---|---|
 | **Re-link from my other device** | Link this device again from another of your devices and choose a new passphrase. Everything comes back. |
-| **Use my recovery phrase** | Erases this device's data, then restores your identity under a new passphrase. You get the account key back but not your guilds or history; see [The recovery phrase](#the-recovery-phrase). |
-| **I have neither — start over (deletes everything)** | Deletes the identity and all data on this device so you can create a new identity. Guilds you own are lost. |
+| **Use my recovery phrase** | Restores your identity under a new passphrase. Before it erases this device's data, Concord names the account it will erase and asks you to type ERASE. You get the account key and your profile back, but not your guilds or history; see [The recovery phrase](#the-recovery-phrase). |
+| **I have neither — start over (deletes everything)** | After you type ERASE, deletes the identity and all data on this device so you can create a new identity. Guilds carry on for their other members. A guild you own keeps this account as its owner, so unless the account comes back, only an heir you named can take it over. |
 
 ## If you lose a device
 

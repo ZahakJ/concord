@@ -16,7 +16,7 @@ Search runs on your device, over the history stored on it. Your query never leav
 | Included | Not included |
 |---|---|
 | Messages in every guild and direct message on this device, including Notes | Messages from before you joined that have not synced to this device |
-| Your own messages and everyone else's | Deleted messages |
+| Your own messages and everyone else's | Deleted messages, including those you deleted only for yourself |
 | The text of ordinary messages | Attachments: their contents, file names and descriptions; poll questions and options; doodles |
 | The imported archive of the guild you are looking at, as far as its pages are on this device (shown in a separate section) | Anything on another member's device |
 
