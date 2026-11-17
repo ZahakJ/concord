@@ -94,8 +94,10 @@ test("Back from the recovery-phrase, re-link and erase screens returns to the wa
   assert.equal(await alice.rpc("Session"), false, "an account was opened or created");
 });
 
-// Screens opened from the unlock screen return to it, even after an erase
-// from the ways back was refused as out of date.
+// From the unlock screen's "Forgot passphrase?", Restore and Re-link return to
+// the ways back, and the ways back to the unlock screen. Screens opened from
+// the unlock screen itself return to it, even after an erase from the ways
+// back was refused as out of date.
 test("Back from the unlock screen's own screens returns to the unlock screen", async ({ world, assert, step, waitFor }) => {
   const [alice] = await world.peers(1);
   await alice.rpc("Logout");
@@ -104,6 +106,21 @@ test("Back from the unlock screen's own screens returns to the unlock screen", a
   const pass = page.locator('input[placeholder="Passphrase"]');
   const menu = page.getByRole("button", { name: "Use my recovery phrase" });
   await pass.waitFor();
+
+  for (const [open, shown] of [
+    ["Use my recovery phrase", () => page.getByRole("textbox", { name: "Recovery phrase" })],
+    ["Re-link from my other device", () => page.getByRole("button", { name: "Link this device" })],
+  ]) {
+    step(`Forgot passphrase?, ${open}, then its Back returns to the ways back`);
+    await page.getByRole("button", { name: "Forgot passphrase?" }).click();
+    await page.getByRole("button", { name: open }).click();
+    await shown().waitFor();
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await waitFor(async () => (await menu.count()) === 1, { message: `${open}, its Back: not back on the ways back` });
+    step("Back from the ways back returns to the unlock screen");
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await pass.waitFor();
+  }
 
   step("Forgot passphrase?, an erase refused as out of date, then Back");
   await page.getByRole("button", { name: "Forgot passphrase?" }).click();
