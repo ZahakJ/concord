@@ -27,8 +27,8 @@
 
 <Modal title="Disappearing messages" {onClose}>
   <p class="muted intro">
-    New messages you send in this conversation will erase themselves — on every
-    device — once the timer runs out. Applies to messages you type from now on.
+    Messages you send in this conversation from now on are deleted after the
+    time you choose. Your devices still on Concord 0.60 don't apply the timer.
   </p>
   <div class="choices" role="radiogroup" aria-label="Disappear timer">
     {#each TTL_OPTIONS as o (o.secs)}
