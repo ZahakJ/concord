@@ -228,7 +228,11 @@ test(
     const page = a.page;
     const cdp = await a.ctx.newCDPSession(page);
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-    await page.getByRole("button", { name: "Members, pins and files" }).click();
+    // The inspector may already be docked open on a wide window.
+    if (!(await page.locator('aside[aria-label="Inspector"]').count())) {
+      await page.getByRole("button", { name: "Members, pins and files" }).click();
+    }
+    await page.locator('aside[aria-label="Inspector"]').getByRole("tab", { name: "Members" }).click();
     await page.locator('aside[aria-label="Inspector"]').getByRole("tab", { name: "Media" }).waitFor();
     await page.waitForTimeout(500); // the inspector's entrance
     const heap0 = await page.evaluate(() => performance.memory?.usedJSHeapSize || 0);
