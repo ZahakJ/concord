@@ -94,7 +94,8 @@
     activeGuild()?.channels.find((c) => c.id === S.activeChannelId) || null,
   );
   // The tiles are a layer, same as the desktop shell. Joining does not open them.
-  const canRight = $derived(hasChannel && !isDM);
+  // A DM has a page on the right too: its Media tab (Inspector.svelte).
+  const canRight = $derived(hasChannel);
   // A forum POST is a channel nested under its board. ChatHeader's breadcrumb
   // says so on desktop, but ChatHeader never renders here — and ChannelList
   // filters posts out of the list — so without this the top-left button is the
@@ -253,10 +254,19 @@
     if (!hasChannel && !S.drawerOpen) S.drawerOpen = true;
   });
 
-  // The members drawer unmounts in DMs — also clear its state, or a stale
-  // membersOpen=true pops the drawer unbidden on the next guild channel.
+  // No conversation, no right page: clear its state too, or a stale
+  // membersOpen=true pops it unbidden on the next channel.
   $effect(() => {
     if (!canRight) S.membersOpen = false;
+  });
+  // A DM's right page is its media, a guild channel's the inspector: moving
+  // between the two closes it rather than carrying it across.
+  let wasDM = untrack(() => isDM);
+  $effect(() => {
+    if (isDM !== wasDM) {
+      wasDM = isDM;
+      untrack(() => (S.membersOpen = false));
+    }
   });
 
   // Toasts pin themselves to --mchrome, so it has to describe the chrome that
@@ -797,7 +807,13 @@
             {#if subtitle}<span class="mtitle-sub">{subtitle}</span>{/if}
           </span>
         </button>
-        {#if canRight}
+        {#if canRight && isDM}
+          <!-- A DM's page from the right is its media; a guild channel's is
+               the whole inspector. -->
+          <button class="icon-btn" aria-label="Media and files" onclick={() => (S.membersOpen = true)}>
+            <Icon name="image" />
+          </button>
+        {:else if canRight}
           <button class="icon-btn" aria-label="Members" onclick={() => (S.membersOpen = true)}>
             <Icon name="members" />
           </button>

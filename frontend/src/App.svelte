@@ -84,6 +84,7 @@
   import MessageList from "./MessageList.svelte";
   import Composer from "./Composer.svelte";
   import Inspector from "./Inspector.svelte";
+  import { dmMedia } from "./lib/inspector.svelte.js";
   import Welcome from "./Welcome.svelte";
   import EmptyState from "./EmptyState.svelte";
   import { PERM, has } from "./lib/perms.js";
@@ -389,9 +390,18 @@
       if (S.prefs[key] !== open) setPref(key, open);
     });
   });
-  const inspectorShown = $derived(!isDM && hasChannel && !S.callStage && !!S.prefs.memberPanel);
+  // In a DM the inspector is the conversation's Media tab, opened from the
+  // header's Media button (lib/inspector.svelte.js dmMedia), not the guild
+  // inspector's pref.
+  const inspectorShown = $derived(
+    hasChannel && !S.callStage && (isDM ? dmMedia.open : !!S.prefs.memberPanel),
+  );
+  function closeInspector() {
+    if (isDM) dmMedia.open = false;
+    else setPref("memberPanel", false);
+  }
   // The overlay is a layer: Escape and Back close it, like any other.
-  syncLayer("panel", () => inspectorShown && !docked, () => setPref("memberPanel", false));
+  syncLayer("panel", () => inspectorShown && !docked, closeInspector);
   // …and so does a press on the empty feed (never a link, a reaction, a picture
   // or the composer: those are things you meant to press).
   function overlayOutside(e) {
@@ -399,7 +409,7 @@
     const t = e.target;
     // Empty background only: the feed's own box or its spacers, never a row.
     if (t?.classList?.contains("feed") || t?.classList?.contains("vs") || t?.classList?.contains("feedwrap"))
-      setPref("memberPanel", false);
+      closeInspector();
   }
 
   const gridStyle = $derived(
@@ -2060,7 +2070,7 @@
          only reads data-inspector on .app. -->
     {#if inspectorShown}
       <div class="insp-slot" class:overlay={!docked}>
-        <Inspector {docked} onClose={() => setPref("memberPanel", false)} />
+        <Inspector {docked} onClose={closeInspector} />
       </div>
       {#if docked}
         <div

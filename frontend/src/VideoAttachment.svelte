@@ -8,6 +8,7 @@
   import { api } from "./lib/api.js";
   import { S, memberByFpr, nameFor } from "./lib/state.svelte.js";
   import { fmtBytes, unavailableNote, worthRetrying } from "./lib/attachments.js";
+  import { noteDuration } from "./lib/gallery.js";
 
   // `sender` is the fingerprint of whoever posted the clip — see
   // Attachment.svelte for why a failed fetch has to be able to name them.
@@ -27,6 +28,8 @@
   function onMeta(e) {
     const v = e.currentTarget;
     if (v.videoWidth && v.videoHeight) realRatio = `${v.videoWidth} / ${v.videoHeight}`;
+    // The gallery's video tile shows the clip's length once it is known here.
+    noteDuration(tok.blobId, v.duration);
   }
 
   async function load() {

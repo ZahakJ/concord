@@ -122,21 +122,50 @@ export function previewText(content) {
 // Decrypted data-URL cache. 5 MB data URLs are memory-heavy, so keep few.
 const CACHE_MAX = 30;
 const cache = new Map(); // blobId -> Promise<dataURL>
+// The same entries once they have resolved, so a reader that must not wait
+// (a gallery tile) can ask "is it already here?" without starting a fetch.
+const settled = new Map(); // blobId -> dataURL
 
 export function loadAttachment(channelId, tok) {
   let p = cache.get(tok.blobId);
   if (!p) {
-    p = api.fetchAttachment(channelId, tok.blobId, tok.keys, tok.subtype).catch((err) => {
-      cache.delete(tok.blobId); // don't cache failures; Retry refetches
-      throw err;
-    });
+    p = api.fetchAttachment(channelId, tok.blobId, tok.keys, tok.subtype).then(
+      (src) => {
+        if (cache.get(tok.blobId) === p) {
+          settled.set(tok.blobId, src);
+          for (const fn of cachedListeners) fn(tok.blobId);
+        }
+        return src;
+      },
+      (err) => {
+        cache.delete(tok.blobId); // don't cache failures; Retry refetches
+        throw err;
+      },
+    );
     cache.set(tok.blobId, p);
     if (cache.size > CACHE_MAX) {
       const oldest = cache.keys().next().value;
       cache.delete(oldest);
+      settled.delete(oldest);
     }
   }
   return p;
+}
+
+// cachedAttachment is the decrypted picture this renderer already holds for a
+// blob, or "". It never fetches: the gallery's tiles draw only what the feed
+// or the viewer has already opened, and a placeholder otherwise.
+export function cachedAttachment(blobId) {
+  return settled.get(blobId) || "";
+}
+
+// onAttachmentCached calls fn(blobId) each time a picture lands in the cache,
+// so a tile mounted before the feed finished decrypting it can draw it then.
+// Returns the unsubscribe.
+const cachedListeners = new Set();
+export function onAttachmentCached(fn) {
+  cachedListeners.add(fn);
+  return () => cachedListeners.delete(fn);
 }
 
 // ---- "why isn't this here?" ------------------------------------------------

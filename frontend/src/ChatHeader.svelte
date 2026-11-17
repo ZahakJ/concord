@@ -43,7 +43,7 @@
   // tip's text unless the tip needs richer wording than the label.
   import { tooltip } from "./lib/tooltip.js";
   import { fitText } from "./lib/fittext.js";
-  import { insp } from "./lib/inspector.svelte.js";
+  import { insp, dmMedia } from "./lib/inspector.svelte.js";
 
   let { onJoinVoice, onLeaveVoice } = $props();
 
@@ -375,8 +375,21 @@
         <Icon name="pin" />
       </button>
     {/if}
+    {#if ch && g?.kind === "dm" && !packed}
+      <!-- A DM's photos, videos and files: the inspector, on its Media tab. -->
+      <button
+        class="ghost iconbtn"
+        class:pin-active={dmMedia.open}
+        use:tooltip={{ text: "Media and files" }}
+        aria-label="Media and files"
+        aria-pressed={dmMedia.open}
+        onclick={() => (dmMedia.open = !dmMedia.open)}
+      >
+        <Icon name="image" />
+      </button>
+    {/if}
     {#if ch && g?.kind !== "dm" && !packed}
-      <!-- The inspector: members, pins, files and threads beside the
+      <!-- The inspector: members, pins, media and threads beside the
            conversation. People glyph + the member count; Ctrl+U as before. -->
       <button
         class="ghost iconbtn insp-toggle"

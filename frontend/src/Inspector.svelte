@@ -11,6 +11,7 @@
   import Avatar from "./Avatar.svelte";
   import Tabs from "./Tabs.svelte";
   import MemberPanel from "./MemberPanel.svelte";
+  import MediaGallery from "./MediaGallery.svelte";
   import {
     S,
     activeGuild,
@@ -23,7 +24,6 @@
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
   import { plainSnippet } from "./lib/snippet.js";
-  import { parseAttachTokens, parseFileTokens } from "./lib/attachments.js";
   import { tooltip } from "./lib/tooltip.js";
   import { insp } from "./lib/inspector.svelte.js";
 
@@ -32,29 +32,25 @@
   const g = $derived(activeGuild());
   const pinned = $derived(S.messages.filter((m) => m.pinned && !m.deleted));
   const canPin = $derived(!!g?.kind || has(g?.myPerms || 0, PERM.MANAGE_MESSAGES));
-  // Files: every attachment in the history this device has loaded, newest
-  // first. Images and files alike; the row jumps to the message that carried it.
-  const files = $derived.by(() => {
-    const out = [];
-    for (let i = S.messages.length - 1; i >= 0 && out.length < 200; i--) {
-      const m = S.messages[i];
-      if (m.deleted || !m.content) continue;
-      for (const t of parseAttachTokens(m.content)) out.push({ m, key: t.blobId, name: t.name || "Image", kind: "image" });
-      for (const t of parseFileTokens(m.content)) out.push({ m, key: t.blobId, name: t.name || "File", kind: "file" });
-    }
-    return out;
-  });
   // Threads: the channels parented to this one, most recent first.
   const threads = $derived(
     (g?.channels || []).filter((c) => c.parent && c.parent === S.activeChannelId),
   );
 
-  const tabs = $derived([
-    { id: "members", label: "Members" },
-    { id: "pins", label: "Pins", count: pinned.length || undefined },
-    { id: "files", label: "Files" },
-    { id: "threads", label: "Threads", count: threads.length || undefined },
-  ]);
+  // In a DM the inspector is the conversation's media and nothing else: two
+  // people need no member list, and DM pins have their own popover.
+  const dm = $derived(g?.kind === "dm");
+  const tabs = $derived(
+    dm
+      ? [{ id: "media", label: "Media" }]
+      : [
+          { id: "members", label: "Members" },
+          { id: "pins", label: "Pins", count: pinned.length || undefined },
+          { id: "media", label: "Media" },
+          { id: "threads", label: "Threads", count: threads.length || undefined },
+        ],
+  );
+  const tab = $derived(dm ? "media" : insp.tab);
 
   function onKey(e) {
     if (e.key === "Escape" && !docked) {
@@ -67,7 +63,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <aside class="insp" class:docked class:overlay={!docked} aria-label="Inspector" onkeydown={onKey}>
   <div class="insp-head">
-    <Tabs label="Inspector" value={insp.tab} onChange={(id) => (insp.tab = id)} {tabs} idPrefix="insp" />
+    <Tabs label="Inspector" value={tab} onChange={(id) => (insp.tab = id)} {tabs} idPrefix="insp" />
     <!-- On a phone the inspector is a pushed page and its Back bar closes it. -->
     {#if !S.isMobile}
     <button type="button" class="insp-x" use:tooltip={"Close · Ctrl+U"} aria-label="Close the inspector" onclick={onClose}>
@@ -75,10 +71,10 @@
     </button>
     {/if}
   </div>
-  <div class="insp-body" role="tabpanel" id="insp-{insp.tab}" aria-labelledby="insp-tab-{insp.tab}">
-    {#if insp.tab === "members"}
+  <div class="insp-body" role="tabpanel" id="insp-{tab}" aria-labelledby="insp-tab-{tab}">
+    {#if tab === "members"}
       <MemberPanel embedded />
-    {:else if insp.tab === "pins"}
+    {:else if tab === "pins"}
       {#each pinned as m (m.id)}
         {@const mem = memberByFpr(m.sender)}
         <div class="row">
@@ -101,21 +97,12 @@
           {canPin ? "Pin a message from its ⋯ menu and it shows up here for everyone." : "People who can manage messages can pin one, and it shows up here for everyone."}
         </p>
       {/each}
-    {:else if insp.tab === "files"}
-      {#each files as f (f.key + f.m.id)}
-        <button type="button" class="row row-main" onclick={() => jumpToMessage(f.m.channelId, f.m.id)}>
-          <span class="file-ic"><Icon name={f.kind === "image" ? "image" : "attach"} size={16} /></span>
-          <span class="row-text">
-            <span class="row-title"><bdi>{f.name}</bdi></span>
-            <span class="row-sub">{nameFor(f.m.sender, f.m.senderName)} · {fmtTime(f.m.sent)}</span>
-          </span>
-        </button>
-      {:else}
-        <p class="empty">
-          <strong>No files yet</strong>
-          Pictures and files shared here are listed in this tab.
-        </p>
-      {/each}
+    {:else if tab === "media"}
+      {#key S.activeChannelId}
+        <!-- On a phone the inspector is a page over the conversation: going to
+             a message closes it so the message is what you see. -->
+        <MediaGallery channelId={S.activeChannelId} onGoto={() => S.isMobile && onClose()} />
+      {/key}
     {:else}
       {#each threads as t (t.id)}
         <button type="button" class="row row-main" onclick={() => jumpToChannel(t.id)}>
