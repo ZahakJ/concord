@@ -7,17 +7,21 @@
   import Icon from "./Icon.svelte";
   import { api } from "./lib/api.js";
   import { loadAttachment, copyImageToClipboard, saveImageSrc, unavailableNote } from "./lib/attachments.js";
-  import { KIND_VIDEO, noteDuration } from "./lib/gallery.js";
+  import { KIND_VIDEO, noteDuration, unsignedItem } from "./lib/gallery.js";
+  import { UNSIGNED_LABEL, UNSIGNED_TIP } from "./lib/unsigned.js";
+  import { tooltip } from "./lib/tooltip.js";
   import { fitSize, MARGIN_DESKTOP, MARGIN_PHONE } from "./lib/viewerfit.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import { portal } from "./lib/portal.js";
   import { focusOnMount } from "./lib/focus.js";
-  import { flash, openContextMenu } from "./lib/state.svelte.js";
+  import { S, flash, openContextMenu } from "./lib/state.svelte.js";
   import { saveBlob } from "./lib/savefile.js";
 
   let { item, index = 0, count = 1, onClose, onGoto, onStep, onLoaded = () => {} } = $props();
 
   const video = $derived(item.kind === KIND_VIDEO);
+  // The feed's "unsigned copy" mark for the message this came in.
+  const unsigned = $derived(unsignedItem(item, S.identity.fingerprint));
   let src = $state("");
   let err = $state("");
   let natural = $state(null);
@@ -159,6 +163,11 @@
         <Icon name="chevron" size={18} />
       </button>
     {/if}
+    {#if unsigned}
+      <span class="gv-pill gv-uns" data-testid="unsigned-mark" use:tooltip={UNSIGNED_TIP}
+        ><Icon name="info" size={12} /> {UNSIGNED_LABEL}</span
+      >
+    {/if}
     <button class="gv-goto" onclick={onGoto}>Go to message</button>
     {#if src && !video}
       <button class="gv-btn" onclick={copy} aria-label="Copy image"><Icon name="copy" size={18} /></button>
@@ -241,6 +250,11 @@
     background: rgba(0, 0, 0, 0.45);
     border-radius: 999px;
     padding: 3px 10px;
+  }
+  .gv-uns {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
   }
   .gv-btn,
   .gv-goto {

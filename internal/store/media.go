@@ -279,6 +279,10 @@ type MediaItem struct {
 	SenderName string
 	Sent       int64 // UnixNano
 	Expires    int64 // unix seconds, 0 = none
+	// Unverified and Guest are the message row's own: the feed marks an
+	// unsigned relayed copy from them, and the gallery shows the same mark.
+	Unverified bool
+	Guest      bool
 	Item       mediatok.Item
 }
 
@@ -321,7 +325,7 @@ const MediaPageMax = 2000
 // this account, and not past a disappearing deadline the sweeper has yet to
 // act on (the row's or the one read from the body).
 const mediaPageQuery = `
-SELECT mi.message_id, mi.ord, mi.kind, mi.sent, mi.expires, m.expires, m.sender, m.name, m.content_enc, m.nonce
+SELECT mi.message_id, mi.ord, mi.kind, mi.sent, mi.expires, m.expires, m.sender, m.name, m.unverified, m.kind, m.content_enc, m.nonce
 FROM media_index mi JOIN messages m ON m.id = mi.message_id
 WHERE mi.channel_id = ? AND mi.tab = ?
   AND m.deleted = 0 AND m.kind IN ('', 'guest')
@@ -360,9 +364,10 @@ func (s *Store) MediaPage(channelID string, tab mediatok.Tab, cursor MediaCursor
 		var ord, kind int
 		var sent, miExp, mExp int64
 		var sender []byte
-		var name string
+		var name, mkind string
+		var unverified int
 		var enc, nonce []byte
-		if err := rows.Scan(&id, &ord, &kind, &sent, &miExp, &mExp, &sender, &name, &enc, &nonce); err != nil {
+		if err := rows.Scan(&id, &ord, &kind, &sent, &miExp, &mExp, &sender, &name, &unverified, &mkind, &enc, &nonce); err != nil {
 			return nil, MediaCursor{}, err
 		}
 		n++
@@ -376,7 +381,8 @@ func (s *Store) MediaPage(channelID string, tab mediatok.Tab, cursor MediaCursor
 			continue
 		}
 		exp := max(miExp, mExp)
-		out = append(out, MediaItem{MessageID: id, ChannelID: channelID, Sender: sender, SenderName: name, Sent: sent, Expires: exp, Item: it})
+		out = append(out, MediaItem{MessageID: id, ChannelID: channelID, Sender: sender, SenderName: name, Sent: sent, Expires: exp,
+			Unverified: unverified != 0, Guest: mkind == "guest", Item: it})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, MediaCursor{}, err

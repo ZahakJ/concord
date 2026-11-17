@@ -31,6 +31,10 @@ type MediaItemView struct {
 	Desc       string `json:"desc,omitempty"`
 	Size       int64  `json:"size,omitempty"`
 	Mime       string `json:"mime,omitempty"`
+	// Unverified and Guest are the message's, for the feed's "unsigned copy"
+	// mark (frontend lib/unsigned.js).
+	Unverified bool `json:"unverified,omitempty"`
+	Guest      bool `json:"guest,omitempty"`
 }
 
 // MediaPageView is one page and where the next starts ("" at the end).
@@ -82,6 +86,8 @@ func mediaViews(blk senderBlocker, items []store.MediaItem) []MediaItemView {
 			Desc:       it.Desc,
 			Size:       it.Size,
 			Mime:       it.Mime,
+			Unverified: m.Unverified,
+			Guest:      m.Guest,
 		})
 	}
 	return out

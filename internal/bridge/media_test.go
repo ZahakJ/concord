@@ -29,3 +29,14 @@ func TestMediaViewsLeaveOutBlockedSenders(t *testing.T) {
 		t.Fatalf("unblocked: %d views", len(all))
 	}
 }
+
+// The feed's "unsigned copy" facts travel with a gallery item.
+func TestMediaViewsCarryUnsignedCopy(t *testing.T) {
+	got := mediaViews(blockList{}, []store.MediaItem{
+		{MessageID: "1", Sender: []byte("alice"), Unverified: true, Guest: true, Item: mediatok.Item{Kind: mediatok.Photo}},
+		{MessageID: "2", Sender: []byte("bob"), Item: mediatok.Item{Kind: mediatok.Photo}},
+	})
+	if len(got) != 2 || !got[0].Unverified || !got[0].Guest || got[1].Unverified || got[1].Guest {
+		t.Fatalf("views %+v", got)
+	}
+}

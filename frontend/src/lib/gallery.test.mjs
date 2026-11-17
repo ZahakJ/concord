@@ -18,6 +18,8 @@ import {
   durationOf,
   fileSub,
   itemKey,
+  mergeHead,
+  unsignedItem,
   FetchQueue,
   PREFETCH_ROWS,
 } from "./gallery.js";
@@ -155,6 +157,43 @@ assert(fileSub({ kind: 3, mime: "application/pdf", name: "a.pdf", size: 1258291 
   q.push(item("a"));
   await tick();
   assert(calls.length === 3, "a closed queue fetches nothing");
+}
+
+// ---- a refresh after a new message ----
+{
+  const mk = (n) => ({ messageId: `m${String(n).padStart(5, "0")}`, ord: 0 });
+  // 2,500 loaded, newest first (m02499 .. m00000), more beyond.
+  const loaded = Array.from({ length: 2500 }, (_, i) => mk(2499 - i));
+  const head = [mk(2500), ...loaded.slice(0, 119)]; // a new one on top
+  const r = mergeHead(loaded, "cur-old", head, "cur-head");
+  assert(r && r.items.length === 2501, `nothing loaded is cut (${r?.items.length})`);
+  assert(r.items[0].messageId === "m02500" && r.items[2500].messageId === "m00000", "new on top, oldest kept");
+  assert(r.next === "cur-old", "the loaded list's own cursor stays");
+  assert(new Set(r.items.map(itemKey)).size === 2501, "no duplicates");
+
+  // An item in the head's range that the page no longer lists goes.
+  const gone = mergeHead(loaded, "cur-old", [mk(2500), ...loaded.slice(1, 120)], "x");
+  assert(gone.items.length === 2500 && !gone.items.some((it) => it.messageId === "m02499"), "the head replaces what it covers");
+
+  // Fewer loaded than a page: the page is the list, with its cursor.
+  const few = loaded.slice(0, 10);
+  const r2 = mergeHead(few, "", [mk(2500), ...loaded.slice(0, 119)], "cur-head");
+  assert(r2.items.length === 120 && r2.next === "cur-head", "a short list takes the page");
+  // The page ends the list.
+  const r3 = mergeHead(loaded, "cur-old", [mk(2500), ...loaded.slice(0, 5)], "");
+  assert(r3.items.length === 6 && r3.next === "", "a last page is the whole list");
+  // More new items than a page: the page does not meet the loaded list.
+  const many = Array.from({ length: 120 }, (_, i) => mk(9000 - i));
+  assert(mergeHead(loaded, "cur-old", many, "y") === null, "a page that does not meet what is loaded asks for a full refetch");
+}
+
+// ---- the feed's "unsigned copy" mark ----
+{
+  const me = "self-fp";
+  assert(unsignedItem({ unverified: true, sender: "other" }, me), "another member's unsigned copy is marked");
+  assert(!unsignedItem({ unverified: false, sender: "other" }, me), "a signed one is not");
+  assert(!unsignedItem({ unverified: true, sender: me }, me), "your own words are not marked to you");
+  assert(unsignedItem({ unverified: true, sender: me, guest: true }, me), "a relayed guest's copy is, as in the feed");
 }
 
 if (failures) {

@@ -432,6 +432,37 @@ func TestMediaPageItemFields(t *testing.T) {
 	}
 }
 
+// A relayed copy without its author's signature, and a relayed guest's
+// message, say so on the page as the feed's row does, so the gallery can
+// show the same "unsigned copy" mark.
+func TestMediaPageCarriesUnsignedCopy(t *testing.T) {
+	st := sidebarStore(t)
+	now := time.Now()
+	for i, m := range []domain.Message{
+		{ID: "signed", ChannelID: "c", Sender: mtSender, Sent: now.Add(-3 * time.Second), Content: mtImage(1)},
+		{ID: "copy", ChannelID: "c", Sender: mtSender, Sent: now.Add(-2 * time.Second), Content: mtImage(2), Unverified: true},
+		{ID: "guest", ChannelID: "c", Sender: mtSender, Kind: "guest", Sent: now.Add(-time.Second), Content: mtImage(3), Unverified: true},
+	} {
+		if _, err := st.SaveMessage(m); err != nil {
+			t.Fatal(i, err)
+		}
+	}
+	items, _, err := st.MediaPage("c", mediatok.TabVisual, MediaCursor{}, 10)
+	if err != nil || len(items) != 3 {
+		t.Fatalf("%d items, %v", len(items), err)
+	}
+	got := map[string][2]bool{}
+	for _, it := range items {
+		got[it.MessageID] = [2]bool{it.Unverified, it.Guest}
+	}
+	want := map[string][2]bool{"signed": {false, false}, "copy": {true, false}, "guest": {true, true}}
+	for id, w := range want {
+		if got[id] != w {
+			t.Errorf("%s: unverified, guest = %v, want %v", id, got[id], w)
+		}
+	}
+}
+
 func TestMediaCursorRoundTrip(t *testing.T) {
 	c := MediaCursor{Sent: 1234567890123456789, MessageID: "id:with:colons", Ord: 3}
 	if got := ParseMediaCursor(c.String()); got != c {

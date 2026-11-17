@@ -33,14 +33,19 @@
   } from "./lib/attachments.js";
   import { saveBlob } from "./lib/savefile.js";
   import { longpress } from "./lib/touch.js";
+  import { UNSIGNED_LABEL, UNSIGNED_TIP } from "./lib/unsigned.js";
+  import { tooltip } from "./lib/tooltip.js";
   import {
     PAGE,
+    PAGE_MAX,
     TAB_VISUAL,
     TAB_FILES,
     KIND_PHOTO,
     KIND_VIDEO,
     itemKey,
     mergePage,
+    mergeHead,
+    unsignedItem,
     withoutMessage,
     liveItems,
     nextExpiry,
@@ -106,33 +111,68 @@
 
   // ---- staying current while open ----
   // A delete, an erase, an expiry or a hide removes the message's items at
-  // once; anything that may have added or changed one refetches what is
-  // loaded, a moment later, in one call.
+  // once. A new message with an attachment fetches the first page again and
+  // puts it in front of what is loaded (mergeHead), a moment later; an edit,
+  // or an unhide, which can change an item anywhere, fetches again as much as
+  // is loaded, a page at a time. Neither cuts what is loaded, so the grid
+  // keeps its height and its scroll position.
   let refreshTimer = 0;
-  function refreshSoon() {
+  let refreshAll = false;
+  function refreshSoon(all) {
+    refreshAll ||= all;
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(async () => {
       const g = gen;
+      const whole = refreshAll;
+      refreshAll = false;
       try {
-        const page = await api.mediaPage(channelId, tab, "", Math.max(PAGE, items.length));
-        if (g !== gen) return;
-        items = page?.items || [];
-        next = page?.next || "";
+        if (!whole) {
+          const page = await api.mediaPage(channelId, tab, "", PAGE);
+          if (g !== gen) return;
+          const m = mergeHead(items, next, page?.items || [], page?.next || "");
+          if (m) {
+            items = m.items;
+            next = m.next;
+            return;
+          }
+        }
+        await reloadLoaded(g);
       } catch {
         /* the next change or reopen tries again */
       }
     }, 400);
   }
+  async function reloadLoaded(g) {
+    const want = Math.max(PAGE, items.length);
+    let got = [];
+    let cur = "";
+    do {
+      const page = await api.mediaPage(channelId, tab, cur, Math.min(PAGE_MAX, want - got.length));
+      if (g !== gen) return;
+      got = mergePage(got, page?.items || []);
+      cur = page?.next || "";
+    } while (cur && got.length < want);
+    items = got;
+    next = cur;
+  }
   onMount(() => {
     const offMsg = on("message", (m) => {
       if (!m || m.channelId !== channelId) return;
-      if (m.deleted || m.expired) items = withoutMessage(items, m.id);
-      else if (hasAttachment(m.content || "") || items.some((it) => it.messageId === m.id)) refreshSoon();
+      if (m.deleted || m.expired) {
+        items = withoutMessage(items, m.id);
+        return;
+      }
+      const held = items.find((it) => it.messageId === m.id);
+      // A held item's message changes the gallery only by an edit or by its
+      // signature arriving; a reaction or a pin does not.
+      if (held) {
+        if (m.edited || !!m.unverified !== !!held.unverified) refreshSoon(true);
+      } else if (hasAttachment(m.content || "")) refreshSoon(!!m.edited);
     });
     const offHide = on("message-hidden", (h) => {
       if (!h || h.channelId !== channelId) return;
       if (h.hidden) items = withoutMessage(items, h.messageId);
-      else refreshSoon();
+      else refreshSoon(true);
     });
     // A picture the feed (or the viewer) has just decrypted: its tile can
     // draw it now. Batched to one redraw per frame.
@@ -298,10 +338,10 @@
     if (it) menu(e, it);
   }
   const who = (it) => nameFor(it.sender, it.senderName);
+  const unsigned = (it) => unsignedItem(it, S.identity.fingerprint);
   const tileLabel = (it) =>
-    it.spoiler
-      ? "Spoiler"
-      : `${it.kind === KIND_VIDEO ? "Video" : "Photo"} from ${who(it)}, ${fmtClock(it.sent)}`;
+    (it.spoiler ? "Spoiler" : `${it.kind === KIND_VIDEO ? "Video" : "Photo"} from ${who(it)}, ${fmtClock(it.sent)}`) +
+    (unsigned(it) ? `. ${UNSIGNED_LABEL}` : "");
 </script>
 
 <svelte:window onresize={() => (landscape = window.innerWidth > window.innerHeight)} />
@@ -371,6 +411,7 @@
                   </span>
                 {/if}
                 {#if it.spoiler}<span class="tag">Spoiler</span>{/if}
+                {#if unsigned(it)}<span class="uns" data-testid="unsigned-mark"><Icon name="info" size={11} /></span>{/if}
                 {#if it.kind === KIND_VIDEO}
                   <span class="dur">{fmtDuration(durationOf(it.blobId)) || fmtBytes(it.size)}</span>
                 {/if}
@@ -398,7 +439,15 @@
             <span class="fic"><Icon name={isVoice(it) ? "mic" : "attach"} size={16} /></span>
             <span class="ftext">
               <span class="ftitle"><bdi>{isVoice(it) ? "Voice message" : midTrunc(it.name, 40)}</bdi></span>
-              <span class="fsub">{isVoice(it) ? fmtBytes(it.size) : fileSub(it)} · {who(it)} · {fmtClock(it.sent)}</span>
+              <span class="fsub"
+                >{isVoice(it) ? fmtBytes(it.size) : fileSub(it)} · {who(it)}{#if unsigned(it)}<span
+                    class="uns-inline"
+                    role="img"
+                    data-testid="unsigned-mark"
+                    use:tooltip={UNSIGNED_TIP}
+                    aria-label={UNSIGNED_LABEL}><Icon name="info" size={11} /></span
+                  >{/if} · {fmtClock(it.sent)}</span
+              >
             </span>
           </button>
         {/if}
@@ -492,7 +541,8 @@
   }
   .tag,
   .dur,
-  .state {
+  .state,
+  .uns {
     position: absolute;
     font-size: var(--fs-small);
     color: #fff;
@@ -506,6 +556,19 @@
     left: 6px;
     font-weight: 700;
     letter-spacing: 0.6px;
+  }
+  /* The feed's "unsigned copy" mark, in the tile's free corner. */
+  .uns {
+    top: 6px;
+    right: 6px;
+    display: inline-flex;
+    padding: 3px;
+  }
+  .uns-inline {
+    display: inline-flex;
+    vertical-align: -1px;
+    margin-left: 3px;
+    color: var(--text-faint);
   }
   .dur {
     right: 6px;

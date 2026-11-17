@@ -7,6 +7,7 @@
 // here is arithmetic on plain data so it can be tested without a page.
 
 import { fileLabel } from "./attachments.js";
+import { showUnsignedMark } from "./unsigned.js";
 
 export const KIND_PHOTO = 1;
 export const KIND_VIDEO = 2;
@@ -18,6 +19,8 @@ export const TAB_FILES = 2;
 // asks for the next page (in rows).
 export const PAGE = 120;
 export const PREFETCH_ROWS = 6;
+// The core's cap on one page (store.MediaPageMax).
+export const PAGE_MAX = 2000;
 
 export const itemKey = (it) => `${it.messageId}:${it.ord}`;
 
@@ -28,6 +31,29 @@ export function mergePage(items, page) {
   const have = new Set(items.map(itemKey));
   const add = page.filter((it) => !have.has(itemKey(it)));
   return add.length ? items.concat(add) : items;
+}
+
+// mergeHead puts a freshly fetched first page (head, and the cursor after
+// it) in front of what is loaded, for a refresh after a new message. The page
+// replaces the loaded items it covers; the loaded items older than its last
+// stay as they are, with the loaded list's own cursor, so a refresh neither
+// cuts a long list nor refetches it. Returns { items, next }, or null when
+// the page does not meet what is loaded (more new items than a page): the
+// caller then fetches again as much as it had.
+export function mergeHead(items, next, head, headNext) {
+  if (!headNext || !head.length) return { items: head, next: "" };
+  const lastKey = itemKey(head[head.length - 1]);
+  const j = items.findIndex((it) => itemKey(it) === lastKey);
+  if (j >= 0) return { items: head.concat(items.slice(j + 1)), next };
+  const inHead = new Set(head.map(itemKey));
+  if (items.every((it) => inHead.has(itemKey(it)))) return { items: head, next: headNext };
+  return null;
+}
+
+// unsignedItem: the feed's "unsigned copy" mark (lib/unsigned.js), for the
+// message a gallery item came in.
+export function unsignedItem(it, selfFingerprint) {
+  return showUnsignedMark({ unverified: it.unverified, sender: it.sender, kind: it.guest ? "guest" : "" }, selfFingerprint);
 }
 
 // withoutMessage drops every item of one message: it was deleted, hidden,
