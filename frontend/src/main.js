@@ -15,26 +15,37 @@ installInputMode();
 // let it lose the race harmlessly — an emoji that misses it simply stays still.
 loadAnimatedEmoji();
 
-// The browser build's bearer token (main_web.go). It arrives once on the URL
-// the binary opens, then lives in localStorage so a reload — or a second tab
-// the user opens by hand — still authenticates. localStorage is the right
-// place precisely because the threat this token exists for is ANOTHER LOCAL
-// PROCESS curling 127.0.0.1, which cannot read this origin's storage.
+// The browser build's bearer token (main_web.go). The binary never hands it
+// out directly: the URL it opens (and the one concord-url.sh prints) carries a
+// single-use launch code, ?c=, which this trades once for the token over POST
+// /launch (internal/httpapi/launch.go). The token then lives in localStorage
+// so a reload, or a second tab the user opens by hand, still authenticates.
+// localStorage is the right place precisely because the threat this token
+// exists for is ANOTHER LOCAL PROCESS curling 127.0.0.1, which cannot read
+// this origin's storage. ?t= (a token outright) is still read: the dev
+// scripts and the test harness pin a token and open with it.
 const TOKEN_KEY = "concord.apiToken";
-function browserToken() {
+async function browserToken() {
   let token = "";
   try {
     const url = new URL(window.location.href);
+    const code = url.searchParams.get("c") || "";
     token = url.searchParams.get("t") || "";
-    if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
-      // Strip it from the address bar so it stays out of history, bookmarks,
-      // and any screenshot of the window.
-      url.searchParams.delete("t");
-      history.replaceState(null, "", url.pathname + url.search + url.hash);
-    } else {
-      token = localStorage.getItem(TOKEN_KEY) || "";
+    // Strip both from the address bar first, so neither stays in history,
+    // bookmarks or a screenshot of the window, whatever the trade does.
+    url.searchParams.delete("c");
+    url.searchParams.delete("t");
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+    if (code && !token) {
+      const r = await fetch("/launch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      if (r.ok) token = (await r.json()).token || "";
     }
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else token = localStorage.getItem(TOKEN_KEY) || "";
   } catch {
     /* file:// or a locked-down storage policy: fall through unauthenticated
        and let the API surface the 401 rather than failing silently here. */
@@ -81,7 +92,7 @@ async function boot() {
   } else {
     // Browser build: same origin, but the RPC surface now wants the token the
     // binary handed us. Empty is tolerated so a dev server still mounts.
-    configureTransport({ baseURL: "", authToken: browserToken() });
+    configureTransport({ baseURL: "", authToken: await browserToken() });
   }
   await packs;
   return mount(App, { target: document.getElementById("app") });

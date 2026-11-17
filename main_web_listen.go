@@ -19,15 +19,20 @@
 //     the journal, POST Login" hook, and it survives an in-app self-update,
 //     which re-execs with the same environment.
 //
-// None of these change the defaults: unset, the shell binds 127.0.0.1:8787 and
-// prints its tokenized URL exactly as before.
+// Unset, the shell binds 127.0.0.1:8787. It never prints its token: it opens
+// the browser with a single-use launch code, and a launcher gets a fresh code
+// from the launch socket (serveLaunchSocket, internal/httpapi/launch.go).
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -154,4 +159,45 @@ func readPassphraseFile(path string) (string, error) {
 		return "", fmt.Errorf("%s is empty", path)
 	}
 	return s, nil
+}
+
+// serveLaunchSocket answers GET /code on a unix socket with a fresh launch
+// code (internal/httpapi/launch.go), so a launcher can open the app without
+// the token ever being written anywhere. The socket lives in <runDir>/concord,
+// a directory only this user can enter, and is itself owner-only; it is
+// removed when ctx ends.
+func serveLaunchSocket(ctx context.Context, runDir, addr string, mint func() string) (string, error) {
+	dir := filepath.Join(runDir, "concord")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", err
+	}
+	name := strings.NewReplacer(":", "_", "/", "_", "[", "", "]", "").Replace(addr)
+	path := filepath.Join(dir, "launch-"+name+".sock")
+	if err := clearStaleSocket(path); err != nil {
+		return "", err
+	}
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return "", err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		ln.Close()
+		return "", err
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/code", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = io.WriteString(w, mint()+"\n")
+	})
+	srv := &http.Server{Handler: mux}
+	go func() {
+		<-ctx.Done()
+		_ = srv.Close()
+		_ = os.Remove(path)
+	}()
+	go func() { _ = srv.Serve(ln) }()
+	return path, nil
 }

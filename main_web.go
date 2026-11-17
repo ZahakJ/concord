@@ -96,6 +96,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rpc", srv.HandleRPC)
 	mux.HandleFunc("/events", srv.HandleEvents)
+	mux.HandleFunc("/launch", srv.HandleLaunch)
 	mux.Handle("/", staticAssets())
 
 	// Clear the parked binary from a completed self-update, if any.
@@ -107,11 +108,12 @@ func main() {
 		_ = httpSrv.Close()
 	}()
 
-	// The token rides the opened URL once; the page stores it and strips it
-	// from the address bar (frontend/src/main.js), so it does not linger in
-	// browser history or in a screenshot of the window.
+	// The token never leaves this process on its own. What opens the page is a
+	// single-use launch code (internal/httpapi/launch.go), which the page
+	// trades for the token and then strips from the address bar
+	// (frontend/src/main.js). A code is all that reaches the browser's command
+	// line, a terminal or a launcher, and it is spent or dead within minutes.
 	sock, isSock := socketPath(addr)
-	url := "http://" + addr + "/?t=" + token
 	ln, err := listen(addr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "concord:", err)
@@ -132,10 +134,14 @@ func main() {
 	case tokenFile != "":
 		fmt.Printf("Concord is running — http://%s (token in %s)\n", addr, tokenFile)
 	default:
-		// Print the URL WITH the token: on a headless box (CONCORD_NO_OPEN) this
-		// line is the only way in, and the terminal is already as trusted as the
-		// process itself.
-		fmt.Printf("Concord is running — %s\n", url)
+		fmt.Println(startupLine(addr, stdoutIsTerminal(), srv.MintLaunchCode))
+	}
+	// A launcher (concord-url.sh) asks this socket for a fresh code each time
+	// it opens the app, so nothing needs to scrape a log for a way in.
+	if run := os.Getenv("XDG_RUNTIME_DIR"); run != "" && !isSock {
+		if _, err := serveLaunchSocket(ctx, run, addr, srv.MintLaunchCode); err != nil {
+			fmt.Fprintln(os.Stderr, "concord: launch socket:", err)
+		}
 	}
 	// Unlock from a file when asked: a service then comes up signed in, and
 	// stays signed in across a self-update's re-exec (same environment). Runs
@@ -156,7 +162,7 @@ func main() {
 		}()
 	}
 	if os.Getenv("CONCORD_NO_OPEN") == "" && !isSock {
-		go openBrowser(url)
+		go openBrowser("http://" + addr + "/?c=" + srv.MintLaunchCode())
 	}
 	if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintln(os.Stderr, "concord:", err)
@@ -192,4 +198,21 @@ func openBrowser(url string) {
 		cmd = exec.Command("xdg-open", url)
 	}
 	_ = cmd.Start()
+}
+
+// startupLine is what the binary says once it is listening. Under a service
+// manager that line is kept in a log any process of this user can read, so
+// off a terminal it names only the address. On a terminal (a headless box run
+// by hand with CONCORD_NO_OPEN, say) it carries a launch code: the person
+// reading it is the one who started the process, and the code is single use.
+func startupLine(addr string, terminal bool, mint func() string) string {
+	if !terminal {
+		return "Concord is running — http://" + addr + " (open it with concord-url.sh, or the window it opened)"
+	}
+	return "Concord is running — http://" + addr + "/?c=" + mint() + "  (one use, 2 minutes; concord-url.sh makes another)"
+}
+
+func stdoutIsTerminal() bool {
+	fi, err := os.Stdout.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }

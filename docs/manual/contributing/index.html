@@ -129,8 +129,10 @@ strips it from the address bar. Every request to the core needs it, so open the
 URL as printed rather than retyping the bare host, or you get <code>unauthorized</code>.</p>
 <p>You can also drive a peer without a browser. The UI talks to the core over a
 small JSON-RPC endpoint, and so can you. <code>make peers</code> pins one token for the
-run and prints it; a standalone binary mints a random one and prints it on the
-URL at startup:</p>
+run and prints it. A standalone binary mints a random token and never prints
+it: it opens the browser with a single-use launch code (<code>?c=</code>), and a launcher
+gets a fresh one from <code>$XDG_RUNTIME_DIR/concord/launch-&lt;addr&gt;.sock</code> (<code>curl --unix-socket &lt;sock&gt; http://launch/code</code>). To drive one from the shell, pin the
+token yourself:</p>
 <pre data-lang="sh"><code class="language-sh">export CONCORD_API_TOKEN=&lt;the token make peers printed&gt;
 curl -s -X POST http://127.0.0.1:8801/rpc \
   -H &quot;Authorization: Bearer $CONCORD_API_TOKEN&quot; \

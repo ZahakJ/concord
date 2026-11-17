@@ -125,8 +125,11 @@ URL as printed rather than retyping the bare host, or you get `unauthorized`.
 
 You can also drive a peer without a browser. The UI talks to the core over a
 small JSON-RPC endpoint, and so can you. `make peers` pins one token for the
-run and prints it; a standalone binary mints a random one and prints it on the
-URL at startup:
+run and prints it. A standalone binary mints a random token and never prints
+it: it opens the browser with a single-use launch code (`?c=`), and a launcher
+gets a fresh one from `$XDG_RUNTIME_DIR/concord/launch-<addr>.sock` (`curl
+--unix-socket <sock> http://launch/code`). To drive one from the shell, pin the
+token yourself:
 
 ```sh
 export CONCORD_API_TOKEN=<the token make peers printed>

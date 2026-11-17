@@ -40,6 +40,9 @@ type Server struct {
 	// browser CSRF guard, not authentication.
 	authToken string
 
+	// launch holds the single-use codes that buy authToken (launch.go).
+	launch *launchCodes
+
 	// corsOrigins are Origin values (beyond loopback ones) that receive CORS
 	// response headers, letting a webview served from its own scheme — Capacitor's
 	// capacitor://localhost (iOS) and http://localhost (Android) — read responses.
@@ -75,7 +78,7 @@ func New(ctx context.Context, trusted bool, opts ...Option) *Server {
 }
 
 func NewWith(b *bridge.Bridge, trusted bool, opts ...Option) *Server {
-	s := &Server{b: b, trusted: trusted, clients: map[chan sseEvent]struct{}{}}
+	s := &Server{b: b, trusted: trusted, clients: map[chan sseEvent]struct{}{}, launch: newLaunchCodes()}
 	for _, o := range opts {
 		o(s)
 	}
