@@ -83,3 +83,32 @@ func TestUncleanableVideoWaitsForTheChoice(t *testing.T) {
 		t.Fatal("a cleanable video sent 'as is' kept its details")
 	}
 }
+
+// A picture format that can carry location and that nothing here cleans
+// (TIFF and camera raw, JPEG XL, JPEG 2000) waits for the same choice.
+func TestUncleanablePictureFormatsWaitForTheChoice(t *testing.T) {
+	svc, _, ch := cleanFixture(t)
+	for name, b := range map[string][]byte{
+		"tiff": []byte("II*\x00\x08\x00\x00\x00GPS-SECRET"),
+		"dng":  []byte("MM\x00*\x00\x00\x00\x08GPS-SECRET"),
+		"jxl":  []byte("\x00\x00\x00\x0cJXL \r\n\x87\nGPS-SECRET"),
+		"jp2":  []byte("\x00\x00\x00\x0cjP  \r\n\x87\nGPS-SECRET"),
+	} {
+		uri := "data:application/octet-stream;base64," + base64.StdEncoding.EncodeToString(b)
+		_, err := svc.SendFile(ch, uri, "pic."+name, "", "", "")
+		if err == nil || !strings.Contains(err.Error(), MediaAsIsMarker+"photo") {
+			t.Fatalf("%s: %v, want the as-is refusal for a photo", name, err)
+		}
+		msg, err := svc.SendFileAsIs(ch, uri, "pic."+name, "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := sealedBytes(t, svc, ch, msg.Content, sentFileRe); !bytes.Equal(got, b) {
+			t.Fatalf("%s: the chosen file was not sent as it is", name)
+		}
+	}
+	// A document is not a picture: it goes as it always did.
+	if _, err := svc.SendFile(ch, "data:text/plain;base64,"+base64.StdEncoding.EncodeToString([]byte("II, a note")), "n.txt", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+}

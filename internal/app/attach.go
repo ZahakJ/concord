@@ -279,6 +279,13 @@ func (s *Service) sendFile(channelID, dataURL, filename, replyTo, text, dir stri
 		if plain, err = cleanImage(plain); err != nil {
 			return domain.Message{}, err
 		}
+	case uncleanablePicture(plain):
+		// A picture format that can carry a camera's location and that
+		// nothing here cleans: held for the same choice as a video the
+		// cleaner refuses.
+		if !asIs {
+			return domain.Message{}, fmt.Errorf("app: the %sphoto, so it would be sent as it is", MediaAsIsMarker)
+		}
 	case bmffmeta.Sniff(plain):
 		out, kind, err := bmffmeta.StripBytes(plain)
 		switch {
@@ -297,6 +304,25 @@ func (s *Service) sendFile(channelID, dataURL, filename, replyTo, text, dir stri
 	token := fmt.Sprintf("[file](concord://file/v1/%s/%s/%d/%s/%s)",
 		blobID, keys, len(plain), b64url.EncodeToString([]byte(mime)), b64url.EncodeToString([]byte(filename)))
 	return s.sendAs(channelID, withText(token, text), "", replyTo, "", dir)
+}
+
+// uncleanablePicture reports picture formats that can carry location (in
+// TIFF tags, an Exif box, a GeoJP2 uuid) and that no cleaner here reads:
+// TIFF and the camera raw formats built on it (DNG, CR2, NEF, ARW), JPEG XL
+// and JPEG 2000.
+func uncleanablePicture(b []byte) bool {
+	for _, sig := range []string{
+		"II*\x00", "MM\x00*", "II+\x00", "MM\x00+", // TIFF, BigTIFF
+		"\xff\x0a",                       // JPEG XL codestream
+		"\x00\x00\x00\x0cJXL \r\n\x87\n", // JPEG XL container
+		"\x00\x00\x00\x0cjP  \r\n\x87\n", // JPEG 2000
+		"\xff\x4f\xff\x51",               // JPEG 2000 codestream
+	} {
+		if strings.HasPrefix(string(b), sig) {
+			return true
+		}
+	}
+	return false
 }
 
 // mediaNoun names a file the way the person thinks of it.
