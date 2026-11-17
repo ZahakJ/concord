@@ -204,7 +204,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     max-width: 32ch;
     text-align: center;
     color: rgba(255, 255, 255, 0.85);
