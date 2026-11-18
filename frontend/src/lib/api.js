@@ -715,31 +715,70 @@ export const api = {
 
 // Shared SSE connection for the browser transport. EventSource can't set
 // headers, so the mobile token rides a query parameter instead.
+//
+// Every subscription is kept in `streamListeners` as well as on the live
+// EventSource, so the stream can be replaced wholesale (reopenEvents) without
+// any subscriber noticing. That replacement is the cure for a phone: iOS
+// freezes a page that is not on screen, and the socket under its EventSource
+// dies with it, often without an `error`. Back on screen the EventSource still
+// says OPEN and simply never hears anything again, so the chat stays exactly
+// as it was when the user left. Nothing on the wire can tell this page so; the
+// page has to notice it was away (lib/resume.js) and redial.
 let eventSource = null;
+let streamOpens = 0;
+const streamListeners = new Map(); // event name -> Set of listeners
+const reopenWatchers = new Set();
+
 function sse() {
   if (!eventSource) {
     const qs = new URLSearchParams();
     if (apiToken) qs.set("token", apiToken);
     qs.set("client", clientID);
-    eventSource = new EventSource(`${apiBase}/events?${qs}`);
+    const es = new EventSource(`${apiBase}/events?${qs}`);
+    eventSource = es;
+    for (const [name, set] of streamListeners) for (const l of set) es.addEventListener(name, l);
     // An EventSource redials on its own after a dropped connection, and the
     // backend enters a reconnecting client into the visibility vote as
     // VISIBLE — the fail-safe direction, since being wrong there only costs a
     // node that stays eager slightly too long. Correct it straight away if
     // this page is in fact hidden; a visible page needs no call, because
     // visible is already what the backend assumed.
-    eventSource.addEventListener("open", () => {
+    es.addEventListener("open", () => {
+      if (es !== eventSource) return;
       reportTransport(true);
       if (typeof document !== "undefined" && document.hidden) {
         call("SetClientVisible", clientID, false).catch(() => {});
       }
+      // Any open after the first is a stream that was down for a while, and
+      // the backend does not replay what it said meanwhile: whatever arrived
+      // in that gap reached this page only if someone fetches it.
+      if (streamOpens++ > 0) for (const cb of [...reopenWatchers]) cb();
     });
     // EventSource redials on its own schedule; `error` fires on every failed
     // attempt, so this is also the heartbeat that keeps the bar up while the
     // core is down, and `open` above is what takes it away again.
-    eventSource.addEventListener("error", () => reportTransport(false));
+    es.addEventListener("error", () => es === eventSource && reportTransport(false));
   }
   return eventSource;
+}
+
+// onStreamReopen calls cb every time the event stream comes back after the
+// first connect: the moment to fetch what was said while it was down.
+export function onStreamReopen(cb) {
+  reopenWatchers.add(cb);
+  return () => reopenWatchers.delete(cb);
+}
+
+// reopenEvents drops the event stream and dials a fresh one, whatever state
+// the old one claims to be in. Its `open` fires onStreamReopen. No-op where
+// events do not ride SSE (the desktop shell) or nothing has subscribed yet.
+export function reopenEvents() {
+  if (!eventSource) return;
+  const old = eventSource;
+  eventSource = null;
+  sse(); // the new stream is up before the old one is let go: the backend
+  // counts this page's streams, and it is never at zero in between
+  old.close();
 }
 
 // on subscribes to a backend event and returns an unsubscribe function.
@@ -759,6 +798,11 @@ export function on(event, handler) {
     }
     handler(data);
   };
+  if (!streamListeners.has(event)) streamListeners.set(event, new Set());
+  streamListeners.get(event).add(listener);
   sse().addEventListener(event, listener);
-  return () => sse().removeEventListener(event, listener);
+  return () => {
+    streamListeners.get(event)?.delete(listener);
+    eventSource?.removeEventListener(event, listener);
+  };
 }

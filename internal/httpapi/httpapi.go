@@ -234,6 +234,15 @@ func (s *Server) HandleEvents(w http.ResponseWriter, r *http.Request) {
 	s.addClient(ch)
 	defer s.removeClient(ch)
 
+	// Answer now, not with the first event. The browser holds an EventSource
+	// at CONNECTING until the response headers arrive, and Go sends them with
+	// the first flush, so a stream dialled into a quiet node never opened —
+	// and its `open` is what tells the page to fetch what it missed while the
+	// last stream was dead (a phone back from the background redials into
+	// exactly that quiet). The comment line is ignored by EventSource.
+	fmt.Fprint(w, ": ok\n\n")
+	flusher.Flush()
+
 	for {
 		select {
 		case <-r.Context().Done():

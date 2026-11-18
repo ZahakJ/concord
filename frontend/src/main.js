@@ -1,7 +1,8 @@
 import { mount } from "svelte";
 import "./app.css";
 import App from "./App.svelte";
-import { configureTransport } from "./lib/api.js";
+import { configureTransport, reopenEvents } from "./lib/api.js";
+import { appRendered, installResume } from "./lib/resume.js";
 import { themePacksReady } from "./lib/state.svelte.js";
 import { loadAnimatedEmoji } from "./lib/markdown.js";
 import { installInputMode } from "./lib/inputmode.js";
@@ -99,5 +100,13 @@ async function boot() {
 }
 
 const app = boot();
+
+// A page the phone froze comes back with a dead event stream, or with nothing
+// rendered at all; lib/resume.js deals with both. "Nothing rendered" only
+// counts once boot has finished one way or the other: a phone's core can take
+// a while to start, and that is not a page to throw away.
+let booted = false;
+app.finally(() => (booted = true)).catch(() => {});
+installResume({ reopen: reopenEvents, rendered: () => !booted || appRendered() });
 
 export default app;

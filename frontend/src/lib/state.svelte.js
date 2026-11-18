@@ -4,7 +4,7 @@
 import { tick, untrack } from "svelte";
 import { closeGuildSwitcher } from "./guildswitch.svelte.js";
 import { MOM } from "./momentsunseen.svelte.js";
-import { api, on, onTransportHealth, probeCore } from "./api.js";
+import { api, on, onStreamReopen, onTransportHealth, probeCore } from "./api.js";
 import { notify, retract, wantsPermissionPrompt, trayPosts, asksLazily, sendNativePolicy } from "./notify.js";
 import { createPolicySync } from "./nativepolicy.js";
 import { draftIn, noteDraft } from "./drafts.svelte.js";
@@ -2926,7 +2926,23 @@ onTransportHealth((up) => {
     refreshGuilds().catch(() => {});
     refreshRightPanel().catch(() => {});
     refreshNetStatus();
+    catchUpChannel();
   }
+});
+
+// The stream back after a gap (a core restart, a network drop, or a page the
+// phone froze and lib/resume.js redialled): nothing said meanwhile reached this
+// page, so fetch it — the open channel's rows, the rail, the panel, the reads
+// other devices made and the badges they imply.
+onStreamReopen(() => {
+  if (!S.ready) return;
+  catchUpChannel();
+  refreshGuilds()
+    .then(() => syncReadState())
+    .then(() => recomputeUnread())
+    .catch(() => {});
+  refreshRightPanel().catch(() => {});
+  refreshNetStatus();
 });
 
 // ---- notification permission, asked late ----
@@ -3651,6 +3667,44 @@ export async function retryHistory() {
   if (!e) return;
   S.historyError = null;
   if (!e.older && S.activeChannelId) await selectChannel(S.activeChannelId);
+}
+
+// catchUpChannel brings the open channel up to date in place: the newest page
+// is fetched and merged into what is on screen, without clearing the feed or
+// moving the reader. For a stream that was down — events said in the gap are
+// never replayed — and for a page coming back after the phone froze it.
+export async function catchUpChannel() {
+  const id = S.activeChannelId;
+  if (!id) return;
+  let fresh;
+  try {
+    fresh = (await api.messages(id)) || [];
+  } catch {
+    return; // the next reopen or channel switch tries again
+  }
+  if (S.activeChannelId !== id || !fresh.length) return;
+  const byId = new Map(S.messages.map((m) => [m.id, m]));
+  // More was missed than one page holds: the rows on screen and the fresh
+  // ones no longer touch, so the fresh page replaces them, gap and all.
+  const touches = S.messages.length && fresh[0].sent <= S.messages[S.messages.length - 1].sent;
+  let merged;
+  if (!touches) {
+    merged = fresh;
+    feedOldest = fresh[0].sent;
+    S.feedReachedStart = fresh.length < 200;
+  } else {
+    for (const m of fresh) byId.set(m.id, m);
+    merged = [...byId.values()].sort((a, b) => (a.sent < b.sent ? -1 : a.sent > b.sent ? 1 : 0));
+  }
+  for (const m of fresh) if (m.id) countedMsgIds.add(m.id);
+  const nearBottom = feedNearBottom();
+  S.messages = merged;
+  if (readingNow()) {
+    let newest = "";
+    for (const m of fresh) if (m.sent > newest) newest = m.sent;
+    if (newest) markRead(id, newest);
+  }
+  if (nearBottom) scrollSoon();
 }
 
 // loadOlder pages in the messages just before the oldest row currently loaded.
