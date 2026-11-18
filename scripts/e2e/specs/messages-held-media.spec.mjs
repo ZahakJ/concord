@@ -49,9 +49,16 @@ test("a held video waits for the person's choice on its row", async ({ world, as
   const a = await alice.open();
   await a.openChannel("general", "Clips");
   const files = async () => (await alice.messages(general)).filter((m) => m.content.includes("concord://file/")).length;
+  // Reading a picked file takes a moment, and an Enter pressed before it is
+  // staged has nothing to send. Wait for the finished chip, not the spinner
+  // that shares its class.
+  const stage = async (file) => {
+    await a.attach(file);
+    await waitFor(async () => (await a.page.locator(".attach-tray .att-chip:not(.loading)").count()) === 1, { message: "the file to be staged" });
+  };
 
   step("a video with subtitles is held with both choices, and nothing is sent");
-  await a.attach(subs);
+  await stage(subs);
   await a.composer().press("Enter");
   const row = a.page.locator(".pmsg").filter({ hasText: "subtitles or other text tracks" });
   await row.waitFor();
@@ -66,14 +73,14 @@ test("a held video waits for the person's choice on its row", async ({ world, as
   await row.waitFor({ state: "detached" });
 
   step("Send as it is sends it unchanged");
-  await a.attach(subs);
+  await stage(subs);
   await a.composer().press("Enter");
   await row.waitFor();
   await row.getByRole("button", { name: "Send as it is" }).click();
   await waitFor(async () => (await files()) === 2, { message: "the video to be sent as it is" });
 
   step("a Matroska file is held with Send as it is only");
-  await a.attach(mkv);
+  await stage(mkv);
   await a.composer().press("Enter");
   const row2 = a.page.locator(".pmsg").filter({ hasText: "couldn't remove the details stored in this video" });
   await row2.waitFor();
@@ -85,10 +92,11 @@ test("a held video waits for the person's choice on its row", async ({ world, as
 
   step("a thread started with a held video is not created");
   const before = (await alice.messages(general)).length;
-  await a.page.getByRole("button", { name: "Attach a file, GIF, poll, or more" }).click();
-  await a.page.getByText("Thread", { exact: true }).click();
+  await a.page.getByRole("button", { name: "Add to your message" }).click();
+  await a.page.getByRole("menuitem", { name: /^Thread/ }).click();
   const dialog = a.page.getByRole("dialog");
   await dialog.getByLabel("Post title").fill("Footage from the trip");
+  await dialog.getByPlaceholder("Start the discussion…").fill("The clip from the ridge.");
   await dialog.locator('input[type="file"]').first().setInputFiles(subs);
   await waitFor(async () => (await dialog.getByText("subs.mp4").count()) > 0, { message: "the file to be staged in the dialog" });
   await dialog.locator("button.primary.go").click();
