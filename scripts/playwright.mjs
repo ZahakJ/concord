@@ -22,6 +22,12 @@ function resolveEntry(candidate) {
 }
 
 export async function loadChromium() {
+  return (await loadPlaywright()).chromium;
+}
+
+// loadPlaywright returns the whole playwright-core module, for a driver that
+// picks its browser (the e2e runner's BROWSER=webkit).
+export async function loadPlaywright() {
   const candidates = [
     process.env.PLAYWRIGHT_CORE,
     path.join(process.cwd(), "node_modules", "playwright-core"),
@@ -31,7 +37,7 @@ export async function loadChromium() {
   for (const candidate of candidates) {
     const entry = resolveEntry(candidate);
     // pathToFileURL: a bare absolute path is not a valid import specifier.
-    if (entry) return (await import(pathToFileURL(entry).href)).chromium;
+    if (entry) return await import(pathToFileURL(entry).href);
   }
 
   console.error(

@@ -410,7 +410,12 @@ export class App {
       isMobile: !!phone,
       reducedMotion: o.reducedMotion ? "reduce" : "no-preference",
       colorScheme: o.colorScheme || "dark",
-      permissions: ["microphone", "camera", "notifications", "clipboard-read", "clipboard-write"],
+      // WebKit refuses permission names it does not know rather than ignoring
+      // them, and grants none of these: under BROWSER=webkit, ask for none.
+      permissions:
+        browser.browserType().name() === "webkit"
+          ? []
+          : ["microphone", "camera", "notifications", "clipboard-read", "clipboard-write"],
     });
     // Calls: every RTCPeerConnection the page makes is kept on window.__pcs,
     // so a spec can read getStats() and prove media moves, not just that a

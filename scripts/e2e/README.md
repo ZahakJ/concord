@@ -32,6 +32,7 @@ run `npm --prefix frontend run build` yourself.
 | `E2E_RENDEZVOUS_BIN` | built | Same for the rendezvous |
 | `E2E_BASE_PORT` | `47300` | Rendezvous on this port and the next; peers on base+10 to base+14 |
 | `CHROMIUM` | `/usr/bin/chromium` | Browser executable. When it does not exist, the browser playwright-core downloaded is used |
+| `BROWSER` | `chromium` | `webkit` runs the specs in WebKit, the iPhone engine (`npx playwright install webkit` first). Specs that need a fake camera or microphone stay Chromium-only |
 | `PLAYWRIGHT_CORE` | | Where to find `playwright-core` (see below) |
 | `E2E_TIMEOUT_SCALE` | `1` | Multiplies every timeout, for slow or loaded machines |
 | `E2E_KEEP_RUN` | | Keep the run directory even when everything passed |

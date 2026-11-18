@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadChromium } from "../playwright.mjs";
+import { loadPlaywright } from "../playwright.mjs";
 import * as H from "./harness.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -129,10 +129,20 @@ rdvBin = path.resolve(rdvBin);
 
 const token = `e2e${process.pid}`.padEnd(32, "0");
 
-const chromium = await loadChromium();
+const pw = await loadPlaywright();
+const chromium = pw.chromium;
 const CHROMIUM = process.env.CHROMIUM || "/usr/bin/chromium";
+// BROWSER=webkit runs the specs in WebKit, the engine behind every iPhone
+// browser, from playwright-core's own download (`npx playwright install
+// webkit`). Media flags are Chromium's and do not apply; specs that need a
+// fake camera or microphone are Chromium-only.
+const BROWSER = process.env.BROWSER || "chromium";
 async function getBrowser() {
   if (browser) return browser;
+  if (BROWSER === "webkit") {
+    browser = await pw.webkit.launch({ headless: true });
+    return browser;
+  }
   const args = [
     "--use-fake-ui-for-media-stream",
     "--use-fake-device-for-media-stream",
