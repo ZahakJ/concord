@@ -1476,6 +1476,7 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	// The row, its place on the gallery's queue and its blob references are
 	// one transaction: a row saved without them would never be indexed,
 	// since saving the same id again is a no-op.
+	blobs := BlobIDsIn(m.Content)
 	tx, err := s.db.Begin()
 	if err != nil {
 		return false, fmt.Errorf("store: save message: %w", err)
@@ -1499,7 +1500,7 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	if err := queueMedia(tx, m); err != nil {
 		return false, fmt.Errorf("store: save message: %w", err)
 	}
-	if err := noteBlobRefs(tx, m.ID, m.Content); err != nil {
+	if err := insertBlobRefs(tx, m.ID, blobs); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {

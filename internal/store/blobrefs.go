@@ -106,7 +106,11 @@ func BlobIDsIn(body string) []string {
 // blobs of its earlier versions, which the message still holds until it is
 // deleted.
 func noteBlobRefs(q querier, messageID, body string) error {
-	for _, id := range BlobIDsIn(body) {
+	return insertBlobRefs(q, messageID, BlobIDsIn(body))
+}
+
+func insertBlobRefs(q querier, messageID string, ids []string) error {
+	for _, id := range ids {
 		if _, err := q.Exec(`INSERT INTO blob_refs (blob_id, message_id) VALUES (?, ?) ON CONFLICT DO NOTHING`, id, messageID); err != nil {
 			return fmt.Errorf("store: note blob refs: %w", err)
 		}
