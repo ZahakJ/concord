@@ -339,13 +339,14 @@ func TestBigVideoStreams(t *testing.T) {
 // with every "go test" of this package, GOARCH=386 included.
 func FuzzStrip(f *testing.F) {
 	var seeds [][]byte
-	for _, n := range []string{"android-fast.mp4", "android-tail.mp4", "iphone-fast.mov", "iphone-tail.mov", "photo.heic"} {
+	for _, n := range realFixtures {
 		b, err := os.ReadFile(filepath.Join("testdata", n))
 		if err != nil {
 			f.Fatal(err)
 		}
 		seeds = append(seeds, b)
 	}
+	seeds = append(seeds, fragSeeds()...)
 	for _, o := range []vopts{{moovFirst: true, gps: true}, {gps: true}, {co64: true}, {moovFirst: true, frag: true}} {
 		seeds = append(seeds, synthVideo(o))
 	}

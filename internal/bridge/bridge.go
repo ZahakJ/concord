@@ -2405,8 +2405,8 @@ func (b *Bridge) SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir s
 	return err
 }
 
-// SendFileWithoutText is SendFile for a video whose subtitle, text or
-// timecode tracks the person chose to remove (see app.SendFileWithoutText).
+// SendFileWithoutText is SendFile for a video whose subtitle or text tracks
+// the person chose to remove (see app.SendFileWithoutText).
 func (b *Bridge) SendFileWithoutText(channelID, dataURL, filename, replyTo, text, dir string) error {
 	svc, err := b.service()
 	if err != nil {

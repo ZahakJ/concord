@@ -22,8 +22,9 @@ type video struct {
 	opts       Options
 	tracks     []*track
 	anyDropped bool
-	textGone   bool // a subtitle, text or timecode track is dropped
+	textGone   bool // a subtitle or text track is dropped
 	audioOnly  bool // every kept track is sound
+	voice      bool // an audio-only file that says it is a recording
 	chunks     int  // chunks and fragment runs counted so far
 	samples    uint64
 	out        []byte
@@ -92,6 +93,9 @@ func planVideo(r io.ReaderAt, top []box, o Options) (*plan, error) {
 	}
 	if kept == 0 {
 		return nil, ErrRefused
+	}
+	if v.audioOnly {
+		v.voice = v.voiceRecording(mp, kids)
 	}
 	if frag && v.anyDropped {
 		// The dropped track's samples live in the fragments; clearing them
@@ -642,15 +646,17 @@ func (v *video) zeroTimes(b []byte, hdr int64) error {
 	return nil
 }
 
-// hdlr copies a handler box with its name cleared in place ("Core Media
-// Video", "GoPro AVC" name the device). The length stays, so a fragmented
+// hdlr copies a handler box with everything after the handler type cleared
+// in place: the name ("Core Media Video", "GoPro AVC" name the device) and,
+// before it, the 12 bytes MP4 reserves and QuickTime fills with a
+// manufacturer code and component flags. The length stays, so a fragmented
 // file's moov keeps its size: an MP4 name reads as empty (it ends at the
 // first zero), a QuickTime one too (its length byte is now zero).
 func (v *video) hdlr(b []byte, hdr int64) {
 	at := len(v.out)
 	v.raw(b)
-	if name := at + int(hdr) + 24; name < len(v.out) {
-		clear(v.out[name:])
+	if rest := at + int(hdr) + 12; rest < len(v.out) {
+		clear(v.out[rest:])
 	}
 }
 
@@ -826,6 +832,10 @@ func (v *video) emitStbl(p []byte, t *track) error {
 				}
 				continue
 			}
+			if err := v.emitSoundStsd(b, k.hdr); err != nil {
+				return err
+			}
+			continue
 		}
 		v.raw(b)
 	}
@@ -862,6 +872,7 @@ func (v *video) emitVisualStsd(p []byte) error {
 		v.out, ea = begin(v.out, e.typ)
 		head := len(v.out)
 		v.raw(ep[:78])
+		clear(v.out[head+vendorAt : head+vendorAt+4])
 		clear(v.out[head+42 : head+74])
 		tail := ep[78:]
 		var term []byte
@@ -883,6 +894,34 @@ func (v *video) emitVisualStsd(p []byte) error {
 		v.out = end(v.out, ea)
 	}
 	v.out = end(v.out, at)
+	return nil
+}
+
+// vendorAt is where, in a sample entry's payload, QuickTime keeps the
+// four-character code of the encoder's maker ("appl", "FFMP"); MP4 reserves
+// the same bytes and sets them to zero.
+const vendorAt = 12
+
+// emitSoundStsd copies a sound track's sample descriptions with each entry's
+// vendor field cleared. The rest of a sound entry (its several QuickTime
+// layouts, the decoder's configuration) is copied as it is.
+func (v *video) emitSoundStsd(b []byte, hdr int64) error {
+	p := b[hdr:]
+	if len(p) < 8 {
+		return ErrMalformed
+	}
+	ents, err := v.w.children(p[8:])
+	if err != nil {
+		return ErrRefused
+	}
+	at := len(v.out) + int(hdr) + 8
+	v.raw(b)
+	for _, e := range ents {
+		if e.end-e.payload() >= vendorAt+4 {
+			f := at + int(e.payload()) + vendorAt
+			clear(v.out[f : f+4])
+		}
+	}
 	return nil
 }
 
@@ -940,7 +979,7 @@ func (v *video) emitAudioTags(p []byte) {
 		}
 		var keep [][]byte
 		for _, it := range items {
-			if audioTags[it.typ] {
+			if audioTags[it.typ] && !(v.voice && it.typ == "\xa9nam") {
 				keep = append(keep, ilst[it.start:it.end])
 			}
 		}
@@ -1010,7 +1049,7 @@ func (v *video) emitKeysMeta(p []byte) error {
 		ent := rest[:sz]
 		rest = rest[sz:]
 		name := string(ent[8:])
-		if string(ent[4:8]) == "mdta" && (keepKeys[name] || v.audioOnly && audioKeys[name]) {
+		if string(ent[4:8]) == "mdta" && (keepKeys[name] || v.audioOnly && audioKeys[name] && !(v.voice && name == "com.apple.quicktime.title")) {
 			kept = append(kept, ent)
 			renum[i] = uint32(len(kept))
 		}
@@ -1051,4 +1090,140 @@ func (v *video) emitKeysMeta(p []byte) error {
 	v.out = end(v.out, la)
 	v.out = end(v.out, at)
 	return nil
+}
+
+// Recorders whose files say what made them. A voice recording loses its
+// title (phones often name a recording after the place it was made); a song
+// keeps it. Nothing else tells the two apart, and the file name is not read:
+// a file without one of these marks keeps its title.
+//
+//   - Voice Memos on iPhone, iPad and Mac writes its own name as the encoder
+//     tag ("com.apple.VoiceMemos (iPhone Version ...)") and a freeform tag
+//     named voice-memo-uuid.
+//   - Android's own recorder (MediaRecorder, which phone recorder apps and
+//     the camera use) writes the system version, and on some phones the
+//     maker and model, as QuickTime keys.
+const voiceMemosEncoder = "com.apple.VoiceMemos"
+
+var (
+	voiceMemosFreeform  = map[string]bool{"voice-memo-uuid": true}
+	androidRecorderKeys = map[string]bool{
+		"com.android.version":      true,
+		"com.android.manufacturer": true,
+		"com.android.model":        true,
+	}
+)
+
+// voiceRecording reports whether an audio-only file's own tags say it is a
+// recording rather than music. mp is moov's payload and kids its children.
+func (v *video) voiceRecording(mp []byte, kids []box) bool {
+	for _, k := range kids {
+		pl := mp[k.payload():k.end]
+		switch k.typ {
+		case "udta":
+			if v.recorderTags(pl) {
+				return true
+			}
+		case "meta":
+			if v.recorderKeys(pl) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// recorderTags looks in udta/meta/ilst for Voice Memos' encoder tag or its
+// freeform tag.
+func (v *video) recorderTags(udta []byte) bool {
+	kids, err := v.w.children(udta)
+	if err != nil {
+		return false
+	}
+	for _, k := range kids {
+		if k.typ != "meta" {
+			continue
+		}
+		_, body, ok := metaParts(udta[k.payload():k.end])
+		if !ok {
+			continue
+		}
+		mk, err := v.w.children(body)
+		if err != nil {
+			continue
+		}
+		for _, m := range mk {
+			if m.typ != "ilst" {
+				continue
+			}
+			ilst := body[m.payload():m.end]
+			items, err := v.w.children(ilst)
+			if err != nil {
+				continue
+			}
+			for _, it := range items {
+				switch it.typ {
+				case "\xa9too":
+					if bytes.Contains(v.child(ilst[it.payload():it.end], "data", 8), []byte(voiceMemosEncoder)) {
+						return true
+					}
+				case "----":
+					if voiceMemosFreeform[string(v.child(ilst[it.payload():it.end], "name", 4))] {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// child returns the payload of p's first child box of type typ, without its
+// first skip bytes (a data box's type and locale, a full box's version and
+// flags), or nil.
+func (v *video) child(p []byte, typ string, skip int64) []byte {
+	kids, err := v.w.children(p)
+	if err != nil {
+		return nil
+	}
+	for _, k := range kids {
+		if k.typ == typ && k.end-k.payload() >= skip {
+			return p[k.payload()+skip : k.end]
+		}
+	}
+	return nil
+}
+
+// recorderKeys looks in a QuickTime metadata box (moov/meta, handler mdta)
+// for the keys Android's recorder writes.
+func (v *video) recorderKeys(p []byte) bool {
+	_, body, ok := metaParts(p)
+	if !ok {
+		return false
+	}
+	kids, err := v.w.children(body)
+	if err != nil {
+		return false
+	}
+	for _, k := range kids {
+		if k.typ != "keys" {
+			continue
+		}
+		keys := body[k.payload():k.end]
+		if len(keys) < 8 {
+			return false
+		}
+		rest := keys[8:]
+		for n := be32(keys[4:]); n > 0 && len(rest) >= 8; n-- {
+			sz := be32(rest)
+			if sz < 8 || uint64(sz) > uint64(len(rest)) {
+				return false
+			}
+			if string(rest[4:8]) == "mdta" && androidRecorderKeys[string(rest[8:sz])] {
+				return true
+			}
+			rest = rest[sz:]
+		}
+	}
+	return false
 }

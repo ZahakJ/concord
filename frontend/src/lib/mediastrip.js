@@ -6,7 +6,7 @@
 //   - it cannot clean the file safely, or the file is a picture or video
 //     format it has no cleaner for ("…details can't be removed from this
 //     video…", app.MediaAsIsMarker): the row offers "Send as it is";
-//   - the video has subtitle, text or timecode tracks, which the person may
+//   - the video has subtitle or text tracks, which the person may
 //     have meant to send and which can also hold location ("…video has
 //     subtitles or other text tracks…", app.MediaTextMarker): the row offers
 //     "Remove and send" or "Send as it is".

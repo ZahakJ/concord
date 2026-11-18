@@ -140,10 +140,10 @@ func keptChunksSame(in, out []byte) error {
 }
 
 // FuzzStripKeepsSamples: on any input, an accepted output tiles, keeps every
-// kept chunk's bytes (by the second reader), and a second pass leaves it as
-// it is. Seeded with the built edge cases below.
+// kept chunk's bytes and every fragment run's bytes (by the second readers),
+// and a second pass leaves it as it is. Seeded with the built edge cases.
 func FuzzStripKeepsSamples(f *testing.F) {
-	for _, n := range []string{"android-fast.mp4", "android-tail.mp4", "iphone-fast.mov", "iphone-tail.mov", "photo.heic"} {
+	for _, n := range realFixtures {
 		b, err := os.ReadFile(filepath.Join("testdata", n))
 		if err != nil {
 			f.Fatal(err)
@@ -161,6 +161,9 @@ func FuzzStripKeepsSamples(f *testing.F) {
 	}
 	f.Add(audioOnly(true))
 	f.Add(fragShrinks(4))
+	for _, in := range fragSeeds() {
+		f.Add(in)
+	}
 	f.Fuzz(func(t *testing.T, in []byte) {
 		for _, o := range []Options{{}, {DropText: true}} {
 			out, kind, err := StripBytesWith(in, o)
@@ -178,6 +181,9 @@ func FuzzStripKeepsSamples(f *testing.F) {
 			}
 			if kind == KindVideo {
 				if err := keptChunksSame(in, out); err != nil {
+					t.Fatal(err)
+				}
+				if err := fragRunsSame(in, out); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -675,11 +681,13 @@ func TestSniffNamesISOFilesWithOtherFirstBoxes(t *testing.T) {
 	}
 }
 
-// Subtitles, text and timecode are not dropped unless the caller allows it.
+// Subtitles and text are not dropped unless the caller allows it; a
+// timecode goes without asking, and does not make a file with subtitles go
+// unasked either.
 func TestTextTracksGoOnlyWhenAllowed(t *testing.T) {
 	pl := cat(bytes.Repeat([]byte("V"), 32), []byte("SUBTITLE: hello there....."))
 	mdatAt := uint64(len(isoFtyp) + 8)
-	for _, h := range []string{"sbtl", "text", "tmcd", "subt", "clcp"} {
+	for _, h := range []string{"sbtl", "text", "subt", "clcp"} {
 		in := cat(isoFtyp, bx("mdat", pl), moovOf(
 			vtrak("vide", stblOf("stco", []uint64{mdatAt}, []int{32})),
 			vtrak(h, stblOf("stco", []uint64{mdatAt + 32}, []int{26}))))
@@ -692,12 +700,34 @@ func TestTextTracksGoOnlyWhenAllowed(t *testing.T) {
 		}
 		noSecrets(t, out, []string{"SUBTITLE"})
 	}
-	// A timed GPS track goes without asking.
-	in := cat(isoFtyp, bx("mdat", pl), moovOf(
+	// A timed GPS track and a timecode go without asking, their samples
+	// cleared.
+	for _, h := range []string{"meta", "tmcd"} {
+		in := cat(isoFtyp, bx("mdat", pl), moovOf(
+			vtrak("vide", stblOf("stco", []uint64{mdatAt}, []int{32})),
+			vtrak(h, stblOf("stco", []uint64{mdatAt + 32}, []int{26}))))
+		out, _, err := StripBytes(in)
+		if err != nil {
+			t.Fatalf("%s track: %v", h, err)
+		}
+		noSecrets(t, out, []string{"SUBTITLE"})
+		if ch, _ := ichunks(out); len(ch[h]) != 0 {
+			t.Errorf("%s track still in the index", h)
+		}
+	}
+	// Subtitles beside a timecode: asked about.
+	both := cat(pl[:len(pl)-4], []byte("TC01"))
+	in := cat(isoFtyp, bx("mdat", both), moovOf(
 		vtrak("vide", stblOf("stco", []uint64{mdatAt}, []int{32})),
-		vtrak("meta", stblOf("stco", []uint64{mdatAt + 32}, []int{26}))))
-	if _, _, err := StripBytes(in); err != nil {
-		t.Errorf("GPS track: %v", err)
+		vtrak("sbtl", stblOf("stco", []uint64{mdatAt + 32}, []int{22})),
+		vtrak("tmcd", stblOf("stco", []uint64{mdatAt + 54}, []int{4}))))
+	if _, _, err := StripBytes(in); !errors.Is(err, ErrTextTracks) {
+		t.Errorf("subtitles and timecode: %v, want ErrTextTracks", err)
+	}
+	if out, _, err := StripBytesWith(in, Options{DropText: true}); err != nil {
+		t.Errorf("subtitles and timecode, allowed: %v", err)
+	} else {
+		noSecrets(t, out, []string{"SUBTITLE", "TC01"})
 	}
 	// A file that cannot be cleaned is refused as such, not asked about.
 	bad := cat(isoFtyp, bx("mdat", pl), moovOf(
@@ -791,7 +821,7 @@ func TestSeveralMdatBoxesKeepTheirChunks(t *testing.T) {
 
 // Cleaned copies of the files in $BMFF_IN, written to $BMFF_OUT, for checks
 // with tools outside Go (ffprobe, ffmpeg framemd5, exiftool, heif-info).
-// Subtitle and timecode tracks are dropped, as after "Remove and send".
+// Subtitle and text tracks are dropped, as after "Remove and send".
 func TestRewriteDirForOutsideTools(t *testing.T) {
 	in, outd := os.Getenv("BMFF_IN"), os.Getenv("BMFF_OUT")
 	if in == "" || outd == "" {

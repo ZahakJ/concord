@@ -25,8 +25,8 @@
 //     hints in keepKeys: com.apple.quicktime.location.*, make, model,
 //     software, creation date and the rest go;
 //   - every track that is not picture or sound (timed metadata such as
-//     Apple's mebx tracks and GoPro GPMF, which carry GPS per frame, subtitles
-//     and timecode), and the bytes of its samples, which are overwritten with
+//     Apple's mebx tracks and GoPro GPMF, which carry GPS per frame, timecode,
+//     subtitles), and the bytes of its samples, which are overwritten with
 //     zeros in the copied mdat;
 //   - the creation and modification times in mvhd, tkhd and mdhd (set to 0).
 //
@@ -49,11 +49,17 @@
 // encoder's settings string, or a location a camera writes into the video
 // stream itself, stays.
 //
-// A video with subtitle, text or timecode tracks is cleaned only when the
-// caller asks for those tracks to go (Options.DropText): they are content
-// the person may have meant to send, and they can also hold location.
-// Without it Strip answers ErrTextTracks. An audio-only file keeps its
-// title, artist and album tags and loses every other tag.
+// A video with subtitle or text tracks is cleaned only when the caller asks
+// for those tracks to go (Options.DropText): they are content the person may
+// have meant to send, and they can also hold location. Without it Strip
+// answers ErrTextTracks. A timecode track (most cameras write one) is not
+// asked about: it goes like the timed metadata.
+//
+// An audio-only file keeps its title, artist and album tags and loses every
+// other tag, except a voice recording, which loses its title too: phones
+// often name a recording after the place it was made. A recording is told
+// apart by what the file says of itself (see voiceRecording); a file that
+// says nothing either way keeps its title.
 //
 // Fragmented MP4 (moof boxes) keeps every byte where it was: the rebuilt moov
 // is padded with a free box to its old length and a dropped top-level box
@@ -76,13 +82,13 @@ var (
 	// external data, protected items, layouts it cannot prove it keeps).
 	ErrRefused = errors.New("bmffmeta: file layout this cleaner does not rewrite")
 	// ErrTextTracks: a video that can be cleaned, but only by dropping its
-	// subtitle, text or timecode tracks, which the caller did not allow.
-	ErrTextTracks = errors.New("bmffmeta: video has subtitle, text or timecode tracks")
+	// subtitle or text tracks, which the caller did not allow.
+	ErrTextTracks = errors.New("bmffmeta: video has subtitle or text tracks")
 )
 
 // Options change what Strip may remove.
 type Options struct {
-	// DropText lets a video lose its subtitle, text and timecode tracks.
+	// DropText lets a video lose its subtitle and text tracks.
 	DropText bool
 }
 
@@ -135,8 +141,9 @@ var audioTags = map[string]bool{"\xa9nam": true, "\xa9ART": true, "\xa9alb": tru
 var keepHandlers = map[string]bool{"vide": true, "soun": true, "auxv": true}
 
 // textHandlers are the dropped tracks a person may have meant to send:
-// subtitles, captions, text and timecode. See ErrTextTracks.
-var textHandlers = map[string]bool{"sbtl": true, "subt": true, "text": true, "clcp": true, "tmcd": true}
+// subtitles, captions and text. See ErrTextTracks. A timecode (tmcd) is not
+// among them: it is the camera's clock, and goes without asking.
+var textHandlers = map[string]bool{"sbtl": true, "subt": true, "text": true, "clcp": true}
 
 // Sniff reports whether b starts like an ISO base media file: an ftyp box,
 // one of the boxes an older QuickTime file starts with when it has no ftyp,

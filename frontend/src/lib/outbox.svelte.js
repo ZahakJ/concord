@@ -455,8 +455,8 @@ export function sendAsIs(id) {
   run({ ...entry, att, asIs: "", textTracks: false, state: "sending" });
 }
 
-// sendRemovingText: the person chose to have a video's subtitle, text and
-// timecode tracks removed with its other details. Only a row held for that.
+// sendRemovingText: the person chose to have a video's subtitle and text
+// tracks removed with its other details. Only a row held for that.
 export function sendRemovingText(id) {
   const entry = S.outbox.find((e) => e.id === id);
   if (!entry || entry.state !== "failed" || !entry.textTracks || entry.kind !== "att") return;

@@ -147,12 +147,12 @@ func subtitledVideo(handler string) []byte {
 	return append(append(ftyp, tbox("mdat", bytes.Repeat([]byte("V"), 32), []byte("SUBTITLE: meet at home.."))...), moov...)
 }
 
-// A video with subtitles, text or timecode is not sent until the person
-// chooses: "Remove and send" cleans it and drops those tracks, "Send as it
-// is" sends the file unchanged.
+// A video with subtitles or text is not sent until the person chooses:
+// "Remove and send" cleans it and drops those tracks, "Send as it is" sends
+// the file unchanged. A timecode track is not asked about.
 func TestVideoWithTextTracksWaitsForTheChoice(t *testing.T) {
 	svc, _, ch := cleanFixture(t)
-	for _, h := range []string{"sbtl", "text", "tmcd"} {
+	for _, h := range []string{"sbtl", "text"} {
 		in := subtitledVideo(h)
 		uri := "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(in)
 		before, _ := svc.store.AttachmentBlobs()
@@ -186,6 +186,22 @@ func TestVideoWithTextTracksWaitsForTheChoice(t *testing.T) {
 		}
 		if got := sealedBytes(t, svc, ch, msg.Content, sentFileRe); !bytes.Equal(got, in) {
 			t.Fatalf("%s: Send as it is did not send the file unchanged", h)
+		}
+	}
+	// A camera's timecode track goes with the other details, unasked.
+	in := subtitledVideo("tmcd")
+	uri := "data:video/mp4;base64," + base64.StdEncoding.EncodeToString(in)
+	if err := svc.CheckFile(uri); err != nil {
+		t.Fatalf("timecode: CheckFile: %v", err)
+	}
+	msg, err := svc.SendFile(ch, uri, "clip.mp4", "", "", "")
+	if err != nil {
+		t.Fatalf("timecode: %v", err)
+	}
+	got := sealedBytes(t, svc, ch, msg.Content, sentFileRe)
+	for _, s := range []string{"SUBTITLE", "48.8584"} {
+		if bytes.Contains(got, []byte(s)) {
+			t.Errorf("timecode: %q was sent", s)
 		}
 	}
 }
