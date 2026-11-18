@@ -537,13 +537,12 @@ func placeholders(n int) string {
 }
 
 // BlobScope is who may be served a blob: the members of the channels whose
-// held rows, not deleted, name it, of the guilds whose GIF pack holds it or
-// whose archive pinned it here, and, for a blob an import pinned, the members
-// of any guild this device is in.
+// held rows, not deleted, name it, and of the guilds whose GIF pack holds it,
+// whose archive a reader here pinned it for, or into which an import here
+// sealed it.
 type BlobScope struct {
-	Channels     []string
-	Guilds       []string
-	ImportPinned bool
+	Channels []string
+	Guilds   []string
 }
 
 // blobScopeChannels bounds the channels read for one blob: a picture is
@@ -576,14 +575,9 @@ func (s *Store) BlobServeScope(blobID string) (BlobScope, bool) {
 		return sc, false
 	}
 	if !read(`SELECT guild_id FROM guild_gifs WHERE id = ?1
-		UNION SELECT guild_id FROM chronicle_pins WHERE blob_id = ?1`, &sc.Guilds) {
+		UNION SELECT guild_id FROM chronicle_pins WHERE blob_id = ?1
+		UNION SELECT guild_id FROM import_pins WHERE blob_id = ?1`, &sc.Guilds) {
 		return sc, false
 	}
-	var imp int
-	if err := s.rd().QueryRow(`SELECT EXISTS (SELECT 1 FROM attachments WHERE blob_id = ?1 AND pinned = 1)
-		AND NOT EXISTS (SELECT 1 FROM chronicle_pins WHERE blob_id = ?1)`, blobID).Scan(&imp); err != nil {
-		return sc, false
-	}
-	sc.ImportPinned = imp != 0
 	return sc, true
 }

@@ -403,8 +403,8 @@ func (s *Service) handleAttachRequest(ctx context.Context, p peer.ID, request []
 // blobFor returns the blob for the account fingerprint, or an empty answer.
 // Only a blob something on this device keeps (store.BlobServable), and only
 // to a member of a guild or DM that keeps it here: a channel whose held
-// message names it, a guild whose GIF pack holds it or whose archive pinned
-// it, or, for a picture an import pinned, any guild this device is in.
+// message names it, a guild whose GIF pack holds it, whose archive pinned it,
+// or into which an import here sealed it.
 func (s *Service) blobFor(fingerprint, blobID string) []byte {
 	if fingerprint == "" {
 		return []byte{}
@@ -434,5 +434,5 @@ func (s *Service) inBlobScope(fingerprint string, scope store.BlobScope) bool {
 			return true
 		}
 	}
-	return scope.ImportPinned && s.sharesGuild(fingerprint)
+	return false
 }

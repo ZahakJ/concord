@@ -409,6 +409,7 @@ func (s *Service) importChatExport(job *chatImportJob, policy chronimport.Policy
 		dir:      dir,
 		policy:   policy,
 		plan:     plan,
+		guildID:  guildID,
 		seen:     map[string]int{},
 		imported: map[string]bool{},
 		read:     map[string]bool{},
@@ -733,6 +734,9 @@ type importAccumulator struct {
 	dir    string
 	policy chronimport.Policy
 	plan   *importPlan
+	// guildID is the guild the archive is imported into, recorded with each
+	// picture the import pins.
+	guildID string
 
 	byChannel map[string][]chronicleMessage
 	authors   []chronicleAuthor
@@ -1012,7 +1016,7 @@ func (s *Service) importAttachments(acc *importAccumulator, m *chronimport.Messa
 			}
 		}
 		if local && acc.policy.TakesAttachment(kind, size) && size > 0 && size <= maxFilePlain {
-			if tok, ok := s.sealImportedFile(path, at, size); ok {
+			if tok, ok := s.sealImportedFile(acc.guildID, path, at, size); ok {
 				tokens = append(tokens, tok)
 				acc.sealed++
 				acc.sealedBytes += size
@@ -1053,8 +1057,9 @@ func humanBytes(n int64) string {
 // sealImportedFile seals one asset into a blob and returns the token the archive
 // carries. The blob is PINNED: this device performed the import, so its copy is
 // the original, and letting the attachment LRU evict a picture out of an archive
-// nobody else has a copy of would destroy it.
-func (s *Service) sealImportedFile(path string, at chronimport.Attachment, size int64) (string, bool) {
+// nobody else has a copy of would destroy it. The pin records guildID, whose
+// members alone it is passed on to.
+func (s *Service) sealImportedFile(guildID, path string, at chronimport.Attachment, size int64) (string, bool) {
 	raw, err := os.ReadFile(path)
 	if err != nil || len(raw) == 0 {
 		return "", false
@@ -1085,7 +1090,7 @@ func (s *Service) sealImportedFile(path string, at chronimport.Attachment, size 
 	}
 	// Pinning is best-effort: a failure here means the picture is evictable,
 	// not that the import failed.
-	_ = s.store.PinAttachment(blobID, true)
+	_ = s.store.PinImportedBlob(guildID, blobID)
 
 	if sub != "" {
 		return fmt.Sprintf("concord://attach/v1/%s/%s/%s/0x0", blobID, keys, sub), true

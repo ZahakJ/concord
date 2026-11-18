@@ -1681,6 +1681,9 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		if s.ctx.Err() == nil {
 			s.clearDeletedBodiesOnce()
 		}
+		if s.ctx.Err() == nil {
+			s.scopeImportPinsOnce()
+		}
 	}()
 
 	// Resume rich presence if the user had it on.

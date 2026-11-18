@@ -42,7 +42,7 @@ func TestArchivePicturesReadByAMemberArePassedOn(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := a.store.PinAttachment(id, true); err != nil {
+		if err := a.store.PinImportedBlob(g.ID, id); err != nil {
 			t.Fatal(err)
 		}
 		pics = append(pics, pic{id, keys})

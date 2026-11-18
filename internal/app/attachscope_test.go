@@ -12,7 +12,8 @@ import (
 // A blob is handed to a member of the guild whose message names it, and to
 // nobody else: a peer in another guild of the same device, and a peer in no
 // guild, get the answer for a blob that does not exist. A picture an import
-// pinned goes to anyone who shares a guild with the device.
+// pinned goes to the members of the guild it was imported into, and a pin
+// with no guild recorded goes to nobody.
 func TestABlobIsHandedOnlyToMembersWhoseGuildKeepsIt(t *testing.T) {
 	if testing.Short() {
 		t.Skip("network integration test")
@@ -54,7 +55,14 @@ func TestABlobIsHandedOnlyToMembersWhoseGuildKeepsIt(t *testing.T) {
 	if err := a.store.SaveAttachment(imported, []byte("ciphertext of an imported picture")); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.store.PinAttachment(imported, true); err != nil {
+	if err := a.store.PinImportedBlob(g.ID, imported); err != nil {
+		t.Fatal(err)
+	}
+	older := strings.Repeat("6", 64)
+	if err := a.store.SaveAttachment(older, []byte("ciphertext of an older imported picture")); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.store.PinAttachment(older, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -77,10 +85,17 @@ func TestABlobIsHandedOnlyToMembersWhoseGuildKeepsIt(t *testing.T) {
 			t.Errorf("%s got %q for the guild's picture, where a missing blob answers %q", name, got, nowhere)
 		}
 	}
-	if got := ask(otherGuildPeer, imported); len(got) == 0 {
-		t.Error("a peer sharing a guild did not get an imported picture")
+	if got := ask(member, imported); !bytes.Equal(got, []byte("ciphertext of an imported picture")) {
+		t.Errorf("the guild's member did not get the guild's imported picture: %q", got)
 	}
-	if got := ask(outsider, imported); len(got) != 0 {
-		t.Errorf("a peer in no guild got an imported picture: %q", got)
+	for name, s := range map[string]*Service{"a peer in another guild": otherGuildPeer, "a peer in no guild": outsider} {
+		if got := ask(s, imported); len(got) != 0 {
+			t.Errorf("%s got the guild's imported picture: %q", name, got)
+		}
+	}
+	for name, s := range map[string]*Service{"the guild's member": member, "a peer in another guild": otherGuildPeer} {
+		if got := ask(s, older); len(got) != 0 {
+			t.Errorf("%s got a picture pinned with no guild recorded: %q", name, got)
+		}
 	}
 }

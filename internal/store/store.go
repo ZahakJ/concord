@@ -536,6 +536,9 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 	if err := s.migrateChroniclePins(); err != nil {
 		return err
 	}
+	if err := s.migrateImportPins(); err != nil {
+		return err
+	}
 	if err := s.migrateExpires(); err != nil {
 		return err
 	}

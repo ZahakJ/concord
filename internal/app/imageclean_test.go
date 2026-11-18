@@ -244,7 +244,7 @@ func TestImportedPicturesAreSharedWithoutMetadata(t *testing.T) {
 		if err := os.WriteFile(path, f.Bytes, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		tok, ok := svc.sealImportedFile(path, chronimport.Attachment{FileName: "photo." + f.Subtype}, int64(len(f.Bytes)))
+		tok, ok := svc.sealImportedFile("g", path, chronimport.Attachment{FileName: "photo." + f.Subtype}, int64(len(f.Bytes)))
 		if !ok {
 			t.Fatalf("%s: not sealed", f.Name)
 		}
