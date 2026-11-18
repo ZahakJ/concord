@@ -25,6 +25,8 @@ Other files are sent exactly as they are, with whatever they hold: videos, voice
 
 A picture sent with text is one message: the text is its caption, and the two arrive, show and disappear together.
 
+Concord keeps a song's title, artist and album. A voice recording's title is removed, since phones often name recordings after the place.
+
 Before sending, each staged image has its own controls:
 
 - **Mark as spoiler**: it arrives blurred until clicked.
