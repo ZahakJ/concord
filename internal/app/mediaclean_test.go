@@ -206,6 +206,60 @@ func TestVideoWithTextTracksWaitsForTheChoice(t *testing.T) {
 	}
 }
 
+// audioClip is an audio-only MP4, as a renderer records when it has neither
+// Ogg nor WebM, with a location in its user data.
+func audioClip() []byte {
+	ftyp := tbox("ftyp", []byte("M4A "), t32(0), []byte("isomiso2"))
+	at := len(ftyp) + 8
+	stbl := tbox("stbl", tfull("stsd", t32(0)), tfull("stts", t32(0)),
+		tfull("stsc", t32(1), t32(1), t32(1), t32(1)),
+		tfull("stsz", t32(0), t32(1), t32(32)),
+		tfull("stco", t32(1), t32(at)))
+	minf := tbox("minf", tbox("dinf", tfull("dref", t32(1), tbox("url ", []byte{0, 0, 0, 1}))), stbl)
+	mdia := tbox("mdia", tfull("mdhd", make([]byte, 20)), tfull("hdlr", t32(0), []byte("soun"), make([]byte, 13)), minf)
+	moov := tbox("moov", tfull("mvhd", make([]byte, 96)), tbox("trak", tfull("tkhd", make([]byte, 80)), mdia),
+		tbox("udta", tbox("\xa9xyz", []byte("+48.8584+002.2945/"))))
+	return append(append(ftyp, tbox("mdat", bytes.Repeat([]byte("A"), 32))...), moov...)
+}
+
+// A voice clip in Ogg or WebM goes as the recorder made it. Anything else
+// takes SendFile's path: an MP4 clip is cleaned and sent, and a file SendFile
+// would hold is held here too.
+func TestVoiceClipsInOtherFormatsAreCleanedLikeFiles(t *testing.T) {
+	svc, _, ch := cleanFixture(t)
+	in := audioClip()
+	want, _, err := bmffmeta.StripBytes(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := svc.SendVoiceClip(ch, "data:audio/mp4;base64,"+base64.StdEncoding.EncodeToString(in), "voice.m4a")
+	if err != nil {
+		t.Fatalf("MP4 voice clip: %v", err)
+	}
+	got := sealedBytes(t, svc, ch, msg.Content, sentFileRe)
+	if !bytes.Equal(got, want) || bytes.Contains(got, []byte("48.8584")) {
+		t.Fatal("the MP4 voice clip was not sent cleaned")
+	}
+	refused := append(audioClip(), 1, 2, 3)
+	for name, c := range map[string]struct {
+		b      []byte
+		marker string
+	}{
+		"video with subtitles": {subtitledVideo("sbtl"), MediaTextMarker},
+		"MP4 it cannot clean":  {refused, MediaAsIsMarker},
+		"TIFF":                 {[]byte("II*\x00\x08\x00\x00\x00GPS-SECRET"), MediaAsIsMarker + "photo"},
+	} {
+		before, _ := svc.store.AttachmentBlobs()
+		_, err := svc.SendVoiceClip(ch, "data:audio/mp4;base64,"+base64.StdEncoding.EncodeToString(c.b), "voice.m4a")
+		if err == nil || !strings.Contains(err.Error(), c.marker) {
+			t.Errorf("%s: %v, want %q", name, err, c.marker)
+		}
+		if after, _ := svc.store.AttachmentBlobs(); len(after) != len(before) {
+			t.Errorf("%s: a blob was sealed", name)
+		}
+	}
+}
+
 // Video containers nothing here cleans are held for the choice, and so is
 // an ISO file that starts with another box; the composer's own voice clips
 // are not.
@@ -253,8 +307,8 @@ func TestOtherVideoContainersWaitForTheChoice(t *testing.T) {
 			t.Fatalf("voice %s changed", name)
 		}
 	}
-	if _, err := svc.SendVoiceClip(ch, "data:video/mp4;base64,"+base64.StdEncoding.EncodeToString(subtitledVideo("meta")), "v.mp4"); err == nil {
-		t.Fatal("a video went out as a voice clip")
+	if _, err := svc.SendVoiceClip(ch, "data:video/mp4;base64,"+base64.StdEncoding.EncodeToString(subtitledVideo("sbtl")), "v.mp4"); err == nil || !strings.Contains(err.Error(), MediaTextMarker) {
+		t.Fatalf("a video with subtitles went out as a voice clip: %v", err)
 	}
 	// Nothing else changes: a document, and a video that cleans, still go.
 	if err := svc.CheckFile("data:text/plain;base64," + base64.StdEncoding.EncodeToString([]byte("Good morning"))); err != nil {

@@ -249,16 +249,18 @@ func (s *Service) SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir 
 	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, sendAsIs)
 }
 
-// SendFileWithoutText is SendFile for a video with subtitle, text or
-// timecode tracks, once the person has chosen to have them removed with the
-// other details ("Remove and send").
+// SendFileWithoutText is SendFile for a video with subtitle or text tracks,
+// once the person has chosen to have them removed with the other details
+// ("Remove and send").
 func (s *Service) SendFileWithoutText(channelID, dataURL, filename, replyTo, text, dir string) (domain.Message, error) {
 	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, sendDropText)
 }
 
-// SendVoiceClip sends a voice message the composer recorded: Ogg or WebM
-// audio, which is not held as a video container would be. Anything else is
-// refused.
+// SendVoiceClip sends a voice message the composer recorded. Ogg or WebM
+// audio (what the recorder asks the renderer for) goes as it is, not held as
+// a video container would be. Anything else, such as the MP4 a renderer
+// records when it has neither, goes through the same cleaning and the same
+// holds as SendFile.
 func (s *Service) SendVoiceClip(channelID, dataURL, filename string) (domain.Message, error) {
 	return s.sendFile(channelID, dataURL, filename, "", "", "", sendVoice)
 }
@@ -278,7 +280,7 @@ func (s *Service) CheckFile(dataURL string) error {
 const MediaAsIsMarker = "details can't be removed from this "
 
 // MediaTextMarker is in the error SendFile returns for a video it can clean
-// only by removing its subtitle, text or timecode tracks. The page matches
+// only by removing its subtitle or text tracks. The page matches
 // it to offer "Remove and send" (SendFileWithoutText) or "Send as it is".
 const MediaTextMarker = "video has subtitles or other text tracks"
 
@@ -322,10 +324,10 @@ func prepareFile(dataURL string, mode sendMode) (string, []byte, error) {
 		return "", nil, fmt.Errorf("app: file must be 1 byte – %d MB", maxFilePlain>>20)
 	}
 	if mode == sendVoice {
-		if !voiceClip(plain) {
-			return "", nil, fmt.Errorf("app: a voice message must be Ogg or WebM audio")
+		if voiceClip(plain) {
+			return mime, plain, nil
 		}
-		return mime, plain, nil
+		mode = sendClean
 	}
 	asIs := mode == sendAsIs
 	// A picture that goes as a file is cleaned like any other: the composer

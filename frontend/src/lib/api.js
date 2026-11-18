@@ -569,13 +569,14 @@ export const api = {
     sending(channelID);
     return call("SendFileAsIs", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir);
   },
-  // A video whose subtitle, text and timecode tracks the person chose to
-  // have removed ("Remove and send", lib/mediastrip.js).
+  // A video whose subtitle and text tracks the person chose to have
+  // removed ("Remove and send", lib/mediastrip.js).
   sendFileWithoutText: (channelID, dataURL, filename, replyTo = "", text = "", dir = "") => {
     sending(channelID);
     return call("SendFileWithoutText", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir);
   },
-  // A voice message the composer recorded (Ogg or WebM audio).
+  // A voice message the composer recorded. Ogg or WebM audio goes as it
+  // is; anything else (MP4 from WebKit) is cleaned as SendFile cleans it.
   sendVoiceClip: (channelID, dataURL, filename) => {
     sending(channelID);
     return call("SendVoiceClip", channelID, dataURL, filename);
