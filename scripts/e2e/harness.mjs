@@ -17,6 +17,8 @@ import path from "node:path";
 export const SCALE = Number(process.env.E2E_TIMEOUT_SCALE || 1) || 1;
 export const scaled = (ms) => Math.round(ms * SCALE);
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// A dialog that is open: closed drawers stay mounted with aria-hidden="true".
+const OPEN_DIALOG = '[role="dialog"]:not([aria-hidden="true"])';
 
 // Polls fn until it returns something truthy and returns that value. Errors
 // thrown by fn count as "not yet": the last one is quoted in the timeout error,
@@ -478,8 +480,11 @@ export class App {
     return this.page.locator(".msg[data-msg-id]", { has: this.page.locator(".body", { hasText: text }) }).last();
   }
 
+  // The dialog on top. A closed phone drawer stays mounted as an aria-hidden
+  // role="dialog" (MobileShell's right page, in a guild channel and in a DM),
+  // so "a dialog is open" means one that is not aria-hidden.
   dialog() {
-    return this.page.locator('[role="dialog"]').last();
+    return this.page.locator(OPEN_DIALOG).last();
   }
 
   // ---- actions
@@ -565,7 +570,7 @@ export class App {
   // given, switches to a section by its title in the settings rail
   // ("Account", "Your profile", "Appearance", "Notifications & sounds", …).
   async openSettings(section) {
-    if (!(await this.page.locator('[role="dialog"]').count())) {
+    if (!(await this.page.locator(OPEN_DIALOG).count())) {
       const btn = this.isPhone
         ? this.page.getByRole("button", { name: "You — profile and settings" })
         : this.page.locator('button[aria-label="Settings"]').last();
@@ -705,7 +710,7 @@ export class App {
   // Escape until no dialog is open (bounded: some dialogs ask before closing).
   async closeModals() {
     for (let i = 0; i < 5; i++) {
-      if (!(await this.page.locator('[role="dialog"]').count())) return;
+      if (!(await this.page.locator(OPEN_DIALOG).count())) return;
       await this.page.keyboard.press("Escape");
       await sleep(150);
     }
