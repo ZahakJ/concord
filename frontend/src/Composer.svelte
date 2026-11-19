@@ -16,7 +16,7 @@
   import EmojiPicker from "./EmojiPicker.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import Menu from "./Menu.svelte";
-  import { untrack, onDestroy, tick } from "svelte";
+  import { untrack, onDestroy, flushSync } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
   import { haptic } from "./lib/touch.js";
   import { emoteText } from "./lib/emote.js";
@@ -749,7 +749,10 @@
     // can arrive: a select-all and Delete right after the completion must find
     // the caret already placed, or the move collapses their selection, the
     // Delete removes nothing, and the next Enter sends the cleared draft.
-    tick().then(() => composerEl?.setSelectionRange(pos, pos));
+    // flushSync writes the new value now, so the caret is placed in this same
+    // handler rather than in whatever turn tick() would resolve on.
+    flushSync();
+    composerEl?.setSelectionRange(pos, pos);
   }
 
   // ---- markdown formatting (toolbar buttons + Ctrl/Cmd shortcuts) ----
@@ -1594,7 +1597,8 @@
     saveDraft(S.activeChannelId, draft); // was only persisted on the next keystroke
     queueAutosize(); // …and the box didn't grow when a run of emoji wrapped
     // Before any further input, for the same reason as in accept().
-    tick().then(() => composerEl?.setSelectionRange(pos, pos));
+    flushSync();
+    composerEl?.setSelectionRange(pos, pos);
     if (mobile) {
       // The panel stays up for a run of emoji. Closing after every pick was
       // sheet down, keyboard up, sheet up again — four viewport resizes to type
