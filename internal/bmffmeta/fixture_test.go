@@ -312,6 +312,7 @@ func tfind(b []byte, s, e int, path ...string) (tbox, bool) {
 // stco/co64, stsc and stsz.
 func tchunks(t *testing.T, b []byte) map[string][][]byte {
 	t.Helper()
+	b = b[:len(b):len(b)]
 	moov, ok := tfind(b, 0, len(b), "moov")
 	if !ok {
 		t.Fatal("no moov")

@@ -42,6 +42,7 @@ type fragOpts struct {
 	trafExtra, moofExtra []byte
 	noTfhd, shortTfhd    bool
 	twice                bool // the trun twice
+	trexTwice            bool // a second trex for the track, with another default size
 }
 
 func fragGood() fragOpts { return fragOpts{tfhdFlags: 0x20000, trunFlags: 0x201, sizes: []int{10, 6}} }
@@ -51,8 +52,12 @@ func fragGood() fragOpts { return fragOpts{tfhdFlags: 0x20000, trunFlags: 0x201,
 // nothing lists.
 func fragFile(o fragOpts) []byte {
 	ftyp := bx("ftyp", []byte("isom"), u32(512), []byte("isomiso5"))
+	trex := fb("trex", 0, 0, u32(0), u32(1), u32(0), u32(o.defSize), u32(0))
+	if o.trexTwice {
+		trex = cat(trex, fb("trex", 0, 0, u32(0), u32(1), u32(0), u32(o.defSize+4), u32(0)))
+	}
 	moov := moovOf(vtrak("vide", stblOf("stco", nil, nil)),
-		bx("mvex", fb("trex", 0, 0, u32(0), u32(1), u32(0), u32(o.defSize), u32(0))),
+		bx("mvex", trex),
 		bx("udta", bx("\xa9xyz", []byte("+48.85+2.29/"))))
 	moofAt := len(ftyp) + len(moov)
 	build := func(dataOff int) []byte {
@@ -187,6 +192,7 @@ func ifruns(b []byte) (runs [][2]uint64, err error) {
 			runs, err = nil, fmt.Errorf("reader: %v", r)
 		}
 	}()
+	b = b[:len(b):len(b)]
 	top, err := tchildren(b, 0, len(b))
 	if err != nil {
 		return nil, err
@@ -200,7 +206,10 @@ func ifruns(b []byte) (runs [][2]uint64, err error) {
 		}
 		for _, k := range kids {
 			if k.typ == "trex" {
-				p := b[k.start+k.hdr:]
+				p := b[k.start+k.hdr : k.end]
+				if _, dup := trex[be.Uint32(p[4:])]; dup {
+					return nil, errTwoTables
+				}
 				trex[be.Uint32(p[4:])] = uint64(be.Uint32(p[16:]))
 			}
 		}
@@ -302,6 +311,9 @@ func ifruns(b []byte) (runs [][2]uint64, err error) {
 // in out. A file the second reader cannot read is not judged.
 func fragRunsSame(in, out []byte) error {
 	runs, err := ifruns(in)
+	if errors.Is(err, errTwoTables) {
+		return fmt.Errorf("input accepted: %v", err)
+	}
 	if err != nil || len(runs) == 0 {
 		return nil
 	}

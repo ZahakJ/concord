@@ -18,6 +18,10 @@ import (
 	"time"
 )
 
+// errTwoTables: a track with two handlers or two of a chunk table, which
+// two readers can read two ways. The cleaner must refuse such a file.
+var errTwoTables = errors.New("a track with two of one table")
+
 // ichunks returns, per track handler, the bytes of every chunk. It never
 // panics: a file it cannot read is an error.
 func ichunks(b []byte) (m map[string][][]byte, err error) {
@@ -26,6 +30,9 @@ func ichunks(b []byte) (m map[string][][]byte, err error) {
 			m, err = nil, fmt.Errorf("reader: %v", r)
 		}
 	}()
+	// No reading past the end into the slice's spare capacity: the fuzzer
+	// hands in inputs whose capacity runs far past their length.
+	b = b[:len(b):len(b)]
 	moov, ok := tfind(b, 0, len(b), "moov")
 	if !ok {
 		return nil, fmt.Errorf("no moov")
@@ -52,6 +59,9 @@ func ichunks(b []byte) (m map[string][][]byte, err error) {
 		var minf tbox
 		for _, x := range mk {
 			if x.typ == "hdlr" {
+				if handler != "" {
+					return nil, errTwoTables
+				}
 				handler = string(b[x.start+x.hdr+8 : x.start+x.hdr+12])
 			}
 			if x.typ == "minf" {
@@ -64,6 +74,24 @@ func ichunks(b []byte) (m map[string][][]byte, err error) {
 		stbl, ok := tfind(b, minf.start+minf.hdr, minf.end, "stbl")
 		if !ok {
 			continue
+		}
+		sk, er := tchildren(b, stbl.start+stbl.hdr, stbl.end)
+		if er != nil {
+			return nil, er
+		}
+		seen := map[string]int{}
+		for _, x := range sk {
+			switch x.typ {
+			case "stco", "co64":
+				seen["offsets"]++
+			case "stsc", "stsz":
+				seen[x.typ]++
+			}
+		}
+		for _, n := range seen {
+			if n > 1 {
+				return nil, errTwoTables
+			}
 		}
 		get := func(n string) []byte {
 			x, ok := tfind(b, stbl.start+stbl.hdr, stbl.end, n)
@@ -116,6 +144,9 @@ func ichunks(b []byte) (m map[string][][]byte, err error) {
 // with the same bytes, and out has no other track.
 func keptChunksSame(in, out []byte) error {
 	a, err := ichunks(in)
+	if errors.Is(err, errTwoTables) {
+		return fmt.Errorf("input accepted: %v", err)
+	}
 	if err != nil {
 		return nil // the second reader cannot say
 	}
@@ -166,6 +197,9 @@ func FuzzStripKeepsSamples(f *testing.F) {
 	for _, in := range fragSeeds() {
 		f.Add(in)
 	}
+	for _, in := range twoTableInputs() {
+		f.Add(in)
+	}
 	f.Fuzz(func(t *testing.T, in []byte) {
 		for _, o := range []Options{{}, {DropText: true}} {
 			out, kind, err := StripBytesWith(in, o)
@@ -204,23 +238,107 @@ func FuzzStripKeepsSamples(f *testing.F) {
 // in testdata/fuzz as seeds too.
 func TestChunkTableIsReadToTheEnd(t *testing.T) {
 	for _, n := range []string{"stsc-entry-past-last-chunk-1", "stsc-entry-past-last-chunk-2"} {
-		raw, err := os.ReadFile(filepath.Join("testdata", "fuzz", "FuzzStripKeepsSamples", n))
-		if err != nil {
-			t.Fatal(err)
-		}
-		lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-		if len(lines) != 2 || !strings.HasPrefix(lines[1], "[]byte(") {
-			t.Fatalf("%s: not a one-value fuzz input", n)
-		}
-		in, err := strconv.Unquote(strings.TrimSuffix(strings.TrimPrefix(lines[1], "[]byte("), ")"))
-		if err != nil {
-			t.Fatalf("%s: %v", n, err)
-		}
+		in := fuzzSeed(t, n)
 		for _, o := range []Options{{}, {DropText: true}} {
-			if _, _, err := StripBytesWith([]byte(in), o); !errors.Is(err, ErrMalformed) {
+			if _, _, err := StripBytesWith(in, o); !errors.Is(err, ErrMalformed) {
 				t.Errorf("%s (DropText %v): %v, want ErrMalformed", n, o.DropText, err)
 			}
 		}
+	}
+}
+
+// fuzzSeed reads a one-value input kept in testdata/fuzz/FuzzStripKeepsSamples.
+func fuzzSeed(t *testing.T, n string) []byte {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "fuzz", "FuzzStripKeepsSamples", n))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[1], "[]byte(") {
+		t.Fatalf("%s: not a one-value fuzz input", n)
+	}
+	in, err := strconv.Unquote(strings.TrimSuffix(strings.TrimPrefix(lines[1], "[]byte("), ")"))
+	if err != nil {
+		t.Fatalf("%s: %v", n, err)
+	}
+	return []byte(in)
+}
+
+// twoTableInputs are files with two of a box a track has once: a chunk
+// table, a handler, a track header, a fragment default. The table the
+// cleaner checks need not be the one a player reads.
+func twoTableInputs() map[string][]byte {
+	pl := bytes.Repeat([]byte("V"), 64)
+	mdatAt := uint64(len(isoFtyp) + 8)
+	offs := cat(u32(int(mdatAt)), u32(int(mdatAt)+32))
+	stbl := func(tables ...[]byte) []byte {
+		return bx("stbl", fb("stsd", 0, 0, u32(0)), fb("stts", 0, 0, u32(0)), cat(tables...),
+			fb("stco", 0, 0, u32(2), offs))
+	}
+	stsc := func(spc int) []byte { return fb("stsc", 0, 0, u32(1), u32(1), u32(spc), u32(1)) }
+	stsz := func(sizes ...int) []byte {
+		var sb []byte
+		for _, z := range sizes {
+			sb = append(sb, u32(z)...)
+		}
+		return fb("stsz", 0, 0, u32(0), u32(len(sizes)), sb)
+	}
+	trak := func(head []byte, hdlrs ...string) []byte {
+		var hb []byte
+		for _, h := range hdlrs {
+			hb = append(hb, fb("hdlr", 0, 0, u32(0), []byte(h), make([]byte, 12), []byte("h\x00"))...)
+		}
+		minf := bx("minf", bx("dinf", fb("dref", 0, 0, u32(1), fb("url ", 0, 1))), stbl(stsc(1), stsz(32, 32)))
+		return bx("trak", head, bx("mdia", fb("mdhd", 0, 0, make([]byte, 20)), hb, minf))
+	}
+	tkhd := fb("tkhd", 0, 3, make([]byte, 80))
+	tail := func(tr []byte) []byte { return cat(isoFtyp, bx("mdat", pl), moovOf(tr)) }
+	return map[string][]byte{
+		"two stsc": tail(vtrak("vide", stbl(stsc(2), stsc(1), stsz(16, 16, 16, 16)))),
+		"two stsz": tail(vtrak("vide", stbl(stsc(1), stsz(32, 32), stsz(16, 16)))),
+		"two hdlr": tail(trak(tkhd, "meta", "vide")),
+		"two tkhd": tail(trak(cat(tkhd, tkhd), "vide")),
+		"two trex": fragFile(fragOpts{tfhdFlags: 0x20000, trunFlags: 0x001, count: 2, defSize: 4, trexTwice: true}),
+	}
+}
+
+// A track with two of a table is refused, with or without its text tracks.
+// The first such file came from the fuzz target: its picture track had two
+// stsc and two stsz boxes, the cleaner checked the last of each and a reader
+// of the first found chunks megabytes long.
+func TestTwoOfATableAreRefused(t *testing.T) {
+	cases := twoTableInputs()
+	cases["fuzz input"] = fuzzSeed(t, "stbl-two-sample-to-chunk-tables")
+	for name, in := range cases {
+		for _, o := range []Options{{}, {DropText: true}} {
+			if _, _, err := StripBytesWith(in, o); !errors.Is(err, ErrRefused) {
+				t.Errorf("%s (DropText %v): %v, want ErrRefused", name, o.DropText, err)
+			}
+		}
+	}
+	// The same shapes with one of each are written.
+	pl := bytes.Repeat([]byte("V"), 64)
+	mdatAt := uint64(len(isoFtyp) + 8)
+	for name, in := range map[string][]byte{
+		"one of each": simpleTail("stco", pl, []uint64{mdatAt, mdatAt + 32}, []int{32, 32}),
+		"one trex":    fragFile(fragOpts{tfhdFlags: 0x20000, trunFlags: 0x001, count: 2, defSize: 4}),
+	} {
+		if _, _, err := StripBytesWith(in, Options{}); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// The second reader reads a file's bytes, not what lies past them in the
+// slice: a chunk past the end is an error even when the capacity is there.
+func TestSecondReaderStopsAtTheEnd(t *testing.T) {
+	pl := bytes.Repeat([]byte("V"), 64)
+	mdatAt := uint64(len(isoFtyp) + 8)
+	in := simpleTail("stco", pl, []uint64{mdatAt, 1 << 12}, []int{32, 32})
+	roomy := append(make([]byte, 0, 1<<14), in...)
+	if _, err := ichunks(roomy); err == nil {
+		t.Error("a chunk past the end was read from the spare capacity")
 	}
 }
 

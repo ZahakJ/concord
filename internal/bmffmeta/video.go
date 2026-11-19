@@ -220,6 +220,11 @@ func (v *video) readMvex(p []byte, trex map[uint32]uint32) error {
 		if len(pl) < 24 {
 			return ErrMalformed
 		}
+		// One default per track: with two, a run's length depends on
+		// which a reader takes.
+		if _, dup := trex[be32(pl[4:])]; dup {
+			return ErrRefused
+		}
 		trex[be32(pl[4:])] = be32(pl[16:])
 	}
 	return nil
@@ -407,6 +412,7 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 		return nil, err
 	}
 	var mdia []byte
+	hasTkhd := false
 	for _, k := range kids {
 		switch k.typ {
 		case "mdia":
@@ -415,6 +421,10 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 			}
 			mdia = p[k.payload():k.end]
 		case "tkhd":
+			if hasTkhd {
+				return nil, ErrRefused
+			}
+			hasTkhd = true
 			pl := p[k.payload():k.end]
 			at := 12
 			if len(pl) > 0 && pl[0] == 1 {
@@ -434,10 +444,17 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 		return nil, err
 	}
 	var minf []byte
+	hasHdlr := false
 	for _, k := range mk {
 		pl := mdia[k.payload():k.end]
 		switch k.typ {
 		case "hdlr":
+			// Two handlers make the track whichever one a reader takes:
+			// a metadata or text track could pass as a picture track.
+			if hasHdlr {
+				return nil, ErrRefused
+			}
+			hasHdlr = true
 			if len(pl) < 12 {
 				return nil, ErrMalformed
 			}
@@ -544,8 +561,16 @@ func (v *video) chunkTable(t *track, p []byte) error {
 				t.offs[i], _ = getN(pl[8+i*w:], w)
 			}
 		case "stsc":
+			// Two of a table give each chunk two lengths, and the one
+			// checked here need not be the one a player reads.
+			if stsc != nil {
+				return ErrRefused
+			}
 			stsc = pl
 		case "stsz":
+			if stsz != nil {
+				return ErrRefused
+			}
 			stsz = pl
 		case "stz2", "saio":
 			// Compact sizes, and auxiliary data addressed by file offset:
