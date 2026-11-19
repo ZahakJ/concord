@@ -84,6 +84,51 @@ test("desktop: the (edited) mark opens the edit history", async ({ world, assert
   assert.deepEqual(a.errors, [], a.errors.join("\n"));
 });
 
+test("desktop: opening the card never moves the feed sideways", async ({ world, assert, step, sleep }) => {
+  // Lines of growing length put the mark at many places along the line; on
+  // some the card (about 355px wide) reaches past the feed's right edge. The
+  // feed hides its horizontal overflow, so a sideways scroll there could never
+  // be undone by the reader.
+  const [alice, bashir] = await world.peers(2);
+  const g = await world.guild({ name: "History", members: [alice, bashir] });
+  const ch = g.allChannels[0];
+  const texts = [];
+  for (let n = 8; n <= 30; n++) {
+    const text = `m${n} ${"wordy ".repeat(n)}`;
+    const m = await bashir.send(ch.id, text);
+    await bashir.rpc("EditMessage", ch.id, m.id, `${text}x`, "");
+    texts.push(`m${n} `);
+  }
+  await alice.waitForMessage(ch.id, (m) => (m.content || "").startsWith("m30 ") && m.edited);
+  const a = await alice.open({ viewport: { width: 1280, height: 800 } });
+  await a.openChannel(ch.name, "History");
+  await a.waitForMessage("m30 ");
+
+  step("open each card in turn; the feed's scrollLeft stays 0");
+  let crossed = 0;
+  for (const t of texts.reverse()) {
+    const row = a.messageRow(t);
+    await row.evaluate((el) => el.scrollIntoView({ block: "center", inline: "nearest" }));
+    await a.page.evaluate(() => (document.querySelector(".feed").scrollLeft = 0));
+    await row.locator("button.eh-btn").click();
+    await card(a).waitFor({ state: "visible" });
+    await card(a).locator(".eh-v").first().waitFor();
+    await sleep(150);
+    const at = await a.page.evaluate(() => {
+      const f = document.querySelector(".feed");
+      const c = document.querySelector(".eh-card").getBoundingClientRect();
+      return { left: f.scrollLeft, over: c.right > f.getBoundingClientRect().right - 1 };
+    });
+    if (at.over) crossed++;
+    assert.equal(at.left, 0, `opening ${t.trim()}'s history moved the feed sideways`);
+    await a.page.keyboard.press("Escape");
+    await card(a).waitFor({ state: "detached" });
+  }
+  // Otherwise the test proved nothing about the edge.
+  assert.ok(crossed > 0, "no card reached the feed's right edge");
+  assert.deepEqual(a.errors, [], a.errors.join("\n"));
+});
+
 test("phone: (edited) is a plain mark and the long-press menu opens the history", async ({ world, assert, step, waitFor }) => {
   const { alice, ch } = await editedMessage(world);
   const a = await alice.open({ viewport: "phone" });

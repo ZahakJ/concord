@@ -56,8 +56,27 @@
     if (!open || !card) return;
     versions;
     failed;
-    requestAnimationFrame(() => card?.scrollIntoView({ block: "nearest", inline: "nearest" }));
+    requestAnimationFrame(() => reveal(card));
   });
+  // Up or down only, and only in the nearest scroller that scrolls (the
+  // feed). scrollIntoView also moves every ancestor sideways, and the feed
+  // hides its horizontal overflow: a card reaching past its right edge
+  // shifted the whole conversation with no way to scroll it back.
+  function reveal(node) {
+    if (!node?.isConnected) return;
+    let s = node.parentElement;
+    while (s && s !== document.body) {
+      const oy = getComputedStyle(s).overflowY;
+      if ((oy === "auto" || oy === "scroll") && s.scrollHeight > s.clientHeight) break;
+      s = s.parentElement;
+    }
+    if (!s || s === document.body) return;
+    const pad = 8;
+    const r = node.getBoundingClientRect();
+    const sr = s.getBoundingClientRect();
+    if (r.top < sr.top + pad) s.scrollTop -= sr.top + pad - r.top;
+    else if (r.bottom > sr.bottom - pad) s.scrollTop += Math.min(r.bottom - (sr.bottom - pad), r.top - (sr.top + pad));
+  }
   // Closes on any press outside, since on a phone there is no pointer leaving.
   $effect(() => {
     if (!open) return;
