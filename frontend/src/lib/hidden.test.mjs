@@ -1,6 +1,6 @@
 // hidden.test.mjs — what the UI does when a message is hidden or restored.
 import assert from "node:assert/strict";
-import { dropMessage, withHidden, replyState, HIDE_BODY } from "./hidden.js";
+import { dropMessage, withHidden, replyState, HIDE_BODY, HIDDEN_QUOTE } from "./hidden.js";
 
 const feed = [{ id: "a" }, { id: "b" }, { id: "c" }];
 
@@ -38,4 +38,6 @@ odd = withHidden(withHidden({}, "constructor", true), "constructor", false);
 assert.equal(replyState("constructor", null, odd), "missing");
 
 assert.match(HIDE_BODY, /your devices only\. Others still see it\./);
+// The quote names the action the person took, as the toast does.
+assert.equal(HIDDEN_QUOTE, "Deleted for you");
 console.log("ok");

@@ -25,7 +25,7 @@ export function withHidden(set, id, hidden) {
 }
 
 // replyState says what a "replying to ..." line may show for its target:
-//   "hidden"  the target is one this user hid ("Message hidden", no content)
+//   "hidden"  the target is one this user hid (HIDDEN_QUOTE, no content)
 //   "missing" not loaded here
 //   "deleted" deleted for everyone
 //   "ok"      show the author and snippet
@@ -41,4 +41,8 @@ export function replyState(replyTo, ref, hiddenIds) {
 // hideConfirm is the dialog's wording, kept in one place so the UI and its
 // test agree.
 export const HIDE_TITLE = "Delete for me?";
+// What a reply's quote says in place of a message this user hid. It names the
+// action that hid it ("Delete for me") and matches its toast; "hidden" stays
+// the report flow's word.
+export const HIDDEN_QUOTE = "Deleted for you";
 export const HIDE_BODY = "Delete for me: removes this message from your devices only. Others still see it.";

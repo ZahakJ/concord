@@ -1,5 +1,5 @@
 <script module>
-  import { replyState } from "./lib/hidden.js";
+  import { replyState, HIDDEN_QUOTE } from "./lib/hidden.js";
   import { canRevealDeleted as revealOffered, notKept, NOT_KEPT } from "./lib/reveal.js";
   // Holding Shift over the feed swaps Edit, Pin and Delete into the hover
   // toolbar. One listener for the whole app, written to the root as an
@@ -1445,14 +1445,14 @@
             >{nameFor(replyRef.sender, replyRef.senderName)}</span
           >
           {#if replyHidden}
-            <em class="reply-snippet faded">Message hidden</em>
+            <em class="reply-snippet faded">{HIDDEN_QUOTE}</em>
           {:else if replyRef.deleted}
             <em class="reply-snippet faded">Original message was deleted</em>
           {:else}
             <span class="reply-snippet">{replySnippet}</span>
           {/if}
         {:else if replyHidden}
-          <em class="reply-snippet faded">Message hidden</em>
+          <em class="reply-snippet faded">{HIDDEN_QUOTE}</em>
         {:else}
           <em class="reply-snippet faded">Original message not loaded</em>
         {/if}
