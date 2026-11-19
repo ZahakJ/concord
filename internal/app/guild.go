@@ -1383,7 +1383,12 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	// used to fold the phantom into the guild, newcomer and all, with nobody who
 	// could admit them ever having done so. A real stranded member still holds
 	// a leaf here; a first-time joiner arrives as a join, not a heal.
-	if req.Heal && !s.guildHasMember(req.GuildID, accountFingerprintOf(req.Credential)) {
+	//
+	// The owner is the exception: governance never removes the owner
+	// (govstate), so a heal from the owner's account is served whether or not
+	// this tree still seats it.
+	if req.Heal && accountFingerprintOf(req.Credential) != s.effectiveOwner(req.GuildID) &&
+		!s.guildHasMember(req.GuildID, accountFingerprintOf(req.Credential)) {
 		return json.Marshal(inviteResponse{Error: unseatedRefusal})
 	}
 	// A probe from a device whose leaf our tree still holds, past every refusal

@@ -570,7 +570,9 @@ func (s *Service) healOutOfSync(guildID string) {
 	// from someone who could not admit us (typically a member already thrown
 	// out), and the "guild" we have been reading is their private copy. Say so
 	// and stop asking, rather than sit on a catching-up bar that cannot end.
-	if unseated > 0 && unseated == len(candidates) {
+	// Not for the guild's owner: no honest committer refuses the owner a seat,
+	// and the owner waits for one that does not.
+	if unseated > 0 && unseated == len(candidates) && !s.ownsGuild(guildID) {
 		s.noteEvicted(guildID, evictedUnseated)
 	}
 }

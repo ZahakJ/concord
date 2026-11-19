@@ -266,6 +266,11 @@ func (s *Service) loadEvicted() {
 // peer we asked, not a verdict about us, and the heal loop is right to try the
 // next committer.
 func (s *Service) noteEvictionRefusal(guildID, refusal string) {
+	// The owner cannot be removed or banned (govstate), so no honest member
+	// has cause to say so, and a sentence is not a governance op.
+	if s.ownsGuild(guildID) {
+		return
+	}
 	switch strings.TrimSpace(refusal) {
 	case bannedRefusal:
 		s.noteEvicted(guildID, evictedBanned)
@@ -317,6 +322,12 @@ func (s *Service) screenCommit(guildID string, groupID, commit []byte) (int, []S
 		return commitUnverified, nil
 	}
 	removed, replaced := s.commitRemovesUs(groupID, commit)
+	if removed && !replaced && s.ownsGuild(guildID) && !s.commitFromOwnAccount(groupID, commit) {
+		// The owner's device settles as removed only on a commit from its own
+		// account. Anyone else's removal of it reads as a replacement: the
+		// device is out of step and asks to be let back in.
+		replaced = true
+	}
 	found, refuse := s.checkSeats(guildID, groupID, commit)
 	if replaced {
 		adder := ""
@@ -333,6 +344,20 @@ func (s *Service) screenCommit(guildID string, groupID, commit []byte) (int, []S
 		return commitRefused, nil
 	}
 	return commitProceed, found
+}
+
+// ownsGuild reports whether this device's account is the guild's effective
+// owner.
+func (s *Service) ownsGuild(guildID string) bool {
+	owner := s.effectiveOwner(guildID)
+	return owner != "" && owner == s.id.Fingerprint()
+}
+
+// commitFromOwnAccount reports whether a commit's sender leaf names this
+// device's account.
+func (s *Service) commitFromOwnAccount(groupID, commit []byte) bool {
+	sender, err := s.mls.CommitSender(s.ctx, groupID, commit)
+	return err == nil && accountFingerprintOf(sender) == s.id.Fingerprint()
 }
 
 // evictedGuildIDs snapshots the guilds we are out of, so the heal loop can skip
