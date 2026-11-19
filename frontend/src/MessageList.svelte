@@ -52,6 +52,7 @@
   import { seatBannerLines } from "./lib/seatbanner.js";
   import { plainSnippet } from "./lib/snippet.js";
   import { recordText } from "./lib/callflow.js";
+  import { deviceNote, DEVICE_VERIFY, DEVICE_VERIFIED } from "./lib/devicenote.js";
   import { gameAt, isGameToken } from "./lib/games.js";
   import { msOf, rangeLabel } from "./lib/chronicle.js";
   import { threadsBySource } from "./lib/threadlinks.js";
@@ -1906,20 +1907,31 @@
            devicewatch.go), as a system line rather than a message from them.
            It never travelled: the sync ingest drops every kind but ""/"system",
            so our observation stays on this machine. -->
+      <!-- Its wording per state is in lib/devicenote.js: "Verified" names the
+           person, and a verified contact's device is still marked not checked. -->
+      {@const devName = it.row.m.senderName || nameFor(it.row.m.sender)}
+      {@const note = deviceNote({
+        content: it.row.m.content,
+        verified: !!memberByFpr(it.row.m.sender)?.verified,
+        name: devName,
+      })}
       <div class="system-msg device-note" class:enter={it.row.m.id === animateId}>
         <span>
           <span class="dev-ic"><Icon name="devices" size={11} /></span>
-          {it.row.m.content}
-          <button
-            type="button"
-            class="dev-verify tap-hit"
-            onclick={() =>
-              (S.modal = {
-                kind: "verify",
-                fingerprint: it.row.m.sender,
-                name: it.row.m.senderName || nameFor(it.row.m.sender),
-              })}>Verify</button
-          >
+          {note.text}
+          {#if note.action === "verified"}
+            <span class="dev-tag">{note.tag}</span>
+            <span class="dev-verified" title={note.markTitle}
+              ><Icon name="check" size={11} />{DEVICE_VERIFIED}<span class="sr-only">. {note.markTitle}</span></span
+            >
+          {:else}
+            <button
+              type="button"
+              class="dev-verify tap-hit"
+              onclick={() => (S.modal = { kind: "verify", fingerprint: it.row.m.sender, name: devName })}
+              >{DEVICE_VERIFY}</button
+            >
+          {/if}
         </span>
       </div>
     {:else}
@@ -2569,6 +2581,30 @@
   }
   .device-note .dev-verify:hover {
     filter: brightness(1.08);
+  }
+  /* A verified contact's new device. The tag is about the device and comes
+     first, in the warn tone; "Verified" is about the person, in the quiet ok
+     tone the other verified marks use, so it never reads as covering the
+     device. */
+  .device-note .dev-tag {
+    margin-inline-start: var(--sp-2);
+    padding: 1px 8px;
+    border-radius: var(--radius-sm);
+    background: var(--warn-soft);
+    color: var(--warn-text);
+    font-size: var(--fs-small);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .device-note .dev-verified {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-inline-start: var(--sp-2);
+    color: var(--ok-text);
+    font-size: var(--fs-small);
+    font-weight: 600;
+    white-space: nowrap;
   }
   /* A contact's new device: worth noticing, not worth alarming. The warn tint
      says "read this" without claiming their identity changed — it didn't. */
