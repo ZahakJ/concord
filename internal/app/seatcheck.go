@@ -327,6 +327,37 @@ func (s *Service) keyFlagged(guildID string, key []byte) bool {
 	return ok && c.Kind != seatKeyDiffers
 }
 
+// pairOrRecordKind: a flag that describes an account key on two leaves
+// (ambiguous, seated, repeated) or a key unlike this device's record
+// (key_differs), not the leaf itself. A pair flag ends with the pair, and the
+// record proves nothing (see top).
+func pairOrRecordKind(kind string) bool {
+	return kind == seatAmbiguous || kind == seatSeated || kind == seatRepeated || kind == seatKeyDiffers
+}
+
+// committerFlagged reports whether a commit's sender leaf is flagged for what
+// it is: provably not its account's, rewritten, or replaced. A flag that only
+// says its account key also sits on another leaf does not count. Either of two
+// such leaves may remove the other, and this device cannot tell which one is
+// genuine, so the one left is judged like any lone leaf: by its own leaf and
+// against the record, and the record only flags.
+func (s *Service) committerFlagged(guildID string, l mls.Leaf) bool {
+	if s.leafNotTheirs(l) {
+		return true
+	}
+	hk := hex.EncodeToString(l.Key)
+	st := s.seatsState()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for _, f := range st.flags[guildID] {
+		if f.Key == hk && !pairOrRecordKind(f.Kind) {
+			return true
+		}
+	}
+	c, ok := st.committed[guildID][hk]
+	return ok && !pairOrRecordKind(c.Kind)
+}
+
 // checkSeats reads a commit before it is applied and returns the flags for
 // what it does to leaves, for recordCommitSeats once the commit has applied.
 // refuse is true when the commit should be refused, which in this release is
@@ -363,7 +394,7 @@ func (s *Service) checkSeats(guildID string, groupID, commit []byte) (found []Se
 	if cl.ByReference {
 		log.Printf("concord/app: guild %s: a commit carries a proposal by reference; its leaves could not be read", guildID)
 	}
-	if sl, ok := byIndex[cl.Sender]; ok && !cl.External && (s.leafNotTheirs(sl) || s.keyFlagged(guildID, sl.Key)) {
+	if sl, ok := byIndex[cl.Sender]; ok && !cl.External && s.committerFlagged(guildID, sl) {
 		log.Printf("concord/app: guild %s: a commit comes from a flagged leaf %d", guildID, sl.Index)
 		flag(sl, seatNotTheirs)
 	}

@@ -232,6 +232,9 @@ func TestRemovalWithSameCredentialLeftBehindIsNotEviction(t *testing.T) {
 		f, ok := flagFor(s.member, s.g.ID, pub)
 		return ok && f.Kind == seatKeyDiffers && !f.Provable
 	}, "member does not flag the leaf that stayed as unlike its record")
+	if s.member.keyFlagged(s.g.ID, pub) {
+		t.Fatalf("member withdraws authority from the leaf that stayed on its record alone: %+v", s.member.SeatFlags(s.g.ID))
+	}
 }
 
 // A leaf carrying a genuine certificate of one of the owner's devices, under
@@ -958,4 +961,137 @@ func TestAHeldActionIsJudgedByItsLeafsFlagAtRelease(t *testing.T) {
 	if row.Deleted {
 		t.Fatal("a held unsigned delete applied after its leaf was flagged")
 	}
+}
+
+// assertLeafCounts waits until the leaf under key carries authority at each
+// of svcs, then checks it carries no flag there beyond one against a record
+// (key_differs, shown only), and that a frame from it is taken: the nickname
+// set by from reaches every one of svcs.
+func assertLeafCounts(t *testing.T, guildID string, key []byte, from *Service, nick string, svcs map[string]*Service) {
+	t.Helper()
+	for name, svc := range svcs {
+		waitUntil(t, 10*time.Second, func() bool { return !svc.keyFlagged(guildID, key) },
+			name+" keeps the remaining leaf without authority")
+		if f, ok := flagFor(svc, guildID, key); ok && f.Kind != seatKeyDiffers {
+			t.Fatalf("%s flags the remaining leaf: %+v", name, f)
+		}
+	}
+	if err := from.SetNickname(guildID, nick); err != nil {
+		t.Fatal(err)
+	}
+	for name, svc := range svcs {
+		waitUntil(t, 20*time.Second, func() bool { return svc.NickOf(guildID, from.Fingerprint()) == nick },
+			name+" dropped a frame from the remaining leaf")
+	}
+}
+
+// A second leaf joins under the owner's account key, and the owner's own
+// device removes it. Once it is gone, the owner's leaf is the only one under
+// that key, and every member treats it as it did before the pair.
+func TestOwnersLeafCountsAgainAfterItsDeviceRemovesTheOther(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := newSeatSetup(t, ctx)
+	genuine := s.owner.ownAccountSigningKey()
+	addLeafWithCredential(t, s.mod, s.gid, s.owner.myCredential, freshKey(t))
+	waitUntil(t, 30*time.Second, func() bool {
+		for _, svc := range []*Service{s.owner, s.mod, s.member} {
+			ls := leavesWith(svc, s.gid, s.owner.myCredential)
+			if len(ls) != 1 || !bytes.Equal(ls[0].Key, genuine) {
+				return false
+			}
+		}
+		return true
+	}, "the owner's device did not remove the other leaf everywhere")
+	assertLeafCounts(t, s.g.ID, genuine, s.owner, "after the pair",
+		map[string]*Service{"member": s.member, "mod": s.mod})
+}
+
+// The same with the owner's leaf added second. The member holds the owner's
+// key from a guild they share. In the mod's guild another leaf carries the
+// owner's account key first, so the owner's add is flagged seated at the
+// member, and the owner's own device then removes the other leaf.
+func TestOwnersSeatedLeafCountsAgainAfterItsDeviceRemovesTheOther(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if testing.Short() {
+		t.Skip("networked")
+	}
+	holdSeatDefence(t)
+	owner, mod, member := startService(t, ctx), startService(t, ctx), startService(t, ctx)
+	genuine := owner.ownAccountSigningKey()
+
+	home, err := owner.CreateGuild("home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := owner.InviteCode(home.ID)
+	if _, err := member.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitMemberCount(t, 30*time.Second, home.ID, 2, owner, member)
+	waitUntil(t, 20*time.Second, func() bool {
+		return bytes.Equal(member.recordedAccountKey(owner.myCredential), genuine)
+	}, "setup: the member never recorded the owner's key")
+
+	g, err := mod.CreateGuild("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ = mod.InviteCode(g.ID)
+	if _, err := member.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitMemberCount(t, 30*time.Second, g.ID, 2, mod, member)
+	gid := rhGroup(mod, g.ID)
+	key := freshKey(t)
+	other := key.Public().(ed25519.PublicKey)
+	addLeafWithCredential(t, mod, gid, owner.myCredential, key)
+	waitUntil(t, 20*time.Second, func() bool {
+		return len(leavesWith(member, gid, owner.myCredential)) == 1
+	}, "setup: the other leaf never reached the member")
+
+	if _, err := owner.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 30*time.Second, func() bool {
+		return len(leavesWith(member, gid, owner.myCredential)) == 2 && len(leavesWith(owner, gid, owner.myCredential)) == 2
+	}, "setup: the owner's device never reached the member's tree")
+	waitUntil(t, 10*time.Second, func() bool {
+		st := member.seatsState()
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return st.committed[g.ID][hex.EncodeToString(genuine)].Kind == seatSeated
+	}, "setup: the member did not flag the owner's add as seated")
+
+	roleID, err := mod.UpsertRole(g.ID, "", "Mod", "#5865f2", PermManageMembers, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mod.AssignRole(g.ID, owner.Fingerprint(), roleID, true); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 20*time.Second, func() bool {
+		return owner.canManageMembers(g.ID) && member.authorizedCommitter(g.ID, owner.myCredential)
+	}, "setup: the grant never arrived")
+	var f SeatFlag
+	waitUntil(t, 10*time.Second, func() bool {
+		var ok bool
+		f, ok = flagFor(owner, g.ID, other)
+		return ok && f.Own && f.Provable
+	}, "setup: the owner's device does not flag the other leaf")
+	if err := owner.RemoveSeatLeaf(g.ID, f.Index, f.Key); err != nil {
+		t.Fatalf("RemoveSeatLeaf: %v", err)
+	}
+	waitUntil(t, 20*time.Second, func() bool {
+		for _, svc := range []*Service{member, mod} {
+			ls := leavesWith(svc, gid, owner.myCredential)
+			if len(ls) != 1 || !bytes.Equal(ls[0].Key, genuine) {
+				return false
+			}
+		}
+		return true
+	}, "the removal was not applied")
+	assertLeafCounts(t, g.ID, genuine, owner, "after the pair",
+		map[string]*Service{"member": member, "mod": mod})
 }
