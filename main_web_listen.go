@@ -161,16 +161,44 @@ func readPassphraseFile(path string) (string, error) {
 	return s, nil
 }
 
+// launchOwnerUID and launchPeerUID are whose launch directory may hold the
+// socket and who may talk to it: this process's user. Variables only so the
+// tests can stand in for another account.
+var (
+	launchOwnerUID = os.Getuid
+	launchPeerUID  = os.Getuid
+)
+
 // serveLaunchSocket answers GET /code on a unix socket with a fresh launch
 // code (internal/httpapi/launch.go), so a launcher can open the app without
 // the token ever being written anywhere. The socket lives in <runDir>/concord,
-// a directory only this user can enter, and is itself owner-only. stop closes
-// it and removes the file before returning: a socket left behind would point
-// the launcher at a process that is gone.
+// a directory only this user can enter, and is itself owner-only; on Linux it
+// also refuses any peer whose credentials are not this user's
+// (launchPeerListener). stop closes it and removes the file before returning:
+// a socket left behind would point the launcher at a process that is gone.
+//
+// runDir is XDG_RUNTIME_DIR, which is meant to be this user's alone. One that
+// group or others may write to (a misconfigured /tmp, say) is refused, as is a
+// <runDir>/concord that is anything but a directory this user owns: a
+// symlink planted there would otherwise have us chmod, and serve from, a
+// directory of someone else's choosing.
 func serveLaunchSocket(runDir, addr string, mint func() string) (path string, stop func(), err error) {
-	dir := filepath.Join(runDir, "concord")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := checkRuntimeDir(runDir); err != nil {
 		return "", nil, err
+	}
+	dir := filepath.Join(runDir, "concord")
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return "", nil, err
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return "", nil, err
+	}
+	if !fi.IsDir() {
+		return "", nil, fmt.Errorf("%s is not a directory; refusing to serve the launch socket from it", dir)
+	}
+	if !ownedBy(fi, launchOwnerUID()) {
+		return "", nil, fmt.Errorf("%s belongs to another user; refusing to serve the launch socket from it", dir)
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return "", nil, err
@@ -188,6 +216,7 @@ func serveLaunchSocket(runDir, addr string, mint func() string) (path string, st
 		ln.Close()
 		return "", nil, err
 	}
+	ln = launchPeerListener(ln, launchPeerUID())
 	mux := http.NewServeMux()
 	mux.HandleFunc("/code", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
