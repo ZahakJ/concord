@@ -73,3 +73,50 @@ test("phone: a drag that loses its touchend does not leave the page stuck mid-sl
   assert.ok(!after.drag && after.x === 0, `the page should be at rest: ${JSON.stringify(after)}`);
   assert.deepEqual(a.errors, [], a.errors.join("\n"));
 });
+
+test("phone: a touch that loses its touchend before it drags leaves no start for the next touch", async ({
+  world,
+  assert,
+  step,
+  sleep,
+}) => {
+  const [alice] = await world.peers(1);
+  const g = await world.guild({ name: "Slide", members: [alice] });
+  const ch = g.allChannels[0];
+  const a = await alice.open({ viewport: "phone" });
+  await a.openChannel(ch.name, "Slide");
+  await a.settled();
+  const p = a.page;
+  await p.evaluate(touchScript);
+
+  step("Touch the page, move too little to drag, then lose the finger's touchend");
+  const at = await p.evaluate(() => {
+    const box = document.querySelector("textarea.draft").getBoundingClientRect();
+    const x = Math.round(box.left + 20);
+    const y = Math.round(box.top + box.height / 2);
+    const page = document.querySelector(".mshell .page");
+    const el = document.createElement("div");
+    el.style.cssText = "position:absolute;left:0;top:0;width:60px;height:40px";
+    page.appendChild(el);
+    // Level with the composer, so the later move reads as sideways from here.
+    window.__touch(el, "touchstart", 10, y);
+    window.__touch(el, "touchmove", 14, y);
+    el.remove();
+    window.__touch(el, "touchend", 14, y);
+    return { x, y };
+  });
+
+  step("Slide a finger sideways inside the composer");
+  await p.evaluate(({ x, y }) => {
+    const ta = document.querySelector("textarea.draft");
+    window.__touch(ta, "touchstart", x, y);
+    for (const dx of [20, 60, 100, 140]) window.__touch(ta, "touchmove", x + dx, y);
+  }, at);
+  await sleep(400);
+  const mid = await pageState(p);
+  await p.evaluate(({ x, y }) => window.__touch(document.querySelector("textarea.draft"), "touchend", x + 140, y), at);
+  // A swipe inside the composer is the textarea's own; the page stays in.
+  assert.ok(!mid.drag && mid.x === 0, `the page should not move for a swipe inside the composer: ${JSON.stringify(mid)}`);
+  await a.settled({ timeout: 5000 });
+  assert.deepEqual(a.errors, [], a.errors.join("\n"));
+});

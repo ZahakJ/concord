@@ -487,12 +487,16 @@
 
   function onTouchStart(e) {
     if (e.touches.length !== 1) return;
-    // A lone finger means any earlier drag is over, even if its touchend never
-    // reached the shell (its target re-rendered away mid-drag). Stand the drag
-    // down so the sync effects settle the page instead of leaving it mid-slide.
+    // A lone finger means any earlier gesture is over, even if its touchend
+    // never reached the shell (its target re-rendered away mid-drag). Drop the
+    // old start point whether or not that drag was claimed: a touch that begins
+    // in a textarea or sheet returns below before replacing it, and a stale
+    // start would let its sideways move claim the page. A claimed drag is also
+    // stood down, so the sync effects settle the page instead of leaving it
+    // mid-slide.
+    drag = null;
     if (dragging) {
       dragging = false;
-      drag = null;
       holdLayer();
     }
     // Don't hijack swipes that start in text inputs or overlays (sheets,
