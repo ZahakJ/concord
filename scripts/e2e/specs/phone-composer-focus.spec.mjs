@@ -38,6 +38,7 @@ test("phone: Reply and Edit focus a text box inside the tap, and the replied-to 
   await alice.send(ch.id, "mine to fix");
   const a = await alice.open({ viewport: "phone" });
   await a.openChannel(ch.name, "Focus");
+  await a.settled(); // the page slides in after the composer is there
   await a.waitForMessage("mine to fix");
   const p = a.page;
 
@@ -93,6 +94,7 @@ test("phone: a DM from a profile card and a conversation with a draft open with 
   await bashir.send(ch.id, "tap my face");
   const a = await alice.open({ viewport: "phone" });
   await a.openChannel(ch.name, "Cards");
+  await a.settled(); // the page slides in after the composer is there
   const p = a.page;
   const composerFocused = () => p.evaluate(() => document.activeElement?.matches?.("textarea.draft") || false);
 
@@ -133,6 +135,7 @@ test("phone: a DM start that never answers gives focus back", async ({ world, as
   await bashir.send(ch.id, "tap my face");
   const a = await alice.open({ viewport: "phone" });
   await a.openChannel(ch.name, "Stall");
+  await a.settled(); // the page slides in after the composer is there
   const p = a.page;
   // StartDM reaches the core and never comes back.
   await p.route("**/rpc", (route) => {

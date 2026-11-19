@@ -571,6 +571,23 @@ export class App {
     return this;
   }
 
+  // Phone only: waits until the conversation page is at rest. On a phone the
+  // page slides in after openChannel/openDM have already seen the composer,
+  // and a scroll, tap or long-press made during the slide can be lost. At
+  // rest means not .moving and its left edge at x = 0. A no-op on desktop.
+  async settled({ timeout = 15000 } = {}) {
+    if (!this.isPhone) return this;
+    await waitFor(
+      () =>
+        this.page.evaluate(() => {
+          const p = document.querySelector(".mshell .page");
+          return !!p && !p.classList.contains("moving") && Math.round(p.getBoundingClientRect().x) === 0;
+        }),
+      { timeout, message: "the conversation page to come to rest" },
+    );
+    return this;
+  }
+
   // Opens settings (the gear on desktop, the "You" tab on a phone) and, when
   // given, switches to a section by its title in the settings rail
   // ("Account", "Your profile", "Appearance", "Notifications & sounds", …).
