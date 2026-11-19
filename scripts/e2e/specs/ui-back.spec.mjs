@@ -34,6 +34,9 @@ test("phone: Back from a conversation shows the channel list", async ({ world, a
   const a = await alice.open({ viewport: "phone" });
   const url = a.page.url();
   await a.openChannel("general", "Pocket");
+  // At rest, not mid-slide: a Back pressed while the page is still sliding in
+  // finds the list visible whatever Back did.
+  await a.settled();
   step("Back");
   await back(a.page);
   await waitFor(async () => (await a.page.locator(".channel").filter({ hasText: "general" }).first().isVisible()), {

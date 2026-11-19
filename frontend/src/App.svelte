@@ -400,8 +400,12 @@
     if (isDM) dmMedia.open = false;
     else setPref("memberPanel", false);
   }
-  // The overlay is a layer: Escape and Back close it, like any other.
-  syncLayer("panel", () => inspectorShown && !docked, closeInspector);
+  // The overlay is a layer: Escape and Back close it, like any other. Not on a
+  // phone: MobileShell draws no inspector there (its right page is a layer of
+  // its own), yet appW stays 0 so `docked` is false and the pref is on by
+  // default. The phantom layer took the first Back, flipped the pref, and the
+  // conversation stayed where it was.
+  syncLayer("panel", () => !S.isMobile && inspectorShown && !docked, closeInspector);
   // …and so does a press on the empty feed (never a link, a reaction, a picture
   // or the composer: those are things you meant to press).
   function overlayOutside(e) {
