@@ -21,6 +21,11 @@ const sends = {
   SendFile: () => api.sendFile("ch", "data:text/plain;base64,AA", "a.txt"),
   SendGuildGif: () => api.sendGuildGif("ch", "gif1"),
   SendSearchedGif: () => api.sendSearchedGif("ch", "ref1"),
+  // The held-file row's two choices and the recorder's voice clip
+  // (lib/mediastrip.js, Composer.svelte).
+  SendFileAsIs: () => api.sendFileAsIs("ch", "data:video/mp4;base64,AA", "a.mp4"),
+  SendFileWithoutText: () => api.sendFileWithoutText("ch", "data:video/mp4;base64,AA", "a.mp4"),
+  SendVoiceClip: () => api.sendVoiceClip("ch", "data:audio/ogg;base64,AA", "voice.ogg"),
 };
 
 for (const [method, send] of Object.entries(sends)) {
