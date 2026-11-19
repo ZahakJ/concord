@@ -487,6 +487,14 @@
 
   function onTouchStart(e) {
     if (e.touches.length !== 1) return;
+    // A lone finger means any earlier drag is over, even if its touchend never
+    // reached the shell (its target re-rendered away mid-drag). Stand the drag
+    // down so the sync effects settle the page instead of leaving it mid-slide.
+    if (dragging) {
+      dragging = false;
+      drag = null;
+      holdLayer();
+    }
     // Don't hijack swipes that start in text inputs or overlays (sheets,
     // profile card, emoji picker) or on the floating call window, which runs its
     // own pointer drag — touch-action:none stops the BROWSER panning, not an
