@@ -217,7 +217,7 @@ The owner can bring a community's older history into a guild from a chat export:
 What to expect:
 
 - **Nothing is fetched.** An attachment the export points at on a remote site, rather than including as a file, becomes a line naming the file and its size.
-- **Pictures in PNG, JPEG, GIF or WebP are cleaned** of location and camera details, as when you send one (see [Sharing files and media](files-and-media.md#attaching-files)), and other files, HEIC photos and videos among them, are imported as they are. A picture too damaged to clean is left out, and its message is imported without it.
+- **Pictures in PNG, JPEG, GIF or WebP are cleaned** of location and camera details, as when you send one (see [Sharing files and media](files-and-media.md#attaching-files)), and other files, HEIC photos and videos among them, are imported as they are. A picture too damaged to clean is left out, and a line naming the file stands in its place.
 - **The history is an archive, not live messages.** It appears above the start of each channel's live history, signed by the owner. It does not raise anyone's unread count, and archived messages cannot be reacted to.
 - **Members fetch pages as they scroll** to them, from other members, and keep what they read. **Guild settings → Archive** shows how much is on this device and offers **Keep the full archive on this device**. On a phone on a metered connection, pages are not fetched until you ask.
 - Importing again replaces the archive the guild carries.

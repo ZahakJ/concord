@@ -96,8 +96,8 @@
     {:else}
       <p>
         No other device is linked to this account, so this is the only copy. Your 24-word recovery
-        phrase is <b>not</b> a backup of it — it restores your account key, and you would come back as
-        the same person with no name, no guilds and no history.
+        phrase is <b>not</b> a backup of it — it restores your account key, and your profile when
+        someone you share a guild with is online, but you would come back with no guilds and no history.
       </p>
     {/if}
     <p class="type-line">

@@ -296,7 +296,7 @@
       icon="trash"
       title="Delete everything on this device"
       sub="Erase your identity, guilds and message history from here"
-      info="Wipes the keystore, the encrypted database and the MLS group state, leaving the app as it was before you first opened it. It reaches nothing outside this device: messages you have sent are on the recipients' machines and cannot be recalled. If another of your devices is still linked, re-linking this one brings your guilds and history back; the 24-word recovery phrase on its own does not — it restores the account key only."
+      info="Wipes the keystore, the encrypted database and the MLS group state, leaving the app as it was before you first opened it. It reaches nothing outside this device: messages you have sent are on the recipients' machines and cannot be recalled. If another of your devices is still linked, re-linking this one brings your guilds and history back; the 24-word recovery phrase on its own does not — it restores the account key and, when another of your devices or someone you share a guild with is online, your profile, but no guilds or history."
       danger
       onclick={() => (confirmWipe = true)}
     />
