@@ -1211,7 +1211,17 @@
       { label: "Mark unread", icon: "bell", onClick: () => markUnread(m.channelId, m) },
       // On a phone the "(edited)" mark is only a mark (EditHistory's plain);
       // its versions open from here.
-      m.edited && S.isMobile && { label: "Edit history", icon: "clock", onClick: () => (historyOpen = true) },
+      // A folded long message clips everything inside its body, the card
+      // included, so the menu unfolds it first.
+      m.edited &&
+        S.isMobile && {
+          label: "Edit history",
+          icon: "clock",
+          onClick: () => {
+            expanded = true;
+            historyOpen = true;
+          },
+        },
       // The refusal already exists in startEdit; the menu had no idea, so the
       // only possible outcome of this item was a toast saying no.
       (isOwn && !uneditableReason(m.content)) || memeTok ? { sep: true } : null,
@@ -1701,7 +1711,7 @@
       {/if}
       {#if card}
         <LinkPreview {card} channelId={m.channelId} />
-        {#if m.edited && !shownText.trim()}<EditHistory channelId={m.channelId} messageId={m.id} />{/if}
+        {#if m.edited && !shownText.trim()}<EditHistory channelId={m.channelId} messageId={m.id} plain={S.isMobile} bind:open={historyOpen} />{/if}
       {:else if embed?.kind === "yt"}
         <YouTubeEmbed videoId={embed.id} url={embed.url} autoload={false} />
       {/if}

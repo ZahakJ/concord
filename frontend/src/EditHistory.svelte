@@ -12,6 +12,7 @@
   import { clockOpts } from "./lib/state.svelte.js";
   import { shortWhen, sealFull } from "./lib/timestamp.js";
   import { rectOf, viewport } from "./lib/place.js";
+  import { syncLayer } from "./lib/navstack.svelte.js";
 
   let { channelId, messageId, block = false, plain = false, open = $bindable(false) } = $props();
 
@@ -19,6 +20,7 @@
   let failed = $state(false);
   let root = $state(null);
   let btn = $state(null);
+  let card = $state(null);
 
   async function load() {
     try {
@@ -45,6 +47,17 @@
       close(true);
     }
   }
+  // A layer while open, so Escape and the phone's back close it even when it
+  // was opened from the long-press menu and focus is not inside it.
+  syncLayer("popover", () => open, () => close(false));
+  // Opened from the menu, the mark can be off screen (the end of a long
+  // message), so bring the card into view once its versions are in.
+  $effect(() => {
+    if (!open || !card) return;
+    versions;
+    failed;
+    requestAnimationFrame(() => card?.scrollIntoView({ block: "nearest", inline: "nearest" }));
+  });
   // Closes on any press outside, since on a phone there is no pointer leaving.
   $effect(() => {
     if (!open) return;
@@ -81,7 +94,7 @@
       aria-expanded={open}
       onclick={toggle}>(edited)</button
     >{/if}{#if open}
-    <div class="eh-card" role="dialog" aria-label="Edit history" use:clamp>
+    <div class="eh-card" role="dialog" aria-label="Edit history" bind:this={card} use:clamp>
       <div class="eh-h">Edit history</div>
       {#if failed}
         <div class="eh-note">Couldn't load the history.</div>
