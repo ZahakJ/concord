@@ -10,6 +10,7 @@ test("phone: reacting from the long-press sheet applies the reaction", async ({ 
   const ch = g.allChannels[0];
   const a = await alice.open({ viewport: "phone" });
   await a.openChannel(ch.name, "Reacts");
+  await a.settled();
   const p = a.page;
 
   const target = await bashir.send(ch.id, "react to this one");

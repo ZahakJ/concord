@@ -422,6 +422,7 @@ test("phone: tap Reply to keyboard up is inside the tap and quick", async ({ wor
   await bashir.waitForMessage(ch.id, "thumb line 39 with a little text");
   const a = await alice.open({ viewport: "phone" });
   await a.openChannel(ch.name, "Thumb");
+  await a.settled();
   await a.waitForMessage("thumb line 39");
   const p = a.page;
   step("Six replies from the sheet, each timed from the tap's click");

@@ -19,6 +19,7 @@ test("phone: the profile sheet opens safe and its role removal is undoable in pl
   const a = await alice.open({ viewport: "phone" });
   const { page } = a;
   await a.openChannel(ch.name, "Pocket");
+  await a.settled();
 
   step("Members page, then Bashir's card by touch");
   await page.getByRole("button", { name: "Members", exact: true }).first().tap();

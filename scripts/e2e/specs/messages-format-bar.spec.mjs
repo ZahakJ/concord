@@ -171,6 +171,7 @@ test("phone: the + sheet's Aa raises one row of finger-sized buttons, remembered
   const a = await alice.open({ viewport: "phone" });
   const { page } = a;
   await a.openChannel(ch.name, "Thumbs");
+  await a.settled();
   const bar = page.locator(".composer .fmt-bar");
   assert.equal(await bar.count(), 0, "a formatting bar on a phone before anyone asked");
   // The phone row stays four targets: no Aa of its own.
@@ -225,6 +226,7 @@ test("the send control matches emoji and takes the accent only when there is som
     const a = await alice.open({ viewport });
     const { page } = a;
     await a.openChannel(ch.name, "Paper planes");
+    await a.settled();
     const measure = () =>
       page.evaluate(() => {
         const box = (e) => e && { w: Math.round(e.getBoundingClientRect().width), h: Math.round(e.getBoundingClientRect().height) };

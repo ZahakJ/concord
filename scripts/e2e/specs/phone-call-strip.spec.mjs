@@ -12,6 +12,7 @@ test("phone: the in-call strip is opaque over the messages", async ({ world, ass
 
   step("Alice joins Lounge on her phone, then reads #general under the strip");
   await a.openChannel("general", "Studio");
+  await a.settled();
   await a.back();
   await a.page.locator(".channel", { hasText: "Lounge" }).first().click();
   const strip = a.page.locator(".phone-call .callbar");
@@ -20,6 +21,7 @@ test("phone: the in-call strip is opaque over the messages", async ({ world, ass
     message: "the call to come up",
   });
   await a.openChannel("general", "Studio");
+  await a.settled();
   await strip.waitFor({ timeout: 30000 });
   await shot(a, "strip over messages");
 

@@ -180,6 +180,7 @@ test("phone: a DM's Media page, the viewer and Go to message", async ({ world, a
 
   const b = await bashir.open({ viewport: "phone" });
   await b.openDM("Alice");
+  await b.settled();
   const page = b.page;
   step("the DM's top bar has Media and files");
   await page.getByRole("button", { name: "Media and files" }).click();

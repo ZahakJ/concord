@@ -27,6 +27,7 @@ test("phone: the composer, the edit box and Select text leave long-press to the 
   await bashir.send(ch.id, "copy just the middle word please");
   const a = await alice.open({ viewport: "phone" });
   await a.openChannel(ch.name, "Text");
+  await a.settled();
   await a.waitForMessage("copy just the middle word");
   const p = a.page;
 
@@ -102,6 +103,7 @@ test("phone: pasting an image into the composer stages it as an attachment", asy
   const g = await world.guild({ name: "Paste", members: [alice] });
   const a = await alice.open({ viewport: "phone" });
   await a.openChannel(g.allChannels[0].name, "Paste");
+  await a.settled();
   await a.composer().tap();
   const prevented = await a.composer().evaluate(async (el, b64) => {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));

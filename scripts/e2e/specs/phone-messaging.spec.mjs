@@ -14,6 +14,7 @@ test("phone: open a channel, message both ways, back to channels", async ({ worl
 
   step("Alice opens the channel from Home on her phone");
   await a.openChannel(ch.name, "Pocket");
+  await a.settled();
   await a.send("sent from a phone");
   await b.waitForMessage("sent from a phone");
 

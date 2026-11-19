@@ -19,6 +19,7 @@ test("phone: the call is shown away from its room and never sits on a page's con
 
   step("Alice joins Lounge from Home on her phone");
   await a.openChannel("general", "Studio");
+  await a.settled();
   await a.back();
   await page.locator(".channel", { hasText: "Lounge" }).first().tap();
   await waitFor(async () => (await page.evaluate(() => !!document.querySelector(".voice-bar, .phone-call"))) || false, {
@@ -28,6 +29,7 @@ test("phone: the call is shown away from its room and never sits on a page's con
 
   step("In #general the strip sits under the top bar and above the composer");
   await a.openChannel(general.name, "Studio");
+  await a.settled();
   const bar = page.locator(".phone-call .callbar");
   await bar.waitFor({ state: "visible", timeout: 30000 });
   const strip = await rect(bar);

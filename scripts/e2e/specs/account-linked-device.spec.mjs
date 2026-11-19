@@ -19,6 +19,7 @@ test("a linked device joins the account's guilds and speaks as the account", asy
   step("and the second device's UI shows the guild and the conversation");
   const p = await phone.open({ viewport: "phone" });
   await p.openChannel(ch.name, "Two Devices");
+  await p.settled();
   await bashir.send(ch.id, "both your devices should get this");
   await p.waitForMessage("both your devices should get this");
   await alice.waitForMessage(ch.id, "both your devices should get this");

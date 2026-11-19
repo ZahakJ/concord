@@ -270,6 +270,7 @@ test("phone: the feed, and a page posing as YouTube is a page with its real doma
   const { bashir, general } = await seedFeed(world);
   const b = await bashir.open({ viewport: "phone" });
   await b.openChannel(general.name, "Cards");
+  await b.settled();
   const p = b.page;
 
   step("phone captures of the feed");
@@ -316,6 +317,7 @@ test("phone: holding a card, or its row, offers the link and its domain", async 
   const b = await bashir.open({ viewport: "phone" });
   const traffic = watchTraffic(b.page);
   await b.openChannel(general.name, "Cards");
+  await b.settled();
   const p = b.page;
   const card = p.locator(".lc", { hasText: "Never Gonna Give You Up" }).first();
   await card.waitFor();
@@ -421,6 +423,7 @@ test("phone: No thanks keeps links bare and is not asked again", async ({ world,
   const block = `[Never Gonna Give You Up](${YT}) · youtube.com\n${thumbLine(ytThumb, "Rick Astley")}`;
   const traffic = watchTraffic(a.page);
   await a.openChannel(general.name, "Cards");
+  await a.settled();
   const question = a.page.locator(".card-ask");
   // On a phone Enter is a newline; the Send button sends.
   const send = async (text) => {
@@ -579,6 +582,7 @@ test("phone: choosing in Settings first means the question never comes, off and 
 
   step("a link goes out bare: no fetch, no question");
   await a.openChannel(general.name, "Cards");
+  await a.settled();
   await send(`bare ${YT}`);
   await bashir.waitForMessage(general.id, `bare ${YT}`, { timeout: 30000 });
   await sleep(1000);
@@ -595,6 +599,7 @@ test("phone: choosing in Settings first means the question never comes, off and 
   await shot(a.page, "phone390-settings-on");
   await a.closeModals();
   await a.openChannel(general.name);
+  await a.settled();
   await send(YT);
   await bashir.waitForMessage(general.id, (m) => m.content === block, { timeout: 30000 });
   assert.deepEqual(asked, [[YT, true]]);

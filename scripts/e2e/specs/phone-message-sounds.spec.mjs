@@ -38,6 +38,7 @@ test("phone: send is silent; a message elsewhere or in the background sounds, th
     };
   });
   await a.openChannel(general.name, "Sounds");
+  await a.settled();
   // The reload comes back to the channel it left.
   await a.reload();
   await a.composer().waitFor();

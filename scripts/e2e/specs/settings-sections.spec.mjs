@@ -28,6 +28,7 @@ test("settings open on a phone with a DM's Media page closed", async ({ world, a
   await world.dm(alice, bashir);
   const app = await bashir.open({ viewport: "phone" });
   await app.openDM("Alice");
+  await app.settled();
   await app.back();
   const closed = app.page.locator('aside[role="dialog"][aria-label="Members"][aria-hidden="true"]');
   assert.equal(await closed.count(), 1, "the DM's closed right page is mounted");

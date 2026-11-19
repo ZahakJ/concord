@@ -57,6 +57,7 @@ async function setup(world) {
   const ch = g.allChannels[0];
   const a = await openFrozenable(alice, { viewport: "phone" });
   await a.openChannel(ch.name, "Resume");
+  await a.settled();
   await bashir.send(ch.id, "before you left");
   await a.waitForMessage("before you left");
   return { alice, bashir, ch, a };

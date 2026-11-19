@@ -196,6 +196,7 @@ test("phone: a tapped screenshot opens fitted inside the screen", async ({ world
   const ch = g.allChannels[0];
   const a = await alice.open({ viewport: "phone" });
   await a.openChannel(ch.name, "Pictures");
+  await a.settled();
   const page = a.page;
   const vp = page.viewportSize();
   const file = path.join(world.dir, "screenshot.png");

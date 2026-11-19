@@ -14,6 +14,7 @@ test("phone: the + sheet fits, Formatting is one row, and Layout is not offered"
   const a = await alice.open({ viewport: { width: 390, height: 450 }, mobile: true });
   const { page } = a;
   await a.openChannel(ch.name, "Pocket");
+  await a.settled();
   await a.composer().tap();
   await a.composer().fill("washi paper and PVA");
 
