@@ -2089,9 +2089,13 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* The snippet clips at its box (overflow: hidden), and an italic last letter
+     leans past the box's end: "Deleted for you" lost the right edge of its
+     "u". The padding gives the lean room. */
   .reply-snippet.faded {
     color: var(--text-faint);
     font-style: italic;
+    padding-inline-end: 0.2em;
   }
   @media (pointer: fine) {
     .reply-ref:hover .reply-snippet:not(.faded) {
