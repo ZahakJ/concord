@@ -339,24 +339,24 @@ for (const ok of [
 ])
   eq(rawToasts(ok).length, 0, `raw-toast scan passes ${JSON.stringify(ok)}`);
 
-// A failed image copy is a failure: kind "error" plays the nope sound and
+// A failed copy or save is a failure: kind "error" plays the nope sound and
 // styles the toast red. Left at the default "info" it was silent and looked
 // like a notice. The call is read to its closing paren, so a call wrapped onto
-// several lines is judged on its last argument, not its first line.
-const failToasts = ["Couldn't copy image:"];
+// several lines is judged on its last argument, not its first line. Each
+// prefix maps to the least number of sites it must find.
+const failToasts = { "Couldn't copy image:": 4, "Couldn't copy the link": 1, "Couldn't save:": 1 };
 const lastArgIsError = (args) => /,\s*"error"\s*,?\s*$/.test(args);
-const failKinds = (src) =>
-  flashCalls(src)
-    .filter(({ fn, args }) => fn === "flash" && failToasts.some((p) => args.trimStart().slice(1).startsWith(p)))
-    .map(({ args }) => args);
-let copyFails = 0;
+const failFound = Object.fromEntries(Object.keys(failToasts).map((p) => [p, 0]));
 for (const [rel, src] of sources) {
-  for (const args of failKinds(src)) {
-    copyFails++;
+  for (const { fn, args } of flashCalls(src)) {
+    const p = Object.keys(failToasts).find((p) => args.trimStart().slice(1).startsWith(p));
+    if (fn !== "flash" || !p) continue;
+    failFound[p]++;
     eq(lastArgIsError(args), true, `${rel}: a failure toast is an error toast (flash(${args.replace(/\s+/g, " ").trim()}))`);
   }
 }
-eq(copyFails >= 4, true, `the failure-toast scan found the four copy-image sites (found ${copyFails})`);
+for (const [p, want] of Object.entries(failToasts))
+  eq(failFound[p] >= want, true, `the failure-toast scan found ${want} "${p}" site(s) (found ${failFound[p]})`);
 eq(lastArgIsError("`Couldn't copy image: ${humanError(e)}`,\n  \"error\",\n"), true, "a wrapped error toast passes");
 eq(lastArgIsError("`Couldn't copy image: ${humanError(e)}`"), false, "a toast left at info fails");
 

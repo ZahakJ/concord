@@ -312,7 +312,7 @@
         if (!how) flash("Couldn't save that file");
       }
     } catch (e) {
-      flash(`Couldn't save: ${humanError(e)}`);
+      flash(`Couldn't save: ${humanError(e)}`, "error");
     }
   }
   async function copy(it) {

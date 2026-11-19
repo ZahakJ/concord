@@ -87,7 +87,7 @@
       await navigator.clipboard.writeText(`concord://channel?id=${encodeURIComponent(S.activeChannelId)}`);
       flash("Copied channel link", "success");
     } catch {
-      flash("Couldn't copy the link");
+      flash("Couldn't copy the link", "error");
     }
   }
   // ---- how much room this header actually has -----------------------------
