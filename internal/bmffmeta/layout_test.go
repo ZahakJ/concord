@@ -43,7 +43,15 @@ func ichunks(b []byte) (m map[string][][]byte, err error) {
 		return nil, e
 	}
 	for _, k := range kids {
-		if k.typ != "trak" {
+		switch k.typ {
+		case "mvhd", "iods", "ctab", "mvex":
+			// Copied as they are (mvex with its mehd and trex alone).
+			if tscan(b[k.start+k.hdr : k.end]) {
+				return nil, errTwoTables
+			}
+			continue
+		case "trak":
+		default:
 			continue
 		}
 		s, e := k.start+k.hdr, k.end
@@ -51,7 +59,10 @@ func ichunks(b []byte) (m map[string][][]byte, err error) {
 			return nil, fmt.Errorf("no mdia")
 		}
 		tt := ttables{tab: map[string]tbox{}, n: map[string]int{}}
-		if err := tt.walk(b, s, e, 0); err != nil {
+		if err := tt.walk(b, s, e, "trak"); err != nil {
+			return nil, err
+		}
+		if err := tt.entries(b); err != nil {
 			return nil, err
 		}
 		for _, n := range tt.n {
@@ -107,31 +118,51 @@ func ichunks(b []byte) (m map[string][][]byte, err error) {
 	return out, nil
 }
 
-// tTrackBoxes are the boxes the second reader looks into for a track's
-// handler and chunk tables: the track's own structure, and the boxes a
-// player reads as boxes of boxes.
-var tTrackBoxes = map[string]bool{
-	"mdia": true, "minf": true, "stbl": true, "dinf": true, "edts": true, "tref": true,
-	"tapt": true, "clip": true, "matt": true, "imap": true, "gmhd": true,
+// tIndex is the second reader's own list of the box types a player takes a
+// track's kind, its samples or its fragments from.
+var tIndex = []string{
+	"hdlr", "tkhd", "mdhd", "stsd", "stts", "stsc", "stsz", "stz2", "stco", "co64",
+	"trak", "mdia", "minf", "stbl", "traf", "trun", "tfhd", "moov", "moof",
 }
 
-// ttables is what the second reader finds in one trak, in file order: the
-// first media handler (a QuickTime data handler, alis or url , says nothing
-// of the track's kind) and the first chunk offsets, stsc and stsz, wherever
-// they sit under the trak, and how many of each there are.
+// tVendor are the boxes beside a track's structure, and in a picture sample
+// entry, that a kept track drops unread.
+var tVendor = map[string]bool{"uuid": true, "udta": true, "meta": true, "free": true, "skip": true, "wide": true}
+
+// tscan says whether an index type appears in p at any byte offset. A player
+// knows a box by its four type bytes and finds boxes where a strict reader
+// finds none (in boxes it does not walk, in a box cut to fit its parent, at
+// offsets of its own in a sample entry), so bytes copied as they are must
+// hold none.
+func tscan(p []byte) bool {
+	for _, t := range tIndex {
+		if bytes.Contains(p, []byte(t)) {
+			return true
+		}
+	}
+	return false
+}
+
+// ttables is what the second reader finds in one trak's own structure (trak,
+// mdia, minf, stbl), in file order: the first media handler (a QuickTime
+// data handler, alis or url , says nothing of the track's kind), the first
+// chunk offsets, stsc and stsz, how many of each there are, and the sample
+// descriptions.
 type ttables struct {
 	handler string
 	tab     map[string]tbox // "offsets" (stco or co64), "stsc", "stsz"
 	n       map[string]int
+	stsd    []tbox
 }
 
-func (tt *ttables) walk(b []byte, s, e, depth int) error {
+// walk reads the box in, one of trak, mdia, minf and stbl, from s to e. What
+// a kept track copies as it is (every other box but vendor boxes, from its
+// type on; the fields of the headers and tables) is scanned with tscan, and
+// a hit is errTwoTables.
+func (tt *ttables) walk(b []byte, s, e int, in string) error {
 	kids, err := tchildren(b, s, e)
 	if err != nil {
-		if depth == 0 {
-			return err
-		}
-		return nil // a box that is not a run of boxes holds none
+		return err
 	}
 	note := func(name string, k tbox) {
 		tt.n[name]++
@@ -139,55 +170,115 @@ func (tt *ttables) walk(b []byte, s, e, depth int) error {
 			tt.tab[name] = k
 		}
 	}
+	hit := func(p []byte) error {
+		if tscan(p) {
+			return errTwoTables
+		}
+		return nil
+	}
 	for _, k := range kids {
-		ps := k.start + k.hdr
-		switch k.typ {
-		case "hdlr":
-			if k.end-ps < 12 {
+		pl := b[k.start+k.hdr : k.end]
+		var err error
+		switch {
+		case in == "trak" && k.typ == "mdia", in == "mdia" && k.typ == "minf", in == "minf" && k.typ == "stbl":
+			err = tt.walk(b, k.start+k.hdr, k.end, k.typ)
+		case in == "trak" && k.typ == "tkhd", in == "mdia" && k.typ == "mdhd", in == "stbl" && k.typ == "stts":
+			err = hit(pl)
+		case in == "stbl" && (k.typ == "stsc" || k.typ == "stsz"):
+			note(k.typ, k)
+			err = hit(pl)
+		case in == "stbl" && (k.typ == "stco" || k.typ == "co64"):
+			note("offsets", k)
+			w := 4
+			if k.typ == "co64" {
+				w = 8
+			}
+			if len(pl) < 8 {
+				return fmt.Errorf("short %s", k.typ)
+			}
+			n := int(binary.BigEndian.Uint32(pl[4:]))
+			if n > (len(pl)-8)/w {
+				return fmt.Errorf("%s runs past its box", k.typ)
+			}
+			// The offsets are rewritten; what follows them is copied.
+			err = hit(pl[8+n*w:])
+		case in == "stbl" && k.typ == "stsd":
+			tt.stsd = append(tt.stsd, k)
+		case (in == "mdia" || in == "minf") && k.typ == "hdlr":
+			if len(pl) < 12 {
 				return fmt.Errorf("short hdlr")
 			}
-			h := string(b[ps+8 : ps+12])
-			if h == "alis" || h == "url " {
-				continue
-			}
-			if tt.n["hdlr"]++; tt.n["hdlr"] == 1 {
-				tt.handler = h
-			}
-		case "stco", "co64":
-			note("offsets", k)
-		case "stsc", "stsz":
-			note(k.typ, k)
-		case "stsd":
-			// A picture track's sample entries hold boxes after 78 bytes
-			// of fields (older QuickTime ends them with four zero bytes).
-			if tt.handler != "vide" && tt.handler != "auxv" || k.end-ps < 8 {
-				continue
-			}
-			ents, err := tchildren(b, ps+8, k.end)
-			if err != nil {
-				continue
-			}
-			for _, en := range ents {
-				es := en.start + en.hdr + 78
-				if es > en.end {
-					continue
-				}
-				if _, err := tchildren(b, es, en.end); err != nil && en.end-es >= 4 &&
-					binary.BigEndian.Uint32(b[en.end-4:]) == 0 {
-					if err := tt.walk(b, es, en.end-4, depth+1); err != nil {
-						return err
-					}
-					continue
-				}
-				if err := tt.walk(b, es, en.end, depth+1); err != nil {
-					return err
+			// Written with everything after the handler type cleared.
+			err = hit(pl[:12])
+			if h := string(pl[8:12]); h != "alis" && h != "url " {
+				if tt.n["hdlr"]++; tt.n["hdlr"] == 1 {
+					tt.handler = h
 				}
 			}
+		case tVendor[k.typ]:
 		default:
-			if tTrackBoxes[k.typ] && depth < 8 {
-				if err := tt.walk(b, ps, k.end, depth+1); err != nil {
-					return err
+			err = hit(b[k.start+4 : k.end])
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// entries scans a kept track's sample entries as they are written, after
+// their 8 bytes of SampleEntry fields: a picture entry with its maker and
+// compressor name cleared, its vendor boxes dropped and its 78 bytes of
+// fields, boxes and QuickTime terminator read one after the other; a sound
+// entry whole, with its maker cleared.
+func (tt *ttables) entries(b []byte) error {
+	pict := tt.handler == "vide" || tt.handler == "auxv"
+	if !pict && tt.handler != "soun" {
+		return nil
+	}
+	for _, sd := range tt.stsd {
+		ps := sd.start + sd.hdr
+		if sd.end-ps < 8 {
+			continue
+		}
+		ents, err := tchildren(b, ps+8, sd.end)
+		if err != nil {
+			continue
+		}
+		for _, en := range ents {
+			ep := bytes.Clone(b[en.start+en.hdr : en.end])
+			var w []byte
+			if pict {
+				if len(ep) < 78 {
+					continue
 				}
+				clear(ep[12:16])
+				clear(ep[42:74])
+				w = append(w, ep[:78]...)
+				tail := ep[78:]
+				var term []byte
+				kids, err := tchildren(tail, 0, len(tail))
+				if err != nil && len(tail) >= 4 && binary.BigEndian.Uint32(tail[len(tail)-4:]) == 0 {
+					term = tail[len(tail)-4:]
+					kids, err = tchildren(tail, 0, len(tail)-4)
+				}
+				if err != nil {
+					continue
+				}
+				for _, c := range kids {
+					if !tVendor[c.typ] {
+						w = append(w, tail[c.start:c.end]...)
+					}
+				}
+				w = append(w, term...)
+			} else {
+				if len(ep) >= 16 {
+					clear(ep[12:16])
+				}
+				w = ep
+			}
+			if len(w) > 8 && tscan(w[8:]) {
+				return errTwoTables
 			}
 		}
 	}
@@ -463,7 +554,85 @@ func elsewhereInputs() map[string][]byte {
 	trex := fb("trex", 0, 0, u32(0), u32(1), u32(0), u32(0), u32(0))
 	cases["handler in mvex"] = cat(isoFtyp, moovOf(vtrak("vide", stblOf("stco", nil, nil)), bx("mvex", trex, cc)),
 		synthFragment(0, []byte("FRAGMENT-SAMPLES")))
+	for name, in := range hiddenIndexInputs() {
+		cases[name] = in
+	}
 	return cases
+}
+
+// trakWith appends x to a trak box, after its mdia.
+func trakWith(trak, x []byte) []byte {
+	out := cat(trak, x)
+	binary.BigEndian.PutUint32(out, uint32(len(out)))
+	return out
+}
+
+// overlong makes a box claim n more bytes than it has: a player cuts it to
+// fit its parent and reads it anyway.
+func overlong(b []byte, n int) []byte {
+	out := bytes.Clone(b)
+	binary.BigEndian.PutUint32(out, uint32(len(out)+n))
+	return out
+}
+
+// hiddenIndexInputs are a handler or a chunk table in bytes a kept track
+// copies as they are, hidden from a reader that walks a fixed list of boxes:
+// in a box it does not look into, in a box that runs past its parent, or
+// where a sample entry's fields make a player read boxes from another
+// offset. Each was accepted, and ffprobe read the planted box from the
+// output (the confirm review's probe), except the fragment in tref, which is
+// the same door. In the handler cases a picture track comes first, then a
+// second track whose one chunk holds caption text.
+func hiddenIndexInputs() map[string][]byte {
+	pl := cat(bytes.Repeat([]byte("V"), 32), []byte("SUBTITLE: hello there....."))
+	at := len(isoFtyp) + 8
+	vid := etrak(1, "vide", at, 32, nil, nil, nil, nil, nil, nil)
+	file := func(traks ...[]byte) []byte { return cat(isoFtyp, bx("mdat", pl), moovOf(traks...)) }
+	cc := hdlrOf("clcp")
+	pict := func(trakX, entryX []byte) []byte {
+		return etrak(2, "vide", at+32, 26, trakX, nil, nil, nil, nil, entryX)
+	}
+	sound := func(entryX []byte) []byte { return etrak(2, "soun", at+32, 26, nil, nil, nil, nil, nil, entryX) }
+	cases := map[string][]byte{}
+	for _, c := range []string{"udta", "meta", "sinf", "schi", "traf", "moov", "moof"} {
+		cases["tref after mdia, handler in "+c] = file(vid, trakWith(pict(nil, nil), bx("tref", bx(c, cc))))
+	}
+	cases["tref after mdia, handler past its end"] = file(vid, trakWith(pict(nil, nil), bx("tref", overlong(cc, 64))))
+	frag := bx("traf", fb("tfhd", 0, 0, u32(2)), fb("trun", 0, 1, u32(1), u32(0)))
+	cases["tref after mdia, traf with tfhd and trun"] = file(vid, trakWith(pict(nil, nil), bx("tref", frag)))
+	for _, c := range []string{"udta", "meta", "sinf", "schi"} {
+		cases["sound entry, handler in "+c] = file(vid, sound(bx(c, cc)))
+	}
+	cases["sound entry, handler past its end"] = file(vid, sound(overlong(cc, 64)))
+	cases["sound entry, wave with a handler past its end"] = file(vid, sound(bx("wave", overlong(cc, 64))))
+	for _, c := range []string{"sinf", "schi"} {
+		cases["picture entry, handler in "+c] = file(vid, pict(nil, bx(c, cc)))
+	}
+	cases["picture entry, handler in wave/udta"] = file(vid, pict(nil, bx("wave", bx("udta", cc))))
+	cases["picture entry, wave with a handler past its end"] = file(vid, pict(nil, bx("wave", overlong(cc, 64))))
+	// Depth 8 and colour table id 0: a player reads 8 bytes of colour table
+	// header where the cleaner saw a box header.
+	ct := file(vid, pict(nil, bx("ab\x00\x00", cc)))
+	i := bytes.LastIndex(ct, []byte("avc1")) + 4
+	binary.BigEndian.PutUint16(ct[i+74:], 8)
+	binary.BigEndian.PutUint16(ct[i+76:], 0)
+	cases["picture entry with a colour table, handler after it"] = ct
+	// One track, tref before mdia: a player takes the first stco it meets.
+	stco := fb("stco", 0, 0, u32(1), u32(at+32))
+	one := func(trakX []byte) []byte { return file(etrak(1, "vide", at, 32, trakX, nil, nil, nil, nil, nil)) }
+	cases["tref before mdia, stco in udta"] = one(bx("tref", bx("udta", stco)))
+	cases["tref before mdia, stco past its end"] = one(bx("tref", overlong(stco, 64)))
+	return cases
+}
+
+// The second reader sees every hidden index too, so the fuzz target can
+// find the class.
+func TestSecondReaderSeesHiddenIndexes(t *testing.T) {
+	for name, in := range hiddenIndexInputs() {
+		if _, err := ichunks(in); !errors.Is(err, errTwoTables) {
+			t.Errorf("%s: %v, want errTwoTables", name, err)
+		}
+	}
 }
 
 // A track's handler and chunk tables are read in one place each; a file

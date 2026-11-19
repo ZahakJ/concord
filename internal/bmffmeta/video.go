@@ -62,10 +62,14 @@ func planVideo(r io.ReaderAt, top []box, o Options) (*plan, error) {
 		switch k.typ {
 		case "mvex":
 			frag = true
-			if err := v.noIndex(mp[k.start:k.end], indexDepth); err != nil {
+			if err := noIndex(mp[k.payload():k.end]); err != nil {
 				return nil, err
 			}
 			if err := v.readMvex(mp[k.payload():k.end], trex); err != nil {
+				return nil, err
+			}
+		case "mvhd", "iods", "ctab":
+			if err := noIndex(mp[k.payload():k.end]); err != nil {
 				return nil, err
 			}
 		case "cmov", "rmra":
@@ -119,6 +123,9 @@ func planVideo(r io.ReaderAt, top []box, o Options) (*plan, error) {
 			if ftyps > 1 {
 				return nil, ErrRefused
 			}
+			if err := topNoIndex(r, *b); err != nil {
+				return nil, err
+			}
 			p.parts = append(p.parts, part{copyOf: b})
 		case b.typ == "moov":
 			p.parts = append(p.parts, part{data: v.out})
@@ -135,6 +142,13 @@ func planVideo(r io.ReaderAt, top []box, o Options) (*plan, error) {
 		case b.typ == "mdat":
 			p.parts = append(p.parts, part{copyOf: b})
 		case frag && fragBoxes[b.typ]:
+			// moof is read box by box in fragRuns, which checks what it
+			// copies; the others are copied as they are.
+			if b.typ != "moof" {
+				if err := topNoIndex(r, *b); err != nil {
+					return nil, err
+				}
+			}
 			p.parts = append(p.parts, part{copyOf: b})
 		default:
 			// udta, meta, uuid, free, skip, wide, pnot, emsg, prft and
@@ -248,6 +262,9 @@ func (v *video) fragRuns(p []byte, moofAt uint64, trex map[uint32]uint32, ids ma
 	for _, k := range kids {
 		switch k.typ {
 		case "mfhd":
+			if err := noIndex(p[k.payload():k.end]); err != nil {
+				return nil, err
+			}
 			continue
 		case "traf":
 		default:
@@ -311,6 +328,11 @@ func (v *video) fragRuns(p []byte, moofAt uint64, trex map[uint32]uint32, ids ma
 					}
 					defSize = uint64(be32(b))
 				}
+				// Fields not read here (default sample flags) and
+				// anything after them are copied as they are.
+				if err := noIndex(q); err != nil {
+					return nil, err
+				}
 				pos = base
 			case "trun":
 				if !haveTfhd {
@@ -325,6 +347,9 @@ func (v *video) fragRuns(p []byte, moofAt uint64, trex map[uint32]uint32, ids ma
 				pos = rn.off + rn.n
 				prevEnd = pos
 			case "tfdt", "sbgp", "sgpd", "subs", "sdtp":
+				if err := noIndex(pl); err != nil {
+					return nil, err
+				}
 			default:
 				// saio holds file offsets, senc encrypted sample data; udta,
 				// meta, uuid and the rest are not media.
@@ -386,6 +411,10 @@ func (v *video) trun(pl []byte, base, pos uint64, first bool, defSize uint64) (r
 	if cnt > uint64(len(q))/uint64(max(per, 1)) && per > 0 {
 		return rng{}, ErrMalformed
 	}
+	// The per-sample fields and anything after them are copied as they are.
+	if err := noIndex(q); err != nil {
+		return rng{}, err
+	}
 	var n uint64
 	if fl&0x200 != 0 {
 		so := 0
@@ -429,6 +458,9 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 			}
 			hasTkhd = true
 			pl := p[k.payload():k.end]
+			if err := noIndex(pl); err != nil {
+				return nil, err
+			}
 			at := 12
 			if len(pl) > 0 && pl[0] == 1 {
 				at = 20
@@ -438,7 +470,7 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 			}
 			t.id = be32(pl[at:])
 		default:
-			if err := v.outsideIndex(p[k.start:k.end], k.typ); err != nil {
+			if err := outsideIndex(p[k.start:k.end], k.typ); err != nil {
 				return nil, err
 			}
 		}
@@ -466,14 +498,21 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 				return nil, ErrMalformed
 			}
 			t.handler = string(pl[8:12])
+			// Written with everything after the handler type cleared.
+			if err := noIndex(pl[:12]); err != nil {
+				return nil, err
+			}
 		case "minf":
 			if minf != nil {
 				return nil, ErrRefused
 			}
 			minf = pl
 		case "mdhd":
+			if err := noIndex(pl); err != nil {
+				return nil, err
+			}
 		default:
-			if err := v.outsideIndex(mdia[k.start:k.end], k.typ); err != nil {
+			if err := outsideIndex(mdia[k.start:k.end], k.typ); err != nil {
 				return nil, err
 			}
 		}
@@ -494,7 +533,7 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 			if err := checkDinf(&v.w, pl); err != nil {
 				return nil, err
 			}
-			if err := v.noIndex(pl, indexDepth); err != nil {
+			if err := outsideIndex(minf[k.start:k.end], k.typ); err != nil {
 				return nil, err
 			}
 		case "stbl":
@@ -511,8 +550,11 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 			if !dataHandlers[string(pl[8:12])] {
 				return nil, ErrRefused
 			}
+			if err := noIndex(pl[:12]); err != nil {
+				return nil, err
+			}
 		default:
-			if err := v.outsideIndex(minf[k.start:k.end], k.typ); err != nil {
+			if err := outsideIndex(minf[k.start:k.end], k.typ); err != nil {
 				return nil, err
 			}
 		}
@@ -565,76 +607,64 @@ func checkDinf(w *walker, p []byte) error {
 	return nil
 }
 
-// indexBoxes are the boxes a player takes a track's kind or its samples
-// from. The cleaner reads each in one place only; one anywhere else would
-// give a player a second reading of the track.
+// indexBoxes are the box types a player takes a track's kind, its samples
+// or its fragments from. The cleaner reads each in one place only; one
+// anywhere else would give a player a second reading of the track.
 var indexBoxes = map[string]bool{
 	"hdlr": true, "tkhd": true, "mdhd": true, "stsd": true, "stts": true, "stsc": true,
 	"stsz": true, "stz2": true, "stco": true, "co64": true, "trak": true, "mdia": true,
-	"minf": true, "stbl": true,
+	"minf": true, "stbl": true, "traf": true, "trun": true, "tfhd": true, "moov": true,
+	"moof": true,
 }
 
-// boxContainers are the boxes, other than a track's own trak, mdia, minf and
-// stbl, that a player reads as boxes of boxes, and those a kept track copies
-// whole. noIndex looks into each, reading its children both from the start
-// of the payload and after four bytes of version and flags.
-var boxContainers = map[string]bool{
-	"edts": true, "dinf": true, "dref": true, "tref": true, "mvex": true, "gmhd": true,
-	"wave": true, "tapt": true, "clip": true, "matt": true, "kmat": true, "load": true,
-	"imap": true, "txas": true,
-}
+// indexFirst marks the first bytes of indexBoxes, so most bytes are passed
+// over with one look.
+var indexFirst = func() (f [256]bool) {
+	for t := range indexBoxes {
+		f[t[0]] = true
+	}
+	return f
+}()
 
 // dataHandlers are the handler types of a QuickTime data handler (minf/hdlr):
 // they name how the media is reached, not what kind it is.
 var dataHandlers = map[string]bool{"alis": true, "url ": true}
 
-// indexDepth is how deep noIndex looks: deeper than a player nests boxes.
-const indexDepth = 10
-
-// noIndex refuses p, a run of boxes, when it holds an index box, at any depth
-// of boxContainers. p is read the way a lenient player reads a container: up
-// to the first header that does not fit.
-func (v *video) noIndex(p []byte, depth int) error {
-	for off := 0; len(p)-off >= 8; {
-		v.w.boxes++
-		if v.w.boxes > maxBoxes {
+// noIndex refuses p, bytes the cleaner writes as it found them, when the
+// type of an index box appears in it at any byte offset. A player knows a box
+// by its four type bytes alone, and it finds boxes where the cleaner reads
+// none: inside boxes it does not walk, in a box that runs past its parent
+// (cut to fit and read anyway), and from offsets of its own in a sample
+// entry (by a sound entry's version, after a picture entry's colour table).
+// So the bytes are checked, not one reading of them. Real data holds one of
+// these types by chance about once in 2^32 bytes.
+func noIndex(p []byte) error {
+	for i := 0; i+4 <= len(p); i++ {
+		if indexFirst[p[i]] && indexBoxes[string(p[i:i+4])] {
 			return ErrRefused
 		}
-		h := p[off:]
-		if len(h) > 16 {
-			h = h[:16]
-		}
-		b, err := header(h, uint64(len(p)-off))
-		if err != nil {
-			return nil
-		}
-		if indexBoxes[b.typ] {
-			return ErrRefused
-		}
-		if boxContainers[b.typ] && depth > 0 {
-			pl := p[off+int(b.hdr) : off+int(b.end)]
-			if err := v.noIndex(pl, depth-1); err != nil {
-				return err
-			}
-			if len(pl) > 4 {
-				if err := v.noIndex(pl[4:], depth-1); err != nil {
-					return err
-				}
-			}
-		}
-		off += int(b.end)
 	}
 	return nil
 }
 
 // outsideIndex checks a box found beside a track's own structure (in trak,
 // mdia, minf or stbl, where the cleaner does not read it): vendor boxes are
-// dropped unread, and anything else may not be or hold an index box.
-func (v *video) outsideIndex(b []byte, typ string) error {
+// dropped unread, and in anything else, its own type included, no index
+// type may appear.
+func outsideIndex(b []byte, typ string) error {
 	if vendorBoxes[typ] {
 		return nil
 	}
-	return v.noIndex(b, indexDepth)
+	return noIndex(b[4:])
+}
+
+// topNoIndex checks a top-level box that is copied as it is.
+func topNoIndex(r io.ReaderAt, b box) error {
+	p, err := readBox(r, b)
+	if err != nil {
+		return err
+	}
+	return noIndex(p[b.hdr:])
 }
 
 // chunkTable reads stco/co64, stsc and stsz into chunk offsets and lengths.
@@ -667,6 +697,10 @@ func (v *video) chunkTable(t *track, p []byte) error {
 				return ErrRefused
 			}
 			v.chunks += int(n)
+			// The offsets are rewritten; what follows them is copied.
+			if err := noIndex(pl[8+n*uint64(w):]); err != nil {
+				return err
+			}
 			t.offs = make([]uint64, n)
 			for i := range t.offs {
 				t.offs[i], _ = getN(pl[8+i*w:], w)
@@ -677,19 +711,31 @@ func (v *video) chunkTable(t *track, p []byte) error {
 			if stsc != nil {
 				return ErrRefused
 			}
+			if err := noIndex(pl); err != nil {
+				return err
+			}
 			stsc = pl
 		case "stsz":
 			if stsz != nil {
 				return ErrRefused
+			}
+			if err := noIndex(pl); err != nil {
+				return err
 			}
 			stsz = pl
 		case "stz2", "saio":
 			// Compact sizes, and auxiliary data addressed by file offset:
 			// neither is read here, so neither is rewritten.
 			return ErrRefused
-		case "stsd", "stts":
+		case "stts":
+			if err := noIndex(pl); err != nil {
+				return err
+			}
+		case "stsd":
+			// Its entries are checked as they are written (emitVisualStsd,
+			// emitSoundStsd).
 		default:
-			if err := v.outsideIndex(p[k.start:k.end], k.typ); err != nil {
+			if err := outsideIndex(p[k.start:k.end], k.typ); err != nil {
 				return err
 			}
 		}
@@ -1052,15 +1098,15 @@ func (v *video) emitVisualStsd(p []byte) error {
 			return ErrRefused
 		}
 		for _, c := range kids {
-			if vendorBoxes[c.typ] {
-				continue
+			if !vendorBoxes[c.typ] {
+				v.raw(tail[c.start:c.end])
 			}
-			if err := v.noIndex(tail[c.start:c.end], indexDepth); err != nil {
-				return err
-			}
-			v.raw(tail[c.start:c.end])
 		}
 		v.raw(term)
+		// The entry as written, after its SampleEntry fields.
+		if err := noIndex(v.out[head+8:]); err != nil {
+			return err
+		}
 		v.out = end(v.out, ea)
 	}
 	v.out = end(v.out, at)
@@ -1084,24 +1130,19 @@ func (v *video) emitSoundStsd(b []byte, hdr int64) error {
 	if err != nil {
 		return ErrRefused
 	}
-	for _, e := range ents {
-		// A sound entry's boxes start after 20, 36 or 56 bytes of fields,
-		// by its version (0, 1 or 2), and a player reads them as boxes.
-		ep := p[8:][e.payload():e.end]
-		for _, n := range []int{28, 44, 64} {
-			if len(ep) > n {
-				if err := v.noIndex(ep[n:], indexDepth); err != nil {
-					return err
-				}
-			}
-		}
-	}
 	at := len(v.out) + int(hdr) + 8
 	v.raw(b)
 	for _, e := range ents {
 		if e.end-e.payload() >= vendorAt+4 {
 			f := at + int(e.payload()) + vendorAt
 			clear(v.out[f : f+4])
+		}
+		// The entry as written, after its SampleEntry fields: a player
+		// reads boxes in it from an offset that depends on its version.
+		if e.end-e.payload() > 8 {
+			if err := noIndex(v.out[at+int(e.payload())+8 : at+int(e.end)]); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
