@@ -16,7 +16,7 @@
   import EmojiPicker from "./EmojiPicker.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import Menu from "./Menu.svelte";
-  import { untrack, onDestroy } from "svelte";
+  import { untrack, onDestroy, tick } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
   import { haptic } from "./lib/touch.js";
   import { emoteText } from "./lib/emote.js";
@@ -745,7 +745,11 @@
     queueAutosize();
     // Land the caret right after what we inserted (e.g. after "/spoiler ") so
     // the user can keep typing the args — bind:value alone parks it at the end.
-    requestAnimationFrame(() => composerEl?.setSelectionRange(pos, pos));
+    // As soon as the new value is in the textarea, before any further input
+    // can arrive: a select-all and Delete right after the completion must find
+    // the caret already placed, or the move collapses their selection, the
+    // Delete removes nothing, and the next Enter sends the cleared draft.
+    tick().then(() => composerEl?.setSelectionRange(pos, pos));
   }
 
   // ---- markdown formatting (toolbar buttons + Ctrl/Cmd shortcuts) ----
@@ -1589,7 +1593,8 @@
     const pos = start + e.length;
     saveDraft(S.activeChannelId, draft); // was only persisted on the next keystroke
     queueAutosize(); // …and the box didn't grow when a run of emoji wrapped
-    requestAnimationFrame(() => composerEl?.setSelectionRange(pos, pos));
+    // Before any further input, for the same reason as in accept().
+    tick().then(() => composerEl?.setSelectionRange(pos, pos));
     if (mobile) {
       // The panel stays up for a run of emoji. Closing after every pick was
       // sheet down, keyboard up, sheet up again — four viewport resizes to type

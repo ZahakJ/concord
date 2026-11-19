@@ -35,3 +35,45 @@ test("#channel completes after an @, and an empty file is refused up front", asy
   assert.equal((await alice.messages(g.channels.general)).length, before);
   assert.equal(await a.page.getByText("attachment must be a data URL").count(), 0);
 });
+
+// Accepting a completion parks the caret after the inserted text, and does it
+// before the keystroke's handling ends, so a select-all and Delete that come
+// before the next animation frame clear the whole box. The frame is held here
+// to fix the order: completion, select-all, frame, Delete. Playwright's
+// fill("") is exactly select-all then Delete.
+test("a box cleared right after a completion stays cleared and sends nothing", async ({ world, assert, step }) => {
+  const [alice, bashir] = await world.peers(2);
+  const g = await world.guild({ name: "Typing", members: [alice, bashir], channels: ["random"] });
+  const a = await alice.open();
+  await a.openChannel("general", "Typing");
+  const pop = a.page.locator(".suggest-pop");
+
+  step("complete #random while animation frames are held");
+  await a.composer().click();
+  await a.composer().pressSequentially("look at #ran", { delay: 15 });
+  await pop.waitFor();
+  await a.page.evaluate(() => {
+    const held = [];
+    const raf = window.requestAnimationFrame;
+    window.requestAnimationFrame = (cb) => held.push(cb);
+    window.__releaseFrame = () => {
+      window.requestAnimationFrame = raf;
+      const t = performance.now();
+      for (const cb of held.splice(0)) cb(t);
+    };
+  });
+  await a.composer().press("Enter");
+  assert.equal(await a.composer().inputValue(), "look at #random ");
+
+  step("select all, let the frame run, then Delete: the box is empty");
+  await a.composer().evaluate((el) => el.setSelectionRange(0, el.value.length));
+  await a.page.evaluate(() => window.__releaseFrame());
+  await a.composer().press("Delete");
+  assert.equal(await a.composer().inputValue(), "");
+
+  step("Enter on the empty box sends nothing");
+  const before = (await alice.messages(g.channels.general)).length;
+  await a.composer().press("Enter");
+  await sleep(1500);
+  assert.equal((await alice.messages(g.channels.general)).length, before);
+});
