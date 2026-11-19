@@ -9,8 +9,9 @@ import (
 	"testing"
 )
 
-// The launch socket goes only into a runtime directory nobody else can write
-// to, and only into a <run>/concord that is a real directory this user owns.
+// The launch socket goes only into a runtime directory this user owns and
+// nobody else can write to, and only into a <run>/concord that is a real
+// directory this user owns.
 // Anything else is refused before the directory is touched: a symlink planted
 // at <run>/concord would otherwise have its target chmodded and the socket
 // placed in it.
@@ -62,6 +63,16 @@ func TestLaunchSocketRefusesAnUnsafeDirectory(t *testing.T) {
 			t.Fatal(err)
 		}
 		refused(t, run)
+	})
+	t.Run("another user's runtime dir", func(t *testing.T) {
+		run := shortDir(t)
+		me := runtimeOwnerUID
+		runtimeOwnerUID = func() int { return os.Getuid() + 1 }
+		defer func() { runtimeOwnerUID = me }()
+		refused(t, run)
+		if _, err := os.Lstat(filepath.Join(run, "concord")); !os.IsNotExist(err) {
+			t.Fatalf("made %s/concord anyway: %v", run, err)
+		}
 	})
 	t.Run("symlink", func(t *testing.T) {
 		run, target := shortDir(t), shortDir(t)

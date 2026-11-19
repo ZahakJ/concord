@@ -161,12 +161,14 @@ func readPassphraseFile(path string) (string, error) {
 	return s, nil
 }
 
-// launchOwnerUID and launchPeerUID are whose launch directory may hold the
-// socket and who may talk to it: this process's user. Variables only so the
-// tests can stand in for another account.
+// runtimeOwnerUID, launchOwnerUID and launchPeerUID are who must own
+// XDG_RUNTIME_DIR, whose launch directory may hold the socket, and who may
+// talk to it: this process's user, all three. Variables only so the tests
+// can stand in for another account at each step.
 var (
-	launchOwnerUID = os.Getuid
-	launchPeerUID  = os.Getuid
+	runtimeOwnerUID = os.Getuid
+	launchOwnerUID  = os.Getuid
+	launchPeerUID   = os.Getuid
 )
 
 // serveLaunchSocket answers GET /code on a unix socket with a fresh launch
@@ -178,7 +180,8 @@ var (
 // a socket left behind would point the launcher at a process that is gone.
 //
 // runDir is XDG_RUNTIME_DIR, which is meant to be this user's alone. One that
-// group or others may write to (a misconfigured /tmp, say) is refused, as is a
+// another user owns, or that group or others may write to (a misconfigured
+// /tmp, say), is refused, as is a
 // <runDir>/concord that is anything but a directory this user owns: a
 // symlink planted there would otherwise have us chmod, and serve from, a
 // directory of someone else's choosing.
