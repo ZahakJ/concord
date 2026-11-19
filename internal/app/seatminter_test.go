@@ -226,3 +226,130 @@ func TestALeafThisDeviceCannotDecideIsNeverProvable(t *testing.T) {
 		t.Fatal("a leaf unlike the record lost its authority")
 	}
 }
+
+// Three devices of one account, all allowed to manage members, flag the same
+// leaf under the account's key, and the lowest of them is offline. The other
+// two are let act at the same moment; they wait by their place among the
+// account's leaves, so one removes the leaf and the other finds it gone.
+// Exactly one removal commit results, and no copy falls out of step.
+func TestOwnDevicesTakeTurnsToRemoveAFlaggedLeaf(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	holdSeatDefence(t)
+	prevDelay := seatDefenceDelay
+	seatDefenceDelay = 3 * time.Second
+	t.Cleanup(func() { seatDefenceDelay = prevDelay })
+
+	boot := testRendezvous(t, ctx)
+	var removals atomic.Int32
+	start := func(dir string) *Service {
+		t.Helper()
+		s, err := Start(ctx, Config{
+			DataDir: dir, Passphrase: "test-pass", DisableMDNS: true,
+			BootstrapPeers: []string{boot},
+			wrapMLS:        func(e mls.Engine) mls.Engine { return &countRemovals{Engine: e, n: &removals} },
+		})
+		if err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		return s
+	}
+	desk := start(t.TempDir())
+	mod := startServiceOn(t, ctx, t.TempDir(), boot)
+	g, err := desk.CreateGuild("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := desk.InviteCode(g.ID)
+	if _, err := mod.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitMemberCount(t, 60*time.Second, g.ID, 2, desk, mod)
+	gid := rhGroup(desk, g.ID)
+
+	var phones []*Service
+	for i := 1; i <= 2; i++ {
+		link, err := desk.LinkOffer()
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := t.TempDir()
+		res, err := RedeemLink(ctx, dir, link, "test-pass", "")
+		if err != nil {
+			t.Fatalf("RedeemLink: %v", err)
+		}
+		phone := start(dir)
+		for _, ic := range res.GuildInvites {
+			if _, err := phone.JoinViaInvite(ic); err != nil {
+				t.Fatalf("JoinViaInvite: %v", err)
+			}
+		}
+		waitUntil(t, 60*time.Second, func() bool {
+			n, err := desk.otherOwnDevices(gid)
+			return err == nil && n == i
+		}, "setup: a linked device never took its seat")
+		phones = append(phones, phone)
+	}
+
+	roleID, err := desk.UpsertRole(g.ID, "", "Mod", "#5865f2", PermManageMembers, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := desk.AssignRole(g.ID, mod.Fingerprint(), roleID, true); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 30*time.Second, func() bool {
+		return mod.canManageMembers(g.ID) && phones[0].canManageMembers(g.ID) && phones[1].canManageMembers(g.ID)
+	}, "setup: the grant never arrived")
+
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	pub := priv.Public().(ed25519.PublicKey)
+	addLeafWithCredential(t, mod, gid, desk.myCredential, priv)
+	waitUntil(t, 30*time.Second, func() bool {
+		for _, s := range []*Service{desk, phones[0], phones[1]} {
+			f, ok := flagFor(s, g.ID, pub)
+			if !ok || !f.Own || !f.Provable {
+				return false
+			}
+		}
+		return true
+	}, "setup: the own devices did not all flag the leaf")
+	for _, s := range phones {
+		s.markCaughtUp(g.ID)
+		if !s.mayDefendSeats(g.ID) {
+			t.Fatal("setup: an own device may not act")
+		}
+		if _, rank, err := s.defenceTarget(gid); err != nil || rank == 0 {
+			t.Fatalf("setup: a linked device ranks first (rank %d, err %v)", rank, err)
+		}
+	}
+	// The lowest device goes offline. Setup may have removed a stale leaf of
+	// its own; only removals from here on count.
+	_ = desk.Close()
+	before := removals.Load()
+
+	seatDefenceHold.Store(false)
+	go phones[0].defendSeats(g.ID)
+	go phones[1].defendSeats(g.ID)
+	waitUntil(t, 30*time.Second, func() bool {
+		for _, l := range leavesWith(mod, gid, desk.myCredential) {
+			if bytes.Equal(l.Key, pub) {
+				return false
+			}
+		}
+		return true
+	}, "the flagged leaf was never removed")
+	time.Sleep(2*seatDefenceDelay + 4*time.Second)
+	if n := removals.Load() - before; n != 1 {
+		t.Fatalf("%d removal commits for one leaf, want exactly 1", n)
+	}
+	for name, s := range map[string]*Service{"first linked": phones[0], "second linked": phones[1], "mod": mod} {
+		if s.OutOfSync(g.ID) {
+			t.Errorf("%s is out of sync after the removal", name)
+		}
+	}
+}

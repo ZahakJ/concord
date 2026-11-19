@@ -56,8 +56,10 @@ var refuseSeatChanges atomic.Bool
 // group before this device acts on it. Nothing in the product sets it.
 var seatDefenceHold atomic.Bool
 
-// seatDefenceDelay is how long a device that is not its account's first leaf
-// waits before removing a leaf itself, giving the first one the chance to.
+// seatDefenceDelay is how long a device waits per genuine leaf of its account
+// at a lower index before removing a leaf itself, giving those the chance to.
+// The second leaf waits one delay, the third two, and so on, so two devices
+// that are not first never act at the same moment.
 var seatDefenceDelay = 20 * time.Second
 
 // seatDefenceRetry is how soon a device that could not act yet looks again.
@@ -670,17 +672,17 @@ func (s *Service) defendSeats(guildID string) {
 	}
 	st.mu.Unlock()
 
-	target, first, err := s.defenceTarget(groupID)
+	target, rank, err := s.defenceTarget(groupID)
 	if err != nil || target == nil {
 		return
 	}
-	if !first {
-		// Another device of this account sits at a lower leaf and may be
-		// online to do it; give it the chance, then do it anyway.
+	if rank > 0 {
+		// Other devices of this account sit at lower leaves and may be
+		// online to do it; give each its turn, then do it anyway.
 		st.mu.Lock()
 		st.pending[guildID] = true
 		st.mu.Unlock()
-		time.AfterFunc(seatDefenceDelay, func() {
+		time.AfterFunc(time.Duration(rank)*seatDefenceDelay, func() {
 			st.mu.Lock()
 			delete(st.pending, guildID)
 			st.mu.Unlock()
@@ -706,24 +708,25 @@ func (s *Service) hasUnmatchedOwnLeaf(guildID string) bool {
 }
 
 // defenceTarget finds the lowest leaf carrying this account's credential that
-// is provably not this account's, and says whether this device is the
-// account's lowest genuine leaf (the one that removes it first).
-func (s *Service) defenceTarget(groupID []byte) (*mls.Leaf, bool, error) {
+// is provably not this account's, and the rank of this device among the
+// account's genuine leaves: how many of them sit at a lower index. Rank 0
+// removes it first.
+func (s *Service) defenceTarget(groupID []byte) (*mls.Leaf, int, error) {
 	leaves, err := s.mls.Leaves(s.ctx, groupID)
 	if err != nil {
-		return nil, false, err
+		return nil, 0, err
 	}
 	mine, err := s.mls.OwnLeaf(s.ctx, groupID)
 	if err != nil {
-		return nil, false, err
+		return nil, 0, err
 	}
 	var target *mls.Leaf
-	lowest := ^uint32(0)
+	rank := 0
 	for i := range leaves {
 		l := leaves[i]
 		if s.ownAccountLeaf(l) {
-			if l.Index < lowest {
-				lowest = l.Index
+			if l.Index < mine {
+				rank++
 			}
 			continue
 		}
@@ -734,7 +737,7 @@ func (s *Service) defenceTarget(groupID []byte) (*mls.Leaf, bool, error) {
 			target = &l
 		}
 	}
-	return target, lowest == mine, nil
+	return target, rank, nil
 }
 
 // mayDefendSeats: a removal this device mints now can reach the group. It
