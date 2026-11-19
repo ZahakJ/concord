@@ -133,8 +133,10 @@ which the startup line names. Open `http://<addr>/?c=<code>` with it.
 `/launch` refuses a request without a loopback `Origin`, which the page's
 fetch always sends; that stops only clients that send none, since any program
 can set the header. The real check comes after: a code redeemed a second time
-makes the binary change its token and cancel any open device-link offer, so
-whoever redeemed it first can do nothing more, and the page says what
+makes the binary change its token and cancel any open device-link offer (a
+call still running under the old token gets no answer, and the offer is
+cancelled again after it), so whoever redeemed it first can do nothing more,
+and the page says what
 happened and asks the user to check Settings → Your devices. It cannot undo
 what was done with the token before that. A program that saw a code can also
 replay it after the page is in, to force a change that signs every tab out;

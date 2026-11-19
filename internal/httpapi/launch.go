@@ -34,7 +34,9 @@ import (
 // rather than 403, and the server then rotates the token and runs its revoke
 // hooks (the browser build cancels any open device-link offer), so whoever
 // redeemed first loses further use of the API, and the page tells the user
-// what happened. Rotation cannot undo what was done with the token before
+// what happened. A call that was authorized under the old token and is still
+// running then gets no answer, and the hooks run again once it is done, so
+// it cannot leave a fresh offer behind either (HandleRPC). Rotation cannot undo what was done with the token before
 // it: the page's notice asks the user to check the linked devices.
 //
 // The trade-off: a program that read the code but lost the race to the page
@@ -214,11 +216,17 @@ func (s *Server) rotateToken() {
 	s.revoked = make(chan struct{})
 	s.launch.dropLive()
 	s.tokenMu.Unlock()
-	for _, revoke := range s.revokers {
-		revoke()
-	}
+	s.revoke()
 	if s.onRotate != nil {
 		s.onRotate(token)
+	}
+}
+
+// revoke runs the revoke hooks: after a rotation, and again after any call
+// that was authorized under the old token and finished after it.
+func (s *Server) revoke() {
+	for _, fn := range s.revokers {
+		fn()
 	}
 }
 

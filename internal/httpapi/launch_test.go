@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -189,5 +190,42 @@ func TestLaunchCodeRedeemedTwiceRotatesTheToken(t *testing.T) {
 	var got struct{ Token string }
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || w.Code != http.StatusOK || got.Token != told[0] {
 		t.Fatalf("a fresh code bought %d %q, want the new token", w.Code, w.Body)
+	}
+}
+
+// A call authorized under the old token that is still running when the token
+// rotates must not hand back what it made, and must not leave it in place: a
+// LinkOffer that lands after the rotation's cancel would otherwise re-open an
+// offer and give its code to whoever held the old token.
+func TestRPCRunningAcrossARotationGetsNoAnswer(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	var revoked atomic.Int32
+	s := New(ctx, false, WithAuthToken("the-real-token"), WithRevoke(func() { revoked.Add(1) }))
+	s.dispatch = func(method string, _ []json.RawMessage) (any, error) {
+		s.rotateToken() // the page's 409 lands while this call runs
+		return "offer-code-made-after-the-cancel", nil
+	}
+	r := httptest.NewRequest(http.MethodPost, "/rpc", strings.NewReader(`{"method":"LinkOffer","args":[]}`))
+	r.Header.Set("Authorization", "Bearer the-real-token")
+	r.Header.Set("Origin", page)
+	w := httptest.NewRecorder()
+	s.HandleRPC(w, r)
+	if w.Code != http.StatusUnauthorized || strings.Contains(w.Body.String(), "offer-code") {
+		t.Fatalf("a call that ran across the rotation answered %d %s", w.Code, w.Body)
+	}
+	if n := revoked.Load(); n != 2 {
+		t.Fatalf("revoke hooks ran %d times, want 2 (the rotation, then after the late call)", n)
+	}
+
+	// A call under the new token is answered as usual.
+	s.dispatch = func(string, []json.RawMessage) (any, error) { return "ok", nil }
+	r = httptest.NewRequest(http.MethodPost, "/rpc", strings.NewReader(`{"method":"Identity","args":[]}`))
+	r.Header.Set("Authorization", "Bearer "+s.token())
+	r.Header.Set("Origin", page)
+	w = httptest.NewRecorder()
+	s.HandleRPC(w, r)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"ok"`) {
+		t.Fatalf("a call under the new token: %d %s", w.Code, w.Body)
 	}
 }

@@ -50,6 +50,9 @@ type Server struct {
 	revokers  []func()
 	launchCmd string // guarded by tokenMu
 
+	// dispatch runs one RPC: the bridge's Dispatch, replaced only by tests.
+	dispatch func(method string, args []json.RawMessage) (any, error)
+
 	// launch holds the single-use codes that buy authToken (launch.go).
 	launch *launchCodes
 
@@ -89,6 +92,7 @@ func New(ctx context.Context, trusted bool, opts ...Option) *Server {
 
 func NewWith(b *bridge.Bridge, trusted bool, opts ...Option) *Server {
 	s := &Server{b: b, trusted: trusted, clients: map[chan sseEvent]struct{}{}, launch: newLaunchCodes(), revoked: make(chan struct{})}
+	s.dispatch = b.Dispatch
 	for _, o := range opts {
 		o(s)
 	}
@@ -177,6 +181,12 @@ func (s *Server) HandleRPC(w http.ResponseWriter, r *http.Request) {
 	if s.applyCORS(w, r) {
 		return
 	}
+	// Taken before the token is checked, as in HandleEvents: a call that was
+	// authorized under a token that a rotation then replaced is told apart
+	// after it ran (below).
+	s.tokenMu.RLock()
+	revoked := s.revoked
+	s.tokenMu.RUnlock()
 	if !s.authorized(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -202,7 +212,18 @@ func (s *Server) HandleRPC(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, rpcResponse{Error: "bad request"})
 		return
 	}
-	result, err := s.b.Dispatch(req.Method, req.Args)
+	result, err := s.dispatch(req.Method, req.Args)
+	// The token this call was authorized with was rotated away while it ran.
+	// Whatever it set up after the rotation's revoke hooks (a device-link
+	// offer, say) is withdrawn by running them again, and its answer, which
+	// could carry exactly that, goes nowhere.
+	select {
+	case <-revoked:
+		s.revoke()
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	default:
+	}
 	resp := rpcResponse{Result: result}
 	if err != nil {
 		resp.Error = err.Error()
