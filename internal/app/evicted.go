@@ -293,7 +293,14 @@ func isEvictionRefusal(refusal string) bool {
 // telling its user they were no longer a member of a guild they were still in.
 // A kick removes every leaf of the account, one commit each; each device meets
 // the commit for its own leaf, and applies the others on the way to it.
+//
+// A commit's Remove proposals say only what its signature vouches for, so a
+// commit that does not verify against its sender's leaf at our epoch evicts
+// nobody.
 func (s *Service) commitEvictsUs(groupID, commit []byte) bool {
+	if s.mls.VerifyCommit(s.ctx, groupID, commit) != nil {
+		return false
+	}
 	removed, err := s.mls.RemovedBy(s.ctx, groupID, commit)
 	if err != nil || len(removed) == 0 {
 		return false

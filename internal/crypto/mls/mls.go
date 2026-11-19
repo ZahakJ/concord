@@ -108,6 +108,13 @@ type Engine interface {
 	// current member (e.g. a commit for an epoch we haven't reached).
 	CommitSender(ctx context.Context, gid GroupID, commit []byte) ([]byte, error)
 
+	// VerifyCommit checks a commit WITHOUT applying it: a member's commit for
+	// this group at our current epoch, signed by its sender's leaf in our tree
+	// and carrying this epoch's membership tag. It is how a member that cannot
+	// apply a commit (its own lost commit, A3 of the restore design) can still
+	// tell a real one from bytes a peer made up.
+	VerifyCommit(ctx context.Context, gid GroupID, commit []byte) error
+
 	// Remove evicts the member with the given credential, returning a commit
 	// that every remaining member must apply. After it takes effect the removed
 	// member can no longer decrypt new messages (post-compromise security).
@@ -351,6 +358,13 @@ func (e *mlsEngine) Join(ctx context.Context, welcome []byte) (GroupID, error) {
 func (e *mlsEngine) ApplyCommit(ctx context.Context, gid GroupID, commit []byte) error {
 	if err := e.c.ProcessCommit(ctx, gid, commit); err != nil {
 		return fmt.Errorf("mls: process commit: %w", err)
+	}
+	return nil
+}
+
+func (e *mlsEngine) VerifyCommit(ctx context.Context, gid GroupID, commit []byte) error {
+	if err := e.c.VerifyCommit(ctx, gid, commit); err != nil {
+		return fmt.Errorf("mls: verify commit: %w", err)
 	}
 	return nil
 }

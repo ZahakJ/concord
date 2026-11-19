@@ -1519,6 +1519,59 @@ func (c *Client) ListMembers(ctx context.Context, groupID []byte) ([]MemberInfo,
 	return out, nil
 }
 
+// VerifyCommit checks, without applying it, that commitBytes is a commit for
+// this group at the group's CURRENT epoch, framed as a PublicMessage from a
+// member, signed by that member's leaf in the current tree and carrying a valid
+// membership tag for this epoch. A commit that passes was made by a member of
+// this epoch holding that leaf's signature key, whether or not this client can
+// go on to process it (a commit whose path secrets it cannot decrypt, for
+// instance).
+func (c *Client) VerifyCommit(ctx context.Context, groupID, commitBytes []byte) error {
+	if len(commitBytes) == 0 {
+		return ErrEmptyCommit
+	}
+	c.mu.Lock()
+	if err := c.checkOpen(); err != nil {
+		c.mu.Unlock()
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		c.mu.Unlock()
+		return err
+	}
+	entry := c.getOrCreateEntryLocked(groupCacheKeyBytes(groupID))
+	c.mu.Unlock()
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+
+	g, err := c.loadGroupEntry(ctx, groupID, entry)
+	if err != nil {
+		return err
+	}
+	msg, err := framing.UnmarshalMLSMessage(commitBytes)
+	if err != nil {
+		return fmt.Errorf("parsing commit message: %w", err)
+	}
+	pub, ok := msg.AsPublic()
+	if !ok {
+		return fmt.Errorf("commit is not a public message")
+	}
+	if pub.Content.ContentType() != framing.ContentTypeCommit {
+		return fmt.Errorf("message is not a commit")
+	}
+	if pub.Content.Sender.Type != framing.SenderTypeMember {
+		return fmt.Errorf("commit sender is not a member")
+	}
+	if !bytes.Equal(pub.Content.GroupID, groupID) {
+		return fmt.Errorf("commit is for another group")
+	}
+	if pub.Content.Epoch != g.Epoch().AsUint64() {
+		return fmt.Errorf("commit epoch %d is not the current epoch %d", pub.Content.Epoch, g.Epoch().AsUint64())
+	}
+	return g.VerifyPublicMessage(pub)
+}
+
 // Export derives exporter secret material for the current epoch using the
 // MLS-Exporter (RFC 9420 §8.5).
 //
