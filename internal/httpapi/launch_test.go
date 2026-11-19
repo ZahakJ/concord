@@ -229,3 +229,49 @@ func TestRPCRunningAcrossARotationGetsNoAnswer(t *testing.T) {
 		t.Fatalf("a call under the new token: %d %s", w.Code, w.Body)
 	}
 }
+
+// rotateOnRead rotates the server's token the first time the request body is
+// read: after the call was authorized, before it is dispatched.
+type rotateOnRead struct {
+	io.Reader
+	rotate func()
+	done   bool
+}
+
+func (r *rotateOnRead) Read(p []byte) (int, error) {
+	if !r.done {
+		r.done = true
+		r.rotate()
+	}
+	return r.Reader.Read(p)
+}
+
+// The same holds for a rotation that lands after the call was authorized but
+// before it reaches dispatch. The test above rotates inside dispatch, so it
+// cannot tell where the handler took its view of the token, as long as that
+// was before dispatch; this one rotates while the body is read, so a handler
+// that took it any later than that answers with the old token's result.
+func TestRPCAuthorizedBeforeARotationAndRunAfterItGetsNoAnswer(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	var revoked atomic.Int32
+	s := New(ctx, false, WithAuthToken("the-real-token"), WithRevoke(func() { revoked.Add(1) }))
+	s.dispatch = func(string, []json.RawMessage) (any, error) {
+		return "offer-code-made-after-the-cancel", nil
+	}
+	body := &rotateOnRead{Reader: strings.NewReader(`{"method":"LinkOffer","args":[]}`), rotate: s.rotateToken}
+	r := httptest.NewRequest(http.MethodPost, "/rpc", body)
+	r.Header.Set("Authorization", "Bearer the-real-token")
+	r.Header.Set("Origin", page)
+	w := httptest.NewRecorder()
+	s.HandleRPC(w, r)
+	if !body.done {
+		t.Fatal("the request body was never read, so the token never rotated")
+	}
+	if w.Code != http.StatusUnauthorized || strings.Contains(w.Body.String(), "offer-code") {
+		t.Fatalf("a call authorized before the rotation answered %d %s", w.Code, w.Body)
+	}
+	if n := revoked.Load(); n != 2 {
+		t.Fatalf("revoke hooks ran %d times, want 2 (the rotation, then after the late call)", n)
+	}
+}
