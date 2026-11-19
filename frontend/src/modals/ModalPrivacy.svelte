@@ -220,9 +220,6 @@
       disabled={!richPresenceSupported}
       onclick={toggleRichPresence}
     />
-  </SettingGroup>
-
-  <SettingGroup label="Notifications">
     <SettingRow
       icon="bell"
       title="Notification shows"
