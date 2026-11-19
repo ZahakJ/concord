@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -193,6 +195,33 @@ func FuzzStripKeepsSamples(f *testing.F) {
 			}
 		}
 	})
+}
+
+// A sample-to-chunk table is read to its end. An entry that starts past the
+// last chunk used to end the reading there, and the entries after it, which
+// a player still reads, went unchecked: the file was accepted and part of a
+// kept sound track was cleared. Two fuzz inputs from the round 3 review, kept
+// in testdata/fuzz as seeds too.
+func TestChunkTableIsReadToTheEnd(t *testing.T) {
+	for _, n := range []string{"stsc-entry-past-last-chunk-1", "stsc-entry-past-last-chunk-2"} {
+		raw, err := os.ReadFile(filepath.Join("testdata", "fuzz", "FuzzStripKeepsSamples", n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+		if len(lines) != 2 || !strings.HasPrefix(lines[1], "[]byte(") {
+			t.Fatalf("%s: not a one-value fuzz input", n)
+		}
+		in, err := strconv.Unquote(strings.TrimSuffix(strings.TrimPrefix(lines[1], "[]byte("), ")"))
+		if err != nil {
+			t.Fatalf("%s: %v", n, err)
+		}
+		for _, o := range []Options{{}, {DropText: true}} {
+			if _, _, err := StripBytesWith([]byte(in), o); !errors.Is(err, ErrMalformed) {
+				t.Errorf("%s (DropText %v): %v, want ErrMalformed", n, o.DropText, err)
+			}
+		}
+	}
 }
 
 func vtrak(handler string, stbl []byte, extra ...[]byte) []byte {

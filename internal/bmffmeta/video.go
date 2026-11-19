@@ -586,8 +586,10 @@ func (v *video) chunkTable(t *track, p []byte) error {
 			return ErrMalformed
 		}
 		prev = first
+		// A player reads every entry, so one past the last chunk is not
+		// the end of the table: it is a table that does not fit.
 		if first > nc {
-			break
+			return ErrMalformed
 		}
 		last := nc
 		if e+1 < ne {
