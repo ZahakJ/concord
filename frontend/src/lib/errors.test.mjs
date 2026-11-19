@@ -197,6 +197,19 @@ for (const bad of [
 for (const ok of ["flash(`Couldn't copy image: ${humanError(e)}`)", "flash(`${e.targetName} can rejoin`)"])
   eq((ok.match(rawToast) || []).length, 0, `raw-toast scan passes ${ok}`);
 
+// A failed image copy is a failure: kind "error" plays the nope sound and
+// styles the toast red. Left at the default "info" it was silent and looked
+// like a notice.
+let copyFails = 0;
+for (const rel of scanned) {
+  const src = readFileSync(new URL(rel, srcRoot), "utf8");
+  for (const m of src.matchAll(/flash\(`Couldn't copy image:[^\n]*/g)) {
+    copyFails++;
+    eq(/,\s*"error"\s*\);?\s*$/.test(m[0]), true, `${rel}: a failed image copy is an error toast (${m[0].trim()})`);
+  }
+}
+eq(copyFails >= 4, true, `the copy-image scan found the four sites (found ${copyFails})`);
+
 if (failures) {
   console.error(`\n${failures} errors test(s) failed`);
   process.exit(1);

@@ -321,7 +321,7 @@
       cacheTick++;
       flash("Image copied", "success");
     } catch (e) {
-      flash(`Couldn't copy image: ${humanError(e)}`);
+      flash(`Couldn't copy image: ${humanError(e)}`, "error");
     }
   }
   function menu(e, it) {

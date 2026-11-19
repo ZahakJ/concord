@@ -72,7 +72,7 @@
             await copyImageToClipboard(src);
             flash("Image copied", "success");
           } catch (err) {
-            flash(`Couldn't copy image: ${humanError(err)}`);
+            flash(`Couldn't copy image: ${humanError(err)}`, "error");
           }
         },
       },
