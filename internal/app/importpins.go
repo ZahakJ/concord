@@ -17,8 +17,8 @@ const importPinsScopedKey = "app.import_pins_scoped"
 // guild for each such pin the archive's pages name. A pin no held page names
 // keeps no guild.
 //
-// The run is recorded only when it finishes; one stopped by shutdown starts
-// again at the next launch.
+// The run is recorded only when it finishes. One stopped by shutdown, or by
+// an error reading the store, starts again at the next launch.
 func (s *Service) scopeImportPinsOnce() {
 	if v, err := s.store.GetSetting(importPinsScopedKey); err != nil || v != "" {
 		return
@@ -38,7 +38,11 @@ func (s *Service) scopeImportPinsOnce() {
 			if s.ctx.Err() != nil {
 				return
 			}
-			if err := s.store.ScopeImportPins(g, s.archivePictures(g, unscoped)); err != nil {
+			ids, err := s.archivePictures(g, unscoped)
+			if err != nil {
+				return
+			}
+			if err := s.store.ScopeImportPins(g, ids); err != nil {
 				return
 			}
 		}
@@ -47,11 +51,12 @@ func (s *Service) scopeImportPinsOnce() {
 }
 
 // archivePictures returns the pictures among want that the pages of
-// guildID's archives held on this device name.
-func (s *Service) archivePictures(guildID string, want map[string]bool) []string {
+// guildID's archives held on this device name. A page not held here, or one
+// that does not open, is skipped; an error reading the store is returned.
+func (s *Service) archivePictures(guildID string, want map[string]bool) ([]string, error) {
 	rows, err := s.store.ChronicleManifests(guildID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []string
 	seen := map[string]bool{}
@@ -62,7 +67,10 @@ func (s *Service) archivePictures(guildID string, want map[string]bool) []string
 		}
 		for _, ref := range m.Chunks {
 			ct, ok, err := s.store.ChronicleChunkStale(ref.ID)
-			if err != nil || !ok {
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
 				continue
 			}
 			msgs, err := openChronicleChunk(ct, ref.Keys)
@@ -81,5 +89,5 @@ func (s *Service) archivePictures(guildID string, want map[string]bool) []string
 			}
 		}
 	}
-	return out
+	return out, nil
 }
