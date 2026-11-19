@@ -21,6 +21,7 @@ import {
   displayFileName,
   forgetAttachments,
   attachmentCached,
+  cachedAttachment,
   primeAttachmentCache,
 } from "./attachments.js";
 
@@ -181,6 +182,7 @@ eq(placeholderName({ name: "" }), "", "a v1 token has no name and gets no line")
   for (const id of [img, card, other]) primeAttachmentCache(id, "data:image/png;base64,AA==");
   eq(forgetAttachments(body), 2, "the image and the card's picture are dropped");
   assert(!attachmentCached(img) && !attachmentCached(card), "the deleted message's pictures are gone");
+  assert(cachedAttachment(img) === "" && cachedAttachment(card) === "", "the gallery no longer draws them");
   assert(attachmentCached(other), "another message's picture stays");
   eq(forgetAttachments(""), 0, "an empty body drops nothing");
 }
