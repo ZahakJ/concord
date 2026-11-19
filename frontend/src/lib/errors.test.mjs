@@ -168,47 +168,197 @@ console.warn = silence;
 // the core's words on screen untouched: flash() maps only the start of the
 // string, and "Couldn't change the timer: app: …" does not start with the
 // prefix. Every such site maps the error itself, so the scan covers all of
-// src/: a toast template that splices in `x.message`, `x?.message`, or a bare
-// caught error (`${e}`, `${err}`) fails here.
+// src/. It reads each flash, flashSlot, toastError and toastOk call to its
+// closing paren, however many lines that takes, and fails when the call puts
+// text in front of a raw error: a template whose `${}` starts with one, or a
+// `+` next to one. It also follows a name that was given such a template and
+// is then flashed. A raw error is a `.message` read, `String(…)` of a caught
+// error, or a caught error by name (e, err, error, ex, reason, cause, or any
+// name ending in Err or Error), with or without a `||` or `??` fallback. The
+// whole message on its own, flash(err) or flash(e.message), is fine: flash()
+// maps it.
 const srcRoot = new URL("../", import.meta.url);
-// One line, from the flash call to its template: `${` followed straight away
-// by a .message read or a bare e/err/error/ex.
-const rawToast =
-  /\b(?:flash|flashSlot|toastError|toastOk)\([^;\n`]*`[^`\n]*\$\{\s*(?:\w+\??\.message\b|(?:e|err|error|ex)\s*\})[^`]*`/g;
+const errName = String.raw`(?:e|err|error|ex|reason|cause|\w*(?:Err|Error))`;
+// One operand that is a raw error. A caught error by name must not go on to
+// read a property (e.targetName is not an error) or be called.
+const rawOperand = String.raw`(?:String\(\s*(?:\w+\??\.message|${errName})\s*\)|\w+\??\.message\b|\b${errName}\b(?!\s*(?:\??\.|\[|\()))`;
+const rawInterp = new RegExp(String.raw`^\s*${rawOperand}\s*(?:(?:\|\||\?\?)[\s\S]*)?$`);
+const rawConcat = new RegExp(String.raw`\+\s*${rawOperand}|${rawOperand}\s*\+`);
+
+// Skips a quoted string or a template starting at i; returns the index after
+// it. A template's `${}` parts are collected into exprs, its text into texts.
+function skipString(src, i, exprs, texts) {
+  const q = src[i++];
+  let text = "";
+  while (i < src.length && src[i] !== q) {
+    if (src[i] === "\\") {
+      i += 2;
+      continue;
+    }
+    if (q === "`" && src[i] === "$" && src[i + 1] === "{") {
+      const end = skipCode(src, i + 2, "}");
+      exprs?.push(src.slice(i + 2, end));
+      texts?.push(text);
+      text = "";
+      i = end + 1;
+      continue;
+    }
+    text += src[i++];
+  }
+  texts?.push(text);
+  return i + 1;
+}
+// Walks code from i to the closer at depth 0 (")" for call arguments, "}" for
+// a `${}`), or, with closer null, to the end of an assignment's right side.
+// Returns the index of the closer.
+function skipCode(src, i, closer) {
+  let depth = 0;
+  let seen = false;
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (c === '"' || c === "'" || c === "`") {
+      i = skipString(src, i) - 1;
+      seen = true;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "/") {
+      while (i < src.length && src[i] !== "\n") i++;
+      continue;
+    }
+    if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) {
+      if (depth === 0) return i;
+      depth--;
+    } else if (closer === null && depth === 0 && (c === ";" || c === "," || (c === "\n" && seen))) return i;
+    if (!/\s/.test(c)) seen = true;
+  }
+  return i;
+}
+// Code outside every string and template, the `${}` parts of each template,
+// and whether text comes before a `${}` in the same template.
+function parts(expr) {
+  let code = "";
+  const interps = [];
+  for (let i = 0; i < expr.length; ) {
+    const c = expr[i];
+    if (c === '"' || c === "'" || c === "`") {
+      const exprs = [];
+      const texts = [];
+      i = skipString(expr, i, exprs, texts);
+      code += " _ ";
+      interps.push(...exprs);
+      continue;
+    }
+    code += c;
+    i++;
+  }
+  return { code, interps };
+}
+// The reasons expr puts a raw error on screen after other text.
+function rawIn(expr) {
+  const { code, interps } = parts(expr);
+  const found = interps.filter((x) => rawInterp.test(x)).map((x) => "${" + x.trim() + "}");
+  if (rawConcat.test(code)) found.push(code.match(rawConcat)[0].trim());
+  return found;
+}
+const callRe = /\b(flash|flashSlot|toastError|toastOk)\s*\(/g;
+function flashCalls(src) {
+  const calls = [];
+  for (const m of src.matchAll(callRe)) {
+    const start = m.index + m[0].length;
+    calls.push({ fn: m[1], args: src.slice(start, skipCode(src, start, ")")) });
+  }
+  return calls;
+}
+// Every call in src that shows a raw error, as readable strings.
+function rawToasts(src) {
+  // Names given a raw template or concatenation anywhere in the file.
+  const tainted = new Set();
+  for (const m of src.matchAll(/\b(\w+)\s*=(?![=>])/g)) {
+    const start = m.index + m[0].length;
+    if (rawIn(src.slice(start, skipCode(src, start, null))).length) tainted.add(m[1]);
+  }
+  const hits = [];
+  for (const { fn, args } of flashCalls(src)) {
+    const why = rawIn(args);
+    for (const a of args.split(",").map((s) => s.trim())) if (tainted.has(a)) why.push(`${a}, built with a raw error`);
+    if (why.length) hits.push(`${fn}(${args.replace(/\s+/g, " ").trim()}): ${why.join(", ")}`);
+  }
+  return hits;
+}
 const scanned = [];
+const sources = new Map();
 for (const rel of readdirSync(srcRoot, { recursive: true })) {
   if (!/\.(svelte|js)$/.test(rel) || /\.test\./.test(rel)) continue;
   const src = readFileSync(new URL(rel, srcRoot), "utf8");
   scanned.push(rel);
-  const raw = src.match(rawToast) || [];
+  sources.set(rel, src);
+  const raw = rawToasts(src);
   eq(raw.length, 0, `${rel}: a toast prints the raw error (${raw.join("; ")})`);
 }
-// The scan must reach the component tree, not just lib/.
+// The scan must reach the component tree, not just lib/, and must read calls.
 for (const f of ["GalleryViewer.svelte", "MediaGallery.svelte", "Composer.svelte", "modals/ModalNewPost.svelte"])
   eq(scanned.includes(f), true, `the raw-toast scan covers ${f}`);
-// The pattern itself: each raw shape is caught, a mapped one is not.
+eq(
+  [...sources.values()].reduce((n, s) => n + flashCalls(s).length, 0) > 300,
+  true,
+  "the raw-toast scan reads the app's toast calls",
+);
+// The scan itself: each raw shape is caught, each mapped one is not.
 for (const bad of [
   "flash(`Couldn't copy image: ${e?.message || e}`)",
   "flash(`Couldn't save: ${e.message}`)",
+  "flash(`Couldn't save: ${e.message}`, \"error\")",
   "flash(`Couldn't open your photos: ${err}`, \"error\")",
   "flashSlot(\"x\", `Failed: ${error?.message}`)",
+  "flash(\n  `Couldn't add the emoji: ${e.message}`,\n  \"error\",\n)",
+  "flash(`Couldn't send: ${String(e)}`)",
+  "flash(`Couldn't send: ${String(e.message)}`)",
+  "flash(`Couldn't send: ${err || \"unknown\"}`)",
+  "flash(`Couldn't send: ${err ?? \"unknown\"}`)",
+  "flash(\"Couldn't send: \" + e.message)",
+  "flash(\"Couldn't send: \" + err, \"error\")",
+  "toastError(e.message + \" (try again)\")",
+  "flash(`Couldn't join: ${reason}`)",
+  "flash(`Couldn't upload: ${uploadErr}`)",
+  "const msg = `Couldn't send: ${e.message}`;\nflash(msg, \"error\");",
+  "let msg\nmsg = \"Couldn't send: \" + err\nflash(msg)",
 ])
-  eq((bad.match(rawToast) || []).length, 1, `raw-toast scan catches ${bad}`);
-for (const ok of ["flash(`Couldn't copy image: ${humanError(e)}`)", "flash(`${e.targetName} can rejoin`)"])
-  eq((ok.match(rawToast) || []).length, 0, `raw-toast scan passes ${ok}`);
+  eq(rawToasts(bad).length, 1, `raw-toast scan catches ${JSON.stringify(bad)}`);
+for (const ok of [
+  "flash(`Couldn't copy image: ${humanError(e)}`)",
+  "flash(\n  `Couldn't copy image: ${humanError(e)}`,\n  \"error\",\n)",
+  "flash(`${e.targetName} can rejoin`)",
+  "flash(\"Couldn't send: \" + humanError(e))",
+  "flash(err)",
+  "flash(e.message, \"error\")",
+  "flash(`${count} new`)",
+  "flash(`Saved ${name || \"it\"}`)",
+  "const msg = `Couldn't send: ${humanError(e)}`;\nflash(msg);",
+  "const msg = `Couldn't send: ${e.message}`;\nconsole.warn(msg);\nflash(\"Couldn't send\");",
+])
+  eq(rawToasts(ok).length, 0, `raw-toast scan passes ${JSON.stringify(ok)}`);
 
 // A failed image copy is a failure: kind "error" plays the nope sound and
 // styles the toast red. Left at the default "info" it was silent and looked
-// like a notice.
+// like a notice. The call is read to its closing paren, so a call wrapped onto
+// several lines is judged on its last argument, not its first line.
+const failToasts = ["Couldn't copy image:"];
+const lastArgIsError = (args) => /,\s*"error"\s*,?\s*$/.test(args);
+const failKinds = (src) =>
+  flashCalls(src)
+    .filter(({ fn, args }) => fn === "flash" && failToasts.some((p) => args.trimStart().slice(1).startsWith(p)))
+    .map(({ args }) => args);
 let copyFails = 0;
-for (const rel of scanned) {
-  const src = readFileSync(new URL(rel, srcRoot), "utf8");
-  for (const m of src.matchAll(/flash\(`Couldn't copy image:[^\n]*/g)) {
+for (const [rel, src] of sources) {
+  for (const args of failKinds(src)) {
     copyFails++;
-    eq(/,\s*"error"\s*\);?\s*$/.test(m[0]), true, `${rel}: a failed image copy is an error toast (${m[0].trim()})`);
+    eq(lastArgIsError(args), true, `${rel}: a failure toast is an error toast (flash(${args.replace(/\s+/g, " ").trim()}))`);
   }
 }
-eq(copyFails >= 4, true, `the copy-image scan found the four sites (found ${copyFails})`);
+eq(copyFails >= 4, true, `the failure-toast scan found the four copy-image sites (found ${copyFails})`);
+eq(lastArgIsError("`Couldn't copy image: ${humanError(e)}`,\n  \"error\",\n"), true, "a wrapped error toast passes");
+eq(lastArgIsError("`Couldn't copy image: ${humanError(e)}`"), false, "a toast left at info fails");
 
 if (failures) {
   console.error(`\n${failures} errors test(s) failed`);
