@@ -68,7 +68,11 @@ func planVideo(r io.ReaderAt, top []box, o Options) (*plan, error) {
 			if err := v.readMvex(mp[k.payload():k.end], trex); err != nil {
 				return nil, err
 			}
-		case "mvhd", "iods", "ctab":
+		case "mvhd":
+			if err := noIndexTimed(mp[k.payload():k.end]); err != nil {
+				return nil, err
+			}
+		case "iods", "ctab":
 			if err := noIndex(mp[k.payload():k.end]); err != nil {
 				return nil, err
 			}
@@ -458,7 +462,7 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 			}
 			hasTkhd = true
 			pl := p[k.payload():k.end]
-			if err := noIndex(pl); err != nil {
+			if err := noIndexTimed(pl); err != nil {
 				return nil, err
 			}
 			at := 12
@@ -508,7 +512,7 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 			}
 			minf = pl
 		case "mdhd":
-			if err := noIndex(pl); err != nil {
+			if err := noIndexTimed(pl); err != nil {
 				return nil, err
 			}
 		default:
@@ -609,12 +613,15 @@ func checkDinf(w *walker, p []byte) error {
 
 // indexBoxes are the box types a player takes a track's kind, its samples
 // or its fragments from. The cleaner reads each in one place only; one
-// anywhere else would give a player a second reading of the track.
+// anywhere else would give a player a second reading of the track. A
+// compressed movie (cmov, with its dcom and cmvd) is among them: a player
+// inflates it wherever it meets one and reads what comes out as a moov, so
+// the types inside are not in the bytes.
 var indexBoxes = map[string]bool{
 	"hdlr": true, "tkhd": true, "mdhd": true, "stsd": true, "stts": true, "stsc": true,
 	"stsz": true, "stz2": true, "stco": true, "co64": true, "trak": true, "mdia": true,
 	"minf": true, "stbl": true, "traf": true, "trun": true, "tfhd": true, "moov": true,
-	"moof": true,
+	"moof": true, "cmov": true, "dcom": true, "cmvd": true,
 }
 
 // indexFirst marks the first bytes of indexBoxes, so most bytes are passed
@@ -645,6 +652,27 @@ func noIndex(p []byte) error {
 		}
 	}
 	return nil
+}
+
+// noIndexTimed is noIndex for the payload of mvhd, tkhd or mdhd, read with
+// its creation and modification times as zeroTimes writes them (zero): a
+// time is a number, and one that happens to spell a type is not written.
+func noIndexTimed(pl []byte) error {
+	n := 0
+	if len(pl) >= 4 {
+		switch pl[0] {
+		case 0:
+			n = 8
+		case 1:
+			n = 16
+		}
+	}
+	if n == 0 || len(pl) < 4+n {
+		return noIndex(pl) // refused or malformed when it is written
+	}
+	c := bytes.Clone(pl)
+	clear(c[4 : 4+n])
+	return noIndex(c)
 }
 
 // outsideIndex checks a box found beside a track's own structure (in trak,
@@ -924,13 +952,47 @@ func (v *video) emitTrak(p []byte, t *track) error {
 			// References may name a dropped track (a metadata track that
 			// describes this one, a timecode, chapters).
 			if !v.anyDropped {
-				v.raw(b)
+				if err := v.emitTref(p[k.payload():k.end]); err != nil {
+					return err
+				}
 			}
 		case "mdia":
 			if err := v.emitMdia(p[k.payload():k.end], t); err != nil {
 				return err
 			}
 		}
+	}
+	v.out = end(v.out, at)
+	return nil
+}
+
+// emitTref writes a track reference box as its reference boxes alone (chap,
+// tmcd, hint, cdsc, vdep, sync...): each a plain box whose payload is a
+// whole number of ids of this movie's tracks. Anything else is refused: a
+// player walks tref like any other box, and reads a udta, a chpl, a dref or
+// a trex it finds there. The box was scanned with the rest of the track.
+func (v *video) emitTref(p []byte) error {
+	kids, err := v.w.children(p)
+	if err != nil {
+		return ErrRefused
+	}
+	ids := map[uint32]bool{}
+	for _, t := range v.tracks {
+		ids[t.id] = true
+	}
+	var at int
+	v.out, at = begin(v.out, "tref")
+	for _, k := range kids {
+		pl := p[k.payload():k.end]
+		if k.hdr != 8 || len(pl)%4 != 0 {
+			return ErrRefused
+		}
+		for i := 0; i < len(pl); i += 4 {
+			if id := be32(pl[i:]); id == 0 || !ids[id] {
+				return ErrRefused
+			}
+		}
+		v.raw(p[k.start:k.end])
 	}
 	v.out = end(v.out, at)
 	return nil
@@ -1140,13 +1202,24 @@ func (v *video) emitSoundStsd(b []byte, hdr int64) error {
 		// The entry as written, after its SampleEntry fields: a player
 		// reads boxes in it from an offset that depends on its version.
 		if e.end-e.payload() > 8 {
-			if err := noIndex(v.out[at+int(e.payload())+8 : at+int(e.end)]); err != nil {
+			w := v.out[at+int(e.payload())+8 : at+int(e.end)]
+			if err := noIndex(w); err != nil {
 				return err
+			}
+			for _, t := range soundEntryRefused {
+				if bytes.Contains(w, []byte(t)) {
+					return ErrRefused
+				}
 			}
 		}
 	}
 	return nil
 }
+
+// soundEntryRefused are boxes a player reads in a sound entry that carry
+// text, not sound: tags (a place, a title) and chapter names. A sound entry
+// is copied as it is, so the types are refused wherever they appear in it.
+var soundEntryRefused = []string{"udta", "meta", "chpl"}
 
 // metaParts splits a meta box's payload into its version/flags (absent in
 // QuickTime's form) and its children.

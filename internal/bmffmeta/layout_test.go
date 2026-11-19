@@ -44,7 +44,12 @@ func ichunks(b []byte) (m map[string][][]byte, err error) {
 	}
 	for _, k := range kids {
 		switch k.typ {
-		case "mvhd", "iods", "ctab", "mvex":
+		case "mvhd":
+			if tscanTimed(b[k.start+k.hdr : k.end]) {
+				return nil, errTwoTables
+			}
+			continue
+		case "iods", "ctab", "mvex":
 			// Copied as they are (mvex with its mehd and trex alone).
 			if tscan(b[k.start+k.hdr : k.end]) {
 				return nil, errTwoTables
@@ -123,6 +128,23 @@ func ichunks(b []byte) (m map[string][][]byte, err error) {
 var tIndex = []string{
 	"hdlr", "tkhd", "mdhd", "stsd", "stts", "stsc", "stsz", "stz2", "stco", "co64",
 	"trak", "mdia", "minf", "stbl", "traf", "trun", "tfhd", "moov", "moof",
+	"cmov", "dcom", "cmvd",
+}
+
+// tscanTimed is tscan for the payload of mvhd, tkhd or mdhd with its two
+// times read as zero, which is how they are written.
+func tscanTimed(p []byte) bool {
+	n := 0
+	if len(p) >= 4 && p[0] == 0 {
+		n = 8
+	} else if len(p) >= 4 && p[0] == 1 {
+		n = 16
+	}
+	if n > 0 && len(p) >= 4+n {
+		p = bytes.Clone(p)
+		clear(p[4 : 4+n])
+	}
+	return tscan(p)
 }
 
 // tVendor are the boxes beside a track's structure, and in a picture sample
@@ -182,7 +204,11 @@ func (tt *ttables) walk(b []byte, s, e int, in string) error {
 		switch {
 		case in == "trak" && k.typ == "mdia", in == "mdia" && k.typ == "minf", in == "minf" && k.typ == "stbl":
 			err = tt.walk(b, k.start+k.hdr, k.end, k.typ)
-		case in == "trak" && k.typ == "tkhd", in == "mdia" && k.typ == "mdhd", in == "stbl" && k.typ == "stts":
+		case in == "trak" && k.typ == "tkhd", in == "mdia" && k.typ == "mdhd":
+			if tscanTimed(pl) {
+				err = errTwoTables
+			}
+		case in == "stbl" && k.typ == "stts":
 			err = hit(pl)
 		case in == "stbl" && (k.typ == "stsc" || k.typ == "stsz"):
 			note(k.typ, k)
@@ -557,6 +583,12 @@ func elsewhereInputs() map[string][]byte {
 	for name, in := range hiddenIndexInputs() {
 		cases[name] = in
 	}
+	for name, in := range referenceInputs() {
+		cases[name] = in
+	}
+	for name, in := range regionInputs() {
+		cases[name] = in
+	}
 	return cases
 }
 
@@ -622,6 +654,18 @@ func hiddenIndexInputs() map[string][]byte {
 	one := func(trakX []byte) []byte { return file(etrak(1, "vide", at, 32, trakX, nil, nil, nil, nil, nil)) }
 	cases["tref before mdia, stco in udta"] = one(bx("tref", bx("udta", stco)))
 	cases["tref before mdia, stco past its end"] = one(bx("tref", overlong(stco, 64)))
+	// A compressed movie, which a player inflates and reads as a moov.
+	cases["tref after mdia, handler in cmov"] = file(vid, trakWith(pict(nil, nil), bx("tref", cmovOf(cc))))
+	cases["sound entry, handler in cmov"] = file(vid, sound(cmovOf(cc)))
+	cases["picture entry, handler in cmov"] = file(vid, pict(nil, cmovOf(cc)))
+	cases["tapt, handler in cmov"] = file(vid, trakWith(pict(nil, nil), bx("tapt", cmovOf(cc))))
+	cases["tref before mdia, stco in cmov"] = one(bx("tref", cmovOf(stco)))
+	// The one picture track's chunk covers a second track's caption text;
+	// that track is in tref, compressed.
+	whole := file(etrak(1, "vide", at, 58, nil, nil, nil, nil, nil, nil))
+	cases["tref, a text track in cmov"] = growLastTrak(whole,
+		bx("tref", cmovOf(etrak(2, "sbtl", at+32, 26, nil, nil, nil, nil, nil, nil))))
+	cases["android-tail.mp4, a text track in cmov in tref"] = realTailWithCmovTrack()
 	return cases
 }
 

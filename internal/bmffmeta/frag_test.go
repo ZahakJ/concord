@@ -214,6 +214,17 @@ func ifruns(b []byte) (runs [][2]uint64, err error) {
 			}
 		}
 	}
+	// What a fragmented file copies as it is, scanned as ichunks scans moov:
+	// the top-level boxes, and in moof the fragment header, the boxes beside
+	// the run tables, and the fields of tfhd and trun not read here.
+	for _, m := range top {
+		switch m.typ {
+		case "ftyp", "styp", "sidx", "ssix", "mfra":
+			if tscan(b[m.start+m.hdr : m.end]) {
+				return nil, errTwoTables
+			}
+		}
+	}
 	for _, m := range top {
 		if m.typ != "moof" {
 			continue
@@ -225,6 +236,9 @@ func ifruns(b []byte) (runs [][2]uint64, err error) {
 		prev := uint64(m.start)
 		first := true
 		for _, tr := range trafs {
+			if tr.typ == "mfhd" && tscan(b[tr.start+tr.hdr:tr.end]) {
+				return nil, errTwoTables
+			}
 			if tr.typ != "traf" {
 				continue
 			}
@@ -238,6 +252,10 @@ func ifruns(b []byte) (runs [][2]uint64, err error) {
 				p := b[k.start+k.hdr : k.end]
 				fl := be.Uint32(p) & 0xFFFFFF
 				switch k.typ {
+				case "tfdt", "sbgp", "sgpd", "subs", "sdtp":
+					if tscan(p) {
+						return nil, errTwoTables
+					}
 				case "tfhd":
 					id := be.Uint32(p[4:])
 					q := p[8:]
@@ -258,6 +276,10 @@ func ifruns(b []byte) (runs [][2]uint64, err error) {
 					}
 					if fl&0x10 != 0 {
 						def = uint64(be.Uint32(q))
+						q = q[4:]
+					}
+					if tscan(q) {
+						return nil, errTwoTables
 					}
 					next = base
 				case "trun":
@@ -273,6 +295,9 @@ func ifruns(b []byte) (runs [][2]uint64, err error) {
 					}
 					if fl&4 != 0 {
 						q = q[4:]
+					}
+					if tscan(q) {
+						return nil, errTwoTables
 					}
 					var size uint64
 					for i := uint64(0); i < n; i++ {
