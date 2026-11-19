@@ -22,6 +22,7 @@
   import { emoteText } from "./lib/emote.js";
   import { plainSnippet } from "./lib/snippet.js";
   import { S, activeChannel, activeGuild, react, flash, flashSlot, nameColorFor, mentionRefs, customEmojiMap, setPref } from "./lib/state.svelte.js";
+  import { humanError } from "./lib/errors.js";
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
@@ -1648,7 +1649,7 @@
       const r = await pickAndStage({ core: picker, cap: window.Capacitor, attach: attachFile });
       if (r.note) flash(r.note, "error");
     } catch (err) {
-      flash(`Couldn't open your photos: ${err?.message || err}`, "error");
+      flash(`Couldn't open your photos: ${humanError(err)}`, "error");
     } finally {
       picking = false;
     }

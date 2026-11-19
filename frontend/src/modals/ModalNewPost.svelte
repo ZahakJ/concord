@@ -17,6 +17,7 @@
   import Icon from "../Icon.svelte";
   import RichEditor from "./RichEditor.svelte";
   import { S, refreshGuilds, selectChannel, flash } from "../lib/state.svelte.js";
+  import { humanError } from "../lib/errors.js";
   import { api } from "../lib/api.js";
   import { TAG_LIMITS, TINT_ALPHA, normalizeHex } from "../lib/forum.js";
   import { clampToBytes, titleFit, bodyStats, TITLE_MAX_BYTES, saveDraft, loadDraft, clearDraft, draftAge } from "../lib/postdraft.js";
@@ -160,7 +161,7 @@
       flash("Post created", "success");
     } catch (err) {
       // If the post itself exists, say so — retrying would create a second one.
-      flash(ch ? `Post created, but an attachment failed: ${err?.message || err}` : err);
+      flash(ch ? `Post created, but an attachment failed: ${humanError(err)}` : err);
       busy = false;
       step = "";
       if (ch) {

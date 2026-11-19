@@ -21,6 +21,7 @@
   import GalleryViewer from "./GalleryViewer.svelte";
   import { api, on } from "./lib/api.js";
   import { S, nameFor, fmtClock, jumpToMessage, openContextMenu, flash } from "./lib/state.svelte.js";
+  import { humanError } from "./lib/errors.js";
   import {
     cachedAttachment,
     onAttachmentCached,
@@ -311,7 +312,7 @@
         if (!how) flash("Couldn't save that file");
       }
     } catch (e) {
-      flash(`Couldn't save: ${e?.message || e}`);
+      flash(`Couldn't save: ${humanError(e)}`);
     }
   }
   async function copy(it) {
@@ -320,7 +321,7 @@
       cacheTick++;
       flash("Image copied", "success");
     } catch (e) {
-      flash(`Couldn't copy image: ${e?.message || e}`);
+      flash(`Couldn't copy image: ${humanError(e)}`);
     }
   }
   function menu(e, it) {

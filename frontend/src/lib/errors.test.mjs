@@ -6,7 +6,7 @@
 // survived verbatim — "HTTP 500", on screen, under somebody's message. The
 // worklog's own comment uses that exact string as the example of what must
 // never be shown.
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { errorField, humanError, slowModeWait, looksRaw, UNKNOWN } from "./errors.js";
 
 let failures = 0;
@@ -167,12 +167,35 @@ console.warn = silence;
 // A toast that names what failed and then pastes the error after a colon put
 // the core's words on screen untouched: flash() maps only the start of the
 // string, and "Couldn't change the timer: app: …" does not start with the
-// prefix. These sites map the error themselves.
-for (const file of ["../modals/ModalDisappear.svelte", "../Message.svelte", "../Attachment.svelte"]) {
-  const src = readFileSync(new URL(file, import.meta.url), "utf8");
-  const raw = src.match(/flash\(`[^`]*\$\{\s*\w+\?\.message\s*\|\|[^`]*`/g) || [];
-  eq(raw.length, 0, `${file}: a toast prints the raw error (${raw.join("; ")})`);
+// prefix. Every such site maps the error itself, so the scan covers all of
+// src/: a toast template that splices in `x.message`, `x?.message`, or a bare
+// caught error (`${e}`, `${err}`) fails here.
+const srcRoot = new URL("../", import.meta.url);
+// One line, from the flash call to its template: `${` followed straight away
+// by a .message read or a bare e/err/error/ex.
+const rawToast =
+  /\b(?:flash|flashSlot|toastError|toastOk)\([^;\n`]*`[^`\n]*\$\{\s*(?:\w+\??\.message\b|(?:e|err|error|ex)\s*\})[^`]*`/g;
+const scanned = [];
+for (const rel of readdirSync(srcRoot, { recursive: true })) {
+  if (!/\.(svelte|js)$/.test(rel) || /\.test\./.test(rel)) continue;
+  const src = readFileSync(new URL(rel, srcRoot), "utf8");
+  scanned.push(rel);
+  const raw = src.match(rawToast) || [];
+  eq(raw.length, 0, `${rel}: a toast prints the raw error (${raw.join("; ")})`);
 }
+// The scan must reach the component tree, not just lib/.
+for (const f of ["GalleryViewer.svelte", "MediaGallery.svelte", "Composer.svelte", "modals/ModalNewPost.svelte"])
+  eq(scanned.includes(f), true, `the raw-toast scan covers ${f}`);
+// The pattern itself: each raw shape is caught, a mapped one is not.
+for (const bad of [
+  "flash(`Couldn't copy image: ${e?.message || e}`)",
+  "flash(`Couldn't save: ${e.message}`)",
+  "flash(`Couldn't open your photos: ${err}`, \"error\")",
+  "flashSlot(\"x\", `Failed: ${error?.message}`)",
+])
+  eq((bad.match(rawToast) || []).length, 1, `raw-toast scan catches ${bad}`);
+for (const ok of ["flash(`Couldn't copy image: ${humanError(e)}`)", "flash(`${e.targetName} can rejoin`)"])
+  eq((ok.match(rawToast) || []).length, 0, `raw-toast scan passes ${ok}`);
 
 if (failures) {
   console.error(`\n${failures} errors test(s) failed`);

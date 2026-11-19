@@ -15,6 +15,7 @@
   import { portal } from "./lib/portal.js";
   import { focusOnMount } from "./lib/focus.js";
   import { S, flash, openContextMenu } from "./lib/state.svelte.js";
+  import { humanError } from "./lib/errors.js";
   import { saveBlob } from "./lib/savefile.js";
 
   let { item, index = 0, count = 1, onClose, onGoto, onStep, onLoaded = () => {} } = $props();
@@ -92,7 +93,7 @@
       await copyImageToClipboard(src);
       flash("Image copied", "success");
     } catch (e) {
-      flash(`Couldn't copy image: ${e?.message || e}`);
+      flash(`Couldn't copy image: ${humanError(e)}`);
     }
   }
   function menu(e) {
