@@ -2,7 +2,10 @@ package app
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"strings"
+
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // evicted.go is what a guild looks like from the outside after moderation has
@@ -266,6 +269,11 @@ func (s *Service) loadEvicted() {
 // peer we asked, not a verdict about us, and the heal loop is right to try the
 // next committer.
 func (s *Service) noteEvictionRefusal(guildID, refusal string) {
+	// The owner cannot be removed or banned (govstate), so no honest member
+	// has cause to say so, and a sentence is not a governance op.
+	if s.ownsGuild(guildID) {
+		return
+	}
 	switch strings.TrimSpace(refusal) {
 	case bannedRefusal:
 		s.noteEvicted(guildID, evictedBanned)
@@ -297,8 +305,16 @@ func isEvictionRefusal(refusal string) bool {
 // A commit's Remove proposals say only what its signature vouches for, so a
 // commit that does not verify against its sender's leaf at our epoch evicts
 // nobody.
-func (s *Service) commitEvictsUs(groupID, commit []byte) bool {
+//
+// The guild's owner is removed only by its own account: on the owner's device
+// a commit settles as its removal only when another genuine device of the
+// account sent it. Anyone else's removal leaves the device out of step, and it
+// asks to be let back in.
+func (s *Service) commitEvictsUs(guildID string, groupID, commit []byte) bool {
 	if s.mls.VerifyCommit(s.ctx, groupID, commit) != nil {
+		return false
+	}
+	if s.ownsGuild(guildID) && !s.commitFromOwnSibling(groupID, commit) {
 		return false
 	}
 	removed, err := s.mls.RemovedBy(s.ctx, groupID, commit)
@@ -311,6 +327,32 @@ func (s *Service) commitEvictsUs(groupID, commit []byte) bool {
 		}
 	}
 	return false
+}
+
+// ownsGuild reports whether this device's account is the guild's effective
+// owner.
+func (s *Service) ownsGuild(guildID string) bool {
+	owner := s.effectiveOwner(guildID)
+	return owner != "" && owner == s.id.Fingerprint()
+}
+
+// commitFromOwnSibling reports whether a commit's sender leaf is another
+// genuine device of this account: a device certificate of this account on the
+// key it names, or this account's key on the signing key its seed gives, and
+// not this device's own credential (a device never commits its own removal).
+func (s *Service) commitFromOwnSibling(groupID, commit []byte) bool {
+	cred, key, err := s.mls.CommitSenderLeaf(s.ctx, groupID, commit)
+	if err != nil || len(key) == 0 || bytes.Equal(cred, s.myCredential) {
+		return false
+	}
+	if accountFingerprintOf(cred) != s.id.Fingerprint() {
+		return false
+	}
+	if cert, ok := identity.ParseDeviceCert(cred); ok {
+		return cert.Verify() && bytes.Equal(cert.DevicePub, key)
+	}
+	own := deriveMLSSigningKey(s.id).Public().(ed25519.PublicKey)
+	return bytes.Equal(cred, s.id.PublicKey()) && bytes.Equal(key, own)
 }
 
 // evictedGuildIDs snapshots the guilds we are out of, so the heal loop can skip

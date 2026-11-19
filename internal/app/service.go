@@ -102,6 +102,9 @@ type Service struct {
 	// dropLive, when set, discards a live message before it is stored: a test's
 	// stand-in for gossip losing one. Never set outside tests.
 	dropLive atomic.Pointer[func(domain.Message) bool]
+	// requestInvite is the transport a heal asks over; nil means the host's.
+	// Tests answer a heal with a refusal through it. Never set outside tests.
+	requestInvite atomic.Pointer[func(ctx context.Context, to peer.AddrInfo, request []byte) ([]byte, error)]
 
 	// pendingDMInvites tracks DM invitees (1:1 and group) who haven't joined
 	// yet (guild ID -> set of fingerprints). When such a peer later connects we

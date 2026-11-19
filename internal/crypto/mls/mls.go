@@ -108,6 +108,10 @@ type Engine interface {
 	// current member (e.g. a commit for an epoch we haven't reached).
 	CommitSender(ctx context.Context, gid GroupID, commit []byte) ([]byte, error)
 
+	// CommitSenderLeaf is CommitSender that also returns the signature key of
+	// the sender's leaf in our current tree.
+	CommitSenderLeaf(ctx context.Context, gid GroupID, commit []byte) (cred, key []byte, err error)
+
 	// VerifyCommit checks a commit WITHOUT applying it: a member's commit for
 	// this group at our current epoch, signed by its sender's leaf in our tree
 	// and carrying this epoch's membership tag. It is how a member that cannot
@@ -394,6 +398,31 @@ func (e *mlsEngine) CommitSender(ctx context.Context, gid GroupID, commit []byte
 		}
 	}
 	return nil, fmt.Errorf("mls: commit sender leaf %d is not a current member", leaf)
+}
+
+func (e *mlsEngine) CommitSenderLeaf(ctx context.Context, gid GroupID, commit []byte) (cred, key []byte, err error) {
+	msg, err := framing.UnmarshalMLSMessage(commit)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mls: parse commit: %w", err)
+	}
+	pub, ok := msg.AsPublic()
+	if !ok {
+		return nil, nil, fmt.Errorf("mls: commit is not a public message")
+	}
+	if pub.Content.Sender.Type != framing.SenderTypeMember {
+		return nil, nil, fmt.Errorf("mls: commit sender is not a group member")
+	}
+	leaf := pub.Content.Sender.LeafIndex
+	members, err := e.c.ListMembers(ctx, gid)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mls: list members: %w", err)
+	}
+	for _, m := range members {
+		if m.LeafIndex == leaf {
+			return append([]byte(nil), m.Identity...), append([]byte(nil), m.SigningKey...), nil
+		}
+	}
+	return nil, nil, fmt.Errorf("mls: commit sender leaf %d is not a current member", leaf)
 }
 
 // RemovedBy reads a commit's Remove proposals and names who they evict.

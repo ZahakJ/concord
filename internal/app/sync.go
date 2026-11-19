@@ -851,7 +851,7 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 			// be read for what it is before ApplyCommit fails on it — otherwise
 			// coming back from a weekend away is indistinguishable from a gap
 			// nobody can bridge.
-			if s.commitEvictsUs(guild.GroupID, c) {
+			if s.commitEvictsUs(guildID, guild.GroupID, c) {
 				s.noteEvicted(guildID, evictedKicked)
 				return nil
 			}
