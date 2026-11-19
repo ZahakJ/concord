@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 
 // ---------------------------------------------------------------- timing
@@ -210,6 +211,9 @@ export class Peer {
         CONCORD_DISABLE_MDNS: "1",
         CONCORD_BOOTSTRAP: this.world.bootstrap,
         CONCORD_API_TOKEN: this.token,
+        // The peer's launch socket (main_web_listen.go) goes here, never into
+        // the real /run/user/<uid> of whoever runs the suite.
+        XDG_RUNTIME_DIR: this.runtimeDir(),
         ...this.env,
       },
     });
@@ -222,6 +226,28 @@ export class Peer {
       { timeout: 30000, message: `${this} to serve HTTP` },
     );
     return this;
+  }
+
+  // The peer's XDG_RUNTIME_DIR: <home>/run, owner-only. A unix socket path
+  // must fit in about 100 bytes, and a deep run directory can push the launch
+  // socket past that; then a short owner-only directory under the system temp
+  // directory stands in, removed with the world.
+  runtimeDir() {
+    if (this.runDir) return this.runDir;
+    const inHome = path.join(this.home, "run");
+    if (Buffer.byteLength(path.join(inHome, "concord", `launch-127.0.0.1_${this.port}.sock`)) <= 100) {
+      fs.mkdirSync(inHome, { recursive: true, mode: 0o700 });
+      this.runDir = inHome;
+    } else {
+      this.runDir = fs.mkdtempSync(path.join(os.tmpdir(), "concord-e2e-run-"));
+      this.world.tempDirs.push(this.runDir);
+    }
+    return this.runDir;
+  }
+
+  // Where this peer's launch socket answers GET /code with a fresh launch code.
+  get launchSocket() {
+    return path.join(this.runtimeDir(), "concord", `launch-127.0.0.1_${this.port}.sock`);
   }
 
   get running() {
@@ -819,6 +845,7 @@ export class World {
     this.getBrowser = getBrowser;
     this.all = [];
     this.cleanups = [];
+    this.tempDirs = [];
   }
 
   browser() {
@@ -953,6 +980,7 @@ export class World {
     }
     for (const p of this.all) for (const app of p.apps.splice(0)) await app.close();
     await Promise.all(this.all.map((p) => stopChild(p.child)));
+    for (const d of this.tempDirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
   }
 }
 
