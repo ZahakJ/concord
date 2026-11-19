@@ -347,15 +347,21 @@ func (s *Service) screenCommit(guildID string, groupID, commit []byte) (int, []S
 }
 
 // ownsGuild reports whether this device's account is the guild's effective
-// owner.
+// owner. False with no identity loaded.
 func (s *Service) ownsGuild(guildID string) bool {
+	if s.id == nil {
+		return false
+	}
 	owner := s.effectiveOwner(guildID)
 	return owner != "" && owner == s.id.Fingerprint()
 }
 
 // commitFromOwnAccount reports whether a commit's sender leaf names this
-// device's account.
+// device's account. False with no identity loaded.
 func (s *Service) commitFromOwnAccount(groupID, commit []byte) bool {
+	if s.id == nil {
+		return false
+	}
 	sender, err := s.mls.CommitSender(s.ctx, groupID, commit)
 	return err == nil && accountFingerprintOf(sender) == s.id.Fingerprint()
 }
