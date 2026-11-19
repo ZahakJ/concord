@@ -82,6 +82,7 @@ func main() {
 	// There is deliberately no "disable auth" switch: an escape hatch that
 	// turns the lock off is the lock nobody notices is off.
 	token := os.Getenv("CONCORD_API_TOKEN")
+	pinned := token != ""
 	if token == "" {
 		var b [32]byte
 		if _, err := rand.Read(b[:]); err != nil {
@@ -97,15 +98,24 @@ func main() {
 
 	// Browser build: enforce the cross-origin CSRF guard (trusted=false) and
 	// stream events over SSE. The token changes when a launch code is redeemed
-	// twice (internal/httpapi/launch.go); the token file follows it.
-	srv := httpapi.New(ctx, false, httpapi.WithAuthToken(token), httpapi.WithTokenRotated(func(rotated string) {
-		fmt.Fprintln(os.Stderr, "concord: a launch code was redeemed twice; the access token has been changed")
-		if tokenFile != "" {
-			if err := writeTokenFile(tokenFile, rotated); err != nil {
-				fmt.Fprintln(os.Stderr, "concord: could not rewrite the API token file:", err)
+	// twice (internal/httpapi/launch.go). Then any device-link offer is
+	// cancelled, since whoever held the old token could have opened it, and
+	// the token file follows the new token. A pinned token comes back at the
+	// next start, so the log says to change the pin.
+	b := bridge.New(ctx)
+	srv := httpapi.NewWith(b, false, httpapi.WithAuthToken(token),
+		httpapi.WithRevoke(func() { _ = b.CancelLinkOffer() }),
+		httpapi.WithTokenRotated(func(rotated string) {
+			fmt.Fprintln(os.Stderr, "concord: a launch code was redeemed twice; the access token has been changed and any device-link offer cancelled")
+			if pinned {
+				fmt.Fprintln(os.Stderr, "concord: CONCORD_API_TOKEN is pinned and comes back at the next start; change it")
 			}
-		}
-	}))
+			if tokenFile != "" {
+				if err := writeTokenFile(tokenFile, rotated); err != nil {
+					fmt.Fprintln(os.Stderr, "concord: could not rewrite the API token file:", err)
+				}
+			}
+		}))
 	srv.WireSSE()
 	defer srv.Bridge().Close()
 
@@ -153,6 +163,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "concord: launch socket:", err)
 		} else {
 			launchSock = p
+			srv.SetLaunchCommand("curl --unix-socket " + p + " http://launch/code")
 			defer stopLaunch()
 		}
 	}

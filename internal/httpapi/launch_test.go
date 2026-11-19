@@ -103,9 +103,11 @@ func TestLaunchCodesAreBounded(t *testing.T) {
 	}
 }
 
-// Only the page may redeem a code, and the page's fetch always carries an
-// Origin. A request without one (curl, or any program that read the code off
-// the browser's command line) is refused, and spends nothing.
+// The page's fetch always carries an Origin, so a request without one is
+// refused, and spends nothing. That stops only clients that send no Origin:
+// a program can set a loopback Origin itself (the next test's first
+// redemption is such a request), and against that the defence is the 409
+// and the rotation.
 func TestLaunchRefusesARequestWithNoOrigin(t *testing.T) {
 	s := launchServer(t)
 	code := s.MintLaunchCode()
@@ -120,13 +122,19 @@ func TestLaunchRefusesARequestWithNoOrigin(t *testing.T) {
 // When the page finds its code already spent, someone else redeemed it first
 // and holds the token. The page is told so (409, not the 403 of a bad code),
 // and the server rotates the token: what the first redeemer took stops
-// working, including an event stream it opened, and the new token reaches the
-// rotation hook and only fresh codes.
+// working, including an event stream it opened, the revoke hooks run (the
+// browser build cancels any device-link offer there), the new token reaches
+// the rotation hook and only fresh codes, and the page is told how to get a
+// fresh code.
 func TestLaunchCodeRedeemedTwiceRotatesTheToken(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	var told []string
-	s := New(ctx, false, WithAuthToken("the-real-token"), WithTokenRotated(func(tok string) { told = append(told, tok) }))
+	revoked := 0
+	s := New(ctx, false, WithAuthToken("the-real-token"),
+		WithTokenRotated(func(tok string) { told = append(told, tok) }),
+		WithRevoke(func() { revoked++ }))
+	s.SetLaunchCommand("curl --unix-socket /run/x.sock http://launch/code")
 	code := s.MintLaunchCode()
 	before := s.MintLaunchCode() // minted before the rotation, never used
 	bearer := func(tok string) bool {
@@ -149,11 +157,17 @@ func TestLaunchCodeRedeemedTwiceRotatesTheToken(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if w := exchange(s, "never-minted", page); w.Code != http.StatusForbidden || !bearer("the-real-token") {
-		t.Fatalf("an unknown code rotated or was not refused: %d", w.Code)
+	if w := exchange(s, "never-minted", page); w.Code != http.StatusForbidden || !bearer("the-real-token") || revoked != 0 {
+		t.Fatalf("an unknown code rotated or was not refused: %d (revoked %d)", w.Code, revoked)
 	}
-	if w := exchange(s, code, page); w.Code != http.StatusConflict {
-		t.Fatalf("second redemption: %d %s", w.Code, w.Body)
+	w2 := exchange(s, code, page)
+	var conflict struct{ Fresh string }
+	if w2.Code != http.StatusConflict || json.Unmarshal(w2.Body.Bytes(), &conflict) != nil ||
+		conflict.Fresh != "curl --unix-socket /run/x.sock http://launch/code" || strings.Contains(w2.Body.String(), "the-real-token") {
+		t.Fatalf("second redemption: %d %s", w2.Code, w2.Body)
+	}
+	if revoked != 1 {
+		t.Fatalf("revoke hooks ran %d times on the rotation, want 1", revoked)
 	}
 	if bearer("the-real-token") {
 		t.Fatal("the token the first redeemer took still works")

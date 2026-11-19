@@ -132,10 +132,18 @@ small JSON-RPC endpoint, and so can you. <code>make peers</code> pins one token 
 run and prints it. A standalone binary mints a random token and never prints
 it: it opens the browser with a single-use launch code (<code>?c=</code>), and a launcher
 gets a fresh one from <code>$XDG_RUNTIME_DIR/concord/launch-&lt;addr&gt;.sock</code> (<code>curl --unix-socket &lt;sock&gt; http://launch/code</code>), which answers only its own user and
-which the startup line names. Open <code>http://&lt;addr&gt;/?c=&lt;code&gt;</code> with it. Only the
-page can trade a code: <code>/launch</code> refuses a request without a loopback
-<code>Origin</code>, and a code redeemed a second time makes the binary change its token,
-so whoever redeemed it first is locked out and the page says what happened.
+which the startup line names. Open <code>http://&lt;addr&gt;/?c=&lt;code&gt;</code> with it.
+<code>/launch</code> refuses a request without a loopback <code>Origin</code>, which the page's
+fetch always sends; that stops only clients that send none, since any program
+can set the header. The real check comes after: a code redeemed a second time
+makes the binary change its token and cancel any open device-link offer, so
+whoever redeemed it first can do nothing more, and the page says what
+happened and asks the user to check Settings → Your devices. It cannot undo
+what was done with the token before that. A program that saw a code can also
+replay it after the page is in, to force a change that signs every tab out;
+that is the price of noticing. With <code>CONCORD_API_TOKEN</code> pinned, the changed
+token lasts only until the next start, when the pin comes back: after a
+&quot;redeemed twice&quot; line in the log, change the pin.
 Without <code>XDG_RUNTIME_DIR</code> (usual on macOS and Windows, under a system service,
 or over ssh without a login manager) there is no launch socket: the window
 opened at start is the only way in, short of a restart or a pinned token. To

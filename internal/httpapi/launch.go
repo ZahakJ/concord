@@ -27,10 +27,20 @@ import (
 // Nothing file-based can; what it removes is a long-lived secret at rest.
 //
 // Only the page should ever redeem its code, so a code redeemed twice means
-// the first redemption was not the page's. A spent code is remembered for a
-// while; redeeming it again is answered 409 rather than 403, and the server
-// then rotates the token, so whatever the first redemption bought stops
-// working and the page can tell the user what happened.
+// the first redemption was not the page's. Nothing stops that first
+// redemption: /launch refuses a request without an Origin, but any program
+// can send a loopback Origin header. What the server can do is notice. A
+// spent code is remembered for a while; redeeming it again is answered 409
+// rather than 403, and the server then rotates the token and runs its revoke
+// hooks (the browser build cancels any open device-link offer), so whoever
+// redeemed first loses further use of the API, and the page tells the user
+// what happened. Rotation cannot undo what was done with the token before
+// it: the page's notice asks the user to check the linked devices.
+//
+// The trade-off: a program that read the code but lost the race to the page
+// can replay it after the page is in, and force a rotation that signs out
+// every open tab (they get 401s, with no notice). That is a denial of
+// service, not a leak; before, the same program could take the token.
 
 const (
 	launchCodeTTL  = 2 * time.Minute
@@ -168,9 +178,26 @@ func WithTokenRotated(fn func(token string)) Option {
 	return func(s *Server) { s.onRotate = fn }
 }
 
+// WithRevoke adds fn to what a rotation runs once the new token is in force:
+// anything the old token could have set up that outlives it (a device-link
+// offer, say) is withdrawn there.
+func WithRevoke(fn func()) Option {
+	return func(s *Server) { s.revokers = append(s.revokers, fn) }
+}
+
+// SetLaunchCommand names the command that prints a fresh launch code (curl
+// on the launch socket), which the 409 answer passes on so the page can
+// offer it instead of a restart. "" when there is none.
+func (s *Server) SetLaunchCommand(cmd string) {
+	s.tokenMu.Lock()
+	s.launchCmd = cmd
+	s.tokenMu.Unlock()
+}
+
 // rotateToken replaces the bearer token with a fresh random one, ends every
-// event stream opened under the old one, and forgets unspent launch codes.
-// Requests made with the old token are refused from here on.
+// event stream opened under the old one, forgets unspent launch codes, and
+// runs the revoke hooks. Requests made with the old token are refused from
+// here on.
 func (s *Server) rotateToken() {
 	s.rotateMu.Lock() // one at a time, so onRotate hears the tokens in order
 	defer s.rotateMu.Unlock()
@@ -187,6 +214,9 @@ func (s *Server) rotateToken() {
 	s.revoked = make(chan struct{})
 	s.launch.dropLive()
 	s.tokenMu.Unlock()
+	for _, revoke := range s.revokers {
+		revoke()
+	}
 	if s.onRotate != nil {
 		s.onRotate(token)
 	}
@@ -199,8 +229,10 @@ func (s *Server) rotateToken() {
 // foreign page guessing cannot burn the launcher's code.
 //
 // The request must carry a loopback Origin. The page's fetch always sends
-// one (browsers send Origin on every POST); a request without one is not the
-// page, and is refused before it can spend anything.
+// one (browsers send Origin on every POST), so a request without one is
+// refused before it can spend anything. That turns away only clients that
+// send none: a program can set the header, and the defence against one that
+// does is the 409 and the rotation, not this check.
 func (s *Server) HandleLaunch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -230,7 +262,16 @@ func (s *Server) HandleLaunch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]string{"token": token})
 	case codeSpent:
 		s.rotateToken()
-		http.Error(w, "launch code already used; the access token has been changed", http.StatusConflict)
+		s.tokenMu.RLock()
+		fresh := s.launchCmd
+		s.tokenMu.RUnlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "launch code already used; the access token has been changed",
+			"fresh": fresh,
+		})
 	default:
 		http.Error(w, "forbidden", http.StatusForbidden)
 	}

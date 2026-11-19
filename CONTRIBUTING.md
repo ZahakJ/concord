@@ -129,10 +129,18 @@ run and prints it. A standalone binary mints a random token and never prints
 it: it opens the browser with a single-use launch code (`?c=`), and a launcher
 gets a fresh one from `$XDG_RUNTIME_DIR/concord/launch-<addr>.sock` (`curl
 --unix-socket <sock> http://launch/code`), which answers only its own user and
-which the startup line names. Open `http://<addr>/?c=<code>` with it. Only the
-page can trade a code: `/launch` refuses a request without a loopback
-`Origin`, and a code redeemed a second time makes the binary change its token,
-so whoever redeemed it first is locked out and the page says what happened.
+which the startup line names. Open `http://<addr>/?c=<code>` with it.
+`/launch` refuses a request without a loopback `Origin`, which the page's
+fetch always sends; that stops only clients that send none, since any program
+can set the header. The real check comes after: a code redeemed a second time
+makes the binary change its token and cancel any open device-link offer, so
+whoever redeemed it first can do nothing more, and the page says what
+happened and asks the user to check Settings → Your devices. It cannot undo
+what was done with the token before that. A program that saw a code can also
+replay it after the page is in, to force a change that signs every tab out;
+that is the price of noticing. With `CONCORD_API_TOKEN` pinned, the changed
+token lasts only until the next start, when the pin comes back: after a
+"redeemed twice" line in the log, change the pin.
 Without `XDG_RUNTIME_DIR` (usual on macOS and Windows, under a system service,
 or over ssh without a login manager) there is no launch socket: the window
 opened at start is the only way in, short of a restart or a pinned token. To

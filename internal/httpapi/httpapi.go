@@ -47,6 +47,8 @@ type Server struct {
 	authToken string
 	revoked   chan struct{}
 	onRotate  func(token string)
+	revokers  []func()
+	launchCmd string // guarded by tokenMu
 
 	// launch holds the single-use codes that buy authToken (launch.go).
 	launch *launchCodes

@@ -29,6 +29,7 @@ loadAnimatedEmoji();
 // Resolves to LAUNCH_SPENT when someone else redeemed this page's code first.
 const TOKEN_KEY = "concord.apiToken";
 const LAUNCH_SPENT = Symbol("launch code spent");
+let launchFresh = ""; // the command that prints a new code, when there is one
 async function browserToken() {
   let token = "";
   try {
@@ -45,6 +46,7 @@ async function browserToken() {
       if (r.spent) {
         // The server has changed the token, so the stored one is dead too.
         localStorage.removeItem(TOKEN_KEY);
+        launchFresh = r.fresh || "";
         return LAUNCH_SPENT;
       }
       token = r.token || "";
@@ -99,7 +101,7 @@ async function boot() {
     // binary handed us. Empty is tolerated so a dev server still mounts.
     const token = await browserToken();
     if (token === LAUNCH_SPENT) {
-      showLaunchSpent();
+      showLaunchSpent(document, launchFresh);
       return null;
     }
     configureTransport({ baseURL: "", authToken: token });

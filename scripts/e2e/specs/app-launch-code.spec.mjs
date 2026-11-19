@@ -1,8 +1,9 @@
 // The browser build opens with a one-time launch code (?c=), which the page
-// trades for the API token over POST /launch. A request without the page's
-// Origin is refused, and a code redeemed a second time rotates the token:
-// whoever redeemed it first is locked out, and the page says what happened
-// instead of coming up signed out with no reason given.
+// trades for the API token over POST /launch. A request with no Origin is
+// refused (one that sets a loopback Origin is not, which is why the rest
+// matters). A code redeemed a second time rotates the token and cancels any
+// device-link offer: whoever redeemed it first can do nothing more, and the
+// page says what happened, what to check and how to get back in.
 import http from "node:http";
 import { test } from "../harness.mjs";
 
@@ -32,6 +33,17 @@ function redeem(peer, code, origin) {
     req.on("error", reject);
     req.end(JSON.stringify({ code }));
   });
+}
+
+async function rpcWith(peer, token, method, ...args) {
+  const r = await fetch(`${peer.url}/rpc`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ method, args }),
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(`${method}: ${j.error}`);
+  return j.result;
 }
 
 async function tokenWorks(peer, token) {
@@ -77,7 +89,7 @@ test("the page trades its launch code once; a replay rotates the token", async (
   assert.equal(await tokenWorks(alice, alice.token), false, "the old token still works after the replay");
 });
 
-test("a code taken before the page boots locks the taker out and is explained", async ({ world, assert, step }) => {
+test("a code taken before the page boots locks the taker out and is explained", async ({ world, assert, step, sleep, log }) => {
   const [alice] = await world.peers(1);
   const code = await mintCode(alice);
 
@@ -86,13 +98,39 @@ test("a code taken before the page boots locks the taker out and is explained", 
   assert.equal(taken.status, 200, taken.body);
   const first = JSON.parse(taken.body).token;
   assert.equal(await tokenWorks(alice, first), true);
+  // What a token held for a moment can leave behind: an open device-link
+  // offer, which is served over the network, not over this API.
+  const offer = await rpcWith(alice, first, "LinkOffer");
 
   step("the page finds its code spent and says so");
   const { app, notice } = await openWithCode(alice, code);
   await notice.waitFor({ state: "visible" });
-  assert.match(await notice.innerText(), /already used/);
+  const said = await notice.innerText();
+  assert.match(said, /already used/);
+  assert.match(said, /Your devices/);
+  assert.ok(said.includes(`curl --unix-socket ${alice.launchSocket} http://launch/code`), `notice gives no fresh-code command:\n${said}`);
   assert.equal(await app.page.evaluate(() => localStorage.getItem("concord.apiToken")), null);
   assert.equal(await tokenWorks(alice, first), false, "the token the first redemption bought still works");
+
+  step("the link offer opened with that token is cancelled");
+  const [dev] = await world.peers(1, { names: ["Dev"], start: false });
+  dev.passphrase = alice.passphrase;
+  await dev.start();
+  // A failure to reach alice at all ("open link stream") says nothing; retry
+  // until the request reaches her and is answered.
+  let refused = null;
+  for (let i = 0; i < 6 && !refused; i++) {
+    try {
+      await dev.rpc("RedeemLinkCode", offer, dev.passphrase);
+      assert.fail("a device linked with the offer opened under the rotated token");
+    } catch (e) {
+      if (e.code === "ERR_ASSERTION") throw e;
+      if (/open link stream/.test(e.message)) await sleep(2000);
+      else refused = e.message;
+    }
+  }
+  assert.ok(refused, "the new device never reached alice to be refused");
+  log(`link refused: ${refused}`);
 
   step("a fresh code opens the app with the new token");
   const again = await openWithCode(alice, await mintCode(alice));
