@@ -895,7 +895,8 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 			// be read for what it is before ApplyCommit fails on it — otherwise
 			// coming back from a weekend away is indistinguishable from a gap
 			// nobody can bridge.
-			switch s.screenCommit(guildID, guild.GroupID, c) {
+			verdict, seats := s.screenCommit(guildID, guild.GroupID, c)
+			switch verdict {
 			case commitRemovesThisDevice:
 				s.noteEvicted(guildID, evictedKicked)
 				return nil
@@ -905,10 +906,16 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 			if refusedSeat {
 				break
 			}
+			// A commit that does not verify at our epoch cannot apply either,
+			// and is no evidence of being behind (ownLostCommit verifies first).
+			if verdict == commitUnverified {
+				break
+			}
 			if err := s.mls.ApplyCommit(s.ctx, guild.GroupID, c); err != nil {
 				proven = s.ownLostCommit(guild.GroupID, c)
 				break
 			}
+			s.recordCommitSeats(guildID, seats)
 			s.logCommit(guild.GroupID, c)
 			applied++
 		}

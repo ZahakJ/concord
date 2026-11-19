@@ -327,17 +327,18 @@ func (s *Service) keyFlagged(guildID string, key []byte) bool {
 	return ok && c.Kind != seatKeyDiffers
 }
 
-// checkSeats reads a commit before it is applied and flags what it does to
-// leaves. It returns true when the commit should be refused, which in this
-// release is never: refuseSeatChanges is off.
-func (s *Service) checkSeats(guildID string, groupID, commit []byte) bool {
+// checkSeats reads a commit before it is applied and returns the flags for
+// what it does to leaves, for recordCommitSeats once the commit has applied.
+// refuse is true when the commit should be refused, which in this release is
+// never: refuseSeatChanges is off.
+func (s *Service) checkSeats(guildID string, groupID, commit []byte) (found []SeatFlag, refuse bool) {
 	cl, err := s.mls.ReadCommitLeaves(s.ctx, groupID, commit)
 	if err != nil || cl == nil {
-		return false
+		return nil, false
 	}
 	pre, err := s.mls.Leaves(s.ctx, groupID)
 	if err != nil {
-		return false
+		return nil, false
 	}
 	byIndex := map[uint32]mls.Leaf{}
 	for _, l := range pre {
@@ -351,7 +352,6 @@ func (s *Service) checkSeats(guildID string, groupID, commit []byte) bool {
 	if sl, ok := byIndex[cl.Sender]; ok && !cl.External {
 		adder = accountFingerprintOf(sl.Credential)
 	}
-	var found []SeatFlag
 	flag := func(l mls.Leaf, kind string) {
 		found = append(found, SeatFlag{
 			Index: l.Index, Key: hex.EncodeToString(l.Key), Kind: kind,
@@ -403,7 +403,17 @@ func (s *Service) checkSeats(guildID string, groupID, commit []byte) bool {
 		}
 	}
 	if len(found) == 0 {
-		return false
+		return nil, false
+	}
+	return found, refuseSeatChanges.Load()
+}
+
+// recordCommitSeats keeps the flags checkSeats found in a commit that has now
+// been applied, so the audit that follows (logCommit) reads them. A commit
+// that never applied leaves no flag behind.
+func (s *Service) recordCommitSeats(guildID string, found []SeatFlag) {
+	if len(found) == 0 {
+		return
 	}
 	st := s.seatsState()
 	st.mu.Lock()
@@ -412,10 +422,9 @@ func (s *Service) checkSeats(guildID string, groupID, commit []byte) bool {
 	}
 	for _, f := range found {
 		st.committed[guildID][f.Key] = f
-		log.Printf("concord/app: guild %s: a commit by %s seats a leaf that does not match its credential (%s)", guildID, shortFpr(adder), f.Kind)
+		log.Printf("concord/app: guild %s: a commit by %s seats a leaf that does not match its credential (%s)", guildID, shortFpr(f.Adder), f.Kind)
 	}
 	st.mu.Unlock()
-	return refuseSeatChanges.Load()
 }
 
 func certNamesKey(l mls.Leaf) bool {

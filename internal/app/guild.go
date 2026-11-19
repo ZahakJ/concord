@@ -2393,16 +2393,24 @@ func (s *Service) trackGuildFromDisk(g *domain.Guild) {
 		// without asking first, the only thing we would learn is that the guild
 		// stopped making sense, which is indistinguishable from missing an
 		// epoch. Asking is what turns "something is wrong" into "you were
-		// removed", and it is safe to ask because the commit is MLS-signed by a
-		// member we just confirmed holds manage-members.
-		switch s.screenCommit(guildID, groupID, data) {
+		// removed", and it is safe to ask once screenCommit has checked the
+		// commit's signature against the sender leaf, a member we just
+		// confirmed holds manage-members.
+		verdict, seats := s.screenCommit(guildID, groupID, data)
+		switch verdict {
 		case commitRemovesThisDevice:
 			s.noteEvicted(guildID, evictedKicked)
 			return
 		case commitRefused:
 			return
+		case commitUnverified:
+			// Not signed at our epoch: most often one we have not reached.
+			// ApplyCommit would refuse it too; history sync re-validates.
+			go s.syncGuildFromAnyPeer(guildID)
+			return
 		}
 		if err := s.mls.ApplyCommit(s.ctx, groupID, data); err == nil {
+			s.recordCommitSeats(guildID, seats)
 			s.logCommit(groupID, data)
 			s.clearDisprovedEviction(guildID, groupID)
 			// A commit is how a leaf appears, and a linked device's leaf carries

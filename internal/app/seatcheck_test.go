@@ -27,10 +27,17 @@ type seatSetup struct {
 
 func newSeatSetup(t *testing.T, ctx context.Context) *seatSetup {
 	t.Helper()
+	return newSeatSetupWith(t, ctx, func() *Service { return startService(t, ctx) })
+}
+
+// newSeatSetupWith is newSeatSetup with each of the three services made by
+// start.
+func newSeatSetupWith(t *testing.T, ctx context.Context, start func() *Service) *seatSetup {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("networked")
 	}
-	s := &seatSetup{owner: startService(t, ctx), mod: startService(t, ctx), member: startService(t, ctx)}
+	s := &seatSetup{owner: start(), mod: start(), member: start()}
 	g, err := s.owner.CreateGuild("g")
 	if err != nil {
 		t.Fatal(err)
@@ -594,7 +601,8 @@ func TestRewrittenLeafIsFlagged(t *testing.T) {
 	}
 	// The member's leaf, rewritten to carry the owner's credential.
 	wrap.cl = &mls.CommitLeaves{Sender: ml[0].Index, Replaced: []mls.Leaf{{Index: ml[0].Index, Credential: owner.myCredential, Key: ml[0].Key}}}
-	owner.checkSeats(g.ID, gid, nil)
+	found, _ := owner.checkSeats(g.ID, gid, nil)
+	owner.recordCommitSeats(g.ID, found)
 	wrap.cl = nil
 	owner.auditSeats(g.ID, gid)
 	f, ok := flagFor(owner, g.ID, ml[0].Key)

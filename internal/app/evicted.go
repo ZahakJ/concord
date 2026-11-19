@@ -292,6 +292,10 @@ const (
 	commitRemovesThisDevice
 	// commitRefused: seatcheck.go refuses it (never, in this release).
 	commitRefused
+	// commitUnverified: the commit is not one a member of our current epoch
+	// signed. It may be for an epoch we have not reached, one we have left
+	// behind, or bytes nobody in the group made. Nothing is read from it.
+	commitUnverified
 )
 
 // screenCommit reads a commit before it is applied. Removal is judged by this
@@ -299,24 +303,36 @@ const (
 // leaf carrying the same credential is not this device. A removal that leaves
 // a leaf under this account that is not ours in the group is reported, and
 // does not settle as an eviction (see commitRemovesUs).
-func (s *Service) screenCommit(guildID string, groupID, commit []byte) int {
+//
+// Everything below reads the commit's cleartext framing: who sent it, whom it
+// removes, what leaves it seats. That framing says only what its signature
+// vouches for, so the signature is checked first, against the sender's leaf
+// in our current tree and this epoch's membership tag, and a commit that
+// fails is reported as commitUnverified with nothing recorded.
+//
+// The seat flags the commit raises are returned, not recorded: they describe
+// a commit, and hold only once it has been applied (recordCommitSeats).
+func (s *Service) screenCommit(guildID string, groupID, commit []byte) (int, []SeatFlag) {
+	if err := s.mls.VerifyCommit(s.ctx, groupID, commit); err != nil {
+		return commitUnverified, nil
+	}
 	removed, replaced := s.commitRemovesUs(groupID, commit)
-	refuse := s.checkSeats(guildID, groupID, commit)
+	found, refuse := s.checkSeats(guildID, groupID, commit)
 	if replaced {
 		adder := ""
 		if sender, err := s.mls.CommitSender(s.ctx, groupID, commit); err == nil {
 			adder = accountFingerprintOf(sender)
 		}
 		s.noteSeatReplaced(guildID, adder)
-		return commitProceed
+		return commitProceed, found
 	}
 	if removed {
-		return commitRemovesThisDevice
+		return commitRemovesThisDevice, nil
 	}
 	if refuse {
-		return commitRefused
+		return commitRefused, nil
 	}
-	return commitProceed
+	return commitProceed, found
 }
 
 // evictedGuildIDs snapshots the guilds we are out of, so the heal loop can skip
