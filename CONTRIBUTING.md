@@ -128,8 +128,15 @@ small JSON-RPC endpoint, and so can you. `make peers` pins one token for the
 run and prints it. A standalone binary mints a random token and never prints
 it: it opens the browser with a single-use launch code (`?c=`), and a launcher
 gets a fresh one from `$XDG_RUNTIME_DIR/concord/launch-<addr>.sock` (`curl
---unix-socket <sock> http://launch/code`). To drive one from the shell, pin the
-token yourself:
+--unix-socket <sock> http://launch/code`), which answers only its own user and
+which the startup line names. Open `http://<addr>/?c=<code>` with it. Only the
+page can trade a code: `/launch` refuses a request without a loopback
+`Origin`, and a code redeemed a second time makes the binary change its token,
+so whoever redeemed it first is locked out and the page says what happened.
+Without `XDG_RUNTIME_DIR` (usual on macOS and Windows, under a system service,
+or over ssh without a login manager) there is no launch socket: the window
+opened at start is the only way in, short of a restart or a pinned token. To
+drive one from the shell, pin the token yourself:
 
 ```sh
 export CONCORD_API_TOKEN=<the token make peers printed>

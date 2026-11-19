@@ -6,6 +6,7 @@ import { appRendered, installResume } from "./lib/resume.js";
 import { themePacksReady } from "./lib/state.svelte.js";
 import { loadAnimatedEmoji } from "./lib/markdown.js";
 import { installInputMode } from "./lib/inputmode.js";
+import { tradeLaunchCode, showLaunchSpent } from "./lib/launch.js";
 
 // Focus rings answer the keyboard, not the mouse (lib/inputmode.js).
 installInputMode();
@@ -17,15 +18,17 @@ installInputMode();
 loadAnimatedEmoji();
 
 // The browser build's bearer token (main_web.go). The binary never hands it
-// out directly: the URL it opens (and the one concord-url.sh prints) carries a
-// single-use launch code, ?c=, which this trades once for the token over POST
-// /launch (internal/httpapi/launch.go). The token then lives in localStorage
-// so a reload, or a second tab the user opens by hand, still authenticates.
-// localStorage is the right place precisely because the threat this token
-// exists for is ANOTHER LOCAL PROCESS curling 127.0.0.1, which cannot read
-// this origin's storage. ?t= (a token outright) is still read: the dev
-// scripts and the test harness pin a token and open with it.
+// out directly: the URL it opens (and the one its launch socket hands out, see
+// CONTRIBUTING.md) carries a single-use launch code, ?c=, which this trades
+// once for the token over POST /launch (lib/launch.js). The token then lives
+// in localStorage so a reload, or a second tab the user opens by hand, still
+// authenticates. localStorage is the right place precisely because the threat
+// this token exists for is ANOTHER LOCAL PROCESS curling 127.0.0.1, which
+// cannot read this origin's storage. ?t= (a token outright) is still read:
+// the dev scripts and the test harness pin a token and open with it.
+// Resolves to LAUNCH_SPENT when someone else redeemed this page's code first.
 const TOKEN_KEY = "concord.apiToken";
+const LAUNCH_SPENT = Symbol("launch code spent");
 async function browserToken() {
   let token = "";
   try {
@@ -38,12 +41,13 @@ async function browserToken() {
     url.searchParams.delete("t");
     history.replaceState(null, "", url.pathname + url.search + url.hash);
     if (code && !token) {
-      const r = await fetch("/launch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      if (r.ok) token = (await r.json()).token || "";
+      const r = await tradeLaunchCode(code);
+      if (r.spent) {
+        // The server has changed the token, so the stored one is dead too.
+        localStorage.removeItem(TOKEN_KEY);
+        return LAUNCH_SPENT;
+      }
+      token = r.token || "";
     }
     if (token) localStorage.setItem(TOKEN_KEY, token);
     else token = localStorage.getItem(TOKEN_KEY) || "";
@@ -93,7 +97,12 @@ async function boot() {
   } else {
     // Browser build: same origin, but the RPC surface now wants the token the
     // binary handed us. Empty is tolerated so a dev server still mounts.
-    configureTransport({ baseURL: "", authToken: await browserToken() });
+    const token = await browserToken();
+    if (token === LAUNCH_SPENT) {
+      showLaunchSpent();
+      return null;
+    }
+    configureTransport({ baseURL: "", authToken: token });
   }
   await packs;
   return mount(App, { target: document.getElementById("app") });

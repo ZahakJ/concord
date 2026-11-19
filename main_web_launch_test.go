@@ -19,19 +19,36 @@ import (
 func TestStartupLineCarriesNoSecretOffATerminal(t *testing.T) {
 	minted := 0
 	mint := func() string { minted++; return "c0de" }
-	line := startupLine("127.0.0.1:8787", false, mint)
+	line := startupLine("127.0.0.1:8787", "", false, mint)
 	if strings.Contains(line, "?t=") || strings.Contains(line, "c0de") || minted != 0 {
 		t.Fatalf("journal line %q (minted %d)", line, minted)
 	}
 	if !strings.Contains(line, "http://127.0.0.1:8787") {
 		t.Fatalf("journal line %q does not say where it is", line)
 	}
-	if line := startupLine("127.0.0.1:8787", true, mint); !strings.Contains(line, "/?c=c0de") || strings.Contains(line, "?t=") {
+	if line := startupLine("127.0.0.1:8787", "", true, mint); !strings.Contains(line, "/?c=c0de") || strings.Contains(line, "?t=") {
 		t.Fatalf("terminal line %q", line)
 	}
 }
 
-// The launch socket hands a fresh code to whoever asks on it: concord-url.sh.
+// The startup line says how to get another code, by naming the launch socket
+// and the command that asks it, and names no script that does not exist.
+func TestStartupLineNamesTheLaunchSocket(t *testing.T) {
+	mint := func() string { return "c0de" }
+	const sock = "/run/user/1000/concord/launch-127.0.0.1_8787.sock"
+	for _, terminal := range []bool{false, true} {
+		line := startupLine("127.0.0.1:8787", sock, terminal, mint)
+		if !strings.Contains(line, "curl --unix-socket "+sock+" http://launch/code") || strings.Contains(line, ".sh") {
+			t.Errorf("terminal=%v: %q", terminal, line)
+		}
+		if line := startupLine("127.0.0.1:8787", "", terminal, mint); strings.Contains(line, "curl") || strings.Contains(line, ".sh") {
+			t.Errorf("terminal=%v, no socket: %q", terminal, line)
+		}
+	}
+}
+
+// The launch socket hands a fresh code to whoever asks on it (a launcher, or
+// `curl --unix-socket <sock> http://launch/code`).
 // It sits in a directory only this user can enter, the socket itself is
 // owner-only, and it goes when the process does.
 func TestLaunchSocketMintsCodesForTheOwnerOnly(t *testing.T) {

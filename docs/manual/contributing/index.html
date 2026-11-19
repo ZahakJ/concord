@@ -131,8 +131,15 @@ URL as printed rather than retyping the bare host, or you get <code>unauthorized
 small JSON-RPC endpoint, and so can you. <code>make peers</code> pins one token for the
 run and prints it. A standalone binary mints a random token and never prints
 it: it opens the browser with a single-use launch code (<code>?c=</code>), and a launcher
-gets a fresh one from <code>$XDG_RUNTIME_DIR/concord/launch-&lt;addr&gt;.sock</code> (<code>curl --unix-socket &lt;sock&gt; http://launch/code</code>). To drive one from the shell, pin the
-token yourself:</p>
+gets a fresh one from <code>$XDG_RUNTIME_DIR/concord/launch-&lt;addr&gt;.sock</code> (<code>curl --unix-socket &lt;sock&gt; http://launch/code</code>), which answers only its own user and
+which the startup line names. Open <code>http://&lt;addr&gt;/?c=&lt;code&gt;</code> with it. Only the
+page can trade a code: <code>/launch</code> refuses a request without a loopback
+<code>Origin</code>, and a code redeemed a second time makes the binary change its token,
+so whoever redeemed it first is locked out and the page says what happened.
+Without <code>XDG_RUNTIME_DIR</code> (usual on macOS and Windows, under a system service,
+or over ssh without a login manager) there is no launch socket: the window
+opened at start is the only way in, short of a restart or a pinned token. To
+drive one from the shell, pin the token yourself:</p>
 <pre data-lang="sh"><code class="language-sh">export CONCORD_API_TOKEN=&lt;the token make peers printed&gt;
 curl -s -X POST http://127.0.0.1:8801/rpc \
   -H &quot;Authorization: Bearer $CONCORD_API_TOKEN&quot; \

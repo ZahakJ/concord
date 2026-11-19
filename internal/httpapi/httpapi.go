@@ -38,7 +38,15 @@ type Server struct {
 	// leave it empty; the mobile shells set it because loopback on Android is
 	// reachable by every other app on the device — the Origin check below is a
 	// browser CSRF guard, not authentication.
+	// tokenMu guards authToken, which rotateToken may replace while requests
+	// are in flight (launch.go). revoked is closed on each rotation, ending
+	// every event stream opened under the old token; onRotate, when set, is
+	// told the new token.
+	tokenMu   sync.RWMutex
+	rotateMu  sync.Mutex
 	authToken string
+	revoked   chan struct{}
+	onRotate  func(token string)
 
 	// launch holds the single-use codes that buy authToken (launch.go).
 	launch *launchCodes
@@ -78,7 +86,7 @@ func New(ctx context.Context, trusted bool, opts ...Option) *Server {
 }
 
 func NewWith(b *bridge.Bridge, trusted bool, opts ...Option) *Server {
-	s := &Server{b: b, trusted: trusted, clients: map[chan sseEvent]struct{}{}, launch: newLaunchCodes()}
+	s := &Server{b: b, trusted: trusted, clients: map[chan sseEvent]struct{}{}, launch: newLaunchCodes(), revoked: make(chan struct{})}
 	for _, o := range opts {
 		o(s)
 	}
@@ -145,14 +153,22 @@ func (s *Server) applyCORS(w http.ResponseWriter, r *http.Request) (preflight bo
 // authorized checks the bearer token (or ?token= for SSE). True when no token
 // is configured (desktop builds).
 func (s *Server) authorized(r *http.Request) bool {
-	if s.authToken == "" {
+	token := s.token()
+	if token == "" {
 		return true
 	}
 	supplied := r.URL.Query().Get("token")
 	if h := r.Header.Get("Authorization"); len(h) > 7 && h[:7] == "Bearer " {
 		supplied = h[7:]
 	}
-	return subtle.ConstantTimeCompare([]byte(supplied), []byte(s.authToken)) == 1
+	return subtle.ConstantTimeCompare([]byte(supplied), []byte(token)) == 1
+}
+
+// token is the bearer token in force now ("" when none is required).
+func (s *Server) token() string {
+	s.tokenMu.RLock()
+	defer s.tokenMu.RUnlock()
+	return s.authToken
 }
 
 func (s *Server) HandleRPC(w http.ResponseWriter, r *http.Request) {
@@ -204,6 +220,11 @@ func (s *Server) HandleEvents(w http.ResponseWriter, r *http.Request) {
 	if s.applyCORS(w, r) {
 		return
 	}
+	// Taken before the token is checked, so a rotation between the two still
+	// ends this stream rather than leaving it open on a token that is gone.
+	s.tokenMu.RLock()
+	revoked := s.revoked
+	s.tokenMu.RUnlock()
 	if !s.authorized(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -246,6 +267,8 @@ func (s *Server) HandleEvents(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-r.Context().Done():
+			return
+		case <-revoked: // the token this stream was opened with is gone
 			return
 		case ev := <-ch:
 			payload, _ := json.Marshal(ev.data)

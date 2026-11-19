@@ -38,7 +38,11 @@ const flavour = "web"
 const usage = `Usage: concord [flag]
 
 Starts Concord and opens it in your web browser. The interface is served on a
-local address that is printed, with its access token, at startup.
+local address that is printed at startup; the access token itself is never
+printed. The browser is opened with a one-time link, and while Concord runs
+  curl --unix-socket $XDG_RUNTIME_DIR/concord/launch-<addr>.sock http://launch/code
+prints a fresh one-time code to open http://<addr>/?c=<code> with (the startup
+line names the socket). Without XDG_RUNTIME_DIR there is no such socket.
 
 Flags:
   --version  print the version and exit
@@ -70,8 +74,8 @@ func main() {
 	// that ARE the account. Unauthenticated, any program the user runs could
 	// have walked off with the identity, which is not a threat model a
 	// key-is-your-account app gets to ignore. So the browser build mints a
-	// bearer token exactly like the mobile shells already did, and hands it to
-	// the page through the URL it opens.
+	// bearer token exactly like the mobile shells already did. The page gets it
+	// by trading a one-time launch code (see below), never from the URL.
 	//
 	// CONCORD_API_TOKEN pins it instead, which is how the dev scripts and the
 	// multi-peer test harness drive the same surface (see CONTRIBUTING.md).
@@ -87,9 +91,21 @@ func main() {
 		token = hex.EncodeToString(b[:])
 	}
 
+	// With a token file the token goes there and nowhere else — in particular
+	// not to stdout, which a service manager keeps in a log other users read.
+	tokenFile := os.Getenv("CONCORD_API_TOKEN_FILE")
+
 	// Browser build: enforce the cross-origin CSRF guard (trusted=false) and
-	// stream events over SSE.
-	srv := httpapi.New(ctx, false, httpapi.WithAuthToken(token))
+	// stream events over SSE. The token changes when a launch code is redeemed
+	// twice (internal/httpapi/launch.go); the token file follows it.
+	srv := httpapi.New(ctx, false, httpapi.WithAuthToken(token), httpapi.WithTokenRotated(func(rotated string) {
+		fmt.Fprintln(os.Stderr, "concord: a launch code was redeemed twice; the access token has been changed")
+		if tokenFile != "" {
+			if err := writeTokenFile(tokenFile, rotated); err != nil {
+				fmt.Fprintln(os.Stderr, "concord: could not rewrite the API token file:", err)
+			}
+		}
+	}))
 	srv.WireSSE()
 	defer srv.Bridge().Close()
 
@@ -119,13 +135,25 @@ func main() {
 		fmt.Fprintln(os.Stderr, "concord:", err)
 		os.Exit(1)
 	}
-	// With a token file the token goes there and nowhere else — in particular
-	// not to stdout, which a service manager keeps in a log other users read.
-	tokenFile := os.Getenv("CONCORD_API_TOKEN_FILE")
 	if tokenFile != "" {
 		if err := writeTokenFile(tokenFile, token); err != nil {
 			fmt.Fprintln(os.Stderr, "concord: could not write the API token file:", err)
 			os.Exit(1)
+		}
+	}
+	// A launcher asks this socket for a fresh code each time it opens the app
+	// (`curl --unix-socket <sock> http://launch/code`), so nothing needs to
+	// scrape a log for a way in. Without XDG_RUNTIME_DIR (macOS, Windows, a
+	// system service, an ssh session without a login manager) there is none,
+	// and the window opened at start is the only way in short of a restart or a
+	// pinned token.
+	launchSock := ""
+	if run := os.Getenv("XDG_RUNTIME_DIR"); run != "" && !isSock {
+		if p, stopLaunch, err := serveLaunchSocket(run, addr, srv.MintLaunchCode); err != nil {
+			fmt.Fprintln(os.Stderr, "concord: launch socket:", err)
+		} else {
+			launchSock = p
+			defer stopLaunch()
 		}
 	}
 	switch {
@@ -134,16 +162,7 @@ func main() {
 	case tokenFile != "":
 		fmt.Printf("Concord is running — http://%s (token in %s)\n", addr, tokenFile)
 	default:
-		fmt.Println(startupLine(addr, stdoutIsTerminal(), srv.MintLaunchCode))
-	}
-	// A launcher (concord-url.sh) asks this socket for a fresh code each time
-	// it opens the app, so nothing needs to scrape a log for a way in.
-	if run := os.Getenv("XDG_RUNTIME_DIR"); run != "" && !isSock {
-		if _, stopLaunch, err := serveLaunchSocket(run, addr, srv.MintLaunchCode); err != nil {
-			fmt.Fprintln(os.Stderr, "concord: launch socket:", err)
-		} else {
-			defer stopLaunch()
-		}
+		fmt.Println(startupLine(addr, launchSock, stdoutIsTerminal(), srv.MintLaunchCode))
 	}
 	// Unlock from a file when asked: a service then comes up signed in, and
 	// stays signed in across a self-update's re-exec (same environment). Runs
@@ -207,11 +226,22 @@ func openBrowser(url string) {
 // off a terminal it names only the address. On a terminal (a headless box run
 // by hand with CONCORD_NO_OPEN, say) it carries a launch code: the person
 // reading it is the one who started the process, and the code is single use.
-func startupLine(addr string, terminal bool, mint func() string) string {
-	if !terminal {
-		return "Concord is running — http://" + addr + " (open it with concord-url.sh, or the window it opened)"
+// Either way it says how to get another code when there is a launch socket.
+func startupLine(addr, launchSock string, terminal bool, mint func() string) string {
+	more := ""
+	if launchSock != "" {
+		more = "curl --unix-socket " + launchSock + " http://launch/code prints a code for http://" + addr + "/?c=<code>"
 	}
-	return "Concord is running — http://" + addr + "/?c=" + mint() + "  (one use, 2 minutes; concord-url.sh makes another)"
+	if !terminal {
+		if more == "" {
+			return "Concord is running — http://" + addr + " (open it from the window it opened)"
+		}
+		return "Concord is running — http://" + addr + " (open it from the window it opened; " + more + ")"
+	}
+	if more == "" {
+		return "Concord is running — http://" + addr + "/?c=" + mint() + "  (one use, 2 minutes)"
+	}
+	return "Concord is running — http://" + addr + "/?c=" + mint() + "  (one use, 2 minutes; " + more + ")"
 }
 
 func stdoutIsTerminal() bool {
