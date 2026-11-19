@@ -416,6 +416,7 @@ func hasPath(paths []string, suffix string) bool {
 
 type hopts struct {
 	exifInIdat, base, primaryExif, twoExtents, xmpRefToImage bool
+	twoPitm                                                  bool // a first pitm that names the Exif item
 }
 
 var photoSecrets = []string{"SECRET-EXIF", "SECRET-XMP-HEIC", "SECRET-NAME"}
@@ -521,6 +522,9 @@ func synthHEIC(o hopts) []byte {
 		}
 		if o.exifInIdat {
 			parts = append(parts, bx("idat", exif))
+		}
+		if o.twoPitm {
+			parts = append(parts[:1], append([][]byte{fb("pitm", 0, 0, u16(2))}, parts[1:]...)...)
 		}
 		return fb("meta", 0, 0, cat(parts...))
 	}

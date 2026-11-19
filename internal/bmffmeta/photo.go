@@ -75,6 +75,11 @@ func planPhoto(r io.ReaderAt, top []box) (*plan, error) {
 			if len(pl) < 6 {
 				return nil, ErrMalformed
 			}
+			// Two primary items: the one checked here need not be the one
+			// a reader shows.
+			if hasPitm {
+				return nil, ErrRefused
+			}
 			hasPitm = true
 			if pl[0] == 0 {
 				primary = uint32(be16(pl[4:]))

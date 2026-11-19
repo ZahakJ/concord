@@ -326,6 +326,15 @@ func TestHEICThatCannotBeRewrittenIsRefused(t *testing.T) {
 // The writer copies media in pieces: what Strip holds is the index, not the
 // file. A 100 MB video (BMFF_BIG=1) is cleaned from disk to disk; the
 // numbers are logged.
+// A meta with two primary items is refused: the one checked need not be the
+// one a reader shows.
+func TestTwoPrimaryItemsAreRefused(t *testing.T) {
+	if _, _, err := StripBytes(synthHEIC(hopts{twoPitm: true})); !errors.Is(err, ErrRefused) {
+		t.Errorf("two pitm: %v, want ErrRefused", err)
+	}
+	strip(t, synthHEIC(hopts{}))
+}
+
 func TestBigVideoStreams(t *testing.T) {
 	if os.Getenv("BMFF_BIG") == "" {
 		t.Skip("BMFF_BIG not set")
