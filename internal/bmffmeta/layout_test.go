@@ -47,65 +47,32 @@ func ichunks(b []byte) (m map[string][][]byte, err error) {
 			continue
 		}
 		s, e := k.start+k.hdr, k.end
-		md, ok := tfind(b, s, e, "mdia")
-		if !ok {
+		if _, ok := tfind(b, s, e, "mdia"); !ok {
 			return nil, fmt.Errorf("no mdia")
 		}
-		mk, er := tchildren(b, md.start+md.hdr, md.end)
-		if er != nil {
-			return nil, er
+		tt := ttables{tab: map[string]tbox{}, n: map[string]int{}}
+		if err := tt.walk(b, s, e, 0); err != nil {
+			return nil, err
 		}
-		handler := ""
-		var minf tbox
-		for _, x := range mk {
-			if x.typ == "hdlr" {
-				if handler != "" {
-					return nil, errTwoTables
-				}
-				handler = string(b[x.start+x.hdr+8 : x.start+x.hdr+12])
-			}
-			if x.typ == "minf" {
-				minf = x
-			}
-		}
-		if minf.end == 0 {
-			continue
-		}
-		stbl, ok := tfind(b, minf.start+minf.hdr, minf.end, "stbl")
-		if !ok {
-			continue
-		}
-		sk, er := tchildren(b, stbl.start+stbl.hdr, stbl.end)
-		if er != nil {
-			return nil, er
-		}
-		seen := map[string]int{}
-		for _, x := range sk {
-			switch x.typ {
-			case "stco", "co64":
-				seen["offsets"]++
-			case "stsc", "stsz":
-				seen[x.typ]++
-			}
-		}
-		for _, n := range seen {
+		for _, n := range tt.n {
 			if n > 1 {
 				return nil, errTwoTables
 			}
 		}
+		handler := tt.handler
 		get := func(n string) []byte {
-			x, ok := tfind(b, stbl.start+stbl.hdr, stbl.end, n)
+			x, ok := tt.tab[n]
 			if !ok {
 				return nil
 			}
 			return b[x.start+x.hdr : x.end]
 		}
 		var offs []uint64
-		if p := get("stco"); p != nil {
+		if p := get("offsets"); p != nil && tt.tab["offsets"].typ == "stco" {
 			for i := 0; i < int(binary.BigEndian.Uint32(p[4:])); i++ {
 				offs = append(offs, uint64(binary.BigEndian.Uint32(p[8+4*i:])))
 			}
-		} else if p := get("co64"); p != nil {
+		} else if p != nil {
 			for i := 0; i < int(binary.BigEndian.Uint32(p[4:])); i++ {
 				offs = append(offs, binary.BigEndian.Uint64(p[8+8*i:]))
 			}
@@ -138,6 +105,93 @@ func ichunks(b []byte) (m map[string][][]byte, err error) {
 		}
 	}
 	return out, nil
+}
+
+// tTrackBoxes are the boxes the second reader looks into for a track's
+// handler and chunk tables: the track's own structure, and the boxes a
+// player reads as boxes of boxes.
+var tTrackBoxes = map[string]bool{
+	"mdia": true, "minf": true, "stbl": true, "dinf": true, "edts": true, "tref": true,
+	"tapt": true, "clip": true, "matt": true, "imap": true, "gmhd": true,
+}
+
+// ttables is what the second reader finds in one trak, in file order: the
+// first media handler (a QuickTime data handler, alis or url , says nothing
+// of the track's kind) and the first chunk offsets, stsc and stsz, wherever
+// they sit under the trak, and how many of each there are.
+type ttables struct {
+	handler string
+	tab     map[string]tbox // "offsets" (stco or co64), "stsc", "stsz"
+	n       map[string]int
+}
+
+func (tt *ttables) walk(b []byte, s, e, depth int) error {
+	kids, err := tchildren(b, s, e)
+	if err != nil {
+		if depth == 0 {
+			return err
+		}
+		return nil // a box that is not a run of boxes holds none
+	}
+	note := func(name string, k tbox) {
+		tt.n[name]++
+		if _, ok := tt.tab[name]; !ok {
+			tt.tab[name] = k
+		}
+	}
+	for _, k := range kids {
+		ps := k.start + k.hdr
+		switch k.typ {
+		case "hdlr":
+			if k.end-ps < 12 {
+				return fmt.Errorf("short hdlr")
+			}
+			h := string(b[ps+8 : ps+12])
+			if h == "alis" || h == "url " {
+				continue
+			}
+			if tt.n["hdlr"]++; tt.n["hdlr"] == 1 {
+				tt.handler = h
+			}
+		case "stco", "co64":
+			note("offsets", k)
+		case "stsc", "stsz":
+			note(k.typ, k)
+		case "stsd":
+			// A picture track's sample entries hold boxes after 78 bytes
+			// of fields (older QuickTime ends them with four zero bytes).
+			if tt.handler != "vide" && tt.handler != "auxv" || k.end-ps < 8 {
+				continue
+			}
+			ents, err := tchildren(b, ps+8, k.end)
+			if err != nil {
+				continue
+			}
+			for _, en := range ents {
+				es := en.start + en.hdr + 78
+				if es > en.end {
+					continue
+				}
+				if _, err := tchildren(b, es, en.end); err != nil && en.end-es >= 4 &&
+					binary.BigEndian.Uint32(b[en.end-4:]) == 0 {
+					if err := tt.walk(b, es, en.end-4, depth+1); err != nil {
+						return err
+					}
+					continue
+				}
+				if err := tt.walk(b, es, en.end, depth+1); err != nil {
+					return err
+				}
+			}
+		default:
+			if tTrackBoxes[k.typ] && depth < 8 {
+				if err := tt.walk(b, ps, k.end, depth+1); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // keptChunksSame: every picture, sound and auxiliary chunk of in is in out
@@ -198,6 +252,9 @@ func FuzzStripKeepsSamples(f *testing.F) {
 		f.Add(in)
 	}
 	for _, in := range twoTableInputs() {
+		f.Add(in)
+	}
+	for _, in := range elsewhereInputs() {
 		f.Add(in)
 	}
 	f.Fuzz(func(t *testing.T, in []byte) {
@@ -327,6 +384,149 @@ func TestTwoOfATableAreRefused(t *testing.T) {
 		if _, _, err := StripBytesWith(in, Options{}); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+func hdlrOf(h string) []byte {
+	return fb("hdlr", 0, 0, u32(0), []byte(h), make([]byte, 12), []byte("h\x00"))
+}
+
+// etrak is a track with one chunk, handler vide or soun, and extra boxes in
+// trak (before mdia), mdia, minf, dinf and stbl, and in its sample entry.
+func etrak(id int, handler string, off, size int, trakX, mdiaX, minfX, dinfX, stblX, entryX []byte) []byte {
+	ent := bx("avc1", make([]byte, 6), u16(1), make([]byte, 70), entryX)
+	mh := fb("vmhd", 0, 1, make([]byte, 8))
+	if handler == "soun" {
+		ent = bx("mp4a", make([]byte, 6), u16(1), make([]byte, 20), entryX)
+		mh = fb("smhd", 0, 0, make([]byte, 4))
+	}
+	stbl := bx("stbl", fb("stsd", 0, 0, u32(1), ent),
+		fb("stts", 0, 0, u32(1), u32(1), u32(1000)),
+		fb("stsc", 0, 0, u32(1), u32(1), u32(1), u32(1)),
+		fb("stsz", 0, 0, u32(0), u32(1), u32(size)),
+		fb("stco", 0, 0, u32(1), u32(off)), stblX)
+	minf := bx("minf", mh, minfX,
+		bx("dinf", fb("dref", 0, 0, u32(1), fb("url ", 0, 1)), dinfX), stbl)
+	mdhd := fb("mdhd", 0, 0, u32(0), u32(0), u32(1000), u32(1000), u32(0))
+	tk := make([]byte, 80)
+	copy(tk[8:], u32(id))
+	copy(tk[16:], u32(1000))
+	return bx("trak", fb("tkhd", 0, 3, tk), trakX, bx("mdia", mdhd, hdlrOf(handler), mdiaX, minf))
+}
+
+// elsewhereInputs are files with a handler or a chunk table besides the
+// track's own, in a box the cleaner did not read. A player reads every
+// handler under a track, so a caption track could pass as a picture track,
+// and the first chunk table it finds need not be the one the cleaner moved.
+// In the handler cases a picture track comes first, then a second track,
+// handler vide, whose one chunk holds caption text.
+func elsewhereInputs() map[string][]byte {
+	pl := cat(bytes.Repeat([]byte("V"), 32), []byte("SUBTITLE: hello there....."))
+	at := len(isoFtyp) + 8
+	vid := etrak(1, "vide", at, 32, nil, nil, nil, nil, nil, nil)
+	file := func(traks ...[]byte) []byte {
+		return cat(isoFtyp, bx("mdat", pl), moovOf(traks...))
+	}
+	cc := hdlrOf("clcp")
+	second := func(trakX, mdiaX, minfX, dinfX, stblX, entryX []byte) []byte {
+		return file(vid, etrak(2, "vide", at+32, 26, trakX, mdiaX, minfX, dinfX, stblX, entryX))
+	}
+	one := func(trakX, mdiaX, minfX, dinfX []byte) []byte {
+		return file(etrak(1, "vide", at, 32, trakX, mdiaX, minfX, dinfX, nil, nil))
+	}
+	stco := fb("stco", 0, 0, u32(1), u32(at+32))
+	cases := map[string][]byte{
+		"handler in minf (clcp)":     second(nil, nil, cc, nil, nil, nil),
+		"handler in minf (subp)":     second(nil, nil, hdlrOf("subp"), nil, nil, nil),
+		"handler in dinf":            second(nil, nil, nil, cc, nil, nil),
+		"handler in edts":            second(bx("edts", cc), nil, nil, nil, nil, nil),
+		"handler in trak":            second(cc, nil, nil, nil, nil, nil),
+		"handler in tref":            second(bx("tref", cc), nil, nil, nil, nil, nil),
+		"handler in stbl":            second(nil, nil, nil, nil, cc, nil),
+		"handler in gmhd":            second(nil, nil, bx("gmhd", fb("gmin", 0, 0, make([]byte, 12)), cc), nil, nil, nil),
+		"handler in a picture entry": second(nil, nil, nil, nil, nil, cc),
+		"handler in a sound entry":   file(vid, etrak(2, "soun", at+32, 26, nil, nil, nil, nil, nil, cc)),
+		"stco in edts":               one(bx("edts", stco), nil, nil, nil),
+		"stco in mdia":               one(nil, stco, nil, nil),
+		"stsz in minf":               one(nil, nil, fb("stsz", 0, 0, u32(0), u32(1), u32(58)), nil),
+		"two dref":                   one(nil, nil, nil, fb("dref", 0, 0, u32(1), fb("url ", 0, 1))),
+	}
+	// The boxes a kept track copies whole.
+	for _, c := range []string{"tapt", "clip", "matt", "kmat", "load", "imap", "txas"} {
+		cases["handler in "+c] = second(bx(c, cc), nil, nil, nil, nil, nil)
+	}
+	// A self-contained data reference of a type no file uses.
+	d := one(nil, nil, nil, nil)
+	i := bytes.Index(d, []byte("url "))
+	cases["dref entry of another type"] = cat(d[:i], []byte("hdlr"), d[i+4:])
+	// The defaults of a fragmented file.
+	trex := fb("trex", 0, 0, u32(0), u32(1), u32(0), u32(0), u32(0))
+	cases["handler in mvex"] = cat(isoFtyp, moovOf(vtrak("vide", stblOf("stco", nil, nil)), bx("mvex", trex, cc)),
+		synthFragment(0, []byte("FRAGMENT-SAMPLES")))
+	return cases
+}
+
+// A track's handler and chunk tables are read in one place each; a file
+// with another anywhere a player looks is refused, with or without its text
+// tracks.
+func TestTrackTablesElsewhereAreRefused(t *testing.T) {
+	for name, in := range elsewhereInputs() {
+		for _, o := range []Options{{}, {DropText: true}} {
+			if _, _, err := StripBytesWith(in, o); !errors.Is(err, ErrRefused) {
+				t.Errorf("%s (DropText %v): %v, want ErrRefused", name, o.DropText, err)
+			}
+		}
+	}
+	// The same file with nothing extra is written, and so is a QuickTime
+	// data handler (alis or url ) in minf, which stays.
+	pl := cat(bytes.Repeat([]byte("V"), 32), []byte("SOUND-SAMPLES-AND-MORE...."))
+	at := len(isoFtyp) + 8
+	for name, x := range map[string][]byte{
+		"nothing extra":     nil,
+		"data handler url":  fb("hdlr", 0, 0, []byte("dhlr"), []byte("url "), make([]byte, 12), []byte("\x00")),
+		"data handler alis": fb("hdlr", 0, 0, []byte("dhlr"), []byte("alis"), make([]byte, 12), []byte("\x00")),
+	} {
+		in := cat(isoFtyp, bx("mdat", pl), moovOf(
+			etrak(1, "vide", at, 32, nil, nil, x, nil, nil, nil),
+			etrak(2, "soun", at+32, 26, nil, nil, x, nil, nil, nil)))
+		out, _, err := StripBytes(in)
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if err := keptChunksSame(in, out); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+		if x != nil && !bytes.Contains(out, x[:20]) {
+			t.Errorf("%s: the data handler went", name)
+		}
+	}
+}
+
+// edts, dinf and mvex are written with only the boxes read in them: elst,
+// dref, and mehd and trex.
+func TestCopiedBoxesKeepOnlyWhatIsRead(t *testing.T) {
+	pl := bytes.Repeat([]byte("V"), 32)
+	at := len(isoFtyp) + 8
+	elst := fb("elst", 0, 0, u32(1), u32(1000), u32(0), u32(0x10000))
+	in := cat(isoFtyp, bx("mdat", pl), moovOf(etrak(1, "vide", at, 32,
+		bx("edts", elst, bx("udta", []byte("EDTS-SECRET"))), nil, nil, bx("udta", []byte("DINF-SECRET")), nil, nil)))
+	out, _ := strip(t, in)
+	noSecrets(t, out, []string{"EDTS-SECRET", "DINF-SECRET"})
+	if !bytes.Contains(out, elst) || !bytes.Contains(out, fb("dref", 0, 0, u32(1), fb("url ", 0, 1))) {
+		t.Error("elst or dref went")
+	}
+	if err := keptChunksSame(in, out); err != nil {
+		t.Error(err)
+	}
+	trex := fb("trex", 0, 0, u32(0), u32(1), u32(0), u32(0), u32(0))
+	mehd := fb("mehd", 0, 0, u32(1000))
+	frag := cat(isoFtyp, moovOf(vtrak("vide", stblOf("stco", nil, nil)),
+		bx("mvex", mehd, trex, bx("udta", []byte("MVEX-SECRET")))), synthFragment(0, []byte("FRAGMENT-SAMPLES")))
+	out, _ = strip(t, frag)
+	noSecrets(t, out, []string{"MVEX-SECRET"})
+	if !bytes.Contains(out, cat(mehd, trex)) || !bytes.Contains(out, []byte("FRAGMENT-SAMPLES")) {
+		t.Error("mehd, trex or the fragment went")
 	}
 }
 
@@ -663,7 +863,7 @@ func TestVideoIndexKeepsNoDeviceNames(t *testing.T) {
 		minf := bx("minf", fb("vmhd", 0, 1, make([]byte, 8)),
 			bx("dinf", fb("dref", 0, 0, u32(1), dref)),
 			bx("gmhd", fb("gmin", 0, 0, make([]byte, 12)), bx("udta", []byte("GMHD-SECRET"))),
-			fb("hdlr", 0, 0, u32(0), []byte("dhlr"), make([]byte, 12), []byte("\x0eMINF-HDLR-NAME")),
+			fb("hdlr", 0, 0, []byte("dhlr"), []byte("alis"), make([]byte, 12), []byte("\x0eMINF-HDLR-NAME")),
 			stbl)
 		mdia := bx("mdia", fb("mdhd", 0, 0, make([]byte, 20)),
 			fb("hdlr", 0, 0, u32(0), []byte("vide"), make([]byte, 12), []byte("HDLRNAME-SECRETCAM AVC\x00")), minf)

@@ -62,6 +62,9 @@ func planVideo(r io.ReaderAt, top []box, o Options) (*plan, error) {
 		switch k.typ {
 		case "mvex":
 			frag = true
+			if err := v.noIndex(mp[k.start:k.end], indexDepth); err != nil {
+				return nil, err
+			}
 			if err := v.readMvex(mp[k.payload():k.end], trex); err != nil {
 				return nil, err
 			}
@@ -434,6 +437,10 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 				return nil, ErrMalformed
 			}
 			t.id = be32(pl[at:])
+		default:
+			if err := v.outsideIndex(p[k.start:k.end], k.typ); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if mdia == nil {
@@ -464,6 +471,11 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 				return nil, ErrRefused
 			}
 			minf = pl
+		case "mdhd":
+		default:
+			if err := v.outsideIndex(mdia[k.start:k.end], k.typ); err != nil {
+				return nil, err
+			}
 		}
 	}
 	t.keep = keepHandlers[t.handler]
@@ -482,11 +494,27 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 			if err := checkDinf(&v.w, pl); err != nil {
 				return nil, err
 			}
+			if err := v.noIndex(pl, indexDepth); err != nil {
+				return nil, err
+			}
 		case "stbl":
 			if stbl != nil {
 				return nil, ErrRefused
 			}
 			stbl = pl
+		case "hdlr":
+			// Kept only as a data handler: a player takes any other
+			// handler under the track for the track's kind.
+			if len(pl) < 12 {
+				return nil, ErrMalformed
+			}
+			if !dataHandlers[string(pl[8:12])] {
+				return nil, ErrRefused
+			}
+		default:
+			if err := v.outsideIndex(minf[k.start:k.end], k.typ); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if stbl == nil {
@@ -495,16 +523,24 @@ func (v *video) analyzeTrak(p []byte) (*track, error) {
 	return t, v.chunkTable(t, stbl)
 }
 
+// drefEntries are the data reference types a self-contained file uses.
+var drefEntries = map[string]bool{"url ": true, "urn ": true, "alis": true}
+
 // checkDinf refuses data references that point at another file, or that
-// carry anything (an alias record can hold a volume name and a path).
+// carry anything (an alias record can hold a volume name and a path), and a
+// second dref.
 func checkDinf(w *walker, p []byte) error {
 	kids, err := w.children(p)
 	if err != nil {
 		return err
 	}
+	drefs := 0
 	for _, k := range kids {
 		if k.typ != "dref" {
 			continue
+		}
+		if drefs++; drefs > 1 {
+			return ErrRefused
 		}
 		pl := p[k.payload():k.end]
 		if len(pl) < 8 {
@@ -515,6 +551,9 @@ func checkDinf(w *walker, p []byte) error {
 			return err
 		}
 		for _, e := range ents {
+			if !drefEntries[e.typ] {
+				return ErrRefused
+			}
 			ep := pl[8:][e.payload():e.end]
 			// Self-contained (flag 1), and nothing after the flags but
 			// the empty string some writers add.
@@ -524,6 +563,78 @@ func checkDinf(w *walker, p []byte) error {
 		}
 	}
 	return nil
+}
+
+// indexBoxes are the boxes a player takes a track's kind or its samples
+// from. The cleaner reads each in one place only; one anywhere else would
+// give a player a second reading of the track.
+var indexBoxes = map[string]bool{
+	"hdlr": true, "tkhd": true, "mdhd": true, "stsd": true, "stts": true, "stsc": true,
+	"stsz": true, "stz2": true, "stco": true, "co64": true, "trak": true, "mdia": true,
+	"minf": true, "stbl": true,
+}
+
+// boxContainers are the boxes, other than a track's own trak, mdia, minf and
+// stbl, that a player reads as boxes of boxes, and those a kept track copies
+// whole. noIndex looks into each, reading its children both from the start
+// of the payload and after four bytes of version and flags.
+var boxContainers = map[string]bool{
+	"edts": true, "dinf": true, "dref": true, "tref": true, "mvex": true, "gmhd": true,
+	"wave": true, "tapt": true, "clip": true, "matt": true, "kmat": true, "load": true,
+	"imap": true, "txas": true,
+}
+
+// dataHandlers are the handler types of a QuickTime data handler (minf/hdlr):
+// they name how the media is reached, not what kind it is.
+var dataHandlers = map[string]bool{"alis": true, "url ": true}
+
+// indexDepth is how deep noIndex looks: deeper than a player nests boxes.
+const indexDepth = 10
+
+// noIndex refuses p, a run of boxes, when it holds an index box, at any depth
+// of boxContainers. p is read the way a lenient player reads a container: up
+// to the first header that does not fit.
+func (v *video) noIndex(p []byte, depth int) error {
+	for off := 0; len(p)-off >= 8; {
+		v.w.boxes++
+		if v.w.boxes > maxBoxes {
+			return ErrRefused
+		}
+		h := p[off:]
+		if len(h) > 16 {
+			h = h[:16]
+		}
+		b, err := header(h, uint64(len(p)-off))
+		if err != nil {
+			return nil
+		}
+		if indexBoxes[b.typ] {
+			return ErrRefused
+		}
+		if boxContainers[b.typ] && depth > 0 {
+			pl := p[off+int(b.hdr) : off+int(b.end)]
+			if err := v.noIndex(pl, depth-1); err != nil {
+				return err
+			}
+			if len(pl) > 4 {
+				if err := v.noIndex(pl[4:], depth-1); err != nil {
+					return err
+				}
+			}
+		}
+		off += int(b.end)
+	}
+	return nil
+}
+
+// outsideIndex checks a box found beside a track's own structure (in trak,
+// mdia, minf or stbl, where the cleaner does not read it): vendor boxes are
+// dropped unread, and anything else may not be or hold an index box.
+func (v *video) outsideIndex(b []byte, typ string) error {
+	if vendorBoxes[typ] {
+		return nil
+	}
+	return v.noIndex(b, indexDepth)
 }
 
 // chunkTable reads stco/co64, stsc and stsz into chunk offsets and lengths.
@@ -576,6 +687,11 @@ func (v *video) chunkTable(t *track, p []byte) error {
 			// Compact sizes, and auxiliary data addressed by file offset:
 			// neither is read here, so neither is rewritten.
 			return ErrRefused
+		case "stsd", "stts":
+		default:
+			if err := v.outsideIndex(p[k.start:k.end], k.typ); err != nil {
+				return err
+			}
 		}
 	}
 	if len(t.offs) == 0 {
@@ -648,6 +764,22 @@ func (v *video) chunkTable(t *track, p []byte) error {
 
 func (v *video) raw(b []byte) { v.out = append(v.out, b...) }
 
+// only writes a box of type typ holding p's children of the given types and
+// nothing else. p was walked when the track was read.
+func (v *video) only(p []byte, typ string, keep ...string) {
+	kids, _ := v.w.children(p)
+	var at int
+	v.out, at = begin(v.out, typ)
+	for _, k := range kids {
+		for _, t := range keep {
+			if k.typ == t {
+				v.raw(p[k.start:k.end])
+			}
+		}
+	}
+	v.out = end(v.out, at)
+}
+
 // zeroTimes copies a full box whose payload starts with creation and
 // modification times (mvhd, tkhd, mdhd) with both set to zero.
 func (v *video) zeroTimes(b []byte, hdr int64) error {
@@ -713,7 +845,10 @@ func (v *video) emitMoov(p []byte, kids []box) error {
 			if v.audioOnly {
 				v.emitAudioTags(p[k.payload():k.end])
 			}
-		case "iods", "mvex", "ctab":
+		case "mvex":
+			// Its fragment defaults and duration only.
+			v.only(p[k.payload():k.end], "mvex", "mehd", "trex")
+		case "iods", "ctab":
 			v.raw(b)
 		}
 	}
@@ -735,7 +870,9 @@ func (v *video) emitTrak(p []byte, t *track) error {
 			if err := v.zeroTimes(b, k.hdr); err != nil {
 				return err
 			}
-		case "edts", "tapt", "clip", "matt", "kmat", "load", "imap", "txas":
+		case "edts":
+			v.only(p[k.payload():k.end], "edts", "elst")
+		case "tapt", "clip", "matt", "kmat", "load", "imap", "txas":
 			v.raw(b)
 		case "tref":
 			// References may name a dropped track (a metadata track that
@@ -791,8 +928,10 @@ func (v *video) emitMinf(p []byte, t *track) error {
 	for _, k := range kids {
 		b := p[k.start:k.end]
 		switch k.typ {
-		case "vmhd", "smhd", "hmhd", "nmhd", "sthd", "dinf":
+		case "vmhd", "smhd", "hmhd", "nmhd", "sthd":
 			v.raw(b)
+		case "dinf":
+			v.only(p[k.payload():k.end], "dinf", "dref")
 		case "hdlr":
 			v.hdlr(b, k.hdr)
 		case "gmhd":
@@ -870,9 +1009,9 @@ func (v *video) emitStbl(p []byte, t *track) error {
 	return nil
 }
 
-// stsdDrop are the boxes dropped from a visual sample entry: vendor data,
-// not what a decoder needs.
-var stsdDrop = map[string]bool{"uuid": true, "udta": true, "meta": true, "free": true, "skip": true, "wide": true}
+// vendorBoxes are vendor data, not what a decoder needs: dropped from a
+// visual sample entry, and, beside a track's structure, never copied.
+var vendorBoxes = map[string]bool{"uuid": true, "udta": true, "meta": true, "free": true, "skip": true, "wide": true}
 
 // emitVisualStsd copies the sample descriptions of a picture track with the
 // compressor name cleared (it names the camera's encoder) and vendor boxes
@@ -913,9 +1052,13 @@ func (v *video) emitVisualStsd(p []byte) error {
 			return ErrRefused
 		}
 		for _, c := range kids {
-			if !stsdDrop[c.typ] {
-				v.raw(tail[c.start:c.end])
+			if vendorBoxes[c.typ] {
+				continue
 			}
+			if err := v.noIndex(tail[c.start:c.end], indexDepth); err != nil {
+				return err
+			}
+			v.raw(tail[c.start:c.end])
 		}
 		v.raw(term)
 		v.out = end(v.out, ea)
@@ -940,6 +1083,18 @@ func (v *video) emitSoundStsd(b []byte, hdr int64) error {
 	ents, err := v.w.children(p[8:])
 	if err != nil {
 		return ErrRefused
+	}
+	for _, e := range ents {
+		// A sound entry's boxes start after 20, 36 or 56 bytes of fields,
+		// by its version (0, 1 or 2), and a player reads them as boxes.
+		ep := p[8:][e.payload():e.end]
+		for _, n := range []int{28, 44, 64} {
+			if len(ep) > n {
+				if err := v.noIndex(ep[n:], indexDepth); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	at := len(v.out) + int(hdr) + 8
 	v.raw(b)
