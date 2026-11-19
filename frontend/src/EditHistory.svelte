@@ -2,14 +2,19 @@
   // The "(edited)" mark, as a button: opens the versions this message has held,
   // oldest first, with when each took effect. History comes from this device's
   // own copy, so it only ever shows text this member already received.
+  //
+  // On a phone (`plain`) the mark is only a mark: an 18px-tall word inside the
+  // text is no target for a finger, and a 44px hit box would lie over the words
+  // around it. There the message's long-press menu has "Edit history", which
+  // sets `open`.
+  import { untrack } from "svelte";
   import { api } from "./lib/api.js";
   import { clockOpts } from "./lib/state.svelte.js";
   import { shortWhen, sealFull } from "./lib/timestamp.js";
   import { rectOf, viewport } from "./lib/place.js";
 
-  let { channelId, messageId, block = false } = $props();
+  let { channelId, messageId, block = false, plain = false, open = $bindable(false) } = $props();
 
-  let open = $state(false);
   let versions = $state([]);
   let failed = $state(false);
   let root = $state(null);
@@ -23,10 +28,12 @@
       failed = true;
     }
   }
+  $effect(() => {
+    if (open) untrack(load);
+  });
   function toggle(e) {
     e.stopPropagation();
     open = !open;
-    if (open) load();
   }
   function close(refocus) {
     open = false;
@@ -66,14 +73,14 @@
 <!-- edited-tag: the class every reader of a message's text knows to leave out
      (its own words, without the mark). -->
 <span class="eh edited-tag" class:block bind:this={root} onkeydown={onKey} role="presentation"
-  ><button
-    type="button"
-    class="eh-btn"
-    bind:this={btn}
-    aria-haspopup="dialog"
-    aria-expanded={open}
-    onclick={toggle}>(edited)</button
-  >{#if open}
+  >{#if plain}<span class="eh-btn eh-mark">(edited)</span>{:else}<button
+      type="button"
+      class="eh-btn"
+      bind:this={btn}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      onclick={toggle}>(edited)</button
+    >{/if}{#if open}
     <div class="eh-card" role="dialog" aria-label="Edit history" use:clamp>
       <div class="eh-h">Edit history</div>
       {#if failed}
@@ -127,7 +134,10 @@
     margin-left: 0;
     margin-top: 2px;
   }
-  .eh-btn:hover,
+  .eh-mark {
+    cursor: inherit;
+  }
+  button.eh-btn:hover,
   .eh-btn[aria-expanded="true"] {
     color: var(--text-muted);
     text-decoration: underline;

@@ -1005,6 +1005,9 @@
   const canThread = $derived(
     activeGuild()?.kind !== "dm" && (activeChannel()?.type || "text") === "text",
   );
+  // The edit-history card, opened by the "(edited)" mark on desktop and by the
+  // long-press menu's "Edit history" on a phone.
+  let historyOpen = $state(false);
   let threadPrompt = $state(false);
   let threadTitle = $state("");
   let threadBusy = $state(false);
@@ -1206,6 +1209,9 @@
           }),
       },
       { label: "Mark unread", icon: "bell", onClick: () => markUnread(m.channelId, m) },
+      // On a phone the "(edited)" mark is only a mark (EditHistory's plain);
+      // its versions open from here.
+      m.edited && S.isMobile && { label: "Edit history", icon: "clock", onClick: () => (historyOpen = true) },
       // The refusal already exists in startEdit; the menu had no idea, so the
       // only possible outcome of this item was a toast saying no.
       (isOwn && !uneditableReason(m.content)) || memeTok ? { sep: true } : null,
@@ -1618,7 +1624,7 @@
                 </span>
               {/if}
             </button>
-          {/if}{@html bodyHtml}{#if m.edited}<EditHistory channelId={m.channelId} messageId={m.id} />{/if}{#if ownInDM}<ReceiptTick id={m.id} />{/if}{#if unsignedMark && (compact || gameAside)}<span
+          {/if}{@html bodyHtml}{#if m.edited}<EditHistory channelId={m.channelId} messageId={m.id} plain={S.isMobile} bind:open={historyOpen} />{/if}{#if ownInDM}<ReceiptTick id={m.id} />{/if}{#if unsignedMark && (compact || gameAside)}<span
               class="unsigned-mark trailing"
               role="img"
               use:tooltip={UNSIGNED_TIP}
@@ -1687,7 +1693,7 @@
              message whose whole content is an attachment token had nowhere to
              show it — and editing a meme in place changes the PICTURE, which is
              exactly the case where a reader deserves to be told. -->
-        <EditHistory channelId={m.channelId} messageId={m.id} block />
+        <EditHistory channelId={m.channelId} messageId={m.id} block plain={S.isMobile} bind:open={historyOpen} />
       {/if}
       {#if ownInDM && !bodyText && (atts.length || files.length)}<ReceiptTick id={m.id} />{/if}
       {#if richEmbed}
