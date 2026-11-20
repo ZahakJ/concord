@@ -135,8 +135,10 @@ test("without an audio sink, the camera test, the QR scanner and a recording's p
   await a.closeModals();
 
   step("a recorded voice message is not played back here, and says why");
-  const rec = a.page.getByRole("button", { name: "Record a voice message" });
-  await rec.click();
+  // On the desktop composer recording lives in the "+" menu; the round mic
+  // button is the phone's.
+  await a.page.getByRole("button", { name: "Add to your message" }).click();
+  await a.page.getByRole("menuitem", { name: /^Voice message/ }).click();
   const stopBtn = a.page.getByRole("button", { name: "Stop recording" });
   await stopBtn.waitFor();
   await a.page.waitForTimeout(1200);
