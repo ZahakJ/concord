@@ -190,7 +190,9 @@ const sasLabel = "concord-link-sas-v1"
 // from its own key, so equal strings mean the device asking is the device in
 // the owner's hand.
 //
-// Six digits suffice because a code is redeemed once: the joiner shows its
+// Six digits suffice against someone who only saw the code (not one who can
+// also replace the code the joiner receives; see docs/DESIGN.md §3), because a
+// code is redeemed once: the joiner shows its
 // string only after the issuer has taken the code for it, so nobody else can
 // still aim a key at that string, and a code holder who got in first shows a
 // string the owner's device never displays.

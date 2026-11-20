@@ -99,7 +99,15 @@ const linkConfirmWindow = 60 * time.Second
 type issuedOffer struct {
 	secret []byte
 	peerID string    // our PeerID as written into the code
-	made   time.Time // our clock, monotonic: the code dies OfferTTL after this
+	made   time.Time // our clock: the code dies OfferTTL after this
+}
+
+// expired: the code is past OfferTTL by either clock. The monotonic reading
+// is immune to the wall clock being set back; it also stands still while the
+// machine sleeps on Linux and macOS, so the wall clock is checked as well, or
+// a code shown before a suspend would come back alive after it.
+func (o *issuedOffer) expired() bool {
+	return time.Since(o.made) > link.OfferTTL || time.Now().Round(0).Sub(o.made.Round(0)) > link.OfferTTL
 }
 
 // linkAsk is a device that proved the code and waits for the owner's answer.
@@ -225,7 +233,7 @@ func (s *Service) LinkStatus() LinkStatus {
 	} else if s.linkOffer == nil && s.linkSpent != nil {
 		st.Used = true
 	}
-	if o := s.linkOffer; o != nil && time.Since(o.made) > link.OfferTTL {
+	if o := s.linkOffer; o != nil && o.expired() {
 		st.Expired = true
 	}
 	st.OldDevice = s.linkOldDevice
@@ -318,7 +326,7 @@ func (s *Service) takeLinkOffer(req linkRequest) (*linkAsk, []byte, string) {
 	// Past its two minutes the code stays on record only to be refused as
 	// expired, to this request and any later one, and so the dialog keeps
 	// saying it expired.
-	if time.Since(o.made) > link.OfferTTL {
+	if o.expired() {
 		return nil, nil, linkErrExpired
 	}
 	s.linkOffer = nil

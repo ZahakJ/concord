@@ -21,7 +21,7 @@ Linking needs both devices online at the same time and able to reach each other.
 
 The code expires two minutes after it is shown, and works once: the first device to use it takes it, whatever you then answer, and any other device trying it is told it was already used. Anyone who sees the code can ask to join, but nothing is sent until you say yes, so check the digits rather than the name, which the asking device chooses itself. If your new device says the code was already used by another device, someone else got there first: select **No** on your other device and make a new code.
 
-Both devices need Concord 0.61 or later. A device with an older version is refused with a message to update it, because older versions link without asking.
+Both devices need Concord 0.61 or later, because older versions link without asking. If the device showing the code is older, the new device says to update it. If the new device is older, it only says the code was already used or closed; the device showing the code says that an older device tried and needs updating.
 
 An already-set-up device can be re-linked from its unlock screen with **Re-link from another device**. This replaces the account material on it with your account's and sets a new passphrase, which is also the way to recover a device whose passphrase you have forgotten. One case goes wrong once: a device that was unlinked while it was switched off, and is then re-linked with the same passphrase, is erased again the first time it reaches the device that unlinked it. Link it once more and it stays.
 

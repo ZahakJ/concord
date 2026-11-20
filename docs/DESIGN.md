@@ -302,19 +302,27 @@ only those who never saw the code; what keeps out those who did is the owner.
 The issuer handles a request in three steps:
 
 1. **It takes the code.** Under one lock it checks the proof and the code's age
-   by its own monotonic clock, and the first valid request removes the code. A
+   by its own clock (the monotonic clock and the wall clock, so a code does not
+   outlive a laptop's suspend), and the first valid request removes the code. A
    wrong proof leaves the code in place. Any later request, concurrent or not,
-   is refused with "already used by another device"; a request past two minutes
-   is refused with "code expired".
+   is refused: with "already used by another device" while the dialog is still
+   open, with "no active link offer" once it is closed or a new code replaced
+   it. A request past two minutes is refused with "code expired".
 2. **It asks the owner.** The issuer's dialog shows the requesting device's name
    and a six-digit code, the SAS: HMAC-SHA256 of the secret over the issuer's
    peer ID and the device key, reduced mod 10⁶. It sends the new device a wait
    frame, and only on that frame does the new device compute the same six digits
    and show them. The owner compares the two screens and presses yes or no. The
    name is whatever the requester typed and proves nothing; the digits are what
-   tie the prompt to the device in the owner's hand. A thief cannot shop for a
-   key whose digits match, because the new device shows its digits only after
-   its own request has taken the code, and only one request can.
+   tie the prompt to the device in the owner's hand. Someone who only saw the
+   code cannot shop for a key whose digits match, because the new device shows
+   its digits only after its own request has taken the code, and only one
+   request can. Someone who can also *replace* the code the new device receives
+   (a tampered paste or `concord://` link) is not stopped by this: it can learn
+   the digits that device will show from a code of its own, search about 10⁶
+   keys for a match under the real code, and get there first. Closing that needs
+   a commit-reveal SAS, which is future work; until then the QR scanned straight
+   off the issuer's screen is the path that resists it.
 3. **It answers.** Nothing leaves before a yes within 60 seconds. A no, a closed
    dialog, a new code or silence turns the device away, and the code stays spent.
 
