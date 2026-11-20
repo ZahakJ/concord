@@ -328,7 +328,7 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--sp-3);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     cursor: pointer;
   }
   .hist input {
