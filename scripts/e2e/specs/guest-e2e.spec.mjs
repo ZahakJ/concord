@@ -6,6 +6,7 @@
 // Revoking the link ends the guest's session and call at once, and the old
 // link then fails. A link in the old format, or a page without WebCrypto,
 // opens no socket at all.
+import os from "node:os";
 import { test } from "../harness.mjs";
 
 async function withGuestLinks(world, peer) {
@@ -202,6 +203,21 @@ test("an old-format link and a page without WebCrypto open no socket", async ({ 
   await bad.page.getByText("This page can't be used here").waitFor();
   assert.equal(await bad.page.locator("#go").isVisible(), false, "no join button");
   assert.equal(await bad.page.evaluate(() => window.__ws.made), 0, "no socket");
+
+  // The same check with nothing faked: the gateway reached over plain http on
+  // a non-loopback address is a real insecure context, so WebCrypto is absent.
+  const lan = Object.values(os.networkInterfaces()).flat().find((a) => a && a.family === "IPv4" && !a.internal);
+  if (lan) {
+    step(`a real plain-http origin (${lan.address}) is refused locally`);
+    const plain = await guestPage(world);
+    await plain.page.goto(`http://${lan.address}:${port + 1}/guest#h=${host}&k=${k}`);
+    assert.equal(await plain.page.evaluate(() => window.isSecureContext), false, "plain http off loopback is insecure");
+    await plain.page.getByText("This page can't be used here").waitFor();
+    assert.equal(await plain.page.evaluate(() => window.__ws.made), 0, "no socket");
+    await plain.ctx.close();
+  } else {
+    step("no non-loopback IPv4 address here: the real plain-http check is skipped");
+  }
 
   await old.ctx.close();
   await bad.ctx.close();
