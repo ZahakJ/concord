@@ -1731,10 +1731,17 @@ and so does the orientation, as a 32-byte tag. Every route meets it in the
 core (`internal/app/imageclean.go`): the composer, paste, drop, share sheet,
 GIF search, profile and guild pictures, stories, emoji and an imported chat
 export. A HEIC or AVIF picture the renderer can decode is redrawn as a JPEG
-before it is sent; one it cannot decode is refused. What the cleaner does not
-know is sent as it is: videos, audio, documents, and a HEIC or AVIF picture
-that arrives as a file with no picture type. For a video or a HEIC file the
-composer shows a line saying so before the send.
+before it is sent; one it cannot decode goes as a file. Files are cleaned in
+`internal/bmffmeta` when they are ISO base media (MP4, MOV, M4A, HEIC, HEIF,
+AVIF): the index box is rebuilt without location, device details, dates and
+the tracks that are neither picture nor sound, and every chunk offset is moved
+to match, or the file is refused. A refused file, a video with text tracks, a
+video container nothing reads (Matroska, WebM, AVI, MPEG streams, ASF, FLV)
+and TIFF, raw, JPEG XL and JPEG 2000 pictures are held for the person's choice
+(`internal/app/attach.go`, `frontend/src/lib/mediastrip.js`). What is left
+(documents, other audio, unknown bytes) is sent as it is; the composer asks
+the core (`FileGoesAsIs`, from the file's first 64 KiB) and shows a line
+saying so before the send.
 
 ---
 

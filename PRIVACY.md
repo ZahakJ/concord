@@ -1,6 +1,6 @@
 # Concord Privacy Policy
 
-*Last updated: 17 November 2026. This is the policy for the Concord application on
+*Last updated: 19 November 2026. This is the policy for the Concord application on
 every platform it ships for, including the Android app.*
 
 Concord is a peer-to-peer, end-to-end-encrypted messenger. This document states
@@ -241,17 +241,33 @@ the picture is not upright, a tag saying which way up it goes. This applies to
 PNG, JPEG, GIF and WebP pictures sent by any route, and to avatars, banners,
 guild icons, forum banners, stories, custom emoji and guild GIFs. A picture in
 another format, HEIC and AVIF among them, is redrawn as a JPEG when the app can
-display it, which leaves its details behind, and is refused when the app
-cannot. See [`internal/imgmeta/`](internal/imgmeta/imgmeta.go) and
+display it, which leaves its details behind; when it cannot, it is sent as a
+file and cleaned as below. See [`internal/imgmeta/`](internal/imgmeta/imgmeta.go) and
 [`internal/app/imageclean.go`](internal/app/imageclean.go).
 
-Videos, voice messages and other audio, and documents are sent as they are,
-with whatever they hold, and a video recorded on a phone often holds the place
-where it was recorded. So is a HEIC or AVIF picture that reaches Concord
-without being marked as a picture. The composer says so under a staged video or
-HEIC photo before you send it. A chat export imported into a guild has its PNG,
-JPEG, GIF and WebP pictures cleaned in the same way, and its other files, HEIC
-and AVIF pictures and videos among them, go to the guild as they are. Pictures
+MP4 and MOV videos, HEIC, HEIF and AVIF pictures sent as files, and M4A audio
+lose their location, camera make and model, dates and other stored details
+before they are sent. A video also loses its tracks that are neither picture
+nor sound, such as the per-frame location some phones and action cameras
+record, and its timecode. Music keeps its title, artist and album; a voice
+recording loses its title too, since phones often name recordings after the
+place. Only the file's index is rewritten: the picture and sound themselves are
+not read or changed, so a location a camera writes into the video stream itself
+stays. A video with subtitles or other text tracks, which can hold location, is
+held until you choose *Remove and send* or *Send as it is*. A file Concord
+cannot clean safely is held until you choose *Send as it is*, which sends it
+unchanged: one of the formats above that it cannot rewrite with certainty, a
+video in another container (MKV, WebM, AVI, MPEG transport or program stream,
+WMV, FLV), or a TIFF, camera raw, JPEG XL or JPEG 2000 picture. See
+[`internal/bmffmeta/`](internal/bmffmeta/bmffmeta.go) and
+[`internal/app/attach.go`](internal/app/attach.go).
+
+Documents, audio other than M4A (a voice message Concord records as Ogg or
+WebM among it) and any file Concord does not recognise are sent as they are,
+with whatever they hold. The composer says so under such a file before you send
+it. A chat export imported into a guild has its PNG, JPEG, GIF and WebP pictures
+cleaned in the same way as a sent picture, and its other files, HEIC and AVIF
+pictures and videos among them, go to the guild as they are. Pictures and videos
 sent before Concord 0.61 keep their details on every device that holds them.
 
 On Android, the attach sheet opens the system photo picker. Concord asks for no
@@ -305,9 +321,20 @@ Smaller erasures, for when the whole device is not what you meant:
   it ran 0.60.5, until its trash is emptied. See [`internal/app/guild.go`](internal/app/guild.go)
   (`erasesDeletedBodies`) and [`internal/store/store.go`](internal/store/store.go)
   (`markDeleted`).
-- **A deleted message's picture or file**: its encrypted copy stays in each
-  device's attachment cache until the cache needs the room. It cannot be opened
-  without the key, which was in the erased text.
+- **A deleted message's picture or file**: a device that erases the message's
+  text (a delete for everyone, a message that disappears, *Empty trash*) also
+  removes its encrypted copy and stops passing it to others. A moderator's
+  device that keeps a deleted guild message for reveal keeps its pictures until
+  its trash is emptied, and does not pass them on. A device passes a picture or
+  file only to members of a guild or direct message where a message that is not
+  deleted names it, or whose GIF pack or archive holds it. Two kinds of copy are
+  left: a device on Concord 0.60.x keeps, and passes to anyone who asks for it by
+  its id, the copy of a deleted message's attachment until it updates; and a copy
+  whose message text 0.60.5 already erased stays in that device's cache until
+  the cache needs the room, without being passed on. Neither can be opened
+  without the key, which was in the erased text. See
+  [`internal/app/blobrelease.go`](internal/app/blobrelease.go) and
+  [`internal/store/blobrefs.go`](internal/store/blobrefs.go).
 - **One message, for you only**: *Delete for me* hides it on your own devices,
   and nobody else is told. The text and any attachment stay on your devices,
   sealed, so that *Undo* can bring them back.
