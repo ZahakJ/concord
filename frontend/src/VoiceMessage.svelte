@@ -75,6 +75,7 @@
         // An engine that would crash on the element gets none; the card has
         // already replaced the player (lib/mediasupport.svelte.js).
         if (!(await mediaReady())) {
+          if (media.inline !== false) flash("Concord isn't responding — trying to reconnect", "error");
           audioP = null;
           return null;
         }

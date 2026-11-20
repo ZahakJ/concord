@@ -43,7 +43,10 @@
       // No element may get a source before the engine is known to survive it
       // (lib/mediasupport.svelte.js); when it would not, the card replaces the
       // frame and nothing is fetched.
-      if (!(await mediaReady())) return;
+      if (!(await mediaReady())) {
+        if (media.inline === false) return;
+        throw new Error("Concord isn't responding — trying to reconnect");
+      }
       src = await api.fetchFile(channelId, tok.blobId, tok.keys, tok.mime);
     } catch (err) {
       errMsg = String(err?.message || err);

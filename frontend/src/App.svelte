@@ -91,7 +91,7 @@
   import ContextMenu from "./ContextMenu.svelte";
   import Toasts from "./Toasts.svelte";
   import { micReason, canCarryACall, noCallReason } from "./lib/devices.js";
-  import { mediaReady } from "./lib/mediasupport.svelte.js";
+  import { media, mediaReady } from "./lib/mediasupport.svelte.js";
   import FxOverlay from "./FxOverlay.svelte";
   import { validFx } from "./lib/themefx.js";
   import JoinVeil from "./JoinVeil.svelte";
@@ -1383,6 +1383,25 @@
   let hidIpNotice = false;
   async function joinVoice(channelId = S.activeChannelId, admitted = false) {
     if (!channelId || joining) return; // re-entrancy guard: no orphan meshes
+    // Before anything else — before leaving the call we are in, before knocking
+    // on a locked one: is there a peer connection to be had at all? On the
+    // Linux desktop build the answer can be no — WebKitGTK exposes no
+    // RTCPeerConnection when the system's GStreamer WebRTC elements are absent
+    // — and joining then produces a call in which nobody can hear anybody and
+    // nothing says why. This is the one failure that is NOT worth entering the
+    // room for: a mic-less join still lets you listen, and this one does not.
+    // The same holds for an engine with no audio sink to play the room
+    // through: it would crash on the first peer's audio element.
+    if (!(await mediaReady()) && media.inline !== false) {
+      flash("Concord isn't responding — trying to reconnect", "error");
+      return;
+    }
+    if (!canCarryACall()) {
+      hapticNotify("ERROR");
+      flash(noCallReason(), "error");
+      S.joiningVoice = "";
+      return;
+    }
     if (S.voice) {
       const inThisRoom = S.voice.channelId === channelId;
       await leaveVoice();
@@ -1530,22 +1549,6 @@
         }
       },
     });
-    // Before anything else: is there a peer connection to be had at all? On the
-    // Linux desktop build the answer can be no — WebKitGTK exposes no
-    // RTCPeerConnection when the system's GStreamer WebRTC elements are absent
-    // — and joining then produces a call in which nobody can hear anybody and
-    // nothing says why. This is the one failure that is NOT worth entering the
-    // room for: a mic-less join still lets you listen, and this one does not.
-    // The same holds for an engine with no audio sink to play the room
-    // through: it would crash on the first peer's audio element.
-    await mediaReady();
-    if (!canCarryACall()) {
-      hapticNotify("ERROR");
-      flash(noCallReason(), "error");
-      joining = false;
-      S.joiningVoice = "";
-      return;
-    }
     // A microphone is not a condition of entry. mesh.start() no longer throws
     // for a mic it could not open — it records why and comes up listen-only —
     // so the only thing left to do here is say so, once, and let the room have

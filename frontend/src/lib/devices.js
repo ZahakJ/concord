@@ -171,8 +171,14 @@ export const canCarryACall = () => typeof RTCPeerConnection !== "undefined" && m
 // Why not, in a sentence somebody can act on. Only ever shown when
 // canCarryACall() is false, which on every browser and on Android is never.
 export function noCallReason() {
+  // The package list is the whole of what is missing: no audio sink always
+  // means gst-plugins-good, and no peer connection on top of it means
+  // gst-plugins-bad too. The shell's answer is cached for the run, hence the
+  // restart.
   if (media.inline === false)
-    return "This machine can't play call audio: the desktop app plays sound through GStreamer, and its audio output (gst-plugins-good) is missing. Installing gst-plugins-good fixes it.";
+    return typeof RTCPeerConnection === "undefined"
+      ? "This machine can't make calls: the desktop app carries sound through GStreamer, and its audio output and WebRTC plugins are missing. Install gst-plugins-good and gst-plugins-bad, then restart Concord."
+      : "This machine can't play call audio: the desktop app plays sound through GStreamer, and its audio output (gst-plugins-good) is missing. Install gst-plugins-good, then restart Concord.";
   return LINUX_DESKTOP
     ? "This machine can't make calls: the desktop app carries audio through GStreamer, and the WebRTC plugins are missing. Installing gst-plugins-good and gst-plugins-bad fixes it — everything else in Concord works without them."
     : "This build can't make calls: its web engine has no WebRTC support.";

@@ -35,6 +35,7 @@
     testTone,
     recordSelfTest,
   } from "../lib/devices.js";
+  import { media, mediaReady, MEDIA_OUTSIDE_NOTE, MEDIA_CAMERA_NOTE } from "../lib/mediasupport.svelte.js";
   import { NR_LEVELS, canDenoise } from "../lib/denoise.js";
   import { rangefill } from "../lib/rangefill.js";
   import Switch from "../Switch.svelte";
@@ -403,9 +404,29 @@
 
   let camGen = 0;
 
+  // The speaker test says why it is silent where it must not make a sound.
+  async function testSpeaker() {
+    if (!(await mediaReady()) && media.inline === false) {
+      flash(MEDIA_OUTSIDE_NOTE, "error");
+      return;
+    }
+    testTone(chosen("speaker"));
+  }
+
+  // Set when the engine must not be handed a <video> (lib/mediasupport.svelte.js):
+  // the preview is replaced by the line saying why.
+  let camBlocked = $state(false);
+
   async function startCamTest() {
     stopCamTest();
     const gen = camGen;
+    if (!(await mediaReady())) {
+      if (gen === camGen && !destroyed) {
+        if (media.inline === false) camBlocked = true;
+        else flash("Couldn't open that camera", "error");
+      }
+      return;
+    }
     let stream;
     try {
       stream = await cameraStream(chosen("camera"));
@@ -607,7 +628,7 @@
       <span class="chip"><Icon name="speaker" size={16} /></span>
       <span class="dev-title">Speaker</span>
       {#if canPickOutput}
-        <button class="test" onclick={() => testTone(chosen("speaker"))}>Test</button>
+        <button class="test" onclick={testSpeaker}>Test</button>
       {/if}
     </div>
     {#if canPickOutput}
@@ -654,7 +675,9 @@
       </button>
     </div>
     {@render picker("camera", "Camera")}
-    {#if camTesting && camStream}
+    {#if camBlocked}
+      <p class="muted cam-note">{MEDIA_CAMERA_NOTE}</p>
+    {:else if camTesting && camStream}
       <!-- svelte-ignore a11y_media_has_caption -->
       <video class="preview" bind:this={camEl} autoplay playsinline muted transition:slide={{ duration: 180 }}
       ></video>
@@ -971,6 +994,11 @@
     width: 2px;
     background: var(--text);
     opacity: 0.7;
+  }
+  .cam-note {
+    margin: 6px 0 0;
+    font-size: var(--fs-small);
+    line-height: 1.35;
   }
   .preview {
     width: 100%;

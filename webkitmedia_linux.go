@@ -17,6 +17,14 @@ package main
 // library cannot be loaded answers "could not ask", which the caller treats as
 // "leave the page alone". WebKitGTK links libgstreamer itself, so on any box
 // that runs this binary the library is there to be found.
+//
+// It runs on whatever OS thread the calling goroutine has, not GTK's.
+// gst_init_check takes GStreamer's own init lock and touches no GTK or WebKit
+// state, so that is safe; it initialises GStreamer in this (UI) process, where
+// WebKit does not otherwise use it, so nothing else is racing it here. The
+// web process initialises its own copy. The first call may scan the plugin
+// registry (cached afterwards under XDG_CACHE_HOME), which is why it is not
+// done on the GTK thread.
 typedef int (*concord_gst_init_fn)(int *, char ***, void **);
 typedef void *(*concord_gst_find_fn)(const char *);
 typedef void (*concord_gst_unref_fn)(void *);
@@ -171,15 +179,17 @@ func armWebviewMedia() { C.concord_arm_media() }
 
 // armMediaCheck tells the page, through bridge.MediaSupport, when this system
 // has no GStreamer audio sink. WebKitGTK builds every <audio> and <video> on
-// autoaudiosink (gst-plugins-good), and from 2.54 a missing one crashes the
-// web process instead of failing the element: measured on webkit2gtk-4.1
-// 2.54.2 without gst-plugins-good, an mp4 with or without sound, an m4a, an
+// autoaudiosink (gst-plugins-good), and a missing one crashes the web process
+// instead of failing the element: measured on webkit2gtk-4.1 2.54.2 without
+// gst-plugins-good, an mp4 with or without sound, an m4a, an
 // Ogg Opus voice note and a MediaStream in an <audio> each killed the page the
 // moment the element loaded, on a bare page as well as in Concord. The page
 // then shows those as files to open outside the app instead.
 //
-// Asked once, off the UI thread, as soon as the app starts; the page's first
-// question waits for that answer.
+// Asked once, off the UI thread (on a goroutine; see concord_gst_has for why
+// that thread is fine), as soon as the app starts; the page's first question
+// waits for that answer. The answer holds for the run, so installing the
+// package is noticed at the next start, which the page's copy says.
 func armMediaCheck() {
 	var once sync.Once
 	var missing []string

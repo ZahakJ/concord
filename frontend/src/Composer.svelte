@@ -22,6 +22,7 @@
   import { emoteText } from "./lib/emote.js";
   import { plainSnippet } from "./lib/snippet.js";
   import { S, activeChannel, activeGuild, react, flash, flashSlot, nameColorFor, mentionRefs, customEmojiMap, setPref } from "./lib/state.svelte.js";
+  import { media, mediaReady, MEDIA_OUTSIDE_NOTE } from "./lib/mediasupport.svelte.js";
   import { humanError } from "./lib/errors.js";
 
   import { PERM, has } from "./lib/perms.js";
@@ -1282,9 +1283,16 @@
     preview = null;
   }
 
-  function togglePreview() {
+  async function togglePreview() {
     if (!preview) return;
     if (!prevAudio) {
+      // No <audio> on an engine it would crash (lib/mediasupport.svelte.js);
+      // the clip can still be sent and played elsewhere.
+      if (!(await mediaReady())) {
+        flash(media.inline === false ? MEDIA_OUTSIDE_NOTE : "Concord isn't responding — trying to reconnect", "error");
+        return;
+      }
+      if (!preview || prevAudio) return togglePreview();
       // The element is captured in a local: a `timeupdate` can still be in
       // flight when Send or Discard has already dropped our reference, and
       // reading `prevAudio.currentTime` from the handler then throws.

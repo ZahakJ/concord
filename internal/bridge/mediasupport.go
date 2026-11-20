@@ -5,7 +5,7 @@ package bridge
 // every other build, where the engine plays media on its own.
 //
 // It exists for one element. WebKitGTK plays every <audio> and <video> through
-// GStreamer's autoaudiosink, and from WebKitGTK 2.54 a system without it
+// GStreamer's autoaudiosink, and on WebKitGTK 2.54.2 a system without it
 // (gst-plugins-good not installed) does not fail the element: the web process
 // dereferences the sink it could not build and dies. A video scrolling into
 // view, a voice message pressed, a call's audio arriving: each one crashed the
