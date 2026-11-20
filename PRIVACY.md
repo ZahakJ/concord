@@ -262,10 +262,13 @@ WMV, FLV), or a TIFF, camera raw, JPEG XL or JPEG 2000 picture. See
 [`internal/bmffmeta/`](internal/bmffmeta/bmffmeta.go) and
 [`internal/app/attach.go`](internal/app/attach.go).
 
-Documents, audio other than M4A (a voice message Concord records as Ogg or
-WebM among it) and any file Concord does not recognise are sent as they are,
-with whatever they hold. The composer says so under such a file before you send
-it. A chat export imported into a guild has its PNG, JPEG, GIF and WebP pictures
+Documents, audio files other than M4A and WebM (MP3, Ogg, WAV, FLAC and the
+like) and any file Concord does not recognise are sent as they are, with
+whatever they hold; the composer says so under such a file before you send it.
+An attached WebM or other Matroska file is held like a video in a container
+Concord does not read, even when it holds only sound. A voice message recorded
+in Concord is sent as it is when the recording is Ogg or WebM audio, with no
+line under it; any other recording is cleaned or held as an attached file would be. A chat export imported into a guild has its PNG, JPEG, GIF and WebP pictures
 cleaned in the same way as a sent picture, and its other files, HEIC and AVIF
 pictures and videos among them, go to the guild as they are. Pictures and videos
 sent before Concord 0.61 keep their details on every device that holds them.

@@ -6,7 +6,7 @@
 // This is a regression test with a real history: seeding the staged record's
 // `name` from the OS file name looked harmless and silently opted EVERY
 // picked/dropped/pasted image into v2.
-import { stagedImage, emitsLegacyToken, sentAsIs, fileHead, FILE_HEAD_CHARS, AS_IS_NOTE } from "./attachopts.js";
+import { stagedImage, emitsLegacyToken, sentAsIs, fileHead, FILE_HEAD_CHARS, AS_IS_NOTE, AS_IS_WAIT_MS } from "./attachopts.js";
 
 let failures = 0;
 const assert = (cond, msg) => {
@@ -87,6 +87,20 @@ assert(
   };
   assert((await sentAsIs("data:application/pdf;base64,JVBERi0=", failing)) === true, "when the core cannot answer, the line shows");
   assert((await sentAsIs("data:text/plain,hello", core(false))) === true, "and when there is nothing to ask with");
+
+  // A core that never answers must not hold the staging: past the wait, the
+  // line shows.
+  assert(AS_IS_WAIT_MS > 0 && AS_IS_WAIT_MS <= 3000, "the wait is a few seconds at most");
+  const hung = () => new Promise(() => {});
+  const started = Date.now();
+  const late = await Promise.race([
+    sentAsIs("data:application/pdf;base64,JVBERi0=", hung, { waitMs: 50 }),
+    new Promise((r) => setTimeout(() => r("still waiting"), 1000)),
+  ]);
+  assert(late === true, `a core that does not answer shows the line (got ${late})`);
+  assert(Date.now() - started < 900, "and it does so once the wait is over");
+  const slowNo = (ms) => () => new Promise((r) => setTimeout(() => r(false), ms));
+  assert((await sentAsIs("data:video/mp4;base64,AAAAGGZ0eXA=", slowNo(10), { waitMs: 500 })) === false, "an answer inside the wait counts");
 }
 assert(
   AS_IS_NOTE ===

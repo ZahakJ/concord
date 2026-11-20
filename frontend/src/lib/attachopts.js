@@ -61,7 +61,7 @@ export function emitsLegacyToken(a) {
 }
 
 // What the core sends as it is, with whatever is stored in it: a document,
-// audio other than M4A, anything it does not recognise. Pictures, MP4 and
+// audio other than M4A and WebM, anything it does not recognise. Pictures, MP4 and
 // MOV videos, HEIC/HEIF/AVIF photos and M4A audio are cleaned; the formats
 // it cannot clean are held with their own row and "Send as it is"
 // (lib/mediastrip.js). The core decides from the file's first bytes
@@ -83,15 +83,28 @@ export function fileHead(dataUrl) {
   return s.slice(comma + 1, comma + 1 + FILE_HEAD_CHARS);
 }
 
+// AS_IS_WAIT_MS: how long staging waits for the core's answer.
+export const AS_IS_WAIT_MS = 3000;
+
 // sentAsIs(dataUrl, goesAsIs): does this staged file go out as it is?
-// goesAsIs is api.fileGoesAsIs. When the core cannot be asked or does not
-// answer, the line shows: saying it once too often is the safe side.
-export async function sentAsIs(dataUrl, goesAsIs) {
+// goesAsIs is api.fileGoesAsIs. When the core cannot be asked, or does not
+// answer within waitMs, the line shows: saying it once too often is the safe
+// side, and the file is staged either way.
+export async function sentAsIs(dataUrl, goesAsIs, { waitMs = AS_IS_WAIT_MS } = {}) {
   const head = fileHead(dataUrl);
   if (head === null) return true;
+  let timer;
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(true), waitMs);
+  });
   try {
-    return (await goesAsIs(head)) !== false;
+    const answer = Promise.resolve()
+      .then(() => goesAsIs(head))
+      .then((v) => v !== false);
+    return await Promise.race([answer, late]);
   } catch {
     return true;
+  } finally {
+    clearTimeout(timer);
   }
 }

@@ -321,7 +321,7 @@ func TestOtherVideoContainersWaitForTheChoice(t *testing.T) {
 
 // FileGoesAsIs is what the composer asks before it says a file goes out as it
 // is: true only for bytes SendFile sends unchanged without asking (documents,
-// audio other than M4A, anything it does not recognise), false for pictures,
+// audio other than M4A and WebM, anything it does not recognise), false for pictures,
 // videos and M4A audio, which are cleaned, and for the formats it holds for
 // the choice. The page sends only the first bytes, so the answer must not
 // change when the file is cut to them.

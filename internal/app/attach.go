@@ -377,7 +377,7 @@ func prepareFile(dataURL string, mode sendMode) (string, []byte, error) {
 type fileRoute int
 
 const (
-	routeAsIs        fileRoute = iota // sent unchanged: documents, audio other than M4A, anything unknown
+	routeAsIs        fileRoute = iota // sent unchanged: documents, audio other than M4A and WebM, anything unknown
 	routePicture                      // PNG, JPEG, GIF, WebP: cleaned by imgmeta
 	routeHeldPicture                  // TIFF, camera raw, JPEG XL, JPEG 2000: held for the choice
 	routeHeldVideo                    // Matroska/WebM, AVI, ASF, FLV, MPEG streams: held for the choice
@@ -402,7 +402,8 @@ func routeOf(b []byte) fileRoute {
 const FileHeadBytes = 64 << 10
 
 // FileGoesAsIs reports whether SendFile sends a file that starts with head
-// unchanged and without asking: a document, audio other than M4A, anything
+// unchanged and without asking: a document, audio other than M4A and WebM
+// (an attached WebM is held as a video), anything
 // it does not recognise. The composer asks before it says so under the
 // staged file. Every test routeOf makes reads the first few hundred bytes,
 // except that an ISO file whose first box is longer than head and is not

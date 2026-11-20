@@ -28,7 +28,9 @@ Some files are held before they are sent, on their own row in the conversation, 
 
 The advanced composer and a new forum post do not send a held file; they say to attach it in the message box, where the choice is offered.
 
-Other files are sent exactly as they are, with whatever they hold: documents, audio other than M4A (including voice messages Concord records as Ogg or WebM), and any file Concord does not recognise. The composer says so under the staged file before you send.
+Other files are sent exactly as they are, with whatever they hold: documents, audio files other than M4A and WebM (MP3, Ogg, WAV, FLAC and the like), and any file Concord does not recognise. The composer says so under the staged file before you send. An attached WebM or other Matroska file is held like a video in a container Concord does not read, even when it holds only sound.
+
+A voice message you record in Concord is sent as it is when the recording is Ogg or WebM audio, with no line under it; any other recording is cleaned or held as an attached file would be.
 
 A picture sent with text is one message: the text is its caption, and the two arrive, show and disappear together.
 
