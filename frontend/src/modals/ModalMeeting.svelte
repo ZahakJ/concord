@@ -7,6 +7,7 @@
   //     keeps them fully end-to-end encrypted.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import Switch from "../Switch.svelte";
   import { onMount } from "svelte";
   import { api } from "../lib/api.js";
   import { S, flash } from "../lib/state.svelte.js";
@@ -67,6 +68,64 @@
     }
   }
 
+  // History is off by default: a guest sees only what is said after they are
+  // let in. The host can let guests read the last 30 messages instead.
+  let history = $state(false);
+  let historyBusy = $state(false);
+  async function loadHistory() {
+    if (!guildId || !link) return;
+    try {
+      history = !!(await api.guestLinkHistory(guildId));
+    } catch {
+      /* unknown: the switch stays off, which is the default */
+    }
+  }
+  async function toggleHistory() {
+    if (!guildId || historyBusy) return;
+    historyBusy = true;
+    const next = !history;
+    try {
+      await api.setGuestLinkHistory(guildId, next);
+      history = next;
+    } catch (err) {
+      flash(err);
+    } finally {
+      historyBusy = false;
+    }
+  }
+
+  // Revoking deletes the link and ends every guest session in the meeting at
+  // once. Nothing is minted until the host asks for a new link.
+  let revoked = $state(false);
+  async function revoke() {
+    if (!guildId || busy) return;
+    busy = true;
+    try {
+      await api.revokeGuestLink(guildId);
+      revoked = true;
+      link = "";
+      history = false;
+    } catch (err) {
+      flash(err);
+    } finally {
+      busy = false;
+    }
+  }
+  async function newLink() {
+    if (!guildId || busy) return;
+    busy = true;
+    try {
+      link = await api.createGuestLink(guildId, picked || 0);
+      expiresAt = await api.meetingExpiry(guildId);
+      revoked = false;
+      await loadHistory();
+    } catch (err) {
+      flash(err);
+    } finally {
+      busy = false;
+    }
+  }
+
   const guestBlurb = $derived(
     link
       ? `Hop on a quick call with me ⚡\n\n${link}\n\n` +
@@ -95,6 +154,7 @@
   // warning appears exactly when there is something to warn about.
   let noRelay = $state(false);
   onMount(async () => {
+    loadHistory();
     try {
       const cfg = await api.callIceServers();
       noRelay = cfg?.relayAvailable !== true;
@@ -162,9 +222,9 @@
       </div>
       {#if expiryText}
         <p class="muted tiny" aria-live="polite">
-          Link and meeting expire <strong>{expiryText}</strong>. Anyone with the
-          link can walk in until then — lock the call to make them knock
-          first, which is how you'd run office hours.
+          Link and meeting expire <strong>{expiryText}</strong>. Until then the
+          link lets in up to 5 guests — lock the call to make them knock first,
+          which is how you'd run office hours.
         </p>
       {/if}
       <button
@@ -178,10 +238,30 @@
           {copied === "guest" ? "Copied ✓" : "Copy link + a friendly note"}
         {/if}
       </button>
+      <label class="hist">
+        <span>Guests can read the last 30 messages</span>
+        <Switch on={history}>
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="Guests can read the last 30 messages"
+            checked={history}
+            disabled={historyBusy || !guildId}
+            onchange={(e) => {
+              e.currentTarget.checked = history;
+              toggleHistory();
+            }}
+          />
+        </Switch>
+      </label>
       <p class="muted tiny">
-        Guests are chat-only and labelled in the room — their messages pass
-        through you, so they aren't end-to-end encrypted like full members.
+        Guest chat and calls are encrypted between the guest's browser and your
+        app; the rendezvous relays only ciphertext. It also serves the guest
+        page, so an operator who altered that page could read the meeting.
       </p>
+      <button class="ghost small danger" disabled={busy || !guildId} onclick={revoke}>
+        Revoke link
+      </button>
       {#if noRelay}
         <Caution
           text="No media relay: whoever opens the link may see your IP once you're both on the call."
@@ -217,7 +297,16 @@
     </div>
   </section>
 
-  {#if !link}
+  {#if revoked}
+    <section class="way primary-way">
+      <p class="muted" aria-live="polite">
+        The link is revoked: it no longer works, and any guests were sent out.
+      </p>
+      <button class="primary" disabled={busy} onclick={newLink}>New link</button>
+    </section>
+  {/if}
+
+  {#if !link && !revoked}
     <p class="muted tiny nofoot">
       Guest links (browser, no install) need a rendezvous server — set one in
       Settings → Connection.
@@ -233,6 +322,25 @@
     display: flex;
     flex-direction: column;
     gap: 9px;
+  }
+  .hist {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .hist input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+  .danger {
+    color: var(--danger);
+    align-self: flex-start;
   }
   .way + .way {
     border-top: 1px solid var(--hairline);

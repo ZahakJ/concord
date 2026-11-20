@@ -285,7 +285,7 @@
   async function copyGuestLink() {
     try {
       await navigator.clipboard?.writeText(ev.guestUrl);
-      flash("Guest link copied — anyone with it can join from a browser", "success");
+      flash("Guest link copied — it lets up to 5 guests in from a browser", "success");
     } catch {
       flash("Couldn't copy — long-press the link to copy it", "info");
     }
@@ -355,6 +355,7 @@
       !!ev.guestUrl && { label: "Copy guest link", icon: "copy", onClick: copyGuestLink },
       canEdit && !!onEdit && { label: "Edit event", icon: "edit", onClick: () => onEdit(ev) },
       { sep: true },
+      isGuestHost && { label: "Revoke guest link", icon: "link", onClick: revokeGuestLink },
       isGuestHost && canEdit && !!ev.guestUrl && {
         label: revokeArmed ? "Tap again — ends the room for everyone" : "End meeting room…",
         icon: "close",
@@ -429,6 +430,23 @@
       ev.guestHost = updated.guestHost || "";
       ev.memberCode = updated.memberCode || "";
       flash("Room closed — the guest link and member Join are both dead", "success");
+      loadEvents(ev.guildId);
+    } catch (err) {
+      flash(err);
+    }
+  }
+
+  // Replace the guest link without closing the room: the old link stops
+  // working, guests in the room are sent out, and the node that hosts the room
+  // stamps a fresh link on the event so every member's card shows it.
+  async function revokeGuestLink() {
+    try {
+      const updated = await api.revokeEventGuestLink(ev.guildId, ev.id);
+      if (updated?.guestUrl) {
+        ev.guestUrl = updated.guestUrl;
+        ev.guestHost = updated.guestHost || ev.guestHost;
+      }
+      flash("The old guest link no longer works — the new one is on the card", "success");
       loadEvents(ev.guildId);
     } catch (err) {
       flash(err);
