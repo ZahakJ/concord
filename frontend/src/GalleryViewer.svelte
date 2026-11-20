@@ -17,10 +17,12 @@
   import { S, flash, openContextMenu } from "./lib/state.svelte.js";
   import { humanError } from "./lib/errors.js";
   import { saveBlob } from "./lib/savefile.js";
+  import { media, mediaReady, MEDIA_OUTSIDE_NOTE } from "./lib/mediasupport.svelte.js";
 
   let { item, index = 0, count = 1, onClose, onGoto, onStep, onLoaded = () => {} } = $props();
 
   const video = $derived(item.kind === KIND_VIDEO);
+  mediaReady();
   // The feed's "unsigned copy" mark for the message this came in.
   const unsigned = $derived(unsignedItem(item, S.identity.fingerprint));
   let src = $state("");
@@ -122,7 +124,13 @@
   bind:this={overlayEl}
   onclick={onBackdrop}
 >
-  {#if src && video}
+  {#if video && media.inline === false}
+    <!-- An engine that would crash on a <video> gets none
+         (lib/mediasupport.svelte.js); Save still hands over the file. -->
+    <div class="gv-msg" oncontextmenu={menu} role="note">
+      <span>{MEDIA_OUTSIDE_NOTE}</span>
+    </div>
+  {:else if src && video && media.inline}
     <!-- svelte-ignore a11y_media_has_caption -->
     <video
       class="gv-media"
@@ -134,7 +142,7 @@
       oncontextmenu={menu}
       style={fit ? `width:${fit.w}px;height:${fit.h}px` : ""}
     ></video>
-  {:else if src}
+  {:else if src && !video}
     <img
       class="gv-media"
       class:unsized={!fit}

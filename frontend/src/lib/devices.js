@@ -8,6 +8,7 @@
 // open the mic at all.
 
 import { loadDenoiser, makeDenoiseNode, nrValue } from "./denoise.js";
+import { media, mediaReady } from "./mediasupport.svelte.js";
 
 // Pref keys for the three choices, so nothing has to spell them twice.
 export const PREF = { mic: "micId", speaker: "speakerId", camera: "cameraId" };
@@ -161,11 +162,17 @@ const LINUX_DESKTOP =
 // all — with `enable-webrtc` set and reading back true. Without this check the
 // join looked like it worked (presence goes out, the roster shows you) and
 // then nobody could hear anybody, forever, with nothing anywhere saying why.
-export const canCarryACall = () => typeof RTCPeerConnection !== "undefined";
+//
+// A peer's audio plays through an <audio> element, and on a WebKitGTK with no
+// GStreamer audio sink that element crashes the page (lib/mediasupport.svelte.js),
+// so that engine cannot carry a call either.
+export const canCarryACall = () => typeof RTCPeerConnection !== "undefined" && media.inline !== false;
 
 // Why not, in a sentence somebody can act on. Only ever shown when
 // canCarryACall() is false, which on every browser and on Android is never.
 export function noCallReason() {
+  if (media.inline === false)
+    return "This machine can't play call audio: the desktop app plays sound through GStreamer, and its audio output (gst-plugins-good) is missing. Installing gst-plugins-good fixes it.";
   return LINUX_DESKTOP
     ? "This machine can't make calls: the desktop app carries audio through GStreamer, and the WebRTC plugins are missing. Installing gst-plugins-good and gst-plugins-bad fixes it — everything else in Concord works without them."
     : "This build can't make calls: its web engine has no WebRTC support.";
@@ -428,6 +435,7 @@ export function recordSelfTest({
     raw.getTracks().forEach((t) => t.stop());
     ctx.close().catch(() => {});
     if (cancelled || !chunks.length) return false;
+    if (!(await mediaReady())) return false; // no element on an engine it would crash
 
     const el = new Audio(URL.createObjectURL(new Blob(chunks, { type: chunks[0].type || "audio/webm" })));
     player = el;
@@ -469,6 +477,7 @@ export function recordSelfTest({
 
 // testTone plays the chime through one specific output device.
 export async function testTone(deviceId = "") {
+  if (!(await mediaReady())) return; // no element on an engine it would crash
   const el = new Audio(toneWav());
   await applySink(el, deviceId);
   try {

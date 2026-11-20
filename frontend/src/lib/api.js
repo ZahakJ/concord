@@ -288,6 +288,7 @@ export const api = {
   setListenPort: (port) => call("SetListenPort", port),
   session: () => call("Session"),
   networkStatus: () => call("NetworkStatus"),
+  mediaSupport: () => call("MediaSupport"),
   reachability: () => call("ReachabilityStatus"),
   nudge: () => call("Nudge"),
   // Whether anyone is looking at THIS page; the backend votes across every

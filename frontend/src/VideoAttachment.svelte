@@ -9,10 +9,13 @@
   import { S, memberByFpr, nameFor } from "./lib/state.svelte.js";
   import { fmtBytes, unavailableNote, worthRetrying } from "./lib/attachments.js";
   import { noteDuration } from "./lib/gallery.js";
+  import { media, mediaReady } from "./lib/mediasupport.svelte.js";
+  import MediaOutside from "./MediaOutside.svelte";
 
   // `sender` is the fingerprint of whoever posted the clip — see
   // Attachment.svelte for why a failed fetch has to be able to name them.
   let { channelId, tok, sender = "" } = $props();
+  mediaReady(); // asked once per page; the player or the card follows the answer
 
   let wrap = $state(null);
   let src = $state(""); // decrypted data URL, once loaded
@@ -37,6 +40,10 @@
     loading = true;
     failed = false;
     try {
+      // No element may get a source before the engine is known to survive it
+      // (lib/mediasupport.svelte.js); when it would not, the card replaces the
+      // frame and nothing is fetched.
+      if (!(await mediaReady())) return;
       src = await api.fetchFile(channelId, tok.blobId, tok.keys, tok.mime);
     } catch (err) {
       errMsg = String(err?.message || err);
@@ -97,6 +104,9 @@
   });
 </script>
 
+{#if media.inline === false}
+  <MediaOutside {channelId} {tok} {sender} />
+{:else}
 <div class="vid-embed" bind:this={wrap} style="aspect-ratio:{ratio}">
   {#if src}
     <!-- svelte-ignore a11y_media_has_caption -->
@@ -131,6 +141,7 @@
     </div>
   {/if}
 </div>
+{/if}
 
 <style>
   .vid-embed {

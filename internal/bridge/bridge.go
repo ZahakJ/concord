@@ -4135,6 +4135,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.SearchGames(argStr(args, 0))
 	case "NetworkStatus":
 		return b.NetworkStatus(), nil
+	case "MediaSupport":
+		return b.MediaSupport(), nil
 	case "ReachabilityStatus":
 		return b.ReachabilityStatus(), nil
 	case "Nudge":

@@ -91,6 +91,7 @@
   import ContextMenu from "./ContextMenu.svelte";
   import Toasts from "./Toasts.svelte";
   import { micReason, canCarryACall, noCallReason } from "./lib/devices.js";
+  import { mediaReady } from "./lib/mediasupport.svelte.js";
   import FxOverlay from "./FxOverlay.svelte";
   import { validFx } from "./lib/themefx.js";
   import JoinVeil from "./JoinVeil.svelte";
@@ -1535,6 +1536,9 @@
     // — and joining then produces a call in which nobody can hear anybody and
     // nothing says why. This is the one failure that is NOT worth entering the
     // room for: a mic-less join still lets you listen, and this one does not.
+    // The same holds for an engine with no audio sink to play the room
+    // through: it would crash on the first peer's audio element.
+    await mediaReady();
     if (!canCarryACall()) {
       hapticNotify("ERROR");
       flash(noCallReason(), "error");

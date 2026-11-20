@@ -5,8 +5,34 @@ package main
 /*
 #cgo webkit2_41 pkg-config: webkit2gtk-4.1 gtk+-3.0
 #cgo !webkit2_41 pkg-config: webkit2gtk-4.0 gtk+-3.0
+#cgo LDFLAGS: -ldl
+#include <dlfcn.h>
+#include <stdlib.h>
 #include <gtk/gtk.h>
 #include <webkit2/webkit2.h>
+
+// concord_gst_has asks GStreamer's registry whether an element factory exists:
+// 1 yes, 0 no, -1 could not ask. GStreamer is reached through dlopen rather
+// than linked, so the build needs no GStreamer headers and a system where the
+// library cannot be loaded answers "could not ask", which the caller treats as
+// "leave the page alone". WebKitGTK links libgstreamer itself, so on any box
+// that runs this binary the library is there to be found.
+typedef int (*concord_gst_init_fn)(int *, char ***, void **);
+typedef void *(*concord_gst_find_fn)(const char *);
+typedef void (*concord_gst_unref_fn)(void *);
+static int concord_gst_has(const char *name) {
+  void *h = dlopen("libgstreamer-1.0.so.0", RTLD_LAZY);
+  if (h == NULL) return -1;
+  concord_gst_init_fn init = (concord_gst_init_fn)dlsym(h, "gst_init_check");
+  concord_gst_find_fn find = (concord_gst_find_fn)dlsym(h, "gst_element_factory_find");
+  concord_gst_unref_fn unref = (concord_gst_unref_fn)dlsym(h, "gst_object_unref");
+  if (init == NULL || find == NULL || unref == NULL) return -1;
+  if (!init(NULL, NULL, NULL)) return -1;
+  void *f = find(name);
+  if (f == NULL) return 0;
+  unref(f);
+  return 1;
+}
 
 // The whole of this lives in C rather than half of it living in Go behind
 // //export. cgo forbids definitions in the preamble of a file that exports
@@ -104,6 +130,13 @@ static void concord_arm_media(void) {
 */
 import "C"
 
+import (
+	"sync"
+	"unsafe"
+
+	"github.com/ZahakJ/concord/internal/bridge"
+)
+
 // armWebviewMedia teaches the embedded WebKitWebView that this app may use a
 // microphone and a camera.
 //
@@ -135,3 +168,30 @@ import "C"
 // somebody to check their microphone permissions when the app cannot make a
 // call at all is the wrong instruction twice over.
 func armWebviewMedia() { C.concord_arm_media() }
+
+// armMediaCheck tells the page, through bridge.MediaSupport, when this system
+// has no GStreamer audio sink. WebKitGTK builds every <audio> and <video> on
+// autoaudiosink (gst-plugins-good), and from 2.54 a missing one crashes the
+// web process instead of failing the element: measured on webkit2gtk-4.1
+// 2.54.2 without gst-plugins-good, an mp4 with or without sound, an m4a, an
+// Ogg Opus voice note and a MediaStream in an <audio> each killed the page the
+// moment the element loaded, on a bare page as well as in Concord. The page
+// then shows those as files to open outside the app instead.
+//
+// Asked once, off the UI thread, as soon as the app starts; the page's first
+// question waits for that answer.
+func armMediaCheck() {
+	var once sync.Once
+	var missing []string
+	ask := func() {
+		once.Do(func() {
+			name := C.CString("autoaudiosink")
+			defer C.free(unsafe.Pointer(name))
+			if C.concord_gst_has(name) == 0 {
+				missing = []string{"autoaudiosink"}
+			}
+		})
+	}
+	go ask()
+	bridge.MediaMissing = func() []string { ask(); return missing }
+}
