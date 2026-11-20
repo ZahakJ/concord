@@ -1584,7 +1584,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 10px 12px;
     margin: 4px 0 2px;
     text-align: center;
