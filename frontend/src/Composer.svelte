@@ -45,8 +45,20 @@
   import { fmtBytes } from "./lib/chronicle.js";
   import { midTrunc, fileLabel } from "./lib/attachments.js";
   import { nativePicker, pickAndStage } from "./lib/pickmedia.js";
-  import { cachedAttachment, loadAttachment } from "./lib/attachments.js";
-  import { recentStrip, recentRequest, recentFileName, recentMime, dataUrlToFile, isPhoto, RECENT_MAX } from "./lib/recent.js";
+  import { cachedAttachment } from "./lib/attachments.js";
+  import { voiceMembersFor } from "./lib/state.svelte.js";
+  import {
+    recentStrip,
+    recentRequest,
+    recentFileName,
+    recentMime,
+    dataUrlToFile,
+    isPhoto,
+    recentAllowed,
+    recentKeyOf,
+    stillOffered,
+    RECENT_MAX,
+  } from "./lib/recent.js";
   import { wantsTypeToFocus } from "./lib/typetofocus.js";
   import { isPttKey } from "./lib/shortcuts.js";
 
@@ -1651,26 +1663,48 @@
   }
 
   // ---- "Recent": what this account sent or received lately, anywhere ----
-  // Asked of the core only when the menu or the sheet opens (lib/recent.js).
-  // Tiles draw a picture the renderer already holds; the others are fetched
-  // one at a time once the sheet has finished opening, never on a billed
-  // connection unasked. A pick is staged like a file from disk, so the send
-  // seals it again under a new key; nothing leaves the device until Send.
+  // Asked of the core only when the menu or the sheet opens (lib/recent.js),
+  // and forgotten when it closes: the items, the decrypted thumbnails, the
+  // ticks. Never drawn while this screen is shared or a guest is in the call.
+  // A tile draws a picture only when its blob is already on this device; the
+  // network is used for a pick and nothing else. A pick is checked against a
+  // fresh listing, then staged like a file from disk, so the send seals it
+  // again under a new key. Nothing leaves the device until Send.
   let recent = $state([]);
-  let recentThumbs = $state({}); // blobId -> data URL
+  let recentThumbs = $state({}); // blobId -> data URL, this opening only
   let recentAdded = $state({}); // itemKey -> true, staged from this opening
   let recentGen = 0;
-  const recentKey = (it) => `${it.messageId}:${it.ord}`;
-  async function loadRecent() {
-    const g = ++recentGen;
+  const recentKey = recentKeyOf;
+  const recentOk = $derived(
+    recentAllowed({ sharing: S.sharing, callMembers: S.voice?.channelId ? voiceMembersFor(S.voice.channelId) : [] }),
+  );
+  function clearRecent() {
+    recentGen++;
+    recent = [];
+    recentThumbs = {};
     recentAdded = {};
-    let items;
+  }
+  // Sharing starting, or a guest arriving, while the menu is open.
+  $effect(() => {
+    if (!recentOk) untrack(clearRecent);
+  });
+  // The phone's sheet closing.
+  $effect(() => {
+    if (!moreOpen) untrack(clearRecent);
+  });
+  async function listRecent() {
     try {
-      items = recentStrip(await api.recentMedia(RECENT_MAX), Date.now() / 1000);
+      return recentStrip(await api.recentMedia(RECENT_MAX), Date.now() / 1000);
     } catch {
-      items = [];
+      return [];
     }
-    if (g !== recentGen) return;
+  }
+  async function loadRecent() {
+    clearRecent();
+    if (!recentOk) return;
+    const g = recentGen;
+    const items = await listRecent();
+    if (g !== recentGen || !recentOk) return;
     const thumbs = {};
     for (const it of items) if (isPhoto(it) && cachedAttachment(it.blobId)) thumbs[it.blobId] = cachedAttachment(it.blobId);
     recentThumbs = thumbs;
@@ -1678,31 +1712,50 @@
     // After the sheet's open animation, so no decode lands in it.
     setTimeout(() => fillRecentThumbs(g), 320);
   }
+  // Local blobs only, one at a time, decrypted for this opening and not put
+  // in the feed's cache: a picture from another conversation stays out of it.
   async function fillRecentThumbs(g) {
     for (const it of recent) {
       if (g !== recentGen) return;
-      if (!isPhoto(it) || recentThumbs[it.blobId]) continue;
+      if (!isPhoto(it) || !it.local || recentThumbs[it.blobId]) continue;
       try {
-        if ((await api.ensureMedia(it.channelId, it.blobId, false)) === "metered") continue;
-        const src = await loadAttachment(it.channelId, it);
+        const src = await api.fetchAttachment(it.channelId, it.blobId, it.keys, it.subtype);
         if (g === recentGen) recentThumbs = { ...recentThumbs, [it.blobId]: src };
       } catch {
-        // Nobody reachable holds it: the tile keeps its glyph.
+        // The tile keeps its glyph.
       }
     }
   }
   async function pickRecent(it) {
     const k = recentKey(it);
-    if (recentAdded[k] || !ch) return;
+    const into = S.activeChannelId;
+    if (recentAdded[k] || !ch || !into || !recentOk) return;
+    const g = recentGen;
     recentAdded = { ...recentAdded, [k]: true };
-    try {
-      const r = recentRequest(it);
-      const url = r.method === "fetchAttachment" ? await loadAttachment(it.channelId, it) : await api.fetchFile(...r.args);
-      await attachFile(dataUrlToFile(url, recentFileName(it), recentMime(it)));
-    } catch (err) {
+    const unmark = () => {
+      if (g !== recentGen) return;
       const rest = { ...recentAdded };
       delete rest[k];
       recentAdded = rest;
+    };
+    try {
+      const fresh = await listRecent();
+      if (!stillOffered(fresh, it)) {
+        unmark();
+        if (g === recentGen) recent = fresh;
+        flash(`${recentFileName(it)} can no longer be added`, "error");
+        return;
+      }
+      const r = recentRequest(it);
+      const url = await api[r.method](...r.args);
+      // Staged into the conversation it was picked for, or not at all.
+      if (S.activeChannelId !== into) {
+        unmark();
+        return;
+      }
+      await attachFile(dataUrlToFile(url, recentFileName(it), recentMime(it)));
+    } catch (err) {
+      unmark();
       flash(`Couldn't add ${recentFileName(it)}: ${humanError(err)}`, "error");
     }
   }
@@ -2382,7 +2435,7 @@
              or do), the text, then emoji and Send. Attach, GIF and the voice
              message moved into + with the rest; the chords and drag-and-drop
              still attach directly. -->
-        <Menu label="Add to your message" icon="plus" align="left" up onOpen={loadRecent}>
+        <Menu label="Add to your message" icon="plus" align="left" up onOpen={loadRecent} onClose={clearRecent}>
           {@render recentRow(true)}
           {#each addItems as it (it.id)}
             <button

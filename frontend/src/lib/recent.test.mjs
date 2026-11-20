@@ -1,7 +1,7 @@
 // The attach menu's "Recent" strip (lib/recent.js): which gallery items it
 // offers, in which order, how many, and how a picked one becomes the File the
 // composer stages exactly as if it had been picked from disk.
-import { recentStrip, recentFileName, recentMime, recentRequest, dataUrlToFile, RECENT_MAX } from "./recent.js";
+import { recentStrip, recentFileName, recentMime, recentRequest, dataUrlToFile, RECENT_MAX, recentAllowed, stillOffered } from "./recent.js";
 
 let failures = 0;
 const assert = (cond, msg) => {
@@ -78,6 +78,25 @@ const now = Date.UTC(2026, 10, 19, 12) / 1000;
   eq(recentFileName(item({ name: "cat.png" })), "cat.png", "a named photo keeps its name");
   eq(recentFileName(v), "clip.mp4", "a file keeps its name");
   eq(recentFileName(item({ kind: 3, subtype: "", name: "" })), "file", "an unnamed file is 'file'");
+}
+
+// ---- when the strip may show at all ----------------------------------------
+{
+  assert(recentAllowed({}), "no call, no share: shown");
+  assert(recentAllowed({ callMembers: [{ fingerprint: "ab12" }, { fingerprint: "cd34" }] }), "a call among members: shown");
+  assert(!recentAllowed({ sharing: true }), "sharing this screen: hidden");
+  assert(!recentAllowed({ callMembers: [{ fingerprint: "ab12" }, { fingerprint: "guest:Dana" }] }), "a guest in the call: hidden");
+}
+
+// ---- a pick is checked against a fresh listing -----------------------------
+{
+  seq = 0;
+  const p = item();
+  const q = item();
+  assert(stillOffered([q, p], p), "still listed: may be picked");
+  assert(!stillOffered([q], p), "gone (deleted, hidden, expired): may not be picked");
+  assert(!stillOffered([{ ...p, blobId: blob(99) }], p), "the slot now names another blob: may not be picked");
+  assert(!stillOffered(null, p), "no answer: may not be picked");
 }
 
 // ---- the File the composer stages ------------------------------------------

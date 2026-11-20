@@ -18,6 +18,24 @@ export const RECENT_MAX = 12;
 
 const KIND_PHOTO = 1;
 
+// recentAllowed: whether the strip may be drawn at all. It shows pictures,
+// names and senders from every conversation, DMs included, so not while this
+// device shares its screen, and not in a call a guest is in (a guest may be
+// watching someone's shared screen, and is outside every conversation here).
+export function recentAllowed({ sharing = false, callMembers = [] } = {}) {
+  if (sharing) return false;
+  return !callMembers.some((m) => String(m?.fingerprint || "").startsWith("guest:"));
+}
+
+// sameItem: whether a fresh listing still offers this item, the same message
+// slot and the same blob. A pick is checked against one before anything is
+// fetched, so an item deleted, hidden or expired since the strip was drawn
+// cannot be added.
+export const recentKeyOf = (it) => `${it.messageId}:${it.ord}`;
+export function stillOffered(fresh, it) {
+  return Array.isArray(fresh) && fresh.some((x) => recentKeyOf(x) === recentKeyOf(it) && x.blobId === it.blobId && x.keys === it.keys);
+}
+
 // recentStrip: what the strip shows, newest first (the core's order).
 export function recentStrip(items, nowSec) {
   if (!Array.isArray(items)) return [];

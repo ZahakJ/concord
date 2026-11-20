@@ -4,13 +4,81 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/identity"
 	"github.com/ZahakJ/concord/internal/store"
 )
+
+// The rules Recent adds on top of the store's: a guild this device was
+// removed from, a 1:1 DM it hid, and a blocked sender's items are not
+// offered, and each comes back when the condition goes. One service, no
+// network: the conditions are set the way their own code paths set them.
+func TestRecentOffersFilters(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a := startService(t, ctx)
+	g, err := a.CreateGuild("g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := g.Channels[0].ID
+	stranger := []byte(strings.Repeat("s", 32))
+	blob := fmt.Sprintf("%064x", 7)
+	tok := "![image](concord://attach/v1/" + blob + "/" + strings.Repeat("K", 75) + "/png/2x2)"
+	if _, err := a.store.SaveMessage(domain.Message{ID: "from-stranger", ChannelID: ch, Sender: stranger, Sent: time.Now(), Content: tok}); err != nil {
+		t.Fatal(err)
+	}
+	offered := func() bool {
+		t.Helper()
+		items, err := a.RecentMedia(RecentMax)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return recentHas(items, blob)
+	}
+	if !offered() {
+		t.Fatal("a plain item is not offered")
+	}
+
+	a.mu.Lock()
+	a.evicted[g.ID] = evictedKicked
+	a.mu.Unlock()
+	if offered() {
+		t.Fatal("Recent offers an item from a guild this device was removed from")
+	}
+	a.mu.Lock()
+	delete(a.evicted, g.ID)
+	a.hiddenDMs[g.ID] = true
+	a.mu.Unlock()
+	if offered() {
+		t.Fatal("Recent offers an item from a hidden conversation")
+	}
+	a.mu.Lock()
+	delete(a.hiddenDMs, g.ID)
+	a.mu.Unlock()
+
+	if err := a.BlockUser(accountFingerprintOf(stranger)); err != nil {
+		t.Fatal(err)
+	}
+	if offered() {
+		t.Fatal("Recent offers a blocked sender's item")
+	}
+	if err := a.UnblockUser(accountFingerprintOf(stranger)); err != nil {
+		t.Fatal(err)
+	}
+	if !offered() {
+		t.Fatal("the item did not come back once every condition went")
+	}
+	if a.MediaLocal(blob) {
+		t.Fatal("a blob never fetched reads as local")
+	}
+}
 
 // tokenRe reads the blob id and key out of an image or file token.
 var tokenRe = regexp.MustCompile(`concord://(?:attach|file)/v[12]/([0-9a-f]{64})/([A-Za-z0-9_-]{75})/`)

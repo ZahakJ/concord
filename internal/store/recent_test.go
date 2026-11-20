@@ -36,7 +36,8 @@ func recentIDs(t *testing.T, st *Store, page int) string {
 // The attach menu's Recent strip spans every channel, newest first, and
 // leaves out everything the gallery leaves out (deleted, hidden, expired,
 // system rows) and, stricter than the gallery, any row its sender did not
-// sign: an unverified relayed copy and a guest's message.
+// sign (an unverified relayed copy, a guest's message) and any disappearing
+// message, even one whose deadline is an hour away.
 func TestRecentMediaFilters(t *testing.T) {
 	st := sidebarStore(t)
 	now := time.Now()
@@ -47,6 +48,12 @@ func TestRecentMediaFilters(t *testing.T) {
 	mtSave(t, st, "expired", "c1", now.Add(-5*time.Second), mtImage(5)+mtEph(now.Add(-time.Second)))
 	mtSave(t, st, "system", "c2", now.Add(-4*time.Second), mtImage(6))
 	mtSave(t, st, "plain", "c1", now.Add(-3*time.Second), "no attachment here")
+	// Still live, but sent to disappear: never offered for a permanent copy.
+	mtSave(t, st, "disappearing", "c2", now.Add(-2500*time.Millisecond), mtImage(11)+mtEph(now.Add(time.Hour)))
+	mtSave(t, st, "row-deadline", "c1", now.Add(-2200*time.Millisecond), mtImage(12))
+	if _, err := st.db.Exec(`UPDATE messages SET expires = ? WHERE id = 'row-deadline'`, now.Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
 	for i, m := range []domain.Message{
 		{ID: "copy", ChannelID: "c1", Sender: mtSender, Sent: now.Add(-2 * time.Second), Content: mtImage(7), Unverified: true},
 		{ID: "guest", ChannelID: "c2", Sender: mtSender, Kind: "guest", Sent: now.Add(-time.Second), Content: mtImage(8)},
@@ -81,7 +88,7 @@ func TestRecentMediaFilters(t *testing.T) {
 // idx_media_recent in order.
 func TestRecentMediaUsesItsIndex(t *testing.T) {
 	st := sidebarStore(t)
-	rows, err := st.db.Query(`EXPLAIN QUERY PLAN `+mediaRecentQuery, 0, 0, int64(1), "x", 0, 48)
+	rows, err := st.db.Query(`EXPLAIN QUERY PLAN `+mediaRecentQuery, int64(1), "x", 0, 48)
 	if err != nil {
 		t.Fatal(err)
 	}

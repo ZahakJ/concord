@@ -87,6 +87,13 @@ func (s *Service) recentOffers(m store.MediaItem) bool {
 	return ok && s.evicted[gid] == "" && !s.hiddenDMs[gid]
 }
 
+// MediaLocal reports whether a blob's ciphertext is already on this device.
+// The Recent strip draws a thumbnail only then: opening the attach menu must
+// not ask other conversations' members for anything.
+func (s *Service) MediaLocal(blobID string) bool {
+	return blobIDRe.MatchString(blobID) && s.store.HasAttachment(blobID)
+}
+
 // Media blob states, as EnsureMedia reports them.
 const (
 	MediaLocal   = "local"   // the ciphertext is on this device

@@ -59,12 +59,16 @@ const PDF = Buffer.from("%PDF-1.4 the minutes of the last meeting");
 const TOKEN = /concord:\/\/(attach|file)\/v[12]\/([0-9a-f]{64})\/([A-Za-z0-9_-]{75})\//g;
 const tokens = (content) => [...content.matchAll(TOKEN)].map((m) => ({ type: m[1], blob: m[2], key: m[3] }));
 
-// Carol sends a picture and a PDF in guild One; returns their tokens once
-// Alice holds both.
-async function carolSends(world, alice, carol) {
-  const one = await world.guild({ name: "One", members: [carol, alice] });
-  const two = await world.guild({ name: "Two", members: [alice, world.bashir] });
-  const ch1 = one.allChannels[0];
+// Carol sends, in guild One, a picture set to disappear in an hour (never
+// offered), then a picture and a PDF; returns their tokens once Alice holds
+// all three.
+async function carolSends(world, alice, carol, twoChannels = [], into = "general") {
+  const one = await world.guild({ name: "One", members: [carol, alice], channels: into === "general" ? [] : [{ name: into }] });
+  const two = await world.guild({ name: "Two", members: [alice, world.bashir], channels: twoChannels });
+  const ch1 = one.allChannels.find((c) => c.name === into) || one.allChannels[0];
+  const eph = `[eph](concord://eph/v1/${Math.floor(Date.now() / 1000) + 3600})`;
+  await carol.rpc("SendAttachment", ch1.id, dataUrl(png(60, 60, [60, 90, 200])), 60, 60, "", false, "", "", `${eph}blue, vanishing`, "");
+  await alice.waitForMessage(ch1.id, (m) => m.content.includes("blue, vanishing"), { timeout: 60000 });
   const pic = png(240, 160, [200, 60, 60]);
   await carol.rpc("SendAttachment", ch1.id, dataUrl(pic), 240, 160, "", false, "", "", "red square", "");
   await carol.rpc("SendFile", ch1.id, dataUrl(PDF, "application/pdf"), "minutes.pdf", "", "the minutes", "");
@@ -105,10 +109,14 @@ test("desktop: + menu offers Recent; a pick is staged, sent sealed again, and op
   assert.equal(await a.page.locator(".recent").count(), 0, "no Recent row when there is nothing recent");
   await a.page.keyboard.press("Escape");
 
-  const { two, pic, picTok, pdfTok, pdfMsg, ch1 } = await carolSends(world, alice, carol);
+  const { two, pic, picTok, pdfMsg, ch1 } = await carolSends(world, alice, carol);
   const ch2 = two.allChannels[0];
 
-  step("in guild Two, + shows Carol's picture and PDF under Recent, newest first");
+  step("Alice reads guild One, so Carol's picture is on her device");
+  await a.openChannel(ch1.name, "One");
+  await a.page.locator(".msg", { hasText: "red square" }).locator("img").first().waitFor({ timeout: 60000 });
+
+  step("in guild Two, + shows Carol's picture and PDF under Recent, newest first, and not the disappearing one");
   await a.openChannel(ch2.name, "Two");
   await a.page.getByRole("button", { name: "Add to your message" }).click();
   await a.page.locator(".menu .menu-item").first().waitFor();
@@ -137,8 +145,17 @@ test("desktop: + menu offers Recent; a pick is staged, sent sealed again, and op
   const msg = await bashir.waitForMessage(ch2.id, (m) => m.content.includes("again for Two"), { timeout: 60000 });
   await checkResent(assert, bashir, ch2.id, msg, picTok, dataUrl(pic));
 
-  step("Alice hides the PDF for herself: it leaves Recent");
+  step("the menu is open with the PDF on it when Alice hides the PDF for herself: clicking it adds nothing");
+  await a.page.getByRole("button", { name: "Add to your message" }).click();
+  await a.page.locator(".menu .menu-item").first().waitFor();
+  await waitFor(async () => (await tiles.count()) >= 2, { message: "the Recent row again" });
+  const pdfTile = a.page.locator(".menu .recent-tile", { has: a.page.locator(".recent-name", { hasText: "minutes.pdf" }) });
   await alice.rpc("HideMessage", ch1.id, pdfMsg.id);
+  await pdfTile.click();
+  await a.page.waitForTimeout(2500);
+  assert.equal(await a.page.locator(".attach-tray .att-chip").count(), 0, "a hidden item picked from a strip drawn before it was hidden is not staged");
+
+  step("opened again, the hidden PDF is gone from Recent");
   await a.page.getByRole("button", { name: "Add to your message" }).click();
   await a.page.locator(".menu .menu-item").first().waitFor();
   await waitFor(async () => {
@@ -146,15 +163,52 @@ test("desktop: + menu offers Recent; a pick is staged, sent sealed again, and op
     return l.length >= 1 && !l.some((x) => x.startsWith("Add minutes.pdf"));
   }, { message: "the hidden PDF to leave Recent" });
   await a.page.keyboard.press("Escape");
-  assert.ok(pdfTok.blob, "the PDF had a token");
   assert.equal(a.errors.length, 0, `page errors: ${a.errors.join(" | ")}`);
+});
+
+test("desktop: no Recent row while this screen is shared", async ({ world, assert, step, waitFor }) => {
+  const [alice, bashir, carol] = await world.peers(3);
+  world.bashir = bashir;
+  const { two } = await carolSends(world, alice, carol, [{ name: "Lounge", type: "voice" }]);
+  const a = await alice.open({ viewport: "desktop", watchMedia: true });
+  const plus = () => a.page.getByRole("button", { name: "Add to your message" });
+  const recentRow = a.page.locator(".menu .recent");
+  await a.openChannel("general", "Two");
+
+  step("before sharing: Recent is there");
+  await plus().click();
+  await recentRow.waitFor({ timeout: 20000 });
+  await a.page.keyboard.press("Escape");
+
+  step("Alice joins Lounge and shares her screen: + has no Recent row");
+  await a.page.locator(".channel", { hasText: "Lounge" }).first().click();
+  await a.page.getByRole("button", { name: "Share screen" }).first().click();
+  await a.page.getByRole("button", { name: /Stop sharing/ }).first().waitFor({ timeout: 30000 });
+  await a.openChannel("general", "Two");
+  await plus().click();
+  await a.page.locator(".menu .menu-item").first().waitFor();
+  await a.page.waitForTimeout(1500);
+  await capture(a, "desktop-menu-sharing");
+  assert.equal(await recentRow.count(), 0, "no Recent row while sharing");
+  await a.page.keyboard.press("Escape");
+
+  step("sharing stopped: Recent comes back");
+  await a.page.getByRole("button", { name: /Stop sharing/ }).first().click();
+  await waitFor(async () => (await a.page.getByRole("button", { name: /Stop sharing/ }).count()) === 0, { message: "the share to stop" });
+  await plus().click();
+  await recentRow.waitFor({ timeout: 20000 });
+  await a.page.keyboard.press("Escape");
+  assert.ok(two.id, "guild Two exists");
 });
 
 test("phone: the + sheet's Recent row stages several picks, and both go out sealed again", async ({ world, assert, step, waitFor }) => {
   const [alice, bashir, carol] = await world.peers(3);
   world.bashir = bashir;
-  const { two, pic, picTok, pdfTok } = await carolSends(world, alice, carol);
+  // Into a channel Alice never opens, so nothing has rendered the picture.
+  const { two, pic, picTok, pdfTok } = await carolSends(world, alice, carol, [], "photos");
   const ch2 = two.allChannels[0];
+  const picLocal = async () => (await alice.rpc("RecentMedia", 12)).find((it) => it.blobId === picTok.blob)?.local === true;
+  assert.equal(await picLocal(), false, "the picture is not on Alice's device yet");
 
   const a = await alice.open({ viewport: "phone" });
   await a.openChannel(ch2.name, "Two");
@@ -170,7 +224,12 @@ test("phone: the + sheet's Recent row stages several picks, and both go out seal
   await waitFor(async () => (await tiles.count()) === 2, { message: "two Recent tiles" });
   const r = await tiles.first().evaluate((el) => el.getBoundingClientRect());
   assert.ok(r.width >= 44 && r.height >= 44, `finger-sized tiles (${r.width}x${r.height})`);
-  await waitFor(async () => (await tiles.nth(1).locator("img").count()) === 1, { message: "the picture's tile to draw it" });
+  // Alice never opened guild One here, so the picture is not on her device:
+  // opening the sheet must not fetch it, and the tile shows its glyph.
+  await page.waitForTimeout(1500);
+  assert.equal(await tiles.nth(1).locator("img").count(), 0, "no picture drawn for a blob not on this device");
+  assert.equal(await tiles.nth(1).locator(".recent-ic").count(), 1, "a type glyph instead");
+  assert.equal(await picLocal(), false, "opening the sheet fetched nothing");
   await capture(a, "phone-sheet-recent");
 
   step("tap both: each is ticked and staged, and the sheet stays open for more");

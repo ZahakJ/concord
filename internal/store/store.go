@@ -64,6 +64,10 @@ type Store struct {
 	closeOnce sync.Once
 	bg        sync.WaitGroup
 
+	// mediaDraining is set while the background media drain is working
+	// through a backlog; RecentMedia then reads without draining first.
+	mediaDraining atomic.Bool
+
 	// A checkpoint that gave up is tried again later (CheckpointDeletes).
 	// ckptMu guards both flags; closed stops new retries before Close waits
 	// for bg.

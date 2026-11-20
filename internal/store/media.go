@@ -260,8 +260,11 @@ func (s *Store) mediaDrainLoop(delay time.Duration) {
 		for {
 			n, err := s.drainMediaChunk("", mediaDrainChunk)
 			if err != nil || n < mediaDrainChunk {
+				s.mediaDraining.Store(false)
 				break
 			}
+			// A backlog: the Recent strip reads without adding to it.
+			s.mediaDraining.Store(true)
 			select {
 			case <-s.closing:
 				return
@@ -399,14 +402,17 @@ func (s *Store) MediaPage(channelID string, tab mediatok.Tab, cursor MediaCursor
 // that indexes a whole imported history (the background drain does that).
 const recentDrainMax = 500
 
-// mediaRecentQuery is mediaPageQuery across every channel, stricter in one
-// way: only rows signed by their sender (no unverified relayed copy, no guest
-// row), because a re-send puts this account's own signature on the bytes.
+// mediaRecentQuery is mediaPageQuery across every channel, stricter in two
+// ways. Only rows signed by their sender (no unverified relayed copy, no
+// guest row), because a re-send puts this account's own signature on the
+// bytes. And no disappearing message at all, live or not (the row's deadline
+// or the one the drain read from the body): one tap must not turn something
+// sent to vanish into a permanent copy elsewhere.
 const mediaRecentQuery = `
 SELECT mi.message_id, mi.channel_id, mi.ord, mi.kind, mi.sent, mi.expires, m.expires, m.sender, m.name, m.content_enc, m.nonce
 FROM media_index mi JOIN messages m ON m.id = mi.message_id
 WHERE m.deleted = 0 AND m.kind = '' AND m.unverified = 0
-  AND (m.expires = 0 OR m.expires > ?) AND (mi.expires = 0 OR mi.expires > ?)
+  AND m.expires = 0 AND mi.expires = 0
   AND NOT EXISTS (SELECT 1 FROM hidden_messages h WHERE h.message_id = mi.message_id AND h.hidden = 1)
   AND (mi.sent, mi.message_id, mi.ord) < (?, ?, ?)
 ORDER BY mi.sent DESC, mi.message_id DESC, mi.ord DESC
@@ -422,13 +428,16 @@ func (s *Store) RecentMedia(cursor MediaCursor, limit int) ([]MediaItem, MediaCu
 		limit = MediaPageMax
 	}
 	if cursor.MessageID == "" {
-		if _, err := s.drainMedia("", recentDrainMax); err != nil {
-			return nil, MediaCursor{}, err
+		// Not while the background drain is working through a backlog: the
+		// two would take turns on the writer, and the menu would wait.
+		if !s.mediaDraining.Load() {
+			if _, err := s.drainMedia("", recentDrainMax); err != nil {
+				return nil, MediaCursor{}, err
+			}
 		}
 		cursor = MediaCursor{Sent: int64(^uint64(0) >> 1), MessageID: "\U0010FFFF", Ord: 1 << 30}
 	}
-	now := time.Now().Unix()
-	rows, err := s.rd().Query(mediaRecentQuery, now, now, cursor.Sent, cursor.MessageID, cursor.Ord, limit)
+	rows, err := s.rd().Query(mediaRecentQuery, cursor.Sent, cursor.MessageID, cursor.Ord, limit)
 	if err != nil {
 		return nil, MediaCursor{}, err
 	}

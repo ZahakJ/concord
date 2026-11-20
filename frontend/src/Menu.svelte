@@ -39,12 +39,17 @@
     // Called each time the menu opens, for contents worked out only then
     // (the composer's Recent strip asks the core at that moment, not before).
     onOpen = null,
+    // Called each time it closes, so such contents can be forgotten.
+    onClose = null,
     trigger,
     children,
   } = $props();
   let open = $state(false);
+  let wasOpen = false;
   $effect(() => {
     if (open) untrack(() => onOpen?.());
+    else if (wasOpen) untrack(() => onClose?.());
+    wasOpen = open;
   });
   // Both presentations are a layer: back closes the sheet on a phone, Escape
   // the dropdown on a desktop, and neither needs a listener of its own. Note
