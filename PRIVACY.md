@@ -1,6 +1,6 @@
 # Concord Privacy Policy
 
-*Last updated: 19 November 2026. This is the policy for the Concord application on
+*Last updated: 20 November 2026. This is the policy for the Concord application on
 every platform it ships for, including the Android app.*
 
 Concord is a peer-to-peer, end-to-end-encrypted messenger. This document states

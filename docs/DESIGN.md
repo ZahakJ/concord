@@ -1595,7 +1595,7 @@ link, 24 bytes of display name, 2000 bytes per message, a chat rate limit of 5
 messages refilling one per second, a separate and much larger bucket for
 signalling, a 20-second window to say hello, 8 handshakes in progress per link
 and 64 per node (these do not count against the guest cap), 64 KiB per frame, a
-10-minute idle timeout outside a call and 3 hours inside one.
+30-minute idle timeout outside a call and 3 hours inside one.
 
 A meeting can be **locked**, in which case an arriving guest *knocks* instead of
 joining. A knocking guest is registered (and counts against the cap) but
