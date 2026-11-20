@@ -3914,7 +3914,7 @@
   }
   .recent.in-menu {
     padding: 2px 4px 6px;
-    margin-bottom: 4px;
+    margin-bottom: var(--sp-1);
     width: 0;
     min-width: 100%;
   }
@@ -3968,7 +3968,7 @@
   .recent-name {
     max-width: 100%;
     padding: 0 4px;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     line-height: 1.1;
     color: var(--text-muted);
     overflow: hidden;
