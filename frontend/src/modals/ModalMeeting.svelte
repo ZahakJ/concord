@@ -179,8 +179,9 @@
         {/if}
       </button>
       <p class="muted tiny">
-        Guests are chat-only and labelled in the room — their messages pass
-        through you, so they aren't end-to-end encrypted like full members.
+        Guests join the chat and the call, labelled in the room. They have no
+        keys, so what they send reaches you through the rendezvous, not end-to-end
+        encrypted like a full member's.
       </p>
       {#if noRelay}
         <Caution
