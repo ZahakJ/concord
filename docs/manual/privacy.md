@@ -48,9 +48,12 @@ It is never a member of any group and holds no message keys, so it cannot read m
 - who talks to whom, and when, for connections it relays, and how much data passes;
 - opaque mailbox tags, plus the size and time of each deposit (a mailbox tag is a salted hash of the recipient's key, not their identity);
 - your **GIF search terms**, if GIF search is on (it is on by default; switch it off under **Settings → Privacy & safety → GIF search**);
-- a **browser guest's** own messages in a meeting, and a **booking visitor's** IP plus the name and note they submit. These are the two plain-HTTPS doors, used by people with no Concord install.
+- for a **browser guest** in a meeting: the host's peer id, an opaque link id, the guest's IP, when the guest connects and leaves, the number of frames and their sizes rounded up to 256 bytes (enough to recognise a call being set up or a burst of history by its shape), and the guest's requests to the call relay. The chat, the call setup and the guest's name are encrypted between the guest's browser and the host's app; the call itself is encrypted between the same two ends and the relay sees only that ciphertext and its timing;
+- for a **booking visitor**: their IP, the name and note they submit, and the host's display name, blurb and free or busy slots. The meeting link the host sends back is encrypted to the visitor's page.
 
 It cannot learn who is in a guild, or that a guild exists, and it cannot forge or alter a message.
+
+Both doors rest on the page the rendezvous serves. A guest's browser loads the meeting page from the rendezvous each time, so an operator who served a modified page could read everything that guest sees and says: members' messages in that meeting while the guest is there, the call, and the last 30 messages if the host let guests read them. Whoever terminates HTTPS in front of the rendezvous can do the same. The booking page's encryption also only stops an operator who reads traffic: one who rewrites it can learn the meeting link, and since it already knows the visitor's name it could knock as the visitor. Treat a booking guest's knock as unauthenticated.
 
 ## Encryption on your device
 
@@ -58,6 +61,7 @@ Your history is a SQLite database on each of your devices. There is no server co
 
 - **Encrypted:** message bodies, the earlier versions of edited messages, attachments and story captions. Your identity key is encrypted with your passphrase (Argon2id).
 - **Not encrypted:** who sent each message and when, reactions, profiles and avatars, guild and channel names, the guild's governance log, and settings. So is `peers.json`, a list of up to 64 peers you have connected to recently (entries are forgotten after a month without contact), and the `mls/` folder holding each group's key state.
+- **Guest links.** Settings include the secret in each live guest link. Someone who takes your device can read it and join that meeting as a guest until the link expires or you revoke it.
 - **Unsent drafts** and failed sends wait in the interface's own browser storage, unencrypted, until they are sent or discarded.
 
 Someone who takes your device without your passphrase cannot read your messages, but can learn the shape of your social life: who, when, and in which guilds.

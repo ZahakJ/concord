@@ -112,13 +112,15 @@ Guest links work only when your rendezvous has a DNS name and its operator has e
 
 What a guest gets:
 
-- The meeting's chat. Their messages are labelled **(guest)**.
-- A call with the meeting's host: microphone, camera and screen sharing, with media going directly between the guest's browser and the host's app (through the relay when there is one). Other members in the call do not connect to the guest.
-- Nothing else in Concord: no other guild, no direct messages, no history beyond the meeting.
+- The meeting's chat from the moment they are let in. Their messages are labelled **(guest)**. Earlier messages are not shown unless the host turns on **Guests can read the last 30 messages** in the meeting dialog.
+- A call with the meeting's host: microphone, camera and screen sharing, with media going between the guest's browser and the host's app, through the relay when there is one. Without a relay the call is direct and the guest's page says so. Other members in the call do not connect to the guest.
+- Nothing else in Concord: no other guild and no direct messages.
 
-Up to five guests can be in a meeting at once. Guest names are limited to 24 bytes and messages to 2,000 bytes, and chat is rate-limited. A guest who is idle for 30 minutes (3 hours while in the call) is disconnected. Everything ends when the link or the meeting expires. To make guests wait for approval, lock the call; they knock, and the host sees them **knocking with an invite link**. To remove one, choose **Remove from call** in their tile's menu.
+A link lets in at most five different guests over its life; a browser that comes back counts once. Guest names are limited to 24 bytes and messages to 2,000 bytes, and chat is rate-limited. A guest who is idle for 30 minutes (3 hours while in the call) is disconnected. Everything ends when the link or the meeting expires. To make guests wait for approval, lock the call; they knock, and the host sees them **knocking with an invite link**. **Remove from call** in a guest's tile menu removes them and stops that browser coming back with the same link.
 
-A guest has no keys, so their connection ends at the rendezvous and the host's app instead of being encrypted end to end. The rendezvous could read a guest's own chat messages. See [Privacy and encryption](privacy.md#what-a-rendezvous-node-sees).
+**Revoke link** in the meeting dialog ends every guest's session and call at once and the link stops working. **New link** then makes a fresh one. For an event's meeting room, the member whose app hosts the room has **Revoke guest link** in the event's ⋯ menu; the new link appears on the event card.
+
+The link carries a secret after the `#`, which browsers do not send to any server. The guest's page uses it, with a fresh key exchange for each visit, to encrypt the chat, the guest's name and the call setup between the guest's browser and the host's app. The call is encrypted between the same two ends. The rendezvous relays only ciphertext, and a link that leaks later cannot decrypt a visit someone recorded. What this does not cover: the rendezvous serves the guest page, so an operator who served a modified page could read the meeting. See [Privacy and encryption](privacy.md#what-a-rendezvous-node-sees).
 
 ## Calls on Android
 

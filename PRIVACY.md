@@ -116,13 +116,18 @@ It is deliberately designed to learn as little as possible:
   content. Push tokens are keyed by the opaque mailbox tag, not by identity.
   Push is the one feature that requires trusting a node with APNs/FCM
   credentials; self-hosting without push is fully supported.
-- **Its two plain-HTTPS doors are the exception to "ciphertext only".** A
-  browser guest joining a meeting, and a visitor booking a slot on a
-  `/book/<token>` link, have no Concord install and no keys, so their leg
-  terminates at the node before continuing to the host. It therefore sees a
-  guest's own messages, and a booking visitor's IP plus whatever they submit —
-  the slot, their name, their note. It stores none of it, and everything else
-  passing through remains ciphertext.
+- **Its two plain-HTTPS doors serve web pages to people with no Concord
+  install.** A browser guest joining a meeting gets a page that encrypts the
+  guest's chat, name and call setup to the host's app with a secret from the
+  link that the node never receives, so the node relays only ciphertext and
+  sees the guest's IP, timing, and frame sizes rounded to 256 bytes. Because
+  the node serves that page, an operator who served a modified copy could read
+  that guest's view of the meeting. A visitor booking a slot on a
+  `/book/<token>` link sends their IP, the slot, their name and their note
+  through the node in the clear, and sees the host's name, blurb and free
+  times; only the meeting link the host returns is encrypted to the visitor's
+  page, and that holds only against a node that reads without altering the
+  exchange. It stores none of it.
 - **The optional TURN relay for calls** exists so call participants can hide
   their IP addresses from *each other*: meetings use it whenever the node runs
   one, and any call does with *Hide my IP on calls* switched on. Media through it

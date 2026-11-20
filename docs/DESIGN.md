@@ -864,8 +864,9 @@ Each of its properties is a refusal:
 **4 · Guest gateway.** One of the node's two plain-HTTPS surfaces, the two places
 where somebody with no Concord install reaches a Concord user at all. It serves
 a single self-contained page and pipes that page's WebSocket into a libp2p
-stream to the meeting host. Fully described in §10, including the one thing it
-*can* read.
+stream to the meeting host. What crosses that pipe is sealed between the page
+and the host; the gateway's power lies in serving the page. Fully described in
+§10.
 
 **5 · Booking gateway.** The other one, sharing the same HTTPS listener. It
 serves the booking page for a `/book/<token>` link and relays each of that
@@ -906,8 +907,9 @@ the reference deployment, and why a *dead* relay is worse than no relay.
 | **That a peer runs Concord**, and its addresses | that is what a provider record says |
 | **Opaque mailbox tags**, envelope sizes, deposit times | it is the drop box |
 | **Guest search terms and the results fetched** (if the GIF proxy is on) | it makes the upstream request on your behalf |
-| **A guest's own messages in a meeting** (if a guest joins via the gateway) | the guest's leg terminates at the gateway before continuing to the host |
-| **A booking visitor's IP, and every request they make**: the link token, the slot picked, the name and note typed | the booking page's leg is plain HTTPS terminating here, and the node re-marshals the request before relaying it |
+| **A browser guest's metadata**: the host's peer id, an opaque link id, the guest's IP, timing, frame count, record sizes in 256-byte buckets, `/turn` fetches and the relay allocation | it pipes the guest's WebSocket to the host; the frames inside are sealed between the guest page and the host (§10.3) |
+| **Everything a guest sees and says, if it serves a modified guest page** | it serves the page, `no-store`, so it could serve an altered copy to one visitor once; whoever terminates its TLS can too |
+| **A booking visitor's IP, and every request they make**: the link token, the slot picked, the name and note typed; the host's display name, blurb and free/busy slots | the booking page's leg is plain HTTPS terminating here, and the node re-marshals the request before relaying it. Only the meeting link handed back is sealed to the visitor's page, against a passive node only |
 
 That list is the metadata cost of peer-to-peer. It is not a bug that can be
 patched out; onion-routed discovery is the only real answer and is future work.
@@ -925,10 +927,11 @@ patched out; onion-routed discovery is the only real answer and is future work.
 | Forge, alter or reorder a message | every message is authenticated under the group key |
 | Retain your history | it stores no messages, and the mailbox is bounded, opaque and in memory |
 
-The exceptions in that table's direction are the two plain-HTTPS legs: the
-guest leg (§10), which is why guests are meeting-scoped, single-channel and
-labelled as guests, and the booking leg, which is why a booking carries a name
-and a note and nothing else.
+The exceptions in that table's direction are the two plain-HTTPS legs. The
+guest leg (§10) is sealed end to end, but the node serves the page that does
+the sealing, which is why guests are meeting-scoped, single-channel and
+labelled as guests. The booking leg is readable here except for the meeting
+link, which is why a booking carries a name and a note and nothing else.
 
 ### 6.5 The day it dies
 
@@ -1060,7 +1063,8 @@ left the machine. See `internal/app/offdevice.go`.
 A server is something whose correct behaviour you depend on. This is not that.
 The distinction is testable: assume the node is fully malicious and enumerate the
 damage. It can refuse service, return nothing, drop bytes, count bytes,
-correlate IP addresses and timing, and read a guest's leg of a meeting. It cannot
+correlate IP addresses and timing, and serve a guest a modified meeting page
+that reads that guest's view of the meeting. It cannot
 read a member's message, forge one, join a group, learn a roster, or keep your
 history. And the system is built so that its absence is a degradation rather
 than an outage (§6.5).
@@ -1515,8 +1519,8 @@ bounded on every axis.
    HOST (a full Concord peer)                                 GUEST (a browser)
    ──────────────────────────                                 ─────────────────
    creates a "meeting" guild, mints a link:
-     https://<gateway>/guest#h=<host peer id>&t=<24-byte token>
-                    ▲                └──────────┬──────────┘
+     https://<gateway>/guest#h=<host peer id>&k=<32-byte secret>
+                    ▲                └───────────┬───────────┘
                     │                     in the URL FRAGMENT, which a
                     │                     browser never sends to the server
                     │
@@ -1529,32 +1533,54 @@ bounded on every axis.
               │  into a libp2p stream to the HOST  │
               └─────┬──────────────────────────────┘
                     │  Noise
-   validates token ◄┘
-   runs the whole session; is the guest's
-   crypto endpoint into the MLS group
+   finds the link ◄─┘  by its id; the frames inside are
+   sealed between the page and the host (§10.3).
+   The host runs the whole session and is the
+   guest's crypto endpoint into the MLS group
 ```
 
 The gateway is a **dumb pipe**: it dials the host (reachable because the host
 holds a relay reservation with that very node), forwards newline-delimited
-frames in both directions, and keeps no state. It does not validate the token,
-because it cannot: it has never seen one. It does not read the meeting.
+frames in both directions, and keeps no state. It never sees the link's secret
+and cannot read the frames it forwards.
 
-The token is a **24-byte bearer secret** from a cryptographic random source, not
-a signed structure. There is nothing to verify because there is nothing to
-verify against: the host looks it up in its own table. That table is persisted
-in the host's encrypted database, so a link mailed out on Monday still works on
-Wednesday after the host has restarted, and re-minting a link for the same
-meeting reuses the same token with a new lifetime, so changing a duration never
-invalidates a link somebody already has. Expiry is checked twice at connect
-time: the token's own expiry, and the meeting's. Lifetimes are a short menu (an
-hour, a day, a week, a month) with a hard ceiling, because a host picks "office
-hours all week" rather than solving a duration puzzle, and a fixed set is also
-what stops a peer talking your client into keeping a room forever.
+The secret `S` is **32 bytes** from a cryptographic random source; minting fails
+rather than fall back to anything weaker. The page derives two values from it
+with HKDF-SHA256: a 16-byte **link id**, sent in clear so the host can find the
+link, and a 32-byte **link key** `K`, which never leaves the page. The host
+keeps each link (`S`, guild, channel, expiry, history switch, guest cap, the
+guests admitted and those banned) in the `guest.links` setting. Settings are
+not encrypted at rest, so a stolen device yields `S` and a seat in the meeting
+until the link expires. A link mailed out on Monday still works on Wednesday
+after the host has restarted, and changing a meeting's lifetime keeps the same
+`S`, so a link somebody already has keeps working. Expiry is checked at the
+door and polled during the session. Lifetimes are a short menu (an hour, a day,
+a week, a month) with a hard ceiling, because a host picks "office hours all
+week" rather than solving a duration puzzle, and a fixed set is also what stops
+a peer talking your client into keeping a room forever.
+
+A link is **limited** and **revocable**. It admits at most five distinct guests
+(two for a booking room): the page keeps a random guest id per link in local
+storage, a new id is refused before the knock when the link is full, and a
+returning id does not use another slot (it still knocks if the meeting is
+locked). **Remove from call** bans that id for that link. **Revoke** deletes the
+link and ends every session in the meeting at once, including guests still
+knocking or mid-handshake, with a sealed `end`; the host's mesh closes the
+guest's peer connection. The link is re-checked after the guest's `join` and at
+admission under the same lock revoke takes, so a revoke during the handshake or
+the knock wins. For an event's room only the node that hosts it (`GuestHost`)
+can revoke, because `S` lives there; it mints a fresh link and stamps it on the
+event. Booking rooms are revoked by cancelling the booking. Links in the old
+`#t=` format are dropped on load, event rooms are re-stamped and outstanding
+booking rooms are re-minted with a note to the host that the visitor's link
+changed; the page refuses a `#t=` link without sending the token.
 
 ### 10.2 What a guest can and cannot reach
 
-**Can:** send and read chat in one channel of one meeting; see the last 30
-messages of it; join the call with audio; turn on camera; share their screen.
+**Can:** send and read chat in one channel of one meeting, from the moment they
+are let in (the last 30 messages too, if the host turned that on for the link;
+it is off by default); join the call with audio; turn on camera; share their
+screen.
 They appear in the roster explicitly labelled as a guest, under a self-asserted
 display name that is sanitized of characters that could fake formatting or a
 mention.
@@ -1564,10 +1590,12 @@ reach any other guild; read history beyond those 30 messages; hold an identity,
 a key package, or a leaf in the MLS group; be verified; appear in a member's
 contact list; or persist beyond the meeting.
 
-The bounds are explicit: at most 5 guests per meeting, 24 bytes of display name,
-2000 bytes per message, a chat rate limit of 5 messages refilling one per second,
-a separate and much larger bucket for signalling, a 20-second window to say
-hello, a 10-minute idle timeout outside a call and 3 hours inside one.
+The bounds are explicit: at most 5 guests per meeting and 5 distinct guests per
+link, 24 bytes of display name, 2000 bytes per message, a chat rate limit of 5
+messages refilling one per second, a separate and much larger bucket for
+signalling, a 20-second window to say hello, 8 handshakes in progress per link
+and 64 per node (these do not count against the guest cap), 64 KiB per frame, a
+10-minute idle timeout outside a call and 3 hours inside one.
 
 A meeting can be **locked**, in which case an arriving guest *knocks* instead of
 joining. A knocking guest is registered (and counts against the cap) but
@@ -1577,29 +1605,58 @@ is a **lease** rather than a flag, re-announced every few seconds while it is on
 so a host that crashes or reloads unlocks itself instead of leaving a door
 nobody alive can open.
 
-### 10.3 The cost
+### 10.3 The guest leg's encryption, and its cost
 
-**The guest's own leg is readable by the gateway.** A guest has no identity, so
-there is no key to encrypt to and no handshake to bind: their traffic is TLS to
-the gateway and then Noise to the host, never plaintext on the wire, but the
-gateway is an endpoint of the first hop. Member-to-member traffic in that same
-meeting stays end-to-end encrypted and unreadable to it; the guest's own
-messages, in that hop, are not.
+The frames between page and host are sealed. The page opens with
+`{"type":"hello","v":2,"link":<link id>,"gn":<16 random bytes>,"gpk":<ephemeral
+P-256 key>}`; the host always answers `{"type":"chal","hn":…,"hpk":…}` with its
+own fresh nonce and ephemeral key, for a live link, a dead one or an unknown one
+alike, so the gateway cannot tell them apart. Both sides compute `Z` by ECDH and
+derive one AES-256-GCM key per direction with HKDF over `K ‖ Z`, salted with
+`gn ‖ hn`, the info binding the version, link id, host peer id and both
+ephemeral keys. Every later frame is `{"type":"e","c":…}`: a record whose nonce
+is a per-direction counter the receiver demands in order, over JSON padded with
+spaces to a multiple of 256 bytes. The guest's first record, `join` (name and
+guest id), proves it holds `K`; if it fails to open, or the link is unknown,
+expired or revoked, the host closes the stream without a word, so every failure
+looks the same. After `chal` both sides drop any clear frame, and the page shows
+its own text for the one clear frame the gateway may send before it ("host
+unreachable"), never that frame's prose. `K` authenticates; `Z` gives forward
+secrecy, so a link that leaks later does not open a visit someone recorded.
+WebCrypto exists only in secure contexts, so the page refuses to connect
+elsewhere. The full design and its review are in `docs/dev/guest-e2e.md`.
 
-That is the price of "no install". It is not fixable without giving guests
-identities, at which point they are members, and it is why guests are
+The gateway therefore sees metadata (§6.3) and ciphertext. **What it can still
+do is serve a modified page.** The page is served `no-store` from the gateway
+and reads the secret from the fragment, so an altered copy served to one IP,
+once, would read everything that guest sees and says: members' messages in the
+meeting while the guest is present, the call, and history if the host enabled
+it. Whoever terminates TLS in front of the gateway has the same power. The
+meeting dialog says this where the link is minted. Serving the page from a
+second origin would narrow it and is future work.
+
+The host's node is the guest's only endpoint. Guest chat is MLS-encrypted onto
+the guild's topic: the host opens the guest's record and seals it on their
+behalf, with the message marked as a guest message and carrying the guest's
+self-asserted name as decoration. A member reading it should understand it as
+the UI presents it: *somebody who called themselves this, relayed by the host.*
+The host can read the guest's messages, as before, and that is why guests are
 meeting-scoped, single-channel, capped, and labelled.
 
-Guest chat *is* MLS-encrypted onto the guild's topic: the host is the guest's
-crypto endpoint and seals on their behalf, with the message marked as a guest
-message and carrying the guest's self-asserted name as decoration. A member
-reading it should understand it as the UI presents it: *somebody who called
-themselves this, relayed by the host.*
+Guest media is ordinary WebRTC between the browser and the host's app, DTLS-SRTP
+encrypted, never through the rendezvous's pipe. The DTLS fingerprints travel in
+sealed SDP, so a TURN relay cannot swap them; with a relay (meetings ask for
+it) the relay carries only SRTP ciphertext. With no relay available, the guest
+page says the call is direct in plain words rather than quietly exposing the
+guest's address.
 
-Guest media is ordinary WebRTC, direct between browser and member app, DTLS-SRTP
-encrypted, never through the rendezvous. Guest meetings are the case that most
-wants the TURN relay of §9.2, and with no relay available, the guest page says so
-in plain words rather than quietly exposing everyone.
+**Booking** (the booking gateway) gets a lighter version. The booking link is public
+by design, so the only secret is the meeting URL the host returns: the page
+sends an ephemeral P-256 key with the booking and the host seals `{meetingURL,
+ics}` under HKDF of the ECDH result, salted with both keys. The keys are not
+authenticated, so this holds against a node that only reads; one that rewrites
+the exchange gets the URL and, knowing the visitor's name, could knock as the
+visitor. The host should treat a booking knock as unauthenticated.
 
 ---
 
@@ -1922,7 +1979,7 @@ Security claims are meaningless without a stated adversary.
 | Adversary | Why they fail |
 |---|---|
 | Network eavesdropper (Wi-Fi, ISP) | Every hop is Noise- or DTLS-encrypted; payloads are independently MLS- or SRTP-encrypted. They see ciphertext twice over. |
-| A malicious or compromised rendezvous / relay | Never a group member, never an endpoint of the peers' own session. Its worst behaviour is refusal (§6.7). |
+| A malicious or compromised rendezvous / relay | Never a group member, never an endpoint of the peers' own session. Its worst behaviour toward members is refusal (§6.7); browser guests are the exception below. |
 | "Hack the server" | There is no central store to breach, subpoena, or leak. |
 | Message forgery or tampering | Every message is MLS-authenticated under the group key and signed by the sender's leaf. |
 | Forgery by a member relaying your history | Messages carry their author's own Ed25519 signature over the message and the channel it belongs to, checked against the key the message names — no roster, so it holds years later against an author who has left. A member serving catch-up is a courier, not a witness, and a signature that fails is refused on every lane (§11.2). Unsigned history predating the field is shown as unverified rather than attributed. |
@@ -1954,6 +2011,7 @@ Security claims are meaningless without a stated adversary.
 | **A call reveals your IP unless a relay carries it** | And on some hosts a relay cannot work at all (§9.2). Guest meetings are the case that most needs one. |
 | **Push notifications require trusting the node** | The push bridge holds Apple/Google credentials; wakes are contentless and keyed by opaque tag, but that node stops being commodity infrastructure. Self-hosting without push is fully supported. |
 | **Your passphrase is the at-rest anchor** | Configure convenience auto-unlock and at-rest encryption no longer protects you from someone who compromises that machine. |
+| **A rendezvous that serves a browser guest a modified page** | The guest leg is sealed between the guest page and the host, but the rendezvous serves that page. An altered copy could read what that guest sees and says in the meeting. Booking's seal holds only against a node that reads without rewriting (§10.3). |
 | **Public-scale spam and abuse** | This is a friend-group tool, not a public platform. |
 
 ### Concord versus a centralized platform
