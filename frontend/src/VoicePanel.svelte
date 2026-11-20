@@ -198,7 +198,6 @@
       emoji: mem?.emoji || "",
       color: mem?.color || "",
       image: mem?.avatar || "",
-      ...worn(mem),
     };
   }
 
@@ -251,21 +250,6 @@
     !isDM ? "Nobody else is here" : dmGroup ? "Everyone else left" : `Waiting for ${dmName}…`,
   );
 
-  // Everything Avatar can paint, from a member record. The call stage is a
-  // screen made of nothing but avatars, at 96px, that people look at for an
-  // hour — and it was the one surface in the app that dropped every ring,
-  // decoration and colourway, so a decorated avatar became a flat purple disc
-  // here while the member list 800px to the right showed the same person fully
-  // dressed. Thirty-six decorations and twenty-one frames, hidden from the one
-  // place they are actually large enough to see.
-  function worn(mem) {
-    return {
-      frame: mem?.frame || "",
-      decoration: mem?.style?.dec || "",
-      dc: mem?.style?.dc || "",
-    };
-  }
-
   function moodOf(status) {
     const { emoji, text } = splitStatus(status);
     return { mood: emoji, moodText: text };
@@ -275,7 +259,6 @@
     const fpr = own(S.voicePeerFpr, peerId);
     const mem = fpr ? memberByFpr(fpr) : null;
     return {
-      ...worn(mem),
       ...moodOf(mem?.status),
       // nameFor is the one place names resolve — it knows about browser guests
       // ("Zaza (guest)"), who have no member record to look up.
@@ -664,9 +647,6 @@
         emoji: S.identity.emoji,
         color: S.identity.color,
         image: S.identity.avatar,
-        frame: S.identity.frame || "",
-        decoration: S.identity.style?.dec || "",
-        dc: S.identity.style?.dc || "",
         ...moodOf(S.identity.status),
         // Not while nobody can hear you yet: a green "speaking" ring on your
         // own tile under "still connecting" said the opposite of the truth.
@@ -1058,9 +1038,6 @@
             emoji={t.emoji}
             color={t.color}
             image={t.image}
-            frame={t.frame}
-            decoration={t.decoration}
-            dc={t.dc}
             mood={cam ? "" : t.mood}
             moodTitle={t.moodText}
             size={96}
@@ -1136,9 +1113,6 @@
               emoji={t.emoji}
               color={t.color}
               image={t.image}
-              frame={t.frame}
-              decoration={t.decoration}
-              dc={t.dc}
               mood={cam ? "" : t.mood}
               moodTitle={t.moodText}
               size={28}
@@ -1197,9 +1171,6 @@
               emoji={t.emoji}
               color={t.color}
               image={t.image}
-              frame={t.frame}
-              decoration={t.decoration}
-              dc={t.dc}
               mood={cam ? "" : t.mood}
               moodTitle={t.moodText}
               size={compactTiles ? 40 : 64}
@@ -1563,9 +1534,6 @@
               emoji={who.emoji}
               color={who.color}
               image={who.image}
-              frame={who.frame}
-              decoration={who.decoration}
-              dc={who.dc}
               size={36}
             />
             </span>

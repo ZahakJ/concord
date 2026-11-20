@@ -4,7 +4,7 @@
 // them were LIGHT grounds was written out by hand in seven places: the light
 // palette's scope in app.css, the daylight token block, the pressed-button
 // rule, Message and MemberPanel, the daylight block in themepacks.css and the
-// cosmetics gate. Miss one and a dark pack under the Light theme drew white
+// contrast gate. Miss one and a dark pack under the Light theme drew white
 // fields with near-white ink in them, which is a bug this app has shipped.
 //
 // Now there are nine, and the stylesheets name no pack in order to ask

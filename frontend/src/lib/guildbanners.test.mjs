@@ -87,7 +87,7 @@ for (const k of ["fall", "rise", "twinkle", "streak", "matrix", "rain"]) {
 
 // The maths lives in contrast.mjs now — the same worst-case compositing walk
 // answers "can you read the guild name over this banner?" here and "can you see
-// this ring at all on a daylight pack?" in cosmeticcontrast.test.mjs, and two
+// this effect at all?" in fxcontrast.test.mjs, and two
 // copies of it would have drifted the first time either was tuned.
 
 // The two inks the header prints in (ChannelList.svelte .guild-header).

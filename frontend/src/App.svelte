@@ -7,7 +7,6 @@
   // backend event wiring live in lib/state.svelte.js.
   import { onMount, untrack } from "svelte";
   import { watchMoments, refreshMoments } from "./lib/momentsunseen.svelte.js";
-  import { precacheCosmetics } from "./lib/cosmetics.svelte.js";
   import { precacheEmoji } from "./lib/emojifull.svelte.js";
   import { api, leaveVoiceOnUnload } from "./lib/api.js";
   import { callIce } from "./lib/callice.js";
@@ -752,21 +751,15 @@
     window.Capacitor?.Plugins?.ConcordCore?.appReady?.().catch(() => {});
     watchSystemBars();
     watchVisibility();
-    // Fetch the cosmetic tables once there is something on screen. They are
-    // lazy so that a boot never waits for a quarter of a megabyte of path data
-    // (lib/cosmetics.svelte.js), but a guild that uses decorations wants them
-    // by the time its member list is scrolled — so ask for them in the first
-    // idle moment rather than on the first avatar that needs one. On a phone
-    // that means requestIdleCallback; a desktop window has the headroom to just
-    // do it after the frame.
-    // The full emoji table rides the same idle moment, for the same reason:
-    // typing a colon or opening the picker must not be the first time anyone
-    // asks for 35KB of Unicode.
+    // Fetch the full emoji table once there is something on screen, in the
+    // first idle moment: typing a colon or opening the picker must not be the
+    // first time anyone asks for 35KB of Unicode. On a phone that means
+    // requestIdleCallback; a desktop window has the headroom to just do it
+    // after the frame.
     // The dialogs people open most ride it too: the first Settings of a
     // session otherwise waited on a chunk fetch (about 100 ms on a desktop,
     // more on a phone) before its first frame.
     const warm = () => {
-      precacheCosmetics();
       precacheEmoji();
       warmIslands();
       for (const k of ["settings", "guildSettings", "profile", "confirm"]) MODAL_LOADERS[k]?.().catch(() => {});

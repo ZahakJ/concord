@@ -99,7 +99,7 @@ The command palette offers the same two as **Layout: Sidebar** and **Layout: Rai
 
 ### What others see
 
-The last row opens **Your profile**, where your banner, avatar ring and profile colors are set. Those are part of your profile and other people see them; everything else on this page is for this device only.
+The last row opens **Your profile**, where your picture, banner and profile colors are set. Those are part of your profile and other people see them; everything else on this page is for this device only.
 
 ## Language
 

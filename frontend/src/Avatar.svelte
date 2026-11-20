@@ -1,11 +1,13 @@
 <script>
-  import AvatarRing from "./AvatarRing.svelte";
-  import AvatarDecoration from "./AvatarDecoration.svelte";
-  import { wornRing } from "./lib/wornrings.js";
   // The one avatar. Renders, in priority order: uploaded image, profile emoji,
   // name/fingerprint initials — tinted by the member's accent color, with an
   // optional presence dot or custom-status emoji. Replaces five copy-pasted
   // implementations.
+  //
+  // Nothing is drawn around it. Rings, decorations and profile effects were
+  // removed; a peer on an older build may still send their ids (`frame`,
+  // `effect`, `style.dec`), and nothing here reads them, so such a profile
+  // draws exactly like one without them.
   let {
     name = "",
     emoji = "",
@@ -14,21 +16,6 @@
     size = 32,
     online = null, // null hides the dot; true/false shows connection state
     presence = "", // "" | online | idle | dnd | invisible — shades the dot when connected
-    frame = "", // gradient ring id — see lib/rings.js (snow, comet, orbit-cow…)
-    style = null, // ring dials: { speed, dir, glow, width, sat } (lib/rings.js)
-    color2 = "", // second theme color — the "theme" ring spins between the two
-    // Anything worn on the avatar — ears, a crown, wings, a band of runes.
-    // See lib/decorations.js. Independent of `frame`: a decoration composes
-    // WITH a gradient ring rather than replacing it.
-    decoration = "",
-    // The colourway the decoration is painted in — a bounded id out of
-    // lib/decorations.js COLORWAYS. Given as a prop for the call sites that
-    // hand this component nothing but a member row, and read off `style`
-    // otherwise, which is where it travels.
-    dc = "",
-    // Passed straight through to the decoration painter: let a picker tile
-    // animate even at thumbnail size.
-    preview = false,
     // Custom-status emoji, as a badge on the corner. A voice tile is where this
     // earns its keep: "I'm gaming" has to read at a glance, and the presence
     // dot yields to it because they share the same corner and the emoji is the
@@ -43,25 +30,6 @@
   // recycles these) does not inherit the last one's failure.
   let failedSrc = $state("");
   const imageFailed = $derived(!!image && failedSrc === image);
-  const cw = $derived(dc || style?.dc || "");
-
-  // The drawn RINGS used to be their own library and used to travel in `frame`.
-  // They are decorations now, but the ids never changed, so a `frame` naming
-  // one is painted through the decoration painter. Anyone already wearing one
-  // keeps it, with no migration and no rewrite of what they broadcast.
-  //
-  // `wornRing` and not a plain lookup, because only those twenty-one were ever
-  // reachable from `frame`. Matching the whole decoration table here means a
-  // figure that happens to share a name with a gradient ring takes that ring's
-  // wearers with it — "comet" is in both libraries, and for a while the
-  // gradient one could not be worn at all.
-  const legacy = $derived(!!frame && wornRing(frame));
-
-  // A circle around a squircle reads as a rendering bug, so app.css keeps the
-  // circular silhouette for `.ringed` avatars only. That has to hold however
-  // the ring arrived: as a gradient ring in `frame`, as a legacy drawn ring in
-  // `frame`, or — now that the libraries are one — as a decoration in `dec`.
-  const ringed = $derived(!!frame || wornRing(decoration));
 
   // Presence, by SHAPE as well as colour, so it reads without colour vision:
   // online is a filled disc, idle a crescent, do-not-disturb a disc with a bar,
@@ -87,24 +55,11 @@
 
 <span
   class="avatar"
-  class:ringed={ringed}
   class:pictured={!!image && !imageFailed}
   style="width:{size}px;height:{size}px;font-size:{Math.max(10, Math.round(size * 0.38))}px;{color
     ? `background:${color};`
     : ''}"
 >
-  <!-- A `frame` saved before the two libraries merged may name a drawn ring;
-       it paints through the decoration painter. Anything else is a gradient
-       ring (lib/rings.js). Both may be on at once — someone who set a drawn
-       ring AND a decoration chose to wear two, and wears two. -->
-  {#if legacy}
-    <AvatarDecoration id={frame} {size} {color} {color2} {cw} {preview} />
-  {:else if frame}
-    <AvatarRing ring={frame} {size} {style} {color} {color2} />
-  {/if}
-  {#if decoration}
-    <AvatarDecoration id={decoration} {size} {color} {color2} {cw} {preview} />
-  {/if}
   {#if image && !imageFailed}
     <!-- A picture that will not decode falls back to the initials underneath
          it rather than to the browser's broken-image glyph. Ordinary profile
@@ -129,7 +84,7 @@
 <style>
   .avatar {
     position: relative;
-    isolation: isolate; /* the ring sits behind the avatar, not the page */
+    isolation: isolate; /* the mood badge stacks within the avatar, not the page */
     overflow: visible;
     border-radius: 50%;
     /* The tint is the backdrop for INITIALS and an emoji — see .pictured below,

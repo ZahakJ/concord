@@ -2,8 +2,6 @@
 // message — answer only for the ids their table defines. One block per kind
 // of input. (`npm test` runs this.)
 import { table, own, at } from "./lookup.js";
-import { ringArt, hasRider, hasPalette, RING_BY_ID, PAL_BY_ID } from "./rings.js";
-import { decoration, wornRing, decorColors, DECORATION_BY_ID, COLORWAY_BY_ID, CW_OWN } from "./decorations.js";
 import { presetOf, BANNER_BY_ID } from "./banners.js";
 import { guildPresetOf, guildBannerArt, GUILD_BANNER_BY_ID } from "./guildbanners.js";
 import { renderMarkdown } from "./markdown.js";
@@ -56,21 +54,9 @@ const PROBES = [...NAMES, ...NAMES.map((n) => n.toLowerCase())];
   ok(at([5, 6], 1) === 6 && at([5, 6], "1") === undefined && at([5, 6], "length") === undefined, "at() takes integers only");
 }
 
-// ---- profiles: rings, palettes, decorations, colourways, banners ------------
+// ---- profiles: banners -----------------------------------------------------
 for (const n of PROBES) {
-  for (const tbl of [RING_BY_ID, PAL_BY_ID, DECORATION_BY_ID, COLORWAY_BY_ID, BANNER_BY_ID])
-    ok(tbl[n] === undefined, `a profile cosmetics table answers for "${n}"`);
-  const r = quietly(() => ringArt(n, "#123456", "#654321", "", n));
-  ok(!r.err && r.v === null, `ringArt("${n}") must be null (${r.err?.message || typeof r.v})`);
-  const r2 = quietly(() => ringArt("spin", "", "", "", n));
-  ok(!r2.err && r2.v && !String(r2.v.art).includes("function"), `ringArt palette "${n}" must fall back`);
-  ok(!hasRider(n) && !hasPalette(n), `ring flags for "${n}"`);
-  ok(decoration(n) === null, `decoration("${n}") must be null`);
-  ok(wornRing(n) === false, `wornRing("${n}") must be false`);
-  const c = quietly(() => decorColors("tiara", n, "#111111", "#222222"));
-  ok(!c.err && c.v[0] === "#111111", `decorColors colourway "${n}" must fall back to the profile colour`);
-  const c2 = quietly(() => decorColors(n, CW_OWN, "#111111", "#222222"));
-  ok(!c2.err && c2.v[0] === "#111111", `decorColors piece "${n}" must fall back to the profile colour`);
+  ok(BANNER_BY_ID[n] === undefined, `the profile banner table answers for "${n}"`);
   ok(presetOf(`preset:${n}`) === null || presetOf(`preset:${n}`) === undefined, `profile banner "${n}"`);
 }
 

@@ -64,7 +64,6 @@ Your profile is what other people see. Edit it in **Settings → Your profile**:
 | Birthday | Month and day only, no year. Your guilds see a cake on the day. |
 | Fallback emoji | Shown when you have no picture |
 | Profile theme | A primary and a secondary color for your profile card. The primary is also your accent color unless you choose another in Appearance. |
-| Avatar decoration | A frame around your picture |
 
 Your profile travels with your messages to the people you share guilds and conversations with. It is not published anywhere else. When you edit it on one device, your other linked devices pick up the change.
 

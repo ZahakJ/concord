@@ -145,7 +145,7 @@
      leaving; standard (150ms) is a thing you should see arrive — a lift, a
      reveal, a dialog; move (180ms) is a thing travelling — a thumb, a row
      of tiles easing aside, a pane sliding. Longer runs — the ambient
-     backdrops, the cosmetic effects — are compositions, not chrome, and keep
+     backdrops, the banner and window effects — are compositions, not chrome, and keep
      their own times. */
   --dur-quick: 120ms;
   --dur-standard: 150ms;
@@ -635,12 +635,9 @@
   object-fit: contain;
 }
 
-/* Avatar silhouette. Ringed avatars keep their circle — ring art is drawn as a
-   disc, and a disc around a square reads as a rendering bug. Avatar.svelte sets
-   .ringed for a gradient ring (lib/rings.js) and for a worn decoration that
-   encircles the face (`ring: true` in lib/decorations.js) alike. */
-:root[data-theme] .avatar:not(.ringed),
-:root[data-theme] .avatar:not(.ringed) > img {
+/* Avatar silhouette: the theme pack's shape, a circle unless it says otherwise. */
+:root[data-theme] .avatar,
+:root[data-theme] .avatar > img {
   border-radius: var(--avatar-radius);
 }
 
@@ -838,23 +835,6 @@
   --fx-ember-hot: #ffd08a;
   --fx-ember-mid: #ffb35a;
   --fx-ember-low: #ff7a2f;
-  /* What a decorative effect drawn for a dark ground has to do on a bright
-     one. The ring and window-effect libraries are palettes of near-white snow,
-     neon and pastel — colours chosen against #16181c, where they are exactly
-     right and where 19 of the 47 rings have every colour they own. On a
-     daylight pack those same palettes have NOTHING above 2.2:1 against the
-     page: the picker showed blank tiles and a worn ring showed nothing at all.
-
-     A uniform darkening is the whole fix, and it is a better one than
-     hand-writing a second palette for eighty entries: multiplying the sRGB
-     channels preserves hue and saturation exactly, so a daylight snowfall is
-     the same snowfall in slate rather than a different effect wearing its
-     name. The factor is derived, not chosen — see lib/cosmeticcontrast.test.mjs,
-     which reads it back out of this file and proves every colour in both
-     libraries clears 3:1 on every bright ground with it applied. 0.5
-     leaves the worst case (pure white on `paper`) at 3.32:1; anything above
-     about 0.53 stops clearing the bar. */
-  --fx-dim: none;
   /* An edge for an emoji drawn on a pill. Nothing on a dark ground, where
      the palest glyphs are the ones that read best; see the daylight block. */
   --emoji-edge: none;
@@ -874,13 +854,12 @@
   --fx-ember-hot: #a5620b;
   --fx-ember-mid: #8f4a09;
   --fx-ember-low: #7a2c05;
-  --fx-dim: brightness(0.5);
   /* The emoji set is drawn for a dark ground, and several of its glyphs are
      mostly white or pale grey — the skull, the ghost, the cloud. On a light
      pill, and worst on the accent-tinted pill of a reaction you made, they
      were a faint grey shape on lavender. A hairline of the theme's own ink
      around the glyph gives it an edge without recolouring it.
-     cosmeticcontrast.test.mjs reads this colour and holds it at 3:1 against
+     fxcontrast.test.mjs reads this colour and holds it at 3:1 against
      a white glyph. */
   --emoji-edge: drop-shadow(0 0 0.5px rgba(26, 32, 44, 0.85)) drop-shadow(0 0 0.5px rgba(26, 32, 44, 0.85));
   /* A light pack is a LIGHT ground even in nominally-dark mode, and
@@ -1268,7 +1247,7 @@
 /* ---- Leaves: the one kind with no sheets at all. A tiled gradient has no
    per-speck rotation, and a leaf that does not turn over as it falls is
    confetti — so this is the particle engine on its own (lib/fx.js +
-   FxLayer.svelte, the same code the avatar rings and the seasonal rail drift
+   FxLayer.svelte, the same code the banners and the seasonal rail drift
    use), which is exactly what that engine is for.
 
    The one thing it needs is its own fall keyframe. The engine's `tumble` flag
@@ -1279,7 +1258,7 @@
    element's existing fall — one composited transform instead of a composited
    one plus a main-thread one — is the same motion for 11.4%. (Emoji were not
    the culprit; a plain drawn shape on the ::before measured 39%. The engine's
-   own tumble is cheap where it is used today, on rings and banners a few dozen
+   own tumble is cheap where it is used today, on banner tiles a few dozen
    pixels across, and is untouched here.) ---- */
 @keyframes fxo-leaf-fall {
   from {
@@ -1831,7 +1810,7 @@ input[type="color"]::-moz-color-swatch {
 
 /* One slider, drawn once, for the whole app. `input[type="range"]` appears in
    ten files; six of them had reached for `accent-color` locally and three —
-   the decoration thickness dial and the banner studio's zoom and angle — were
+   a since-removed ring dial and the banner studio's zoom and angle — were
    the raw platform control, so the most colourful panel in the product handed
    you Chromium's blue thumb, and a different shape again under the WebKitGTK
    the desktop build ships. They were also inheriting the filled-well chrome
@@ -2330,16 +2309,21 @@ textarea[aria-invalid="true"] {
 }
 
 /* ============================================================
-   FX ENGINE — the particle/animation layer shared by avatar rings
-   (AvatarRing.svelte) and profile banners (Banner.svelte). Effects are
-   described as data in lib/rings.js / lib/banners.js; lib/fx.js turns that
-   into particles; these keyframes do the moving. Global (not Svelte-scoped)
-   precisely so both components share one implementation.
+   FX ENGINE — the particle/animation layer shared by banners (Banner.svelte)
+   and the window effects (FxOverlay.svelte). Effects are described as data
+   in lib/banners.js / lib/themefx.js; lib/fx.js turns that into particles;
+   these keyframes do the moving. Global (not Svelte-scoped) precisely so both
+   components share one implementation.
 
    A particle is a zero-width, FULL-HEIGHT track (.fxp) whose ::before is the
    visible speck. Percentages in the track's transform therefore resolve
-   against the container's height — so the same snowfall works in a 32px
-   avatar ring and a 300px banner with no JS measuring anything.
+   against the container's height — so the same snowfall works in a 60px
+   picker tile and a full window with no JS measuring anything.
+
+   Neither surface is darkened on a daylight ground: a banner paints its own
+   picture and its templates are measured against their own ink
+   (lib/guildbanners.test.mjs), and the window overlay draws in --fx-ink,
+   which flips for the light grounds.
    ============================================================ */
 .fxfield {
   position: absolute;
@@ -2347,18 +2331,6 @@ textarea[aria-invalid="true"] {
   overflow: hidden;
   pointer-events: none;
   border-radius: inherit;
-  /* Daylight packs darken the whole field — see --fx-dim. `none` on every dark
-     ground, so this costs nothing there. */
-  filter: var(--fx-dim, none);
-}
-/* …except on the two surfaces that are not the page. A banner paints its own
-   picture and its templates are already measured against their own ink
-   (lib/guildbanners.test.mjs); the app-wide theme overlay draws in --fx-ink,
-   which has flipped for the light grounds since it was written. Darkening
-   either would be correcting something that is already right. */
-.bnr .fxfield,
-.fx-overlay .fxfield {
-  filter: none;
 }
 .fxp {
   position: absolute;

@@ -155,7 +155,7 @@ export function clampAccent(color, theme = "dark") {
 // ---- which colour is the accent ----
 //
 // The accent is the brand teal for everyone unless the user picks otherwise.
-// A profile colour is the colour of the PROFILE (avatar ring, card); it used
+// A profile colour is the colour of the PROFILE (avatar, card); it used
 // to become the whole app's accent by default, so a warm avatar colour turned
 // every badge, focus ring and mention row into something that read as an
 // alert. Following the profile colour is now an explicit choice (the

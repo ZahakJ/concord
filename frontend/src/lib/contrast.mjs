@@ -1,4 +1,4 @@
-// contrast.mjs — the colour maths the cosmetics tests are built on.
+// contrast.mjs — the colour maths the contrast tests are built on.
 //
 // Lifted out of guildbanners.test.mjs, which had it to itself. It was written
 // there to answer one question — "can you read a guild's name over this
@@ -25,7 +25,7 @@ export function contrast(a, b) {
 
 // Every colour literal in a CSS fragment, as [r,g,b,a]. Understands #rgb,
 // #rrggbb, rgb()/rgba() in both comma and space syntax, and the handful of
-// bare keywords the cosmetics libraries actually use.
+// bare keywords the decorative libraries actually use.
 const KEYWORD = {
   white: [255, 255, 255, 1],
   black: [0, 0, 0, 1],
@@ -110,52 +110,9 @@ export const over = ([r, g, b, a = 1], bg) =>
 
 // --- the daylight grounds -------------------------------------------------
 
-// The grounds a cosmetic has to survive: every light pack plus the plain light
-// theme. Which packs are light comes from lib/packs.js, the one list; their
-// --bg-1 is read out of the stylesheet rather than copied here, so retuning a
-// pack retunes the gate with it.
-//
-// A pack may declare --bg-1 as translucent white over a mesh. The brightest
-// that composite can be is plain white, and brighter is strictly harder for
-// the pale colours these libraries are full of — so white is the honest worst
-// case and the one used.
+// The daylight grounds: every light pack plus the plain light theme. Which
+// packs are light comes from lib/packs.js, the one list.
 export const DAYLIGHT = [
   { name: "light", sel: ':root[data-theme="light"]' },
   ...[...LIGHT_PACKS].map((id) => ({ name: id, sel: `:root[data-theme-pack="${id}"]` })),
 ];
-
-// daylightGrounds reads each pack's --bg-1 out of the stylesheet and returns
-// [{ name, rgb }]. Throws rather than silently skipping: a gate that quietly
-// measures nothing is worse than no gate.
-export function daylightGrounds(css) {
-  return DAYLIGHT.map(({ name, sel }) => {
-    // A pack's selector appears more than once — the daylight packs share a
-    // grouped block for their status colours before each declares its own
-    // palette — so take every occurrence and keep the one that actually
-    // declares the ground.
-    let m = null;
-    let seen = false;
-    for (let at = css.indexOf(sel); at >= 0; at = css.indexOf(sel, at + 1)) {
-      seen = true;
-      const block = css.slice(at, css.indexOf("\n}", at));
-      const hit = block.match(/--bg-1:\s*([^;]+);/);
-      if (hit) m = hit;
-    }
-    if (!seen) throw new Error(`contrast harness: ${sel} is no longer in the stylesheet`);
-    if (!m) throw new Error(`contrast harness: ${sel} declares no --bg-1`);
-    const [c] = colorsIn(m[1]);
-    if (!c) throw new Error(`contrast harness: cannot read ${sel} --bg-1 (${m[1].trim()})`);
-    // Translucent surfaces sit on a near-white mesh; white is the bound.
-    return { name, rgb: over(c, [255, 255, 255]) };
-  });
-}
-
-// worstDaylight returns the daylight ground a colour reads WORST against.
-export function worstDaylight(rgb, grounds) {
-  let worst = null;
-  for (const g of grounds) {
-    const ratio = contrast(rgb, g.rgb);
-    if (!worst || ratio < worst.ratio) worst = { ratio, pack: g.name };
-  }
-  return worst;
-}

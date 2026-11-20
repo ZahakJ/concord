@@ -1,14 +1,13 @@
 // motionInView — hold a tile's animations still while it is off screen.
 //
-// The cosmetic studios are grids of LIVE previews: 108 decoration and ring
-// tiles, 102 effect scenes and particle fields, 43 banner scenes, 26 card
-// frames, 51 theme packs. Every one of them is the real component, wearing the
-// real art, because a picker that shows a still of a moving thing is a picker
-// that lies about what you are choosing. The cost is that opening one starts
-// every animation in the catalogue at once and keeps them all running: measured
-// in the decoration studio, 692 CSS animations in the `running` state, of which
-// a screenful is maybe forty. Chromium absorbs it; the desktop build's WebKit
-// does not, and "the studios scroll like treacle" is what that feels like.
+// The pickers are grids of LIVE previews: banner scenes, window effects,
+// theme packs. Every one of them is the real component, wearing the real art,
+// because a picker that shows a still of a moving thing is a picker that lies
+// about what you are choosing. The cost is that opening one starts every
+// animation in the catalogue at once and keeps them all running: measured in
+// a since-removed avatar decoration studio, 692 CSS animations in the
+// `running` state, of which a screenful is maybe forty. Chromium absorbs it;
+// the desktop build's WebKit does not, and "the studios scroll like treacle" is what that feels like.
 //
 // `content-visibility: auto` was already on these tiles and is not the same
 // promise — it skips LAYOUT and PAINT for skipped content, but an animation on

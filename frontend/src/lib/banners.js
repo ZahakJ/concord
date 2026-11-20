@@ -1,6 +1,6 @@
 // banners.js — the profile-banner preset library.
 //
-// Same idea as rings.js: a preset is DATA. `base` is the painted background,
+// A preset is DATA. `base` is the painted background,
 // `fx` is a live effect layer from the shared engine (lib/fx.js + app.css) —
 // snowfall, meteors, lightning, lava-lamp blobs, a synthwave grid, an
 // equalizer dancing along the bottom. `drift` slowly pans the base so even the

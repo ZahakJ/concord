@@ -6,11 +6,7 @@
   import Avatar from "../Avatar.svelte";
   import Banner from "../Banner.svelte";
   import BannerStudio from "../BannerStudio.svelte";
-  import DecorStudio from "../DecorStudio.svelte";
-  import { DECORATION_BY_ID, DECORATIONS, COLORWAYS } from "../lib/decorations.js";
   import GameShelf from "../GameShelf.svelte";
-  import { RING_BY_ID, RINGS } from "../lib/rings.js";
-  import { decorId, ringId } from "../lib/cosmeticalias.js";
   import { api } from "../lib/api.js";
   import { haptic } from "../lib/touch.js";
   import { S, flash } from "../lib/state.svelte.js";
@@ -45,12 +41,6 @@
   });
   const birthday = $derived(bMonth && bDay ? `${bMonth}-${bDay}` : "");
   let color2 = $state(identity.color2 || "");
-  let frame = $state(identity.frame || "");
-  let dec = $state(identity.style?.dec || "");
-  let dc = $state(identity.style?.dc || ""); // the decoration's colourway
-  let cf = $state(identity.style?.cf || "");
-  let decorStudio = $state(false);
-  let effect = $state(identity.effect || "");
   let games = $state(identity.games || []);
 
   // This is the string another person reads aloud, or compares against a second
@@ -89,20 +79,19 @@
       await api.setGames(next);
     } catch {}
   }
-  // Fine-grained dials (DecorStudio/BannerStudio own the UI for these).
+  // The banner's gradient dials (BannerStudio owns the UI for these).
+  //
+  // They are all that is left of `style`. Its ring and decoration fields, the
+  // `frame` and the card `effect` belonged to cosmetics this build does not
+  // have; saving here writes them empty, so what an older build shows of you
+  // matches what this one does. The fields stay on the wire (an older peer
+  // reads an empty one as "none"), and a profile that still carries them from
+  // an older build is never drawn with them.
   const st0 = identity.style || {};
-  let speed = $state(st0.speed || "normal");
-  let dir = $state(st0.dir || "cw");
-  let glow = $state(st0.glow || "soft");
-  let ringW = $state(st0.width || 2);
   let angle = $state(Number.isFinite(st0.angle) ? st0.angle : 120);
   let fill = $state(st0.fill || "gradient");
-  let sat = $state(st0.sat || ""); // your rider: an emoji or an uploaded picture
-  let pal = $state(st0.pal || ""); // the Gradient ring's colorway
   let bannerStudio = $state(false);
-  // Every style field has to be listed here or its value is silently dropped
-  // on save — `dec` went missing that way once.
-  const styleObj = $derived({ speed, dir, glow, width: ringW, angle, fill, sat, pal, dec, dc, cf });
+  const styleObj = $derived({ angle, fill });
   let fileInput;
 
   const EMOJIS = ["😀", "😎", "🦊", "🐸", "👾", "🧙", "🚀", "🌸", "⚡", "🔥", "🌙", "🎮"];
@@ -250,12 +239,10 @@
   // and switching to Appearance and back used to drop the edits without a
   // word. They are kept as a draft until saved or discarded (lib/profilefields).
   const snap = () => ({
-    name, status, emoji, color, avatar, presence, bio, bMonth, bDay, color2, frame,
-    dec, dc, cf, effect, banner, speed, dir, glow, ringW, angle, fill, sat, pal,
+    name, status, emoji, color, avatar, presence, bio, bMonth, bDay, color2, banner, angle, fill,
   });
   function apply(v) {
-    ({ name, status, emoji, color, avatar, presence, bio, bMonth, bDay, color2, frame,
-      dec, dc, cf, effect, banner, speed, dir, glow, ringW, angle, fill, sat, pal } = v);
+    ({ name, status, emoji, color, avatar, presence, bio, bMonth, bDay, color2, banner, angle, fill } = v);
   }
   let saved = $state(snap());
   const dirty = $derived(JSON.stringify(snap()) !== JSON.stringify(saved));
@@ -307,7 +294,7 @@
       try {
         await api.setProfile(
           name.trim(), status.trim(), emoji, color, avatar, banner, presence,
-          bio.trim(), color2, frame, effect, JSON.stringify(styleObj),
+          bio.trim(), color2, "", "", JSON.stringify(styleObj),
           birthday,
         );
       } catch {}
@@ -322,8 +309,8 @@
       presence,
       bio: bio.trim(),
       color2,
-      frame,
-      effect,
+      frame: "",
+      effect: "",
       style: styleObj,
     });
   }
@@ -362,22 +349,7 @@
           onpointerenter={() => (pasteTarget = "avatar")}
           onclick={() => fileInput?.click()}
         >
-          <!-- The decoration belongs here as much as the ring does. It was
-               missing, and the card claims to be exactly what other people see
-               — the member list and the profile popover have always drawn it.
-               Now that the drawn rings are decorations, its absence would have
-               meant picking one and watching the preview not change. -->
-          <Avatar
-            name={name || "You"}
-            {emoji}
-            {color}
-            image={avatar}
-            size={72}
-            {frame}
-            decoration={dec}
-            style={styleObj}
-            {color2}
-          />
+          <Avatar name={name || "You"} {emoji} {color} image={avatar} size={72} />
           <span class="av-edit"><Icon name="edit" size={13} /></span>
         </div>
         <div class="pv-id">
@@ -572,42 +544,6 @@
     </div>
   </div>
 
-  <!-- What you wear on the avatar. A gradient ring and a drawn crown are the
-       same slot — offering them separately only ever produced people wearing
-       both. Card frames and card-scene overlays used to live here too; they
-       fought the banner and the face instead of framing them. -->
-  <div class="field">
-    <span class="muted">Avatar decoration</span>
-    <button type="button" class="ring-entry" onclick={() => (decorStudio = true)}>
-      <Avatar
-        name={name || "You"}
-        {emoji}
-        {color}
-        image={avatar}
-        size={30}
-        decoration={dec}
-        {frame}
-        style={styleObj}
-        {color2}
-      />
-      <span class="re-text">
-        <!-- A gradient ring lives in `frame`, and so does a drawn ring saved
-             before the two libraries became one, so the name is looked for in
-             both tables. -->
-        <strong>
-          {DECORATION_BY_ID[decorId(dec)]?.name ||
-            RING_BY_ID[ringId(frame)]?.name ||
-            DECORATION_BY_ID[decorId(frame)]?.name ||
-            "None"}
-        </strong>
-        <span class="tiny muted"
-          >{DECORATIONS.length} drawn · {RINGS.length - 1} gradient · {COLORWAYS.length} colours</span
-        >
-      </span>
-      <span class="chev">›</span>
-    </button>
-  </div>
-
   <div class="field">
     <!-- GameShelf renders its own "Game collection · N" header, so no field
          label here (that was a duplicate). -->
@@ -634,43 +570,6 @@
       {saving ? "Saving…" : "Save"}
     </button>
   </div>
-
-  {#if decorStudio}
-    <DecorStudio
-      decoration={dec}
-      ring={frame}
-      {dc}
-      {speed}
-      {dir}
-      {glow}
-      width={ringW}
-      {sat}
-      {pal}
-      {color}
-      {color2}
-      {avatar}
-      {emoji}
-      name={name || "You"}
-      onApply={(r) => {
-        // One slot, two fields. The picker never returns both, so assigning
-        // both is what CLEARS the one you did not pick — and it is also what
-        // leaves an old profile wearing a ring and a figure alone until the
-        // moment its owner chooses, because until then the picker hands back
-        // exactly what it was given.
-        dec = r.decoration;
-        frame = r.ring;
-        dc = r.dc;
-        speed = r.speed;
-        dir = r.dir;
-        glow = r.glow;
-        ringW = r.width;
-        sat = r.sat;
-        pal = r.pal;
-        decorStudio = false;
-      }}
-      onClose={() => (decorStudio = false)}
-    />
-  {/if}
 
   {#if bannerStudio}
     <BannerStudio
@@ -797,52 +696,6 @@
   .pv-id {
     padding-top: 30px; /* clears the half of the avatar that hangs down */
     min-width: 0;
-  }
-  .ring-entry {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-4);
-    width: 100%;
-    padding: 10px 14px;
-    background: var(--bg-0);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    color: var(--text);
-    text-align: left;
-    overflow: clip;
-  }
-  .ring-entry {
-    transition:
-      background var(--dur-standard) ease,
-      border-color var(--dur-standard) ease;
-  }
-  .ring-entry:hover {
-    background: var(--bg-3);
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  }
-  .re-text {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-  .chev {
-    color: var(--text-faint);
-    font-size: 16px;
-    transition:
-      transform var(--dur-standard) ease,
-      color var(--dur-standard) ease;
-  }
-  .ring-entry:hover .chev {
-    color: var(--accent-hover);
-    transform: translateX(3px);
-  }
-  :global(:root[data-motion="reduced"]) .ring-entry,
-  :global(:root[data-motion="reduced"]) .chev {
-    transition: none;
-  }
-  :global(:root[data-motion="reduced"]) .ring-entry:hover .chev {
-    transform: none;
   }
   .banner-edit {
     position: absolute;
