@@ -74,6 +74,15 @@ test("an old ring, decoration and effect id is drawn as a plain avatar", async (
   const me = await bashir.rpc("Identity");
   assert.equal(me.frame, "orbit", "the wire still carries the old ring id");
   assert.equal(me.style?.dec, "gold-filigree", "the wire still carries the old decoration id");
+  // And Alice holds them: without this the page checks below would pass
+  // just as well if the old ids had never reached her.
+  await waitFor(
+    async () => {
+      const m = (await alice.rpc("Members", g.id)).find((x) => x.fingerprint === bashir.fingerprint);
+      return m?.frame === "orbit" && m?.effect === "sparkle-card" && m?.style?.dec === "gold-filigree";
+    },
+    { message: "Alice never received Bashir's old ring, effect and decoration ids" },
+  );
 
   const a = await alice.open({ viewport: "desktop" });
   await a.openChannel(ch.name, "Wardrobe");

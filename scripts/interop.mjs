@@ -538,8 +538,20 @@ async function phaseOnline() {
   });
 
   await lane("C2", "the empty ring, decoration and effect NEW's editor writes reach OLD as none", async () => {
-    // What ModalProfile saves: frame and effect empty, style holding only the
-    // banner's gradient dials.
+    // First NEW wears old ids (as a profile saved by an older build would) and
+    // OLD must see them, so that the clear below is a change OLD has to apply,
+    // not a state it was already in.
+    await setLook(NEW, "HeadPeer", "#3366cc", "orbit", "sparkle-card", { dec: "gold-filigree", dc: "gold" });
+    await waitFor(
+      "OLD sees NEW's old ids",
+      async () => {
+        const x = await memberOf(OLD, st.newFP);
+        return x.frame === "orbit" && x.style?.dec === "gold-filigree" ? x : null;
+      },
+      { timeout: 60000 },
+    );
+    // Then what ModalProfile saves: frame and effect empty, style holding only
+    // the banner's gradient dials.
     await setLook(NEW, "HeadPeer", "#cc6633", "", "", { angle: 120, fill: "gradient" });
     const m = await waitFor(
       "OLD sees NEW's profile",

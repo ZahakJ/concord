@@ -637,11 +637,18 @@ type Profile struct {
 	UpdatedAt int64 `json:"updatedAt,omitempty"`
 }
 
-// Style is the customization dial-set behind Frame/Effect. Every value is an
-// enum or a bounded number — never free text or a URL — so a hostile peer's
-// profile can't inject anything into the CSS we render it with.
+// Style is the dial-set behind the banner, plus the legacy ring and
+// decoration fields. Every value is an enum or a bounded number — never free
+// text or a URL — so a hostile peer's profile can't inject anything into the
+// CSS we render it with.
+//
+// Avatar rings, decorations and card effects were removed from the client.
+// Only Angle and Fill are drawn. The other fields stay so that older peers
+// still parse our profile and we still parse theirs: they are validated and
+// relayed for older peers, never drawn here, and this build's profile editor
+// writes them empty.
 type Style struct {
-	// Ring animation.
+	// Legacy ring animation dials.
 	Speed string `json:"speed,omitempty"` // slow | normal | fast
 	Dir   string `json:"dir,omitempty"`   // cw | ccw
 	Glow  string `json:"glow,omitempty"`  // off | soft | strong
@@ -649,33 +656,17 @@ type Style struct {
 	// Banner.
 	Angle int    `json:"angle,omitempty"` // gradient angle, 0..360
 	Fill  string `json:"fill,omitempty"`  // gradient | solid  (when no image)
-	// The thing orbiting your avatar on an orbit ring: an emoji, or a 64px
-	// sprite the user uploaded (data URI).
+	// Legacy: what orbited the avatar on an orbit ring, an emoji or a 64px
+	// sprite (data URI).
 	Sat string `json:"sat,omitempty"`
-	// The Gradient ring's colorway id (see frontend lib/rings.js PALETTES).
+	// Legacy: the Gradient ring's colourway id.
 	Pal string `json:"pal,omitempty"`
-	// Dec is the worn decoration's id (see frontend lib/decorations.js): ears,
-	// a crown, wings, a jaw. A peer of Frame rather than a dial on it — the two
-	// compose, so you can wear a decoration over any ring. It rides here rather
-	// than as another positional argument on SetProfile, which already carries
-	// thirteen, and it is bounded and resolved against a table that fails
-	// closed exactly like Pal.
+	// Legacy: the worn decoration's id.
 	Dec string `json:"dec,omitempty"`
-	// Cf is a leftover profile-card frame id. The UI no longer draws or offers
-	// frames, but older profiles still carry the field and SetProfile still
-	// accepts it so a round-trip cannot wipe a value a later build might read.
-	// Bounded by validID like the other style ids.
+	// Legacy: a profile-card frame id.
 	Cf string `json:"cf,omitempty"`
-	// Dc is the colourway the worn decoration is painted in (see frontend
-	// lib/decorations.js COLORWAYS): gold, obsidian, azure… A preset id and
-	// never a colour, which is the whole reason this can ride on a peer's
-	// profile at all — the value is looked up in a table on the viewer's
-	// machine and expanded into a five-step ramp there, so nothing a peer
-	// sends reaches a fill. Empty means the wearer's own profile colour, which
-	// is what every decoration was painted in before the field existed, so an
-	// absent Dc has to keep rendering exactly that. Bounded by validID and
-	// resolved fail-closed BACK to that default: an id this build does not
-	// know paints the profile colour, never nothing and never a raw value.
+	// Legacy: the colourway a decoration was painted in, a preset id and
+	// never a colour.
 	Dc string `json:"dc,omitempty"`
 }
 
@@ -764,10 +755,10 @@ var hexColorRe = regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)
 
 func validColor(c string) bool { return c == "" || hexColorRe.MatchString(c) }
 
-// validFrame admits an avatar-ring id. The id is looked up in the client's
-// ring table (frontend/src/lib/rings.js) and, like a banner preset, ends up
-// inside CSS — so it is held to a strict charset here. An id this client
-// doesn't know simply renders as no ring.
+// validFrame admits a legacy avatar-ring id. This build draws no rings, but
+// older peers still send and read the field, and an older client looks the id
+// up in its ring table and puts it inside CSS — so it is held to a strict
+// charset before we relay it.
 func validFrame(f string) bool {
 	if f == "" {
 		return true
