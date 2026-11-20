@@ -344,6 +344,15 @@ export const api = {
   // mind never kills a link you already sent.
   createGuestLink: (guildID, lifetimeHours = 0) => call("CreateGuestLink", guildID, lifetimeHours),
   meetingExpiry: (guildID) => call("MeetingExpiry", guildID),
+  // Kill the meeting's guest link and end every guest visit at once; the next
+  // createGuestLink mints a new one.
+  revokeGuestLink: (guildID) => call("RevokeGuestLink", guildID),
+  // Replace an event room's guest link (hosting device only); resolves to the
+  // event with the new link on it.
+  revokeEventGuestLink: (guildID, eventID) => call("RevokeEventGuestLink", guildID, eventID),
+  // Whether guests see the last 30 messages on arrival (off by default).
+  setGuestLinkHistory: (guildID, on) => call("SetGuestLinkHistory", guildID, !!on),
+  guestLinkHistory: (guildID) => call("GuestLinkHistory", guildID),
   startDM: (fingerprint) => call("StartDM", fingerprint),
   createChannel: (guildID, name, type = "", category = "") =>
     call("CreateChannel", guildID, name, type, category),

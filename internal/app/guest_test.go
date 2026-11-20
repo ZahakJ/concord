@@ -17,14 +17,8 @@ import (
 // a meeting can be exercised without a browser: what a guest is allowed to see
 // before being admitted, and how long a link lives.
 
-// guestPipe starts one guest visit and returns the guest's end of the wire.
-func guestPipe(t *testing.T, s *Service) (*bufio.Reader, net.Conn) {
-	t.Helper()
-	hostEnd, guestEnd := net.Pipe()
-	go s.serveGuest(hostEnd)
-	t.Cleanup(func() { _ = guestEnd.Close() })
-	return bufio.NewReader(guestEnd), guestEnd
-}
+// guestPipe (guestwire_test.go) starts one guest visit and returns the
+// guest's end of the wire, with the guest leg's encryption done for it.
 
 func sendGuestFrame(t *testing.T, c net.Conn, f guestFrame) {
 	t.Helper()
@@ -89,11 +83,7 @@ func meetingWithGuestLink(t *testing.T, s *Service, hours int) (channelID, token
 	if err != nil {
 		t.Fatalf("CreateGuestLink: %v", err)
 	}
-	i := strings.Index(url, "&t=")
-	if i < 0 {
-		t.Fatalf("guest link has no token: %q", url)
-	}
-	return g.Channels[0].ID, url[i+3:]
+	return g.Channels[0].ID, linkSecretOf(t, url)
 }
 
 // TestGuestKnocksAtLockedMeeting is the office-hours path: a locked meeting must
@@ -296,6 +286,13 @@ func TestGuestBackfillHidesOtherGuests(t *testing.T) {
 	s := startService(t, ctx)
 
 	channelID, token := meetingWithGuestLink(t, s, 0)
+	// History is off by default; this test is about what it carries when on.
+	s.guestMu.Lock()
+	guildID := s.guestTokens[guestLinkID(mustB64(t, token))].GuildID
+	s.guestMu.Unlock()
+	if err := s.SetGuestLinkHistory(guildID, true); err != nil {
+		t.Fatalf("SetGuestLinkHistory: %v", err)
+	}
 
 	// Guest one arrives, is seen, says something, and goes.
 	r1, c1 := guestPipe(t, s)
@@ -556,7 +553,7 @@ func TestGuestLinkExpiryEndsALiveVisit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateGuestLink: %v", err)
 	}
-	token := url[strings.Index(url, "&t=")+3:]
+	token := linkSecretOf(t, url)
 
 	r, c := guestPipe(t, s)
 	sendGuestFrame(t, c, guestFrame{Type: "hello", Token: token, Name: "Lurker"})
@@ -699,9 +696,8 @@ func TestGuestLinkOutlivesRestart(t *testing.T) {
 	}
 	// The token from the first run still opens the door.
 	channelID := g.Channels[0].ID
-	i := strings.Index(link, "&t=")
 	r, c := guestPipe(t, s2)
-	sendGuestFrame(t, c, guestFrame{Type: "hello", Token: link[i+3:], Name: "Returning"})
+	sendGuestFrame(t, c, guestFrame{Type: "hello", Token: linkSecretOf(t, link), Name: "Returning"})
 	frames := readGuestFrames(t, r, c, "welcome", "end")
 	if last := frames[len(frames)-1]; last.Type != "welcome" {
 		t.Fatalf("a link minted before the restart got %q (%s), want welcome", last.Type, last.Reason)

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/ecdh"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -29,6 +30,129 @@ func bookingReq(t *testing.T, s *Service, req bookingRequest) bookingResponse {
 		t.Fatalf("response is not JSON: %v", err)
 	}
 	return resp
+}
+
+func testEpk(t *testing.T) string {
+	t.Helper()
+	k, err := guestEphemeral()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b64url.EncodeToString(k.PublicKey().Bytes())
+}
+
+// openBooking is the booking page's half of the seal.
+func openBooking(esk *ecdh.PrivateKey, resp bookingResponse) (meetingURL, ics string, err error) {
+	spk, err := b64url.DecodeString(resp.Spk)
+	if err != nil {
+		return "", "", err
+	}
+	pub, err := guestPublicKey(spk)
+	if err != nil {
+		return "", "", err
+	}
+	z, err := esk.ECDH(pub)
+	if err != nil {
+		return "", "", err
+	}
+	sealed, err := b64url.DecodeString(resp.Sealed)
+	if err != nil {
+		return "", "", err
+	}
+	pt, err := bookingOpen(bookingSealKey(z, esk.PublicKey().Bytes(), spk), sealed)
+	if err != nil {
+		return "", "", err
+	}
+	var out struct {
+		MeetingURL string `json:"meetingURL"`
+		ICS        string `json:"ics"`
+	}
+	if err := json.Unmarshal(pt, &out); err != nil {
+		return "", "", err
+	}
+	return out.MeetingURL, out.ICS, nil
+}
+
+// bookSealed books with an ephemeral key, asserts nothing secret came back in
+// the clear, and returns the response with the opened fields filled in.
+func bookSealed(t *testing.T, s *Service, req bookingRequest) bookingResponse {
+	t.Helper()
+	esk, err := guestEphemeral()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Epk = b64url.EncodeToString(esk.PublicKey().Bytes())
+	resp := bookingReq(t, s, req)
+	if !resp.OK {
+		return resp
+	}
+	if resp.MeetingURL != "" || resp.ICS != "" {
+		t.Fatal("the booking answer carried the meeting link in the clear")
+	}
+	resp.MeetingURL, resp.ICS, err = openBooking(esk, resp)
+	if err != nil {
+		t.Fatalf("the visitor could not open their own booking: %v", err)
+	}
+	return resp
+}
+
+// TestBookingSealOpensOnlyForVisitor: no key, no booking; the answer opens
+// with the visitor's key and not with another, nor after the host's key is
+// swapped in transit; the room's link admits two guests.
+func TestBookingSealOpensOnlyForVisitor(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	t.Setenv("CONCORD_GUEST_BASE", "http://127.0.0.1:1")
+	boot := testRendezvous(t, ctx)
+	host := startServiceOn(t, ctx, t.TempDir(), boot)
+	if _, err := host.SetBookingConfig(BookingConfigInput{
+		Enabled: true, SlotMinutes: 30, HorizonDays: 7, Windows: allWeekWindows(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	token := host.bookingCfg.Token
+	slots := bookingReq(t, host, bookingRequest{Op: "slots", Token: token})
+	if len(slots.Slots) < 2 {
+		t.Fatalf("not enough slots: %+v", slots)
+	}
+	noKey := bookingReq(t, host, bookingRequest{Op: "book", Token: token, Slot: slots.Slots[0], Name: "Kim"})
+	if noKey.OK || noKey.Err != "Reload the booking page." {
+		t.Fatalf("a book with no key got %+v", noKey)
+	}
+	if n := len(host.BookingSettings().Bookings); n != 0 {
+		t.Fatalf("a refused book still took a slot (%d bookings)", n)
+	}
+
+	esk, _ := guestEphemeral()
+	resp := bookingReq(t, host, bookingRequest{
+		Op: "book", Token: token, Slot: slots.Slots[0], Name: "Kim",
+		Epk: b64url.EncodeToString(esk.PublicKey().Bytes()),
+	})
+	if !resp.OK || resp.Spk == "" || resp.Sealed == "" {
+		t.Fatalf("sealed booking answer missing: %+v", resp)
+	}
+	if resp.MeetingURL != "" || resp.ICS != "" {
+		t.Fatal("meeting link in the clear")
+	}
+	url, ics, err := openBooking(esk, resp)
+	if err != nil || !strings.Contains(url, "/guest#h=") || !strings.Contains(url, "&k=") || !strings.Contains(ics, "BEGIN:VEVENT") {
+		t.Fatalf("visitor's own key: url=%q err=%v", url, err)
+	}
+	other, _ := guestEphemeral()
+	if _, _, err := openBooking(other, resp); err == nil {
+		t.Fatal("the booking answer opened under someone else's key")
+	}
+	swapped := resp
+	swapped.Spk = testEpk(t)
+	if _, _, err := openBooking(esk, swapped); err == nil {
+		t.Fatal("the booking answer opened after the host's key was swapped")
+	}
+	host.guestMu.Lock()
+	tok, ok := host.guestTokens[linkIDOf(t, url)]
+	host.guestMu.Unlock()
+	if !ok || tok.MaxGuests != maxGuestsPerBookingLink {
+		t.Fatalf("booking link admits %d guests (found=%v), want %d", tok.MaxGuests, ok, maxGuestsPerBookingLink)
+	}
 }
 
 func TestBookingConfigValidation(t *testing.T) {
@@ -132,7 +256,7 @@ func TestBookingEndToEndOnHost(t *testing.T) {
 	}
 
 	pick := slots.Slots[0]
-	booked := bookingReq(t, host, bookingRequest{
+	booked := bookSealed(t, host, bookingRequest{
 		Op: "book", Token: token, Slot: pick,
 		Name: "Sam `the*buyer`", Note: "Interested in the on-prem story.\x00",
 	})
@@ -185,12 +309,12 @@ func TestBookingEndToEndOnHost(t *testing.T) {
 			t.Fatal("booked slot still offered")
 		}
 	}
-	if dup := bookingReq(t, host, bookingRequest{Op: "book", Token: token, Slot: pick, Name: "Eve"}); dup.OK {
+	if dup := bookingReq(t, host, bookingRequest{Op: "book", Token: token, Slot: pick, Name: "Eve", Epk: testEpk(t)}); dup.OK {
 		t.Fatal("double booking accepted")
 	}
 
 	// A booking with no name is not a booking.
-	if anon := bookingReq(t, host, bookingRequest{Op: "book", Token: token, Slot: again.Slots[0]}); anon.OK {
+	if anon := bookingReq(t, host, bookingRequest{Op: "book", Token: token, Slot: again.Slots[0], Epk: testEpk(t)}); anon.OK {
 		t.Fatal("anonymous booking accepted")
 	}
 

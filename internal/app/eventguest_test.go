@@ -31,11 +31,7 @@ func eventForGuests(t *testing.T, s *Service) (domain.Guild, domain.Event) {
 
 func guestTokenOf(t *testing.T, url string) string {
 	t.Helper()
-	i := strings.Index(url, "&t=")
-	if i < 0 {
-		t.Fatalf("guest link has no token: %q", url)
-	}
-	return url[i+3:]
+	return linkSecretOf(t, url)
 }
 
 // TestEventGuestOpenKnockSeedAndAutoAdmit drives the whole host-side flow: the
@@ -198,9 +194,8 @@ func TestEventGuestLinkStableAcrossEdits(t *testing.T) {
 	}
 	// The token's own clock must agree, or the door shuts early (serveGuest
 	// checks both).
-	token := guestTokenOf(t, opened.GuestURL)
 	s.guestMu.Lock()
-	tok, ok := s.guestTokens[token]
+	tok, ok := s.guestTokens[linkIDOf(t, opened.GuestURL)]
 	s.guestMu.Unlock()
 	if !ok || tok.Expires.Unix() != want {
 		t.Fatalf("token expiry %v (ok=%v), want %d", tok.Expires.Unix(), ok, want)
@@ -208,7 +203,7 @@ func TestEventGuestLinkStableAcrossEdits(t *testing.T) {
 }
 
 // TestEventGuestRevokeTearsDown: revoke clears the event, deletes the room,
-// and the link answers "no longer valid".
+// and the link no longer opens (the host hangs up without a word).
 func TestEventGuestRevokeTearsDown(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping networked service test in -short mode")
@@ -254,10 +249,7 @@ func TestEventGuestRevokeTearsDown(t *testing.T) {
 	token := guestTokenOf(t, opened.GuestURL)
 	r, c := guestPipe(t, s)
 	sendGuestFrame(t, c, guestFrame{Type: "hello", Token: token, Name: "Late"})
-	frames := readGuestFrames(t, r, c, "end", "welcome", "waiting")
-	if last := frames[len(frames)-1]; last.Type != "end" || !strings.Contains(last.Reason, "no longer valid") {
-		t.Fatalf("revoked link answered %q (%q), want a clean refusal", last.Type, last.Reason)
-	}
+	expectGuestClosed(t, r, c) // every failed join is a silent close
 
 	// Deleting an event with a live room also tears it down.
 	g2, ev2 := eventForGuests(t, s)

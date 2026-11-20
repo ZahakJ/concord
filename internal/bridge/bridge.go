@@ -3966,6 +3966,45 @@ func (b *Bridge) MeetingExpiry(guildID string) (int64, error) {
 	return svc.MeetingExpiry(guildID), nil
 }
 
+// RevokeGuestLink kills an instant meeting's guest link and ends every guest
+// visit in it at once; the next CreateGuestLink mints a new one.
+func (b *Bridge) RevokeGuestLink(guildID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.RevokeGuestLink(guildID)
+}
+
+// RevokeEventGuestLink replaces an event room's guest link (hosting device
+// only) and returns the event with the new link stamped on it.
+func (b *Bridge) RevokeEventGuestLink(guildID, eventID string) (domain.Event, error) {
+	svc, err := b.service()
+	if err != nil {
+		return domain.Event{}, err
+	}
+	return svc.RevokeEventGuestLink(guildID, eventID)
+}
+
+// SetGuestLinkHistory chooses whether guests see the last 30 messages on
+// arrival (off by default).
+func (b *Bridge) SetGuestLinkHistory(guildID string, on bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetGuestLinkHistory(guildID, on)
+}
+
+// GuestLinkHistory reports SetGuestLinkHistory's choice.
+func (b *Bridge) GuestLinkHistory(guildID string) (bool, error) {
+	svc, err := b.service()
+	if err != nil {
+		return false, err
+	}
+	return svc.GuestLinkHistory(guildID)
+}
+
 // NotesDM returns (creating if needed) the user's personal self-DM.
 func (b *Bridge) NotesDM() (GuildView, error) {
 	svc, err := b.service()
@@ -4295,6 +4334,14 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.CreateGuild(argStr(args, 0))
 	case "CreateGuestLink":
 		return b.CreateGuestLink(argStr(args, 0), argInt(args, 1))
+	case "RevokeGuestLink":
+		return nil, b.RevokeGuestLink(argStr(args, 0))
+	case "RevokeEventGuestLink":
+		return b.RevokeEventGuestLink(argStr(args, 0), argStr(args, 1))
+	case "SetGuestLinkHistory":
+		return nil, b.SetGuestLinkHistory(argStr(args, 0), argBool(args, 1))
+	case "GuestLinkHistory":
+		return b.GuestLinkHistory(argStr(args, 0))
 	case "MeetingExpiry":
 		return b.MeetingExpiry(argStr(args, 0))
 	case "StartMeeting":

@@ -148,10 +148,46 @@ func (s *Service) initBookings() {
 	s.bookingSlotsBucket = tokenBucket{tokens: bookingSlotsBurst, last: time.Now()}
 	s.bookingBookBucket = tokenBucket{tokens: bookingBookBurst, last: time.Now()}
 	s.pruneBookingsLocked(time.Now())
+	recs := append([]bookingRecord(nil), s.bookingRecords...)
 	s.bookingMu.Unlock()
+	s.remintBookingLinks(recs)
 	s.host.HandleBookings(func(from peer.ID, req []byte) []byte {
 		return s.handleBookingRequest(req)
 	})
+}
+
+// remintBookingLinks gives every outstanding booking room a link again after
+// loadGuestTokens dropped one saved before the guest leg was encrypted. The
+// visitor's copy no longer works and only the host can reach them, so the
+// booking's meeting room gets a notice with the new link to send on.
+func (s *Service) remintBookingLinks(recs []bookingRecord) {
+	for _, rec := range recs {
+		if rec.MeetingGuildID == "" {
+			continue
+		}
+		s.mu.RLock()
+		g, ok := s.guilds[rec.MeetingGuildID]
+		channelID := ""
+		if ok && len(g.Channels) > 0 {
+			channelID = g.Channels[0].ID
+		}
+		s.mu.RUnlock()
+		if channelID == "" {
+			continue
+		}
+		s.guestMu.Lock()
+		_, _, has := s.guestLinkForLocked(rec.MeetingGuildID)
+		s.guestMu.Unlock()
+		if has {
+			continue
+		}
+		url, err := s.createGuestLink(rec.MeetingGuildID, 0, maxGuestsPerBookingLink)
+		if err != nil {
+			continue
+		}
+		s.sendSystem(channelID, "After an update, the meeting link sent to "+rec.Name+
+			" no longer works. Send them this one instead:\n"+url)
+	}
 }
 
 // tokenBucket is the small shared shape of the host-side limits.
@@ -340,8 +376,9 @@ func (s *Service) isBookingMeeting(guildID string) bool {
 }
 
 // CancelBooking frees a slot: the calendar event goes, the meeting room is
-// deleted (which is what makes the visitor's link answer "no longer valid"),
-// and the slot shows as available again on the public page.
+// deleted with its link (so the visitor's link stops working and anyone in
+// the room is shown out), and the slot shows as available again on the
+// public page.
 func (s *Service) CancelBooking(eventID string) error {
 	s.bookingMu.Lock()
 	var rec bookingRecord
@@ -370,24 +407,13 @@ func (s *Service) CancelBooking(eventID string) error {
 		_ = s.DeleteEvent(id, rec.EventID)
 	}
 	if rec.MeetingGuildID != "" {
-		_ = s.deleteGuildLocal(rec.MeetingGuildID)
+		// The link first, while the room still names its channel: this also
+		// ends a visit already in progress (guest.go, dropGuestTokens).
 		s.dropGuestTokens(rec.MeetingGuildID)
+		_ = s.deleteGuildLocal(rec.MeetingGuildID)
 	}
 	s.emitGuildUpdate()
 	return nil
-}
-
-// dropGuestTokens revokes any guest link into a guild immediately, instead of
-// waiting for the deleted-guild check to catch the next visitor.
-func (s *Service) dropGuestTokens(guildID string) {
-	s.guestMu.Lock()
-	for t, tok := range s.guestTokens {
-		if tok.GuildID == guildID {
-			delete(s.guestTokens, t)
-		}
-	}
-	s.guestMu.Unlock()
-	s.saveGuestTokens()
 }
 
 // availableSlotsLocked computes bookable start times: the office-hours
@@ -460,10 +486,19 @@ type bookingRequest struct {
 	Slot  int64  `json:"slot,omitempty"`
 	Name  string `json:"name,omitempty"`
 	Note  string `json:"note,omitempty"`
+	// Epk is the page's ephemeral P-256 public key (raw uncompressed,
+	// base64url) for a "book"; the answer is sealed to it. Required.
+	Epk string `json:"epk,omitempty"`
 }
 
 // bookingResponse is the single line back. Exactly one of the shapes is
 // filled; Err is a sentence safe to show a stranger.
+//
+// A successful "book" carries the meeting link and the visitor's .ics only
+// inside Sealed: base64url(nonce(12) ‖ AES-256-GCM(key, {meetingURL, ics})),
+// key = HKDF(ECDH(spk, epk), salt = epk ‖ spk, "concord booking v1 seal").
+// MeetingURL and ICS stay as fields so the sealed JSON shares their names;
+// the host never fills them in the clear.
 type bookingResponse struct {
 	OK          bool    `json:"ok"`
 	Err         string  `json:"error,omitempty"`
@@ -475,6 +510,8 @@ type bookingResponse struct {
 	ICS         string  `json:"ics,omitempty"`
 	Start       int64   `json:"start,omitempty"`
 	End         int64   `json:"end,omitempty"`
+	Spk         string  `json:"spk,omitempty"`
+	Sealed      string  `json:"sealed,omitempty"`
 }
 
 func bookingErr(msg string) []byte {
@@ -539,12 +576,40 @@ func (s *Service) handleBookingRequest(req []byte) []byte {
 // Notes choice below), record the slot as taken, and hand the visitor their
 // link and .ics. The visitor keeps those; there is nothing to email.
 //
+// The link and .ics go back sealed to the page's ephemeral key (r.Epk), so
+// the gateway relaying the answer cannot read the meeting URL. That holds
+// against an operator who only reads: the keys are not authenticated, so one
+// that rewrites the exchange can still get the URL (docs/dev/guest-e2e.md).
+// A booking knock is unauthenticated either way. A "book" without a key is
+// from a page older than this and is refused before anything is minted.
+//
 // The event lives in Notes rather than a new "personal calendar" store
 // because Notes IS the personal/self view Concord already has: a one-member
 // MLS group whose guild-meta lane (which calendar events already ride)
 // reaches exactly the host's own linked devices, encrypted, with history sync
 // for a device that was off. A separate store would need all of that rebuilt.
 func (s *Service) bookSlot(r bookingRequest) bookingResponse {
+	epk, err := b64url.DecodeString(r.Epk)
+	if err != nil || r.Epk == "" {
+		return bookingResponse{Err: "Reload the booking page."}
+	}
+	visitorPub, err := guestPublicKey(epk)
+	if err != nil {
+		return bookingResponse{Err: "Reload the booking page."}
+	}
+	ssk, err := guestEphemeral()
+	if err != nil {
+		return bookingResponse{Err: "The host's app couldn't finish the booking — try again."}
+	}
+	sealNonce, err := guestRandom(12)
+	if err != nil {
+		return bookingResponse{Err: "The host's app couldn't finish the booking — try again."}
+	}
+	z, err := ssk.ECDH(visitorPub)
+	if err != nil {
+		return bookingResponse{Err: "Reload the booking page."}
+	}
+
 	name := sanitizeBookingText(r.Name, maxBookingNameRunes, false)
 	note := sanitizeBookingText(r.Note, maxBookingNoteRunes, true)
 	if name == "" {
@@ -601,13 +666,14 @@ func (s *Service) bookSlot(r bookingRequest) bookingResponse {
 	s.setMeetingExpiry(g.ID, end.Add(time.Hour))
 
 	fail := func() bookingResponse {
-		_ = s.deleteGuildLocal(g.ID)
 		s.dropGuestTokens(g.ID)
+		_ = s.deleteGuildLocal(g.ID)
 		return bookingResponse{Err: "The host's app couldn't finish the booking — try again."}
 	}
 
-	// Lifetime 0: the guest token inherits the absolute expiry set above.
-	meetingURL, err := s.CreateGuestLink(g.ID, 0)
+	// Lifetime 0: the link inherits the absolute expiry set above. Two guests:
+	// the visitor and one colleague.
+	meetingURL, err := s.createGuestLink(g.ID, 0, maxGuestsPerBookingLink)
 	if err != nil {
 		return fail()
 	}
@@ -664,12 +730,17 @@ func (s *Service) bookSlot(r bookingRequest) bookingResponse {
 		CreatedAt: now.Unix(),
 		UpdatedAt: now.Unix(),
 	}
+	secret, _ := json.Marshal(struct {
+		MeetingURL string `json:"meetingURL"`
+		ICS        string `json:"ics"`
+	}{meetingURL, icsCalendar([]domain.Event{visitorEv})})
+	spk := ssk.PublicKey().Bytes()
 	return bookingResponse{
-		OK:         true,
-		Host:       s.DisplayName(),
-		MeetingURL: meetingURL,
-		ICS:        icsCalendar([]domain.Event{visitorEv}),
-		Start:      start.Unix(),
-		End:        end.Unix(),
+		OK:     true,
+		Host:   s.DisplayName(),
+		Start:  start.Unix(),
+		End:    end.Unix(),
+		Spk:    b64url.EncodeToString(spk),
+		Sealed: b64url.EncodeToString(bookingSeal(bookingSealKey(z, epk, spk), sealNonce, secret)),
 	}
 }

@@ -211,13 +211,15 @@ type Service struct {
 	hideTimer   *time.Timer
 	hideCursor  map[peer.ID]int64 // per own device: last stamp of its registers we hold
 
-	// Browser-guest sessions (see guest.go): issued meeting tokens, the live
-	// sessions per channel, and the same sessions by id — a guest in a call is
-	// addressed as the voice peer "guest:<id>".
+	// Browser-guest sessions (see guest.go): issued links by link id, the live
+	// sessions per channel, the same sessions by id — a guest in a call is
+	// addressed as the voice peer "guest:<id>" — and the visits still in the
+	// handshake, by link id.
 	guestMu       sync.Mutex
 	guestTokens   map[string]guestToken
 	guestSessions map[string][]*guestSession
 	guestByID     map[string]*guestSession
+	guestShakes   map[string]map[*guestHandshake]bool
 	// guestDoor is the instant a channel's guest door stops being locked. A lock
 	// is re-announced every few seconds while it is on (see the front end's
 	// toggleCallLock), so treating it as a lease rather than a flag makes a

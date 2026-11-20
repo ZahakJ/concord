@@ -2,8 +2,6 @@ package app
 
 import (
 	"bufio"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -21,23 +19,29 @@ import (
 // Browser guests: someone with just the meeting link joins from a plain web
 // page served by the rendezvous node — no Concord install, no account. The
 // rendezvous relays the guest's WebSocket to THIS node over a libp2p stream,
-// and this node is the guest's crypto endpoint: it decrypts the meeting for
+// and this node is the guest's only endpoint: it decrypts the meeting for
 // them and sends their messages into the MLS group under its own key,
 // attributed "👤 Name (guest)". That is the deliberate trust model — the
 // HOST vouches for (and can read) the guests they invite; full members keep
-// end-to-end encryption among themselves. Guests are scoped hard: one
-// meeting's one channel, chat only, rate-limited, dead when the meeting or
-// the token expires.
+// end-to-end encryption among themselves.
+//
+// The leg between the guest's browser and this node is end-to-end encrypted
+// too (guestcrypt.go, docs/dev/guest-e2e.md): after a clear hello and
+// challenge every frame is a sealed record, so the rendezvous relaying it
+// sees a link id, nonces, ephemeral keys and ciphertext. Guests are scoped
+// hard: one meeting's one channel, chat and the call, rate-limited, dead when
+// the meeting or the link expires or the host revokes the link.
 
 const (
 	maxGuestsPerMeeting = 5
 	maxGuestNameBytes   = 24
 	maxGuestMsgBytes    = 2000
 	// A WebRTC offer/answer is far bigger than a chat line (a few KB of SDP,
-	// more once video codecs are in it). Frames are capped generously; the chat
-	// CONTENT limit above still applies to messages.
-	maxGuestFrameBytes = 32 << 10
-	// The hello frame (token + name) is small; cap it tight.
+	// more once video codecs are in it), and a sealed record adds base64 and
+	// padding on top. Frames are capped generously; the chat CONTENT limit
+	// above still applies to messages. The gateway caps at the same size.
+	maxGuestFrameBytes = 64 << 10
+	// The hello frame (link id, nonce, public key) is small; cap it tight.
 	maxGuestHelloBytes = 8 << 10
 	// Signaling bypasses the chat rate limit (ICE trickles in bursts) but is
 	// bounded on its own: enough for several renegotiations, not enough to be a
@@ -50,8 +54,8 @@ const (
 	guestBurst      = 5
 	guestRefillEach = time.Second
 	// Deadlines on the untrusted, explicitly-relayed stream: a short budget to
-	// present a valid hello (pre-auth slowloris), then a generous idle timeout in
-	// the call loop (guests sit quietly between ICE trickles / messages).
+	// complete the handshake (pre-auth slowloris), then a generous idle timeout
+	// in the call loop (guests sit quietly between ICE trickles / messages).
 	//
 	// Generous, because a guest sends nothing while they read: someone lurking in
 	// the meeting chat is not a stalled connection, and hanging up on them is the
@@ -95,6 +99,28 @@ const (
 	// crashes, reloads, or quits stops renewing and the door opens again, instead
 	// of leaving a lock only a dead client could lift.
 	guestDoorLease = 12 * time.Second
+
+	// Limited use: how many distinct guests (gids) one link admits. A booking
+	// room's link went to one stranger, who may bring one colleague.
+	maxGuestsPerLink        = 5
+	maxGuestsPerBookingLink = 2
+	// Handshakes that have sent hello but not yet proved the link: bounded per
+	// link and per node, and not counted against the five-guest cap, so a flood
+	// of half-open visits cannot hold a meeting's seats.
+	maxGuestHandshakesPerLink = 8
+	maxGuestHandshakes        = 64
+	maxGuestGidBytes          = 64
+)
+
+// What a guest is told when they are turned away after proving the link.
+// Failures before that (wrong key, unknown, expired or revoked link) are a
+// silent close, so the operator cannot tell one from another.
+const (
+	guestEndRevoked = "The host ended guest access to this meeting."
+	guestEndRemoved = "The host removed you from this meeting."
+	guestEndUsedUp  = "This link has already been used by as many guests as it allows."
+	guestEndFull    = "This meeting is full."
+	guestEndEnded   = "This meeting has ended."
 )
 
 // errGuestFrameOversize marks a frame that ran past its cap without a newline —
@@ -131,38 +157,79 @@ func setGuestReadDeadline(conn io.ReadWriteCloser, t time.Time) {
 	}
 }
 
-// guestToken is one issued guest link, valid for the meeting's lifetime.
-// Persisted (guestTokensKey): a link the host has already sent to someone must
-// keep working after they close and reopen the app — a 7-day link that dies the
-// first time Concord restarts is not a 7-day link.
+// guestToken is one issued guest link, filed under its link id and valid for
+// the meeting's lifetime. Persisted (guestTokensKey): a link the host has
+// already sent to someone must keep working after they close and reopen the
+// app — a 7-day link that dies the first time Concord restarts is not a 7-day
+// link.
 type guestToken struct {
 	GuildID   string    `json:"guild"`
 	ChannelID string    `json:"channel"`
 	Expires   time.Time `json:"expires"`
+	// S is the link secret (base64url), the one thing in the URL fragment the
+	// session keys come from. A saved link without it is from before the guest
+	// leg was encrypted and is dropped on load.
+	S string `json:"s"`
+	// History lets admitted guests read the last guestHistoryCount messages.
+	// Off unless the host turns it on for this link.
+	History bool `json:"history,omitempty"`
+	// MaxGuests distinct gids may use the link; Guests are the ones that have,
+	// Banned the ones the host removed.
+	MaxGuests int      `json:"maxGuests"`
+	Guests    []string `json:"guests,omitempty"`
+	Banned    []string `json:"banned,omitempty"`
 }
 
-// guestTokensKey is the settings key holding the issued links. The tokens are
-// bearer secrets; the store they live in is the same encrypted database as the
-// message history and MLS state.
+func (t guestToken) maxGuests() int {
+	if t.MaxGuests <= 0 {
+		return maxGuestsPerLink
+	}
+	return t.MaxGuests
+}
+
+func hasString(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// guestTokensKey is the settings key holding the issued links, each with its
+// secret S. Settings are NOT encrypted at rest (docs/manual/privacy.md says so
+// and names guest links), so a device thief can read S and join that meeting
+// as a guest until the link expires or is revoked.
 const guestTokensKey = "guest.links"
+
+// guestHandshake is a visit between hello and a proven join. Registered so a
+// revoke can cut it off and so the pre-join caps can count it.
+type guestHandshake struct {
+	conn io.ReadWriteCloser
+}
 
 // guestSession is one live browser guest. `id` makes it addressable as a voice
 // peer ("guest:<id>"): the WebRTC mesh in the app treats a guest exactly like
 // any other participant, and RelaySignal routes that prefix down this session's
-// stream instead of over libp2p. Media itself is direct browser↔app (P2P,
-// DTLS-SRTP) — it never touches the rendezvous.
+// stream instead of over libp2p. Media itself is DTLS-SRTP between the browser
+// and this app, direct or through the TURN relay, never through the gateway.
 type guestSession struct {
 	id        string
 	name      string
 	fpr       string // guestFingerprint(name, id) — how the host's UI names them
 	channelID string
+	linkID    string
+	gid       string
 	conn      io.ReadWriteCloser
 	send      chan []byte // JSON lines queued to the guest (dropped when full)
 
 	// One mutex over every write to the stream: the queue-draining writer, the
 	// door's status pings and an eviction notice can all fire at once, and two
-	// interleaved writes would splice two JSON lines into one unparseable frame.
+	// interleaved writes would splice two lines into one unparseable frame. It
+	// also orders the sealing counter: a record is sealed and written under the
+	// same lock, so counters reach the wire in order.
 	writeMu   sync.Mutex
+	tx        *guestCipher
 	closeOnce sync.Once
 
 	// gate carries the host's verdict on a KNOCKING guest exactly once: "" for
@@ -181,9 +248,10 @@ type guestSession struct {
 	inCall bool
 }
 
-// write emits one frame to the guest, newline-terminated. EVERY frame is: the
-// gateway forwards whole lines and the guest page parses only complete ones, so
-// a frame without its '\n' is a frame the browser waits on forever.
+// write emits one frame to the guest as a sealed record, newline-terminated.
+// EVERY frame is: the gateway forwards whole lines and the guest page parses
+// only complete ones, so a frame without its '\n' is a frame the browser waits
+// on forever.
 func (g *guestSession) write(f guestFrame) error {
 	line, err := json.Marshal(f)
 	if err != nil {
@@ -201,7 +269,7 @@ func (g *guestSession) writeLine(line []byte) error {
 	if d, ok := g.conn.(interface{ SetWriteDeadline(time.Time) error }); ok {
 		_ = d.SetWriteDeadline(time.Now().Add(guestWriteTimeout))
 	}
-	_, err := g.conn.Write(append(line, '\n'))
+	_, err := g.conn.Write(append(g.tx.seal(line), '\n'))
 	return err
 }
 
@@ -229,16 +297,32 @@ func (g *guestSession) isAdmitted() bool {
 	return g.admitted
 }
 
-func (g *guestSession) admit() {
-	g.admitMu.Lock()
-	g.admitted = true
-	g.admitMu.Unlock()
+// guestHello is the one clear frame a guest sends.
+type guestHello struct {
+	Type string `json:"type"`
+	V    int    `json:"v"`
+	Link string `json:"link"`
+	Gn   string `json:"gn"`
+	Gpk  string `json:"gpk"`
 }
 
+// guestChal is the one clear frame the host sends, to every hello alike.
+type guestChal struct {
+	Type string `json:"type"`
+	Hn   string `json:"hn"`
+	Hpk  string `json:"hpk"`
+}
+
+// guestFrame is the plaintext of a sealed record, both ways.
 type guestFrame struct {
-	Type    string `json:"type"`
-	Token   string `json:"token,omitempty"`
-	Name    string `json:"name,omitempty"`
+	Type string `json:"type"`
+	// Token is not part of the wire: the Go test harness passes the link secret
+	// to its adapter in it, the way the page reads it from the fragment.
+	Token string `json:"token,omitempty"`
+	Name  string `json:"name,omitempty"`
+	// Gid is the guest page's random per-link id, sent in the sealed join: it
+	// is how a link counts distinct guests and how a removed guest stays out.
+	Gid     string `json:"gid,omitempty"`
 	From    string `json:"from,omitempty"`
 	Content string `json:"content,omitempty"`
 	Sent    string `json:"sent,omitempty"`
@@ -251,14 +335,29 @@ type guestFrame struct {
 	Channel string          `json:"channel,omitempty"` // the voice room the guest signals about
 }
 
+// guestRecordBody returns the ciphertext of a sealed record line, or false
+// for anything else. After the challenge nothing else is accepted: a clear
+// frame there can only have been injected by whoever relays the stream.
+func guestRecordBody(line []byte) (string, bool) {
+	var f struct {
+		Type string `json:"type"`
+		C    string `json:"c"`
+	}
+	if json.Unmarshal(line, &f) != nil || f.Type != "e" || f.C == "" {
+		return "", false
+	}
+	return f.C, true
+}
+
 // initGuests wires the stream handler and the message tap. Called from Start.
 func (s *Service) initGuests() {
 	s.guestMu.Lock()
 	if s.guestTokens == nil {
-		s.guestTokens = map[string]guestToken{}
-		s.guestSessions = map[string][]*guestSession{} // channelID -> sessions
-		s.guestByID = map[string]*guestSession{}       // session id -> session
-		s.guestDoor = map[string]time.Time{}           // channelID -> lock lease
+		s.guestTokens = map[string]guestToken{}               // link id -> link
+		s.guestSessions = map[string][]*guestSession{}        // channelID -> sessions
+		s.guestByID = map[string]*guestSession{}              // session id -> session
+		s.guestDoor = map[string]time.Time{}                  // channelID -> lock lease
+		s.guestShakes = map[string]map[*guestHandshake]bool{} // link id -> pre-join visits
 	}
 	s.guestMu.Unlock()
 	s.loadGuestTokens()
@@ -346,7 +445,11 @@ func (s *Service) guestFrameFor(m domain.Message) guestFrame {
 }
 
 // loadGuestTokens restores issued guest links, dropping any whose meeting is
-// gone (the startup sweep has run) or whose lifetime has passed.
+// gone (the startup sweep has run) or whose lifetime has passed, and every
+// link saved before the guest leg was encrypted: those were bearer tokens the
+// operator could have read off the wire, and the page that used them is gone.
+// Event rooms and booking rooms get fresh links where they load
+// (initEventGuests, initBookings).
 func (s *Service) loadGuestTokens() {
 	raw, err := s.store.GetSetting(guestTokensKey)
 	if err != nil || raw == "" {
@@ -354,7 +457,7 @@ func (s *Service) loadGuestTokens() {
 	}
 	var saved map[string]guestToken
 	if json.Unmarshal([]byte(raw), &saved) != nil {
-		return
+		saved = nil
 	}
 	now := time.Now()
 	s.mu.RLock()
@@ -366,9 +469,13 @@ func (s *Service) loadGuestTokens() {
 	}
 	s.mu.RUnlock()
 	s.guestMu.Lock()
-	for token, tok := range saved {
+	for id, tok := range saved {
+		secret, err := b64url.DecodeString(tok.S)
+		if err != nil || len(secret) != guestSecretBytes || guestLinkID(secret) != id {
+			continue
+		}
 		if alive[tok.GuildID] && now.Before(tok.Expires) {
-			s.guestTokens[token] = tok
+			s.guestTokens[id] = tok
 		}
 	}
 	s.guestMu.Unlock()
@@ -378,8 +485,8 @@ func (s *Service) loadGuestTokens() {
 func (s *Service) saveGuestTokens() {
 	s.guestMu.Lock()
 	out := make(map[string]guestToken, len(s.guestTokens))
-	for token, tok := range s.guestTokens {
-		out[token] = tok
+	for id, tok := range s.guestTokens {
+		out[id] = tok
 	}
 	s.guestMu.Unlock()
 	blob, err := json.Marshal(out)
@@ -427,12 +534,12 @@ func (s *Service) noteGuestDoor(channelID string, locked bool) {
 	s.guestMu.Unlock()
 }
 
-func newGuestSessionID() string {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		return fmt.Sprintf("%d", time.Now().UnixNano())
+func newGuestSessionID() (string, error) {
+	b, err := guestRandom(8)
+	if err != nil {
+		return "", err
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
 
 func (g *guestSession) callActive() bool {
@@ -527,10 +634,16 @@ func (s *Service) senderLabel(m domain.Message) string {
 	return shortFpr(accountFingerprintOf(m.Sender))
 }
 
+// guestURL is the link a guest opens: the host's peer id and the secret both
+// ride the fragment, which browsers never send to the server.
+func (s *Service) guestURL(base, secret string) string {
+	return fmt.Sprintf("%s/guest#h=%s&k=%s", base, s.host.PeerID(), secret)
+}
+
 // CreateGuestLink issues a browser-guest URL for a meeting. The link points
-// at the rendezvous node's HTTPS side; the token and host peer ID ride the
-// URL FRAGMENT, which browsers never send to the server — the rendezvous
-// learns them only over the guest's TLS WebSocket.
+// at the rendezvous node's HTTPS side; the host peer id and the link secret S
+// ride the URL FRAGMENT, which browsers never send to the server, and the
+// guest page never puts S on the socket.
 //
 // lifetimeHours picks how long the link (and with it the meeting room) lives,
 // from the fixed menu in meetingLifetimes. Zero means "leave the lifetime
@@ -538,9 +651,14 @@ func (s *Service) senderLabel(m domain.Message) string {
 // what keeps the historic 24h-from-creation behaviour intact.
 //
 // Called again for the same meeting it returns the SAME url with a new
-// lifetime, rather than a second token: changing your mind about the duration
+// lifetime, rather than a second link: changing your mind about the duration
 // must not silently kill the link you already pasted into a calendar invite.
+// After RevokeGuestLink there is no link, so the next call mints a fresh S.
 func (s *Service) CreateGuestLink(guildID string, lifetimeHours int) (string, error) {
+	return s.createGuestLink(guildID, lifetimeHours, maxGuestsPerLink)
+}
+
+func (s *Service) createGuestLink(guildID string, lifetimeHours, maxGuests int) (string, error) {
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var kind, channelID string
@@ -572,25 +690,199 @@ func (s *Service) CreateGuestLink(guildID string, lifetimeHours int) (string, er
 	expires := s.meetingExpiry(guildID)
 
 	s.guestMu.Lock()
-	token := ""
-	for t, tok := range s.guestTokens {
-		if tok.GuildID == guildID {
-			token = t
-			break
-		}
-	}
-	if token == "" {
-		raw := make([]byte, 24)
-		if _, err := rand.Read(raw); err != nil {
+	id, tok, found := s.guestLinkForLocked(guildID)
+	if !found {
+		raw, err := guestRandom(guestSecretBytes)
+		if err != nil {
 			s.guestMu.Unlock()
 			return "", err
 		}
-		token = base64.RawURLEncoding.EncodeToString(raw)
+		id = guestLinkID(raw)
+		tok = guestToken{GuildID: guildID, ChannelID: channelID, S: b64url.EncodeToString(raw), MaxGuests: maxGuests}
 	}
-	s.guestTokens[token] = guestToken{GuildID: guildID, ChannelID: channelID, Expires: expires}
+	tok.Expires = expires
+	s.guestTokens[id] = tok
 	s.guestMu.Unlock()
 	s.saveGuestTokens()
-	return fmt.Sprintf("%s/guest#h=%s&t=%s", base, s.host.PeerID(), token), nil
+	return s.guestURL(base, tok.S), nil
+}
+
+// guestLinkForLocked finds the link into a guild. Caller holds guestMu.
+func (s *Service) guestLinkForLocked(guildID string) (string, guestToken, bool) {
+	for id, tok := range s.guestTokens {
+		if tok.GuildID == guildID {
+			return id, tok, true
+		}
+	}
+	return "", guestToken{}, false
+}
+
+// RevokeGuestLink deletes an instant meeting's guest link and ends every guest
+// visit in that meeting at once: in the room, knocking, or still in the
+// handshake. The next Copy link mints a new secret. Event rooms are revoked
+// from the event (RevokeEventGuestLink, so the event gets the new link) and
+// booking rooms by cancelling the booking.
+func (s *Service) RevokeGuestLink(guildID string) error {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	kind := ""
+	if ok {
+		kind = g.Kind
+	}
+	s.mu.RUnlock()
+	if !ok || kind != "meeting" {
+		return fmt.Errorf("app: guest links are for instant meetings")
+	}
+	if s.isBookingMeeting(guildID) {
+		return fmt.Errorf("app: a booking's link is revoked by cancelling the booking")
+	}
+	if s.eventGuestRoom(guildID) {
+		return fmt.Errorf("app: this room belongs to an event; revoke its link from the event")
+	}
+	s.dropGuestTokens(guildID)
+	return nil
+}
+
+// SetGuestLinkHistory chooses whether guests on a meeting's link are shown the
+// last guestHistoryCount messages when they arrive. Off by default.
+func (s *Service) SetGuestLinkHistory(guildID string, on bool) error {
+	s.guestMu.Lock()
+	id, tok, found := s.guestLinkForLocked(guildID)
+	if found {
+		tok.History = on
+		s.guestTokens[id] = tok
+	}
+	s.guestMu.Unlock()
+	if !found {
+		return fmt.Errorf("app: this meeting has no guest link")
+	}
+	s.saveGuestTokens()
+	return nil
+}
+
+// GuestLinkHistory reports SetGuestLinkHistory's choice (false when the
+// meeting has no link yet, which is also what a new link starts with).
+func (s *Service) GuestLinkHistory(guildID string) (bool, error) {
+	s.guestMu.Lock()
+	defer s.guestMu.Unlock()
+	_, tok, _ := s.guestLinkForLocked(guildID)
+	return tok.History, nil
+}
+
+// dropGuestTokens revokes every guest link into a guild immediately and ends
+// every visit through them: live and knocking guests get a sealed end (and
+// leave the call, which closes the host's peer connection to them), and
+// handshakes that have not yet proved the link are cut off silently. The
+// links are deleted and the visits collected under guestMu, the lock admission
+// takes, so a visit is either already admitted and ended here, or finds its
+// link gone when it reaches the door.
+func (s *Service) dropGuestTokens(guildID string) {
+	channels := map[string]bool{}
+	s.mu.RLock()
+	if g, ok := s.guilds[guildID]; ok {
+		for _, ch := range g.Channels {
+			channels[ch.ID] = true
+		}
+	}
+	s.mu.RUnlock()
+	var shakes []*guestHandshake
+	var sessions []*guestSession
+	s.guestMu.Lock()
+	for id, tok := range s.guestTokens {
+		if tok.GuildID != guildID {
+			continue
+		}
+		channels[tok.ChannelID] = true
+		delete(s.guestTokens, id)
+		for h := range s.guestShakes[id] {
+			shakes = append(shakes, h)
+		}
+		delete(s.guestShakes, id)
+	}
+	for ch := range channels {
+		sessions = append(sessions, s.guestSessions[ch]...)
+	}
+	s.guestMu.Unlock()
+	s.saveGuestTokens()
+	for _, h := range shakes {
+		_ = h.conn.Close()
+	}
+	for _, sess := range sessions {
+		sess.decide(guestEndRevoked)
+		// Not on this goroutine: the write is bounded but can still take its
+		// full timeout on a guest that stopped reading, and the caller is an RPC.
+		go sess.end(guestEndRevoked)
+	}
+}
+
+// claimGuestHandshake registers a visit that has said hello, within the
+// pre-join caps. Caller holds guestMu.
+func (s *Service) claimGuestHandshakeLocked(linkID string, h *guestHandshake) bool {
+	total := 0
+	for _, m := range s.guestShakes {
+		total += len(m)
+	}
+	if total >= maxGuestHandshakes || len(s.guestShakes[linkID]) >= maxGuestHandshakesPerLink {
+		return false
+	}
+	if s.guestShakes[linkID] == nil {
+		s.guestShakes[linkID] = map[*guestHandshake]bool{}
+	}
+	s.guestShakes[linkID][h] = true
+	return true
+}
+
+// releaseGuestHandshakeLocked forgets a handshake; false when a revoke had
+// already cut it off. Caller holds guestMu.
+func (s *Service) releaseGuestHandshakeLocked(linkID string, h *guestHandshake) bool {
+	m := s.guestShakes[linkID]
+	if !m[h] {
+		return false
+	}
+	delete(m, h)
+	if len(m) == 0 {
+		delete(s.guestShakes, linkID)
+	}
+	return true
+}
+
+// liveGuestLinkLocked returns the link if it is present and not past its own
+// expiry. Caller holds guestMu (and must not hold s.mu: guestMu is never held
+// while s.mu is taken, so the meeting's side is meetingOpen, called apart).
+func (s *Service) liveGuestLinkLocked(linkID string) (guestToken, bool) {
+	tok, ok := s.guestTokens[linkID]
+	if !ok || time.Now().After(tok.Expires) {
+		return guestToken{}, false
+	}
+	return tok, true
+}
+
+// meetingOpen reports whether a link's meeting still takes guests, and its
+// name. Two clocks have to agree for a link to be live: the link's own expiry
+// and the meeting's. They are set together, but a lifetime shortened after the
+// link went out (or a room whose expiry passed on a machine that never
+// restarted, so the startup sweep never ran) must close the door too.
+func (s *Service) meetingOpen(guildID string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.guilds[guildID]
+	if !ok || time.Now().After(s.meetingExpiryLocked(guildID)) {
+		return "", false
+	}
+	return g.Name, true
+}
+
+// validGuestGid accepts the page's random id: base64url characters, bounded.
+func validGuestGid(gid string) bool {
+	if gid == "" || len(gid) > maxGuestGidBytes {
+		return false
+	}
+	for _, r := range gid {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // MeetingExpiry reports when a meeting (and any guest link into it) stops
@@ -630,66 +922,198 @@ func (s *Service) guestGatewayBase() string {
 	return ""
 }
 
+// guestHandshakeResult is what a proven join hands the rest of the visit.
+type guestHandshakeResult struct {
+	linkID string
+	join   guestFrame
+	rx, tx *guestCipher
+	shake  *guestHandshake
+}
+
+// guestHandshake runs hello → chal → sealed join (docs/dev/guest-e2e.md).
+// Every hello that parses gets a chal of the same shape, live link or not; an
+// unknown link is given a random K so the visit proceeds identically and
+// fails at the join. On any failure it returns false and the caller closes
+// the stream without a word, so a wrong key, an unknown link, an expired one
+// and a revoked one look the same on the wire. On success the handshake is
+// still registered (the caller releases it under guestMu as it registers the
+// session).
+func (s *Service) guestHandshake(conn io.ReadWriteCloser, r *bufio.Reader) (guestHandshakeResult, bool) {
+	var res guestHandshakeResult
+	setGuestReadDeadline(conn, time.Now().Add(guestHelloTimeout))
+	line, err := readGuestLine(r, maxGuestHelloBytes)
+	if err != nil {
+		return res, false
+	}
+	var hello guestHello
+	if json.Unmarshal(line, &hello) != nil || hello.Type != "hello" || hello.V != 2 ||
+		hello.Link == "" || len(hello.Link) > 64 {
+		return res, false
+	}
+	gn, err := b64url.DecodeString(hello.Gn)
+	if err != nil || len(gn) != guestNonceBytes {
+		return res, false
+	}
+	gpk, err := b64url.DecodeString(hello.Gpk)
+	if err != nil {
+		return res, false
+	}
+	guestPub, err := guestPublicKey(gpk)
+	if err != nil {
+		return res, false
+	}
+
+	shake := &guestHandshake{conn: conn}
+	s.guestMu.Lock()
+	claimed := s.claimGuestHandshakeLocked(hello.Link, shake)
+	tok, known := s.guestTokens[hello.Link]
+	s.guestMu.Unlock()
+	if !claimed {
+		return res, false
+	}
+	release := func() {
+		s.guestMu.Lock()
+		s.releaseGuestHandshakeLocked(hello.Link, shake)
+		s.guestMu.Unlock()
+	}
+
+	hn, err := guestRandom(guestNonceBytes)
+	if err != nil {
+		release()
+		return res, false
+	}
+	hsk, err := guestEphemeral()
+	if err != nil {
+		release()
+		return res, false
+	}
+	z, err := hsk.ECDH(guestPub)
+	if err != nil {
+		release()
+		return res, false
+	}
+	var k []byte
+	if known {
+		if secret, err := b64url.DecodeString(tok.S); err == nil {
+			k = guestLinkKey(secret)
+		}
+	}
+	if k == nil {
+		if k, err = guestRandom(32); err != nil {
+			release()
+			return res, false
+		}
+	}
+	hpk := hsk.PublicKey().Bytes()
+	chal, _ := json.Marshal(guestChal{Type: "chal", Hn: b64url.EncodeToString(hn), Hpk: b64url.EncodeToString(hpk)})
+	if _, err := conn.Write(append(chal, '\n')); err != nil {
+		release()
+		return res, false
+	}
+	g2h, h2g := guestSessionKeys(k, z, hello.Link, s.host.PeerID().String(), gn, hn, gpk, hpk)
+	rx, tx := newGuestCipher(g2h), newGuestCipher(h2g)
+
+	// The join: the first sealed record, inside the same deadline. Clear
+	// frames are dropped unread.
+	var join guestFrame
+	for {
+		line, err := readGuestLine(r, maxGuestFrameBytes)
+		if err != nil {
+			release()
+			return res, false
+		}
+		body, ok := guestRecordBody(line)
+		if !ok {
+			continue
+		}
+		pt, err := rx.open(body)
+		if err != nil || json.Unmarshal(pt, &join) != nil || join.Type != "join" || !validGuestGid(join.Gid) {
+			release()
+			return res, false
+		}
+		break
+	}
+	if !known {
+		release() // cannot happen with a random K, but never let it through
+		return res, false
+	}
+	res = guestHandshakeResult{linkID: hello.Link, join: join, rx: rx, tx: tx, shake: shake}
+	return res, true
+}
+
 // serveGuest runs one guest's whole visit on the relayed stream.
 func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 	defer conn.Close()
 	r := bufio.NewReaderSize(conn, 64<<10)
 
-	// Hello: token + chosen display name, within a short deadline and a tight cap.
-	setGuestReadDeadline(conn, time.Now().Add(guestHelloTimeout))
-	line, err := readGuestLine(r, maxGuestHelloBytes)
+	hs, ok := s.guestHandshake(conn, r)
+	if !ok {
+		return // silently: see guestHandshake
+	}
+	name := sanitizeGuestName(hs.join.Name)
+	id, err := newGuestSessionID()
 	if err != nil {
-		return
-	}
-	var hello guestFrame
-	if json.Unmarshal(line, &hello) != nil || hello.Type != "hello" {
-		return
-	}
-	s.guestMu.Lock()
-	tok, ok := s.guestTokens[hello.Token]
-	s.guestMu.Unlock()
-	// Two clocks have to agree for a link to be live: the token's own expiry and
-	// the meeting's. They are set together, but a lifetime shortened after the
-	// link went out (or a room whose expiry passed on a machine that never
-	// restarted, so the startup sweep never ran) must close the door too.
-	if !ok || time.Now().After(tok.Expires) || time.Now().After(s.meetingExpiry(tok.GuildID)) {
-		writeGuestFrame(conn, guestFrame{Type: "end", Reason: "This meeting link is no longer valid."})
-		return
-	}
-	s.mu.RLock()
-	g, alive := s.guilds[tok.GuildID]
-	meetingName := ""
-	if alive {
-		meetingName = g.Name
-	}
-	s.mu.RUnlock()
-	if !alive {
-		writeGuestFrame(conn, guestFrame{Type: "end", Reason: "This meeting has ended."})
+		s.guestMu.Lock()
+		s.releaseGuestHandshakeLocked(hs.linkID, hs.shake)
+		s.guestMu.Unlock()
 		return
 	}
 
-	name := sanitizeGuestName(hello.Name)
-	id := newGuestSessionID()
+	// Re-check the link now that the guest has proved it. The meeting's side
+	// first (it takes s.mu, which is never taken under guestMu), then the link
+	// and the registration under one hold of guestMu: a revoke that ran during
+	// the handshake either removed the handshake (released == false) or the
+	// link (live == false), and either way the visit ends here with nothing
+	// said.
+	s.guestMu.Lock()
+	tok, live := s.liveGuestLinkLocked(hs.linkID)
+	s.guestMu.Unlock()
+	meetingName, open := "", false
+	if live {
+		meetingName, open = s.meetingOpen(tok.GuildID)
+	}
+	s.guestMu.Lock()
+	released := s.releaseGuestHandshakeLocked(hs.linkID, hs.shake)
+	tok, live = s.liveGuestLinkLocked(hs.linkID)
+	if !released || !live || !open {
+		s.guestMu.Unlock()
+		return
+	}
 	sess := &guestSession{
 		id:        id,
 		name:      name,
 		fpr:       guestFingerprint(name, id),
 		channelID: tok.ChannelID,
+		linkID:    hs.linkID,
+		gid:       hs.join.Gid,
 		conn:      conn,
+		tx:        hs.tx,
 		send:      make(chan []byte, 64),
 		gate:      make(chan string, 1),
 	}
-	s.guestMu.Lock()
-	if len(s.guestSessions[tok.ChannelID]) >= maxGuestsPerMeeting {
-		s.guestMu.Unlock()
-		writeGuestFrame(conn, guestFrame{Type: "end", Reason: "This meeting is full."})
+	// From here the guest holds the link, so a refusal is said (sealed).
+	refusal := ""
+	switch {
+	case hasString(tok.Banned, sess.gid):
+		refusal = guestEndRemoved
+	case !hasString(tok.Guests, sess.gid) && len(tok.Guests) >= tok.maxGuests():
+		// A new guest on a used-up link is turned away before the knock; a
+		// returning one is let through to it (a known gid never skips it).
+		refusal = guestEndUsedUp
+	case len(s.guestSessions[tok.ChannelID]) >= maxGuestsPerMeeting:
+		refusal = guestEndFull
+	default:
+		// Knockers are registered as well as joiners: they hold a socket and a
+		// slot, so they must count against the cap and be reachable by the
+		// host's verdict and by a revoke.
+		s.guestSessions[tok.ChannelID] = append(s.guestSessions[tok.ChannelID], sess)
+		s.guestByID[sess.id] = sess
+	}
+	s.guestMu.Unlock()
+	if refusal != "" {
+		sess.end(refusal)
 		return
 	}
-	// Knockers are registered as well as joiners: they hold a socket and a slot,
-	// so they must count against the cap and be reachable by the host's verdict.
-	s.guestSessions[tok.ChannelID] = append(s.guestSessions[tok.ChannelID], sess)
-	s.guestByID[sess.id] = sess
-	s.guestMu.Unlock()
 	defer func() {
 		s.guestMu.Lock()
 		list := s.guestSessions[tok.ChannelID]
@@ -735,49 +1159,56 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 	// turn "book a demo" into "walk straight into my client". A guest-opened
 	// calendar event knocks BY DEFAULT for the same reason — its link is meant
 	// to be forwarded — unless the host explicitly chose an open door.
+	//
+	// Nothing is read from the guest while they knock. Whatever they send in
+	// that time is read after admission, in order: records carry a counter, so
+	// skipping any would break every one after it. The page sends nothing but
+	// the join until it is welcomed, and an admitted guest could send the same
+	// line a moment later anyway; what keeps a knocking guest unheard is that
+	// no guest verb is parsed until they are in.
 	if s.guestDoorLocked(tok.ChannelID) || s.isBookingMeeting(tok.GuildID) || s.eventGuestKnocks(tok.GuildID) {
 		admitted, reason := s.knockAtDoor(sess, meetingName)
 		if !admitted {
 			sess.end(reason)
 			return
 		}
-		// Anything they typed at the door was said to a closed door, so drop what
-		// has already arrived rather than replaying it into the room.
-		//
-		// This is best effort BY CONSTRUCTION, and worth being precise about
-		// because the loose version of this sentence is the kind that gets
-		// trusted later: Buffered() reports only what bufio has already pulled
-		// in. Bytes still sitting in the socket or the libp2p stream are read
-		// normally a moment later, so a guest who pre-queues a line at the door
-		// can have it land just after admission. That is harmless — they are
-		// admitted by then and could send the same line a millisecond later — and
-		// it is NOT what stops an unadmitted guest being heard. That comes from
-		// knockAtDoor running before this loop exists, so no guest verb is parsed
-		// at all until they are in.
-		if n := r.Buffered(); n > 0 {
-			_, _ = r.Discard(n)
-		}
 	}
-	sess.admit()
+	tok, reason := s.admitGuest(sess)
+	if reason != "" {
+		sess.end(reason)
+		return
+	}
 
-	// Welcome + recent history so the guest has context. `Channel` tells the
-	// guest which voice room to label its signaling with.
+	// Welcome. `Channel` tells the guest which voice room to label its
+	// signaling with.
 	_ = sess.write(guestFrame{
 		Type: "welcome", Meeting: meetingName, Name: name, Channel: tok.ChannelID,
 	})
-	if msgs, err := s.store.Messages(tok.ChannelID, guestHistoryCount); err == nil {
-		for _, m := range msgs {
-			if m.Deleted || (m.Kind != "" && m.Kind != "system" && m.Kind != "guest") {
-				continue
+	// An event room shows the event's details, rendered from the event record
+	// now rather than replayed from the room, so it holds with history off.
+	seed, isEvent := s.eventGuestSeedFor(tok.GuildID)
+	if isEvent {
+		_ = sess.write(guestFrame{Type: "sys", Content: seed, Sent: time.Now().UTC().Format(time.RFC3339)})
+	}
+	// Recent history only when the host chose it for this link.
+	if tok.History {
+		if msgs, err := s.store.Messages(tok.ChannelID, guestHistoryCount); err == nil {
+			for _, m := range msgs {
+				if m.Deleted || (m.Kind != "" && m.Kind != "system" && m.Kind != "guest") {
+					continue
+				}
+				// Who else has been through this room is the members' business, not a
+				// visitor's. Dropped here rather than left to the page: a filter that
+				// still ships the name and asks the browser not to draw it has already
+				// leaked it. Members replaying the same history see every notice.
+				if isGuestPresenceNotice(m) {
+					continue
+				}
+				if isEvent && m.Kind == "system" && m.Content == seed {
+					continue // already shown above
+				}
+				_ = sess.write(s.guestFrameFor(m))
 			}
-			// Who else has been through this room is the members' business, not a
-			// visitor's. Dropped here rather than left to the page: a filter that
-			// still ships the name and asks the browser not to draw it has already
-			// leaked it. Members replaying the same history see every notice.
-			if isGuestPresenceNotice(m) {
-				continue
-			}
-			_ = sess.write(s.guestFrameFor(m))
 		}
 	}
 	s.sendSystem(tok.ChannelID, guestJoinNotice(name))
@@ -802,8 +1233,16 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 		if err != nil {
 			return
 		}
+		body, ok := guestRecordBody(line)
+		if !ok {
+			continue // a clear frame inside a sealed session: injected, ignored
+		}
+		pt, err := hs.rx.open(body)
+		if err != nil {
+			return // replayed, reordered, reflected or forged: the session is over
+		}
 		var f guestFrame
-		if json.Unmarshal(line, &f) != nil {
+		if json.Unmarshal(pt, &f) != nil {
 			continue
 		}
 		// Call control + WebRTC signaling. These are relayed to the app's voice
@@ -858,7 +1297,7 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 		_, stillAlive := s.guilds[tok.GuildID]
 		s.mu.RUnlock()
 		if !stillAlive {
-			sess.end("This meeting has ended.")
+			sess.end(guestEndEnded)
 			return
 		}
 		// Relayed under our signature, but authored by THEM: kind "guest" + their
@@ -867,6 +1306,61 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 		if _, err := s.sendAs(tok.ChannelID, content, "guest", "", sess.name, ""); err != nil {
 			_ = sess.write(guestFrame{Type: "info", Reason: "Message didn't send — try again."})
 		}
+	}
+}
+
+// admitGuest lets a guest in, re-checking the link under guestMu (the lock a
+// revoke takes) so a revoke during the knock wins, and counting a new gid
+// against the link. Returns the link as it stands, or a reason to turn the
+// guest away.
+func (s *Service) admitGuest(sess *guestSession) (guestToken, string) {
+	s.guestMu.Lock()
+	tok, _ := s.liveGuestLinkLocked(sess.linkID)
+	s.guestMu.Unlock()
+	if _, open := s.meetingOpen(tok.GuildID); !open {
+		return tok, guestEndEnded
+	}
+	s.guestMu.Lock()
+	tok, live := s.liveGuestLinkLocked(sess.linkID)
+	reason := ""
+	counted := false
+	switch {
+	case !live:
+		reason = guestEndRevoked
+	case hasString(tok.Banned, sess.gid):
+		reason = guestEndRemoved
+	case !hasString(tok.Guests, sess.gid):
+		if len(tok.Guests) >= tok.maxGuests() {
+			reason = guestEndUsedUp
+		} else {
+			tok.Guests = append(append([]string(nil), tok.Guests...), sess.gid)
+			s.guestTokens[sess.linkID] = tok
+			counted = true
+		}
+	}
+	if reason == "" {
+		sess.admitMu.Lock()
+		sess.admitted = true
+		sess.admitMu.Unlock()
+	}
+	s.guestMu.Unlock()
+	if counted {
+		s.saveGuestTokens()
+	}
+	return tok, reason
+}
+
+// banGuestGid keeps a removed guest's browser out of that link for good.
+func (s *Service) banGuestGid(linkID, gid string) {
+	s.guestMu.Lock()
+	tok, ok := s.guestTokens[linkID]
+	if ok && !hasString(tok.Banned, gid) {
+		tok.Banned = append(append([]string(nil), tok.Banned...), gid)
+		s.guestTokens[linkID] = tok
+	}
+	s.guestMu.Unlock()
+	if ok {
+		s.saveGuestTokens()
 	}
 }
 
@@ -937,7 +1431,7 @@ func (s *Service) knockAtDoor(sess *guestSession, meetingName string) (bool, str
 	for {
 		select {
 		case <-s.ctx.Done():
-			return false, "This meeting has ended."
+			return false, guestEndEnded
 		case verdict := <-sess.gate:
 			if verdict == "" {
 				return true, ""
@@ -996,16 +1490,15 @@ func (s *Service) decideGuest(channelID, action, target string) {
 		// someone already inside. Both must say so — a guest whose socket simply
 		// went quiet would sit there wondering.
 		if sess.isAdmitted() {
-			sess.end("The host removed you from this meeting.")
+			// Removed means removed: the same browser cannot walk back in on
+			// this link. Someone with the link can clear their storage and use
+			// a fresh slot; the slot limit and revoke cover that.
+			s.banGuestGid(sess.linkID, sess.gid)
+			go sess.end(guestEndRemoved)
 			return
 		}
 		sess.decide("The host didn't let you in this time.")
 	}
-}
-
-func writeGuestFrame(w io.Writer, f guestFrame) {
-	line, _ := json.Marshal(f)
-	_, _ = w.Write(append(line, '\n'))
 }
 
 // sanitizeGuestName bounds a guest's chosen name and strips characters that

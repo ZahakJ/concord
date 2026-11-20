@@ -29,8 +29,8 @@ import (
 // themselves.
 //
 // The record below is deliberately LOCAL to the minting node. The guest link
-// only works while this node answers (it is the guest's crypto endpoint), the
-// tokens live in this node's encrypted store, and the knock/auto-admit choice
+// only works while this node answers (it is the guest's only endpoint), the
+// link and its secret live in this node's settings, and the knock/auto-admit choice
 // is enforced in THIS node's serveGuest — so "who hosts the room" has exactly
 // one answer and revocation is never a distributed-consensus problem. What
 // other members need — the URL, and who to ask about it — travels on the
@@ -38,8 +38,8 @@ import (
 // host's frames can touch it.
 
 const (
-	// eventGuestsKey persists this node's event→room map in the same encrypted
-	// store as the guest tokens it complements.
+	// eventGuestsKey persists this node's event→room map in the settings,
+	// beside the guest links it complements.
 	eventGuestsKey = "events.guest"
 
 	// eventGuestKeepOpen is how long a room stays joinable once opened. A meeting
@@ -101,6 +101,7 @@ func (s *Service) initEventGuests() {
 	s.eventGuests = loaded
 	s.eventGuestMu.Unlock()
 	s.saveEventGuests()
+	s.restampEventGuestLinks()
 }
 
 func (s *Service) saveEventGuests() {
@@ -257,9 +258,10 @@ func (s *Service) OpenEventGuests(guildID, eventID string, autoAdmit bool) (doma
 		return domain.Event{}, err
 	}
 
-	// Seed context: an arriving guest should know what they walked into
-	// without anyone having to say it. One system message — title, time,
-	// details — which the guest history replay (and the room itself) shows.
+	// Seed context for the members in the room: one system message — title,
+	// time, details. Guests are shown the same text rendered fresh from the
+	// event at welcome (eventGuestSeedFor), since their history is off by
+	// default.
 	eventEnd, _ := eventGuestRoomSpan(ev)
 	s.sendSystem(room.Channels[0].ID, eventGuestSeed(ev, eventEnd))
 
@@ -393,9 +395,111 @@ func (s *Service) teardownEventGuestRoom(eventID string) {
 		return
 	}
 	s.saveEventGuests()
-	_ = s.deleteGuildLocal(rec.MeetingGuildID)
+	// The link first, while the room still names its channel: this also ends
+	// any visit in progress.
 	s.dropGuestTokens(rec.MeetingGuildID)
+	_ = s.deleteGuildLocal(rec.MeetingGuildID)
 	s.emitGuildUpdate()
+}
+
+// eventGuestRoom reports whether a guild is a room this node hosts for an
+// event.
+func (s *Service) eventGuestRoom(guildID string) bool {
+	_, ok := s.eventGuestRecordFor(guildID)
+	return ok
+}
+
+func (s *Service) eventGuestRecordFor(guildID string) (eventGuestRecord, bool) {
+	s.eventGuestMu.Lock()
+	defer s.eventGuestMu.Unlock()
+	for _, rec := range s.eventGuests {
+		if rec.MeetingGuildID == guildID {
+			return rec, true
+		}
+	}
+	return eventGuestRecord{}, false
+}
+
+// eventGuestSeedFor renders the event's details for a guest arriving in its
+// room, from the event record as it stands now. This is what a guest reads
+// first even with history off; false when the guild is not an event room.
+func (s *Service) eventGuestSeedFor(guildID string) (string, bool) {
+	rec, ok := s.eventGuestRecordFor(guildID)
+	if !ok {
+		return "", false
+	}
+	ev, found, err := s.store.EventByID(rec.EventID)
+	if err != nil || !found {
+		return "", false
+	}
+	end, _ := eventGuestRoomSpan(ev)
+	return eventGuestSeed(ev, end), true
+}
+
+// RevokeEventGuestLink replaces an event room's guest link: the old one stops
+// working and every guest visit through it ends, a new link is minted, and it
+// is stamped on the event so members' cards show the new one. Only the node
+// that hosts the room can do this — the room and its secret live there alone.
+func (s *Service) RevokeEventGuestLink(guildID, eventID string) (domain.Event, error) {
+	if err := s.mintBarred(guildID); err != nil { // see publishMeta
+		return domain.Event{}, err
+	}
+	groupID, ok := s.eventGroup(guildID)
+	if !ok {
+		return domain.Event{}, fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	ev, found, err := s.store.EventByID(eventID)
+	if err != nil {
+		return domain.Event{}, err
+	}
+	if !found || ev.GuildID != guildID {
+		return domain.Event{}, fmt.Errorf("app: unknown event %s", eventID)
+	}
+	s.eventGuestMu.Lock()
+	rec, hosting := s.eventGuests[eventID]
+	s.eventGuestMu.Unlock()
+	if !hosting || ev.GuestHost != s.id.Fingerprint() {
+		return domain.Event{}, fmt.Errorf("app: only the device hosting this event's room can replace its link")
+	}
+	s.dropGuestTokens(rec.MeetingGuildID)
+	url, err := s.CreateGuestLink(rec.MeetingGuildID, 0)
+	if err != nil {
+		return domain.Event{}, err
+	}
+	return s.stampEventGuest(groupID, ev, url, ev.MemberCode)
+}
+
+// restampEventGuestLinks gives every hosted event room a link again after
+// loadGuestTokens dropped one saved before the guest leg was encrypted, and
+// stamps it on the event so members' cards carry the working link.
+func (s *Service) restampEventGuestLinks() {
+	s.eventGuestMu.Lock()
+	recs := make([]eventGuestRecord, 0, len(s.eventGuests))
+	for _, rec := range s.eventGuests {
+		recs = append(recs, rec)
+	}
+	s.eventGuestMu.Unlock()
+	for _, rec := range recs {
+		s.guestMu.Lock()
+		_, _, has := s.guestLinkForLocked(rec.MeetingGuildID)
+		s.guestMu.Unlock()
+		if has {
+			continue
+		}
+		groupID, ok := s.eventGroup(rec.GuildID)
+		if !ok {
+			continue
+		}
+		ev, found, err := s.store.EventByID(rec.EventID)
+		if err != nil || !found || ev.GuestHost != s.id.Fingerprint() {
+			continue
+		}
+		url, err := s.CreateGuestLink(rec.MeetingGuildID, 0)
+		if err != nil {
+			continue
+		}
+		_, _ = s.stampEventGuest(groupID, ev, url, ev.MemberCode)
+	}
 }
 
 // JoinEventRoom walks a MEMBER into an event's meeting room as themselves. The
