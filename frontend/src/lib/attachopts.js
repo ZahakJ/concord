@@ -60,16 +60,38 @@ export function emitsLegacyToken(a) {
   return !a.spoiler && !a.name && !a.desc;
 }
 
-// What the core sends as it is, metadata included: a video, and a HEIC or
-// HEIF photo this renderer could not decode, which goes out as a plain file.
-// (A picture the composer stages as an image has its metadata removed when it
-// is sealed; one it re-encodes never had any.) The composer says so on the
-// staged item, before the send, in AS_IS_NOTE.
-export const AS_IS_NOTE = "Videos and HEIC photos are sent as they are, including any location stored in them";
+// What the core sends as it is, with whatever is stored in it: a document,
+// audio other than M4A, anything it does not recognise. Pictures, MP4 and
+// MOV videos, HEIC/HEIF/AVIF photos and M4A audio are cleaned; the formats
+// it cannot clean are held with their own row and "Send as it is"
+// (lib/mediastrip.js). The core decides from the file's first bytes
+// (app.FileGoesAsIs), not from its name or type, so the page asks it, and
+// the composer shows AS_IS_NOTE under the staged file before the send.
+export const AS_IS_NOTE =
+  "Files other than pictures, videos and M4A audio are sent as they are, including any details stored in them, such as a location or an author's name.";
 
-export function sentAsIs(file) {
-  const type = String(file?.type || "").toLowerCase();
-  const name = String(file?.name || "").toLowerCase();
-  if (type.startsWith("video/")) return true;
-  return /^image\/hei[cf](-sequence)?$/.test(type) || /\.(heic|heif)$/.test(name);
+// FILE_HEAD_CHARS: base64 characters for the first 64 KiB of a file
+// (app.FileHeadBytes), the most the core reads to decide.
+export const FILE_HEAD_CHARS = 87384;
+
+// fileHead: the start of a base64 data URL's payload, or null when it is not
+// base64.
+export function fileHead(dataUrl) {
+  const s = String(dataUrl || "");
+  const comma = s.indexOf(",");
+  if (comma < 0 || !s.slice(0, comma).endsWith(";base64")) return null;
+  return s.slice(comma + 1, comma + 1 + FILE_HEAD_CHARS);
+}
+
+// sentAsIs(dataUrl, goesAsIs): does this staged file go out as it is?
+// goesAsIs is api.fileGoesAsIs. When the core cannot be asked or does not
+// answer, the line shows: saying it once too often is the safe side.
+export async function sentAsIs(dataUrl, goesAsIs) {
+  const head = fileHead(dataUrl);
+  if (head === null) return true;
+  try {
+    return (await goesAsIs(head)) !== false;
+  } catch {
+    return true;
+  }
 }

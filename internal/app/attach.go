@@ -341,23 +341,23 @@ func prepareFile(dataURL string, mode sendMode) (string, []byte, error) {
 	// chose. Video containers nothing here reads (Matroska, WebM, AVI, MPEG
 	// transport and program streams, ASF, FLV) are held the same way.
 	// Anything else (documents, other audio) is sent as it is.
-	switch f := imgmeta.Format(plain); {
-	case f == "jpeg" || f == "png" || f == "gif" || f == "webp":
+	switch routeOf(plain) {
+	case routePicture:
 		if plain, err = cleanImage(plain); err != nil {
 			return "", nil, err
 		}
-	case uncleanablePicture(plain):
+	case routeHeldPicture:
 		// A picture format that can carry a camera's location and that
 		// nothing here cleans: held for the same choice as a video the
 		// cleaner refuses.
 		if !asIs {
 			return "", nil, fmt.Errorf("app: the %sphoto, so it would be sent as it is", MediaAsIsMarker)
 		}
-	case uncleanableVideo(plain):
+	case routeHeldVideo:
 		if !asIs {
 			return "", nil, fmt.Errorf("app: the %svideo, so it would be sent as it is", MediaAsIsMarker)
 		}
-	case bmffmeta.Sniff(plain):
+	case routeMedia:
 		out, kind, err := bmffmeta.StripBytesWith(plain, bmffmeta.Options{DropText: mode == sendDropText})
 		switch {
 		case err == nil:
@@ -370,6 +370,47 @@ func prepareFile(dataURL string, mode sendMode) (string, []byte, error) {
 		}
 	}
 	return mime, plain, nil
+}
+
+// fileRoute is what SendFile does with a file, decided by its first bytes
+// before any choice the person makes.
+type fileRoute int
+
+const (
+	routeAsIs        fileRoute = iota // sent unchanged: documents, audio other than M4A, anything unknown
+	routePicture                      // PNG, JPEG, GIF, WebP: cleaned by imgmeta
+	routeHeldPicture                  // TIFF, camera raw, JPEG XL, JPEG 2000: held for the choice
+	routeHeldVideo                    // Matroska/WebM, AVI, ASF, FLV, MPEG streams: held for the choice
+	routeMedia                        // ISO base media (MP4, MOV, M4A, HEIC, AVIF): cleaned, or held
+)
+
+func routeOf(b []byte) fileRoute {
+	switch f := imgmeta.Format(b); {
+	case f == "jpeg" || f == "png" || f == "gif" || f == "webp":
+		return routePicture
+	case uncleanablePicture(b):
+		return routeHeldPicture
+	case uncleanableVideo(b):
+		return routeHeldVideo
+	case bmffmeta.Sniff(b):
+		return routeMedia
+	}
+	return routeAsIs
+}
+
+// FileHeadBytes is how much of a file the page sends to FileGoesAsIs.
+const FileHeadBytes = 64 << 10
+
+// FileGoesAsIs reports whether SendFile sends a file that starts with head
+// unchanged and without asking: a document, audio other than M4A, anything
+// it does not recognise. The composer asks before it says so under the
+// staged file. Every test routeOf makes reads the first few hundred bytes,
+// except that an ISO file whose first box is longer than head and is not
+// ftyp, moov, mdat or padding is not recognised from head alone; such a file
+// is then called as-is when it is cleaned, which can only show the line
+// where it was not needed.
+func FileGoesAsIs(head []byte) bool {
+	return routeOf(head) == routeAsIs
 }
 
 // uncleanableVideo reports video containers that can carry location (GPS in

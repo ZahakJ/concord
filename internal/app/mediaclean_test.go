@@ -318,3 +318,64 @@ func TestOtherVideoContainersWaitForTheChoice(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// FileGoesAsIs is what the composer asks before it says a file goes out as it
+// is: true only for bytes SendFile sends unchanged without asking (documents,
+// audio other than M4A, anything it does not recognise), false for pictures,
+// videos and M4A audio, which are cleaned, and for the formats it holds for
+// the choice. The page sends only the first bytes, so the answer must not
+// change when the file is cut to them.
+func TestFileGoesAsIsOnlyForWhatIsSentUnchanged(t *testing.T) {
+	read := func(name string) []byte {
+		b, err := os.ReadFile(filepath.Join("..", "bmffmeta", "testdata", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	big := append(read("android-fast.mp4"), make([]byte, 200<<10)...)
+	cases := map[string]struct {
+		b    []byte
+		asIs bool
+	}{
+		"pdf":       {[]byte("%PDF-1.4 minutes"), true},
+		"text":      {[]byte("Good morning"), true},
+		"mp3":       {[]byte("ID3\x04\x00\x00\x00\x00\x00\x00 song"), true},
+		"wav":       {[]byte("RIFF\x24\x00\x00\x00WAVEfmt "), true},
+		"ogg file":  {[]byte("OggS\x00\x02 opus"), true},
+		"zip":       {[]byte("PK\x03\x04 archive"), true},
+		"named mp4": {[]byte("not really a video"), true},
+		"jpeg":      {[]byte("\xff\xd8\xff\xe0 jfif"), false},
+		"png":       {[]byte("\x89PNG\r\n\x1a\n...."), false},
+		"mp4":       {read("android-fast.mp4"), false},
+		"mov":       {read("iphone-tail.mov"), false},
+		"heic":      {read("photo.heic"), false},
+		"m4a":       {read("music.m4a"), false},
+		"big mp4":   {big, false},
+		"mkv":       {[]byte("\x1a\x45\xdf\xa3\x9f\x42\x86\x81\x01"), false},
+		"avi":       {[]byte("RIFF\x00\x10\x00\x00AVI LIST"), false},
+		"tiff":      {[]byte("II*\x00\x08\x00\x00\x00"), false},
+	}
+	for name, c := range cases {
+		if got := FileGoesAsIs(c.b); got != c.asIs {
+			t.Errorf("%s: FileGoesAsIs = %v, want %v", name, got, c.asIs)
+		}
+		if head := c.b[:min(len(c.b), FileHeadBytes)]; FileGoesAsIs(head) != c.asIs {
+			t.Errorf("%s: the first %d bytes answer differently", name, len(head))
+		}
+	}
+	// It agrees with SendFile: what it calls as-is is sent byte for byte.
+	svc, _, ch := cleanFixture(t)
+	for name, c := range cases {
+		if !c.asIs {
+			continue
+		}
+		msg, err := svc.SendFile(ch, "data:application/octet-stream;base64,"+base64.StdEncoding.EncodeToString(c.b), name, "", "", "")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got := sealedBytes(t, svc, ch, msg.Content, sentFileRe); !bytes.Equal(got, c.b) {
+			t.Errorf("%s: called as-is but SendFile changed it", name)
+		}
+	}
+}

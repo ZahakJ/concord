@@ -159,15 +159,20 @@ test("desktop: the Media tab lists every picture and file, opens one fitted, and
   await bashir.rpc("HideMessage", ch.id, pics[1].id);
   await waitFor(async () => (await tiles(page).count()) === 1, { timeout: 15000, message: "the hidden picture to leave" });
 
-  step("staging a video says, before the send, that it goes out as it is; a document alone does not");
+  step("a video, which is cleaned, gets no line before the send; a document, which goes as it is, does");
   const fileIn = page.locator(".composer input[type=file]").first();
   const note = page.locator('[data-testid="as-is-note"]');
-  await fileIn.setInputFiles({ name: "minutes.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 tiny") });
+  // An ISO file's first box, as an MP4 starts: the core reads it as a video.
+  const ftyp = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypisom\0\0\0\0isommp42")]);
+  await fileIn.setInputFiles({ name: "clip.mp4", mimeType: "video/mp4", buffer: ftyp });
   await page.locator(".att-chip").first().waitFor();
-  assert.equal(await note.count(), 0, "no line for a document");
-  await fileIn.setInputFiles({ name: "clip.mp4", mimeType: "video/mp4", buffer: Buffer.from("not really a video") });
+  assert.equal(await note.count(), 0, "no line for a video");
+  await fileIn.setInputFiles({ name: "minutes.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 tiny") });
   await note.waitFor({ timeout: 10000 });
-  assert.equal(await note.innerText(), "Videos and HEIC photos are sent as they are, including any location stored in them");
+  assert.equal(
+    await note.innerText(),
+    "Files other than pictures, videos and M4A audio are sent as they are, including any details stored in them, such as a location or an author's name.",
+  );
   assert.equal(b.errors.length, 0, `page errors: ${b.errors.join(" | ")}`);
 });
 

@@ -28,8 +28,7 @@ export function hasTextTracks(err) {
   return TEXT.test(String(err?.message ?? err ?? ""));
 }
 
-// asIsLine: what the row says. The same words as the gallery's note ("sent as
-// they are, including any location stored in them"), for one file.
+// asIsLine: what the row says about the one file it holds.
 export function asIsLine(kind) {
   const what = kind === "video" || kind === "photo" ? kind : "file";
   return `Concord couldn't remove the details stored in this ${what}. If you send it, it goes as it is, including any location stored in it.`;

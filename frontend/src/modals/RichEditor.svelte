@@ -42,6 +42,7 @@
   import { activeShortcode, searchEmoji, replaceShortcodes } from "../lib/emoji.js";
   import { S, customEmojiMap, mentionRefs, selfMember, flash } from "../lib/state.svelte.js";
   import { stagedImage, sentAsIs, AS_IS_NOTE } from "../lib/attachopts.js";
+  import { api } from "../lib/api.js";
   import {
     wrap,
     linePrefix,
@@ -564,9 +565,10 @@
     reading++;
     try {
       const dataUrl = await readAsDataURL(file);
+      const asIs = await sentAsIs(dataUrl, api.fileGoesAsIs);
       pending = [
         ...pending,
-        { id: uid(), dataUrl, name: file.name || "file", isImage: false, isVideo: file.type.startsWith("video/"), asIs: sentAsIs(file), bytes: file.size },
+        { id: uid(), dataUrl, name: file.name || "file", isImage: false, isVideo: file.type.startsWith("video/"), asIs, bytes: file.size },
       ];
     } catch (err) {
       flash(err);

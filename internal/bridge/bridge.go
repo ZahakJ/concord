@@ -2436,6 +2436,20 @@ func (b *Bridge) CheckFile(dataURL string) error {
 	return svc.CheckFile(dataURL)
 }
 
+// FileGoesAsIs answers whether SendFile would send a file that starts with
+// these bytes (base64, at most app.FileHeadBytes) unchanged and without
+// asking (see app.FileGoesAsIs). The composer asks before it says so.
+func (b *Bridge) FileGoesAsIs(headB64 string) (bool, error) {
+	if len(headB64) > base64.StdEncoding.EncodedLen(appsvc.FileHeadBytes) {
+		return false, fmt.Errorf("bridge: file head too long")
+	}
+	head, err := base64.StdEncoding.DecodeString(headB64)
+	if err != nil {
+		return false, fmt.Errorf("bridge: bad file head: %w", err)
+	}
+	return appsvc.FileGoesAsIs(head), nil
+}
+
 // FetchFile resolves a file token to a plaintext data URL of the given mime,
 // fetching the blob from guild members if not cached locally.
 func (b *Bridge) FetchFile(channelID, blobID, keys, mime string) (string, error) {
@@ -4303,6 +4317,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SendVoiceClip(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "CheckFile":
 		return nil, b.CheckFile(argStr(args, 0))
+	case "FileGoesAsIs":
+		return b.FileGoesAsIs(argStr(args, 0))
 	case "SetChatTimer":
 		return nil, b.SetChatTimer(argStr(args, 0), int64(argInt(args, 1)))
 	case "SweepUnstampedAttachments":

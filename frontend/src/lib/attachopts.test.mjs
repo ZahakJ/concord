@@ -6,7 +6,7 @@
 // This is a regression test with a real history: seeding the staged record's
 // `name` from the OS file name looked harmless and silently opted EVERY
 // picked/dropped/pasted image into v2.
-import { stagedImage, emitsLegacyToken, sentAsIs, AS_IS_NOTE } from "./attachopts.js";
+import { stagedImage, emitsLegacyToken, sentAsIs, fileHead, FILE_HEAD_CHARS, AS_IS_NOTE } from "./attachopts.js";
 
 let failures = 0;
 const assert = (cond, msg) => {
@@ -64,14 +64,35 @@ assert(
 
 // --- sent as they are: the line shown before the send -----------------------
 
-assert(sentAsIs({ type: "video/mp4", name: "clip.mp4" }), "a video is sent as it is");
-assert(sentAsIs({ type: "image/heic", name: "IMG_1.HEIC" }), "a HEIC photo staged as a file is");
-assert(sentAsIs({ type: "image/heif", name: "x" }), "HEIF by type");
-assert(sentAsIs({ type: "", name: "IMG_2.heif" }), "HEIF by name when the type is missing");
-assert(sentAsIs({ type: "application/octet-stream", name: "IMG_3.HEIC" }), "HEIC by name under a generic type");
-assert(!sentAsIs({ type: "application/pdf", name: "minutes.pdf" }), "a document is not flagged");
-assert(!sentAsIs({ type: "image/jpeg", name: "a.jpg" }), "a JPEG is not: its metadata is removed");
-assert(AS_IS_NOTE === "Videos and HEIC photos are sent as they are, including any location stored in them", "the wording");
+// The core decides from the bytes (app.FileGoesAsIs); the page sends it the
+// start of the file and shows the line only when the answer is yes.
+{
+  const big = "data:video/mp4;base64," + "A".repeat(FILE_HEAD_CHARS + 400);
+  assert(FILE_HEAD_CHARS % 4 === 0, "the head is whole base64 groups");
+  assert(fileHead(big).length === FILE_HEAD_CHARS, "only the start of a big file is asked about");
+  assert(fileHead("data:application/pdf;base64,JVBERi0=") === "JVBERi0=", "a small file is asked about whole");
+  assert(fileHead("data:text/plain,hello") === null, "a data URL that is not base64 has no head");
+
+  const asked = [];
+  const core = (answer) => async (head) => {
+    asked.push(head);
+    return answer;
+  };
+  assert((await sentAsIs("data:application/pdf;base64,JVBERi0=", core(true))) === true, "the core says a document goes as it is");
+  assert(asked.at(-1) === "JVBERi0=", "the core is asked with the file's head");
+  assert((await sentAsIs("data:video/mp4;base64,AAAAGGZ0eXA=", core(false))) === false, "a video the core cleans gets no line");
+  assert((await sentAsIs("data:image/heic;base64,AAAAGGZ0eXA=", core(false))) === false, "nor a HEIC photo");
+  const failing = async () => {
+    throw new Error("no core");
+  };
+  assert((await sentAsIs("data:application/pdf;base64,JVBERi0=", failing)) === true, "when the core cannot answer, the line shows");
+  assert((await sentAsIs("data:text/plain,hello", core(false))) === true, "and when there is nothing to ask with");
+}
+assert(
+  AS_IS_NOTE ===
+    "Files other than pictures, videos and M4A audio are sent as they are, including any details stored in them, such as a location or an author's name.",
+  "the wording",
+);
 
 if (failures) {
   console.error(`attachopts.test.mjs: ${failures} failure(s)`);

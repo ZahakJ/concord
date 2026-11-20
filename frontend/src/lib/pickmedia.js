@@ -12,8 +12,9 @@
 // attachFile. A PNG, JPEG, GIF or WebP photo has its location and the rest
 // of its metadata removed when it is sealed (cleanImage in internal/app), as
 // for every other way a picture is attached. A video, and a HEIC or HEIF photo
-// this renderer cannot read, go out as they are; the composer says so on the
-// staged item (AS_IS_NOTE in lib/attachopts.js).
+// this renderer cannot read, go as files and lose their location and device
+// details in the core (internal/bmffmeta); one it cannot clean is held for
+// the person's choice (lib/mediastrip.js).
 
 import { parseShare, fileSrc, skippedNote } from "./sharein.js";
 

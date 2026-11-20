@@ -1176,7 +1176,8 @@
     try {
       const dataUrl = await readAsDataURL(file);
       const isVideo = file.type.startsWith("video/");
-      stageInto(into, { id: uid(), dataUrl, name: displayFileName(file.name) || "file", isImage: false, isVideo, asIs: sentAsIs(file), bytes: file.size || dataUrlBytes(dataUrl) });
+      const asIs = await sentAsIs(dataUrl, api.fileGoesAsIs);
+      stageInto(into, { id: uid(), dataUrl, name: displayFileName(file.name) || "file", isImage: false, isVideo, asIs, bytes: file.size || dataUrlBytes(dataUrl) });
     } catch (err) {
       flash(err);
     } finally {
@@ -2054,8 +2055,9 @@
         {#if uploading > 0}<div class="att-chip loading"><span class="att-spin"></span></div>{/if}
       </div>
       {#if pending.some((p) => p.asIs)}
-        <!-- Said before the send: the core removes a picture's metadata, but a
-             video, or a HEIC photo staged as a file, goes out as it is. -->
+        <!-- Said before the send, for a file the core sends unchanged (a
+             document, most audio): pictures, videos and M4A audio are
+             cleaned, and what cannot be cleaned is held on its own row. -->
         <p class="as-is-note" data-testid="as-is-note">{AS_IS_NOTE}</p>
       {/if}
       {#if editingAtt && pending.some((p) => p.id === editingAtt)}

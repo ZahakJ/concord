@@ -584,6 +584,9 @@ export const api = {
   // Resolves as SendFile would hold or send this file, without sending it:
   // rejects with the same refusal. Dialogs ask before creating a post.
   checkFile: (dataURL) => call("CheckFile", dataURL),
+  // Resolves true when SendFile would send a file starting with these bytes
+  // (base64, lib/attachopts.js fileHead) unchanged, without asking.
+  fileGoesAsIs: (headB64) => call("FileGoesAsIs", headB64),
   fetchFile: (channelID, blobID, keys, mime) =>
     call("FetchFile", channelID, blobID, keys, mime),
   // Sender side only, at send time: the card for one link of a message this
