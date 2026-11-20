@@ -178,6 +178,26 @@ func TestLinkBadProofDoesNotTakeTheCode(t *testing.T) {
 	}
 }
 
+// A code past its two minutes is refused as expired, every time it is tried,
+// and the dialog keeps saying so rather than showing it as live.
+func TestLinkExpiredCodeStaysExpired(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	issuer := startLoopbackIssuer(t, ctx)
+	secret := offerSecret(t, issuer)
+	ageLinkOffer(issuer, link.OfferTTL+time.Second)
+	for i := 0; i < 2; i++ {
+		req, from := codeHolderRequest(t, secret, "late")
+		out, err := issuerAnswer(ctx, issuer, from, req)
+		if gotSeed(t, issuer, out, err) || err == nil || err.Error() != linkErrExpired {
+			t.Fatalf("try %d: got %v; want %q and no seed", i+1, err, linkErrExpired)
+		}
+	}
+	if st := issuer.LinkStatus(); !st.Expired || st.Prompt != nil {
+		t.Fatalf("issuer reports %+v; want the code shown as expired", st)
+	}
+}
+
 // A device from before 0.61 speaks /concord/link/1.0.0, which handed the seed
 // to anyone with the code. A 0.61 issuer refuses it with a message to update,
 // tells its own dialog, and leaves the code for an updated device.

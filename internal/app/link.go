@@ -315,8 +315,10 @@ func (s *Service) takeLinkOffer(req linkRequest) (*linkAsk, []byte, string) {
 	if !link.VerifyProof(o.secret, link.RoleJoiner, req.JoinerNonce, req.JoinerProof) {
 		return nil, nil, linkErrProof
 	}
+	// Past its two minutes the code stays on record only to be refused as
+	// expired, to this request and any later one, and so the dialog keeps
+	// saying it expired.
 	if time.Since(o.made) > link.OfferTTL {
-		s.linkOffer = nil
 		return nil, nil, linkErrExpired
 	}
 	s.linkOffer = nil
@@ -377,15 +379,22 @@ func (s *Service) handleLinkRequest(ctx context.Context, from peer.ID, reqBytes 
 	}
 	timer := time.NewTimer(time.Until(ask.deadline))
 	defer timer.Stop()
+	var yes bool
 	select {
-	case yes := <-ask.answer:
-		if !yes {
-			return linkRefusal(linkErrDeclined)
-		}
+	case yes = <-ask.answer:
 	case <-timer.C:
-		return linkRefusal(linkErrUnanswered)
+		// ConfirmLink takes a yes only before the deadline, so an answer
+		// already waiting here was given in time.
+		select {
+		case yes = <-ask.answer:
+		default:
+			return linkRefusal(linkErrUnanswered)
+		}
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	}
+	if !yes {
+		return linkRefusal(linkErrDeclined)
 	}
 	resp, err := s.linkHandover(secret, req)
 	if err != nil {
