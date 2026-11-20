@@ -49,6 +49,11 @@ async function bothAsk(issuerApp, joinApp, assert) {
   const joinSAS = (await joinApp.page.locator(".link-sas .sas").innerText({ timeout: 30000 })).trim();
   assert.match(issuerSAS, /^\d{3} \d{3}$/, `the issuer shows "${issuerSAS}"`);
   assert.equal(joinSAS, issuerSAS, "the two screens show different digits");
+  // The digits must be on screen without scrolling, on a phone too.
+  await joinApp.page.waitForTimeout(300);
+  const box = await joinApp.page.locator(".link-sas .sas").boundingBox();
+  const vp = joinApp.page.viewportSize();
+  assert.ok(box && box.y >= 0 && box.y + box.height <= vp.height, `the new device's digits are off screen: ${JSON.stringify(box)} in ${vp.height}px`);
   return ask;
 }
 

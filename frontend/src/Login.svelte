@@ -215,6 +215,11 @@
   // While the other device asks its owner: {sas, deviceName, seconds}. The
   // six digits appear only once that device has taken the code for this one.
   let linkWait = $state(null);
+  // The digits arrive under the form, below the fold on a phone: bring them
+  // into view, since they are what the person must compare.
+  function revealOnMount(node) {
+    node.scrollIntoView?.({ block: "center" });
+  }
   let scanning = $state(false); // in-app QR scanner overlay
   // Restore, Link and Forgot are screens stepped into from the first one, each
   // with its own Back link. The phone's back did not know about them: it fell
@@ -1135,7 +1140,7 @@
         {/if}
         <div class="error slot" role="alert">{error}</div>
         {#if busy && linkWait}
-          <div class="link-sas" role="status" aria-live="assertive">
+          <div class="link-sas" role="status" aria-live="assertive" use:revealOnMount>
             <span>Your other device is asking whether to add <strong>{linkWait.deviceName}</strong>. Check that it shows</span>
             <span class="sas" aria-label="Code {linkWait.sas}">{linkWait.sas}</span>
             <span>and choose <strong>Yes, link it</strong> there.</span>
@@ -1329,7 +1334,7 @@
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
       {#if busy && linkWait}
-        <div class="link-sas" role="status" aria-live="assertive">
+        <div class="link-sas" role="status" aria-live="assertive" use:revealOnMount>
           <span>Your other device is asking whether to add <strong>{linkWait.deviceName}</strong>. Check that it shows</span>
           <span class="sas" aria-label="Code {linkWait.sas}">{linkWait.sas}</span>
           <span>and choose <strong>Yes, link it</strong> there.</span>
