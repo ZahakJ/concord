@@ -42,7 +42,7 @@
 
 {#if r}
   <!-- Behind the avatar: art disc, orbit band, halo. -->
-  <span class="ring" class:cheap style={vars} aria-hidden="true">
+  <span class="ring" class:cheap style={vars} data-ring={r.id} aria-hidden="true">
     {#if r.art}
       <span class="art" class:frozen={r.static} style={`background:${r.art};`}></span>
     {/if}

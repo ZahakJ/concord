@@ -304,6 +304,27 @@ export const BANNERS = [
 export const BANNER_BY_ID = table(Object.fromEntries(BANNERS.map((b) => [b.id, b])));
 export const BANNER_GROUPS = ["Cosmic", "Weather", "Nature", "Cyber", "Vibes", "Calm"];
 
+// The twelve the PROFILE banner picker offers: two per group, one calm and one
+// lively. Nothing is removed from the library, because the same presets are
+// story scenes and forum banners too (ModalStoryCompose, ModalForumSettings),
+// and those were not part of the cut. So a profile already wearing one of the
+// other 31 draws exactly as before, everywhere; the picker simply offers it
+// only to the person already wearing it (BannerStudio).
+export const PROFILE_BANNERS = [
+  "galaxy",
+  "aurora",
+  "snowfall",
+  "sakura",
+  "ocean",
+  "forest",
+  "synthwave",
+  "circuit",
+  "confetti",
+  "prism",
+  "midnight",
+  "paper",
+];
+
 export const isPreset = (banner = "") => banner.startsWith("preset:");
 export const presetId = (banner = "") => banner.slice(7);
 export const presetOf = (banner = "") => (isPreset(banner) ? BANNER_BY_ID[presetId(banner)] : null);

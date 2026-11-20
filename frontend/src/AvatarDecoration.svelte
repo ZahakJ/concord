@@ -154,6 +154,7 @@
     {#if parts.length}
       <svg
         class="dec {layer}"
+        data-dec={d.id}
         class:still
         class:tilt={d.tilt}
         viewBox="0 0 100 100"
@@ -446,15 +447,6 @@
     53%, 100% { opacity: 1; }
   }
 
-  /* A swell passing through, for water and cloth. */
-  .anim.wave {
-    animation: dec-wave 3.2s ease-in-out infinite;
-  }
-  @keyframes dec-wave {
-    0%, 100% { transform: translateY(0) scaleX(1); }
-    50% { transform: translateY(-2px) scaleX(1.05); }
-  }
-
   /* spin's impatient sibling: same shared pivot, orbit-speed rather than
      filigree-speed, for comets and whipping wind. */
   .anim.whirl {
@@ -480,21 +472,6 @@
     50% { transform: translateY(-2.5px); }
   }
 
-  .anim.flap {
-    animation: dec-flap 2.4s ease-in-out infinite;
-  }
-  .anim.flap.o-r {
-    animation-name: dec-flap-r;
-  }
-  @keyframes dec-flap {
-    0%, 100% { transform: rotate(0deg) translateX(0); }
-    50% { transform: rotate(-11deg) translateX(-1px); }
-  }
-  @keyframes dec-flap-r {
-    0%, 100% { transform: rotate(0deg) translateX(0); }
-    50% { transform: rotate(11deg) translateX(1px); }
-  }
-
   .anim.flicker {
     animation: dec-flicker 1.5s ease-in-out infinite;
   }
@@ -502,25 +479,6 @@
     0%, 100% { transform: scaleY(1) translateY(0); opacity: 1; }
     35% { transform: scaleY(1.08) translateY(-1px); opacity: 0.9; }
     70% { transform: scaleY(0.95) translateY(0.5px); opacity: 1; }
-  }
-
-  /* Two jaws that have to meet: the upper drops, the lower rises, on the one
-     clock, so the bite closes instead of one half sliding past the other. */
-  .anim.chomp {
-    animation: dec-chomp 5s ease-in-out infinite;
-  }
-  .anim.chomp.o-r {
-    animation-name: dec-chomp-r;
-  }
-  @keyframes dec-chomp {
-    0%, 70%, 100% { transform: translateY(0); }
-    78% { transform: translateY(7px); }
-    86% { transform: translateY(1px); }
-  }
-  @keyframes dec-chomp-r {
-    0%, 70%, 100% { transform: translateY(0); }
-    78% { transform: translateY(-7px); }
-    86% { transform: translateY(-1px); }
   }
 
   /* The worn rings ask for this one: a slow rotation about the avatar's centre, for
@@ -559,9 +517,9 @@
      mirrored keyframe and must win. */
   /* The right-hand half of a pair, for the animations that have no mirrored
      keyframes of their own: half a cycle behind, so the two sides breathe in
-     opposition. Deliberately not applied to chomp or wag, where `o-r` already
-     means "the other jaw" or "the other ear" and a delay would break the
-     movement they are timed against. */
+     opposition. Deliberately not applied to wag, where `o-r` already means
+     "the other ear" and a delay would break the movement it is timed
+     against. */
   .anim.pulse.o-r,
   .anim.shimmer.o-r,
   .anim.flicker.o-r,

@@ -17,6 +17,9 @@ import { join } from "node:path";
 // The real staging defaults the shipped composer uses, so the attachment lane
 // tests the app's actual behaviour rather than a copy of it that can drift.
 import { stagedImage } from "../frontend/src/lib/attachopts.js";
+import { ringId, decorId } from "../frontend/src/lib/cosmeticalias.js";
+import { RING_BY_ID } from "../frontend/src/lib/rings.js";
+import { DECORATION_BY_ID } from "../frontend/src/lib/decorations.js";
 
 const OLD = process.env.INTEROP_OLD;
 const NEW = process.env.INTEROP_NEW;
@@ -504,6 +507,80 @@ async function phaseOnline() {
       ev.push(`${label}: name=${online.name} online=${online.online} presence=${JSON.stringify(online.presence)}`);
     }
     return { evidence: ev };
+  });
+
+  // --- C: profile cosmetics, after the ring and decoration cut ---------------
+  // Rings and decorations ride on profiles. An older peer keeps wearing (and
+  // sending) ids this build removed; this build must receive them intact and
+  // draw the kept item each maps to. The other way, everything this build's
+  // editor writes is an id the older peer's own UI has.
+  const setLook = (base, name, frame, effect, style) =>
+    rpc(base, "SetProfile", [name, "", "", "#3366cc", "", "", "online", "", "", frame, effect, JSON.stringify(style), ""]);
+  const memberOf = (base, fp) =>
+    waitFor(`${fp.slice(0, 8)} in member list`, async () => (await rpc(base, "Members", [st.newGuildID])).find((x) => x.fingerprint === fp), {
+      timeout: 30000,
+    });
+
+  await lane("C1", "a removed ring and decoration OLD wears reach NEW intact and resolve to kept ones", async () => {
+    await setLook(OLD, "LegacyPeer", "binary", "sparkle-card", { dec: "chainmail", dc: "gold", cf: "old-card", sat: "🚀" });
+    const m = await waitFor(
+      "NEW sees OLD's look",
+      async () => {
+        const x = await memberOf(NEW, st.oldFP);
+        return x.frame === "binary" && x.style?.dec === "chainmail" ? x : null;
+      },
+      { timeout: 60000 },
+    );
+    if (m.effect !== "sparkle-card" || m.style?.cf !== "old-card") throw new Error(`card effect/frame not preserved: ${JSON.stringify(m)}`);
+    const ring = ringId(m.frame);
+    const dec = decorId(m.style.dec);
+    if (!RING_BY_ID[ring] || ring === m.frame) throw new Error(`NEW cannot draw ring ${m.frame} (-> ${ring})`);
+    if (!DECORATION_BY_ID[dec] || dec === m.style.dec) throw new Error(`NEW cannot draw decoration ${m.style.dec} (-> ${dec})`);
+    return {
+      evidence: [
+        `NEW Members(OLD): frame=${m.frame} effect=${m.effect} style=${JSON.stringify(m.style)}`,
+        `NEW draws ring ${m.frame} as ${ring}, decoration ${m.style.dec} as ${dec}`,
+      ],
+    };
+  });
+
+  await lane("C2", "the kept ids NEW writes reach OLD and are ids OLD's own UI ships", async () => {
+    await setLook(NEW, "HeadPeer", "orbit", "sparkle-card", { dec: "gold-filigree", dc: "gold", cf: "old-card" });
+    const m = await waitFor(
+      "OLD sees NEW's look",
+      async () => {
+        const x = await memberOf(OLD, st.newFP);
+        return x.frame === "orbit" && x.style?.dec === "gold-filigree" ? x : null;
+      },
+      { timeout: 60000 },
+    );
+    if (m.effect !== "sparkle-card" || m.style?.cf !== "old-card") throw new Error(`card effect/frame not preserved: ${JSON.stringify(m)}`);
+    // OLD runs its own shipped frontend: the ids must be in ITS tables.
+    const html = await (await fetch(`${OLD}/`)).text();
+    const assets = [...new Set([...html.matchAll(/assets\/[\w.-]+\.js/g)].map((x) => x[0]))];
+    let js = "";
+    const seen = new Set(assets);
+    for (let i = 0; i < assets.length && i < 400; i++) {
+      const t = await (await fetch(`${OLD}/${assets[i]}`)).text();
+      js += t;
+      for (const x of t.matchAll(/assets\/[\w.-]+\.js|\.\/[\w.-]+\.js/g)) {
+        const a = x[0].startsWith("./") ? `assets/${x[0].slice(2)}` : x[0];
+        if (!seen.has(a)) {
+          seen.add(a);
+          assets.push(a);
+        }
+      }
+    }
+    for (const id of ["orbit", "gold-filigree"]) {
+      // The minifier quotes with any of the three.
+      if (!new RegExp(`id:\\s*["'\`]${id}["'\`]`).test(js)) throw new Error(`OLD's shipped frontend has no "${id}" entry (${assets.length} chunks read)`);
+    }
+    return {
+      evidence: [
+        `OLD Members(NEW): frame=${m.frame} effect=${m.effect} style=${JSON.stringify(m.style)}`,
+        `OLD's shipped bundle (${assets.length} chunks) defines id "orbit" and id "gold-filigree"`,
+      ],
+    };
   });
 
   // --- L4: attachments ------------------------------------------------------

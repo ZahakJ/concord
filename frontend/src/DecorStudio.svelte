@@ -39,8 +39,10 @@
     COLORWAYS,
     COLORWAY_BY_ID,
     CW_OWN,
+    wornRing,
   } from "./lib/decorations.js";
   import { RING_BY_ID, RING_GROUPS, hasRider, hasPalette } from "./lib/rings.js";
+  import { decorId, ringId } from "./lib/cosmeticalias.js";
 
   let {
     decoration = "",
@@ -64,8 +66,12 @@
 
   // The two halves of the one slot. Both can arrive set — see the note above —
   // and picking anything at all collapses that back to one.
-  let selDec = $state(decoration);
-  let selRing = $state(ring);
+  //
+  // A piece or ring this build no longer has opens as the kept one it is drawn
+  // as (lib/cosmeticalias.js), so the tile that is lit is what you see on your
+  // avatar. Applying writes that kept id; cancelling keeps the old one.
+  let selDec = $state(decorId(decoration));
+  let selRing = $state(wornRing(ring) ? decorId(ring) : ringId(ring));
   let cwSel = $state(dc);
   let sp = $state(speed);
   let dr = $state(dir);

@@ -1,4 +1,4 @@
-// The twenty-one decorations that are DRAWN RINGS.
+// The decorations that are DRAWN RINGS.
 //
 // This is the one fact about the decoration table that every avatar in the app
 // needs before it can draw itself: a ring means a circular silhouette, and a
@@ -9,34 +9,24 @@
 // that never renders a decoration, and the duplication is GATED: decorations.
 // test.mjs asserts this list is exactly the set of entries carrying `ring`, so
 // adding a ring to the library without adding it here fails the build.
+import { decorId } from "./cosmeticalias.js";
+
 const WORN_RINGS = new Set([
   "runic-ring",
-  "orbit-sigils",
-  "eldritch-iris",
-  "spellbound-chain",
-  "warding-hex",
   "laurel-ring",
-  "blossom-crown",
-  "riveted-band",
   "gold-filigree",
-  "gear-ring",
-  "chainmail",
-  "hammered-bronze",
-  "gem-circlet",
   "frost-shards",
-  "prism-halo",
-  "diamond-lattice",
   "neon-circuit-ring",
-  "neon-holo-segments",
-  "neon-target-lock",
-  "neon-hex-lattice",
-  "sunburst-crown",
 ]);
 
 // wornRing answers the one question the rest of the app asks about the `ring`
 // flag: is this id one of the decorations that reads as a ring around the face?
+//
+// A drawn ring this build no longer has counts as the kept ring it is drawn as
+// (lib/cosmeticalias.js maps rings only to rings), so a profile still wearing
+// one keeps its circular silhouette.
 export function wornRing(id) {
-  return WORN_RINGS.has(id);
+  return WORN_RINGS.has(decorId(id));
 }
 
 export { WORN_RINGS };

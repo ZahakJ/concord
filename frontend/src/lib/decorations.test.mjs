@@ -97,14 +97,15 @@ const hex = /^#[0-9a-f]{3,8}$/i;
 
 ok(animClasses.size >= 8, `only ${animClasses.size} animation classes found — did the CSS move?`);
 ok(painter.includes(".dec.tilt"), "the painter no longer defines the whole-piece tilt");
-ok(DECORATIONS.length >= 61, `expected at least 61 decorations, got ${DECORATIONS.length}`);
-// The drawn rings folded in from the old frames library. They are counted
-// rather than named so adding one is free, but losing the lot is not: every id
-// among them is still reachable from a profile's `frame` field, saved before
-// the two libraries became one.
+// The library was cut from 61 to 20 (cosmeticalias.test.mjs holds the exact
+// list and where each removed piece went).
+ok(DECORATIONS.length >= 20, `expected at least 20 decorations, got ${DECORATIONS.length}`);
+// The drawn rings folded in from the old frames library. Every one of the
+// twenty-one ids is still reachable from a profile's `frame` field, saved
+// before the two libraries became one — kept, or drawn as a kept ring.
 ok(
-  DECORATIONS.filter((d) => d.ring).length >= 21,
-  `expected at least 21 worn rings, got ${DECORATIONS.filter((d) => d.ring).length}`,
+  DECORATIONS.filter((d) => d.ring).length >= 5,
+  `expected at least 5 worn rings, got ${DECORATIONS.filter((d) => d.ring).length}`,
 );
 for (const id of ["runic-ring", "laurel-ring", "chainmail", "sunburst-crown"])
   ok(!!decoration(id) && wornRing(id), `${id}: a legacy \`frame\` id must still resolve, as a ring`);
@@ -475,6 +476,18 @@ function arcPoints(x1, y1, x2, y2, r, large, sweep) {
   const extra = inList.filter((id) => !inTable.includes(id));
   if (missing.length) fail(`wornrings.js is missing rings that decorations.js has: ${missing.join(", ")}`);
   if (extra.length) fail(`wornrings.js names rings decorations.js does not have: ${extra.join(", ")}`);
+}
+
+// …and the other way round: an animation no decoration names is dead CSS left
+// behind by a piece that was removed.
+{
+  const used = new Set();
+  for (const d of DECORATIONS) {
+    if (d.anim) used.add(d.anim);
+    for (const p of d.parts) if (p.anim) used.add(p.anim);
+  }
+  const dead = [...animClasses].filter((a) => !used.has(a));
+  if (dead.length) fail(`AvatarDecoration.svelte animates what no decoration uses: ${dead.join(", ")}`);
 }
 
 if (failures) {

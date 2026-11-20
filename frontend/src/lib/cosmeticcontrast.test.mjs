@@ -92,7 +92,12 @@ function triples(src) {
 }
 
 const ALL = entries();
-assert(ALL.length > 40, `only ${ALL.length} cosmetic entries found — the scrape is broken`);
+// Every palette and every ring but None: the libraries were cut (rings 46 →
+// 12), so the floor is what the tables hold, not a fixed number.
+assert(
+  ALL.length >= PALETTES.length + RINGS.length - 1,
+  `only ${ALL.length} cosmetic entries found — the scrape is broken`,
+);
 
 // --- 1. the daylight dim -----------------------------------------------------
 

@@ -10,6 +10,7 @@
   import { DECORATION_BY_ID, DECORATIONS, COLORWAYS } from "../lib/decorations.js";
   import GameShelf from "../GameShelf.svelte";
   import { RING_BY_ID, RINGS } from "../lib/rings.js";
+  import { decorId, ringId } from "../lib/cosmeticalias.js";
   import { api } from "../lib/api.js";
   import { haptic } from "../lib/touch.js";
   import { S, flash } from "../lib/state.svelte.js";
@@ -594,7 +595,10 @@
              before the two libraries became one, so the name is looked for in
              both tables. -->
         <strong>
-          {DECORATION_BY_ID[dec]?.name || RING_BY_ID[frame]?.name || DECORATION_BY_ID[frame]?.name || "None"}
+          {DECORATION_BY_ID[decorId(dec)]?.name ||
+            RING_BY_ID[ringId(frame)]?.name ||
+            DECORATION_BY_ID[decorId(frame)]?.name ||
+            "None"}
         </strong>
         <span class="tiny muted"
           >{DECORATIONS.length} drawn · {RINGS.length - 1} gradient · {COLORWAYS.length} colours</span

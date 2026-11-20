@@ -10,7 +10,8 @@
   // that selection rather than a picker.
   import Icon from "./Icon.svelte";
   import { rangefill } from "./lib/rangefill.js";
-  import { SATELLITES, PALETTES, hasRider, hasPalette } from "./lib/rings.js";
+  import { SATELLITES, PALETTES, RING_BY_ID, hasRider, hasPalette } from "./lib/rings.js";
+  import { ringId } from "./lib/cosmeticalias.js";
   import { emojiName } from "./lib/emoji.js";
 
   let {
@@ -31,7 +32,9 @@
   // anything that orbits, the colourway shelf for the Gradient ring.
   const rider = $derived(hasRider(ring));
   const palette = $derived(hasPalette(ring));
-  const animated = $derived(ring !== "" && ring !== "theme-solid");
+  // Every ring left in the library moves (the one still ring, "Your solid",
+  // was cut and is drawn as "Your colors").
+  const animated = $derived(ring !== "" && !RING_BY_ID[ringId(ring)]?.static);
 
   // Your own satellite: downscale to a 64px sprite so it costs ~2KB on the
   // wire, not a megabyte — it orbits at ~14px on screen.
