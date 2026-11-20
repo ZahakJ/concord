@@ -291,7 +291,8 @@ and a six-digit code, the SAS: HMAC-SHA256 of the secret over the issuer's
 peer ID and the device key, reduced mod 10⁶. It sends the new device a wait
 frame, and only on that frame does the new device compute the same six digits
 and show them. The owner compares the two screens and presses yes or no. The
-name is whatever the requester typed and proves nothing; the digits are what
+name is whatever the requesting device sends (Concord sends a name for its
+platform, but any client can send any name) and proves nothing; the digits are what
 tie the prompt to the device in the owner's hand. Someone who only saw the
 code cannot shop for a key whose digits match, because the new device shows
 its digits only after its own request has taken the code, and only one
