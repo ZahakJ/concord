@@ -254,6 +254,51 @@
       // so nothing the host or a tampered response says can become markup.
       const $ = (id) => document.getElementById(id);
 
+      // --- booking-crypto begin
+      // The meeting URL the host hands back is sealed to a key only this page
+      // holds: we send an ephemeral P-256 key with the booking, the host
+      // answers with its own and AES-256-GCM(HKDF(ECDH, salt = epk ‖ spk,
+      // "concord booking v1 seal")) over {meetingURL, ics}, nonce first. The
+      // keys are not authenticated, so this keeps the URL from an operator who
+      // only reads the traffic, not from one who rewrites it. Mirrors
+      // internal/app; a Node test runs this block against its vectors.
+      const BC = (() => {
+        const subtle = globalThis.crypto && globalThis.crypto.subtle;
+        const b64u = (bytes) => {
+          let s = "";
+          for (const b of bytes) s += String.fromCharCode(b);
+          return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        };
+        const unb64u = (str) => {
+          if (typeof str !== "string" || !/^[A-Za-z0-9_-]*$/.test(str)) throw new Error("not base64url");
+          const pad = str.length % 4 === 2 ? "==" : str.length % 4 === 3 ? "=" : "";
+          const bin = atob(str.replace(/-/g, "+").replace(/_/g, "/") + pad);
+          const out = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+          return out;
+        };
+        async function ephemeral() {
+          const kp = await subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+          return { priv: kp.privateKey, pub: new Uint8Array(await subtle.exportKey("raw", kp.publicKey)) };
+        }
+        // Opens the host's answer with our private key; throws on any mismatch.
+        async function openSealed(priv, epk, spk, sealed) {
+          const peer = await subtle.importKey("raw", spk, { name: "ECDH", namedCurve: "P-256" }, false, []);
+          const z = await subtle.deriveBits({ name: "ECDH", public: peer }, priv, 256);
+          const salt = new Uint8Array(epk.length + spk.length);
+          salt.set(epk); salt.set(spk, epk.length);
+          const ikm = await subtle.importKey("raw", z, "HKDF", false, ["deriveKey"]);
+          const key = await subtle.deriveKey(
+            { name: "HKDF", hash: "SHA-256", salt, info: new TextEncoder().encode("concord booking v1 seal") },
+            ikm, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+          if (sealed.length < 12 + 16) throw new Error("short");
+          const pt = await subtle.decrypt({ name: "AES-GCM", iv: sealed.slice(0, 12) }, key, sealed.slice(12));
+          return JSON.parse(new TextDecoder().decode(pt));
+        }
+        return { subtle, b64u, unb64u, ephemeral, openSealed };
+      })();
+      // --- booking-crypto end
+
       // /book/<token> — the token is the last path segment; the host's peer id
       // rides the fragment, exactly like a guest meeting link's.
       const token = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
@@ -365,7 +410,12 @@
         $("bookspin").classList.remove("hide");
         $("bookbtntext").textContent = "Booking…";
         try {
-          const resp = await api({ op: "book", slot: chosen, name, note: $("vnote").value });
+          if (!BC.subtle) {
+            $("formerr").textContent = "This browser can't receive the meeting link securely here — open this page over https.";
+            return;
+          }
+          const eph = await BC.ephemeral();
+          const resp = await api({ op: "book", slot: chosen, name, note: $("vnote").value, epk: BC.b64u(eph.pub) });
           if (!resp.ok) {
             if (resp.unreachable) { die(resp.error, true); return; }
             // Most likely "just taken" — refresh the board so the stale slot
@@ -375,8 +425,17 @@
             $("slotserr").textContent = resp.error || "";
             return;
           }
-          meetingURL = String(resp.meetingURL || "");
-          icsText = String(resp.ics || "");
+          let sealed;
+          try {
+            sealed = await BC.openSealed(eph.priv, eph.pub, BC.unb64u(resp.spk), BC.unb64u(resp.sealed));
+          } catch {
+            // Booked, but the answer did not open: say so rather than show
+            // nothing as if all were well.
+            $("formerr").textContent = "You're booked, but the meeting link couldn't be read. Ask the host to send it.";
+            return;
+          }
+          meetingURL = String(sealed.meetingURL || "");
+          icsText = String(sealed.ics || "");
           $("donewhen").textContent = "You're booked with " + (resp.host || "the host") + " — " +
             fullFmt.format(new Date((resp.start || chosen) * 1000)) + ".";
           $("mlink").value = meetingURL;

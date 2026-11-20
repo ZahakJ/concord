@@ -530,13 +530,120 @@
     </div>
 
     <script>
-      // The link's fragment carries the host peer id + token. Fragments are
-      // never sent to the server in the HTTP request, so the token reaches the
-      // gateway only inside the (TLS) WebSocket — and only the meeting HOST
-      // can actually validate it.
+      // --- guest-crypto begin
+      // The guest leg's encryption, mirrored from internal/app/guestcrypt.go
+      // (see docs/dev/guest-e2e.md). This block uses nothing but WebCrypto,
+      // TextEncoder and atob/btoa, so a Node test extracts it and checks it
+      // against internal/app/testdata/guest-kat.json. Change both sides in the
+      // same commit.
+      const GC = (() => {
+        const subtle = globalThis.crypto && globalThis.crypto.subtle;
+        const te = new TextEncoder();
+        const cat = (...parts) => {
+          const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+          let o = 0;
+          for (const p of parts) { out.set(p, o); o += p.length; }
+          return out;
+        };
+        const b64u = (bytes) => {
+          let s = "";
+          for (const b of bytes) s += String.fromCharCode(b);
+          return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        };
+        const unb64u = (str) => {
+          if (typeof str !== "string" || !/^[A-Za-z0-9_-]*$/.test(str)) throw new Error("not base64url");
+          const pad = str.length % 4 === 2 ? "==" : str.length % 4 === 3 ? "=" : "";
+          const bin = atob(str.replace(/-/g, "+").replace(/_/g, "/") + pad);
+          const out = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+          return out;
+        };
+        const random = (n) => globalThis.crypto.getRandomValues(new Uint8Array(n));
+
+        async function hkdf(ikm, salt, info, n) {
+          const key = await subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]);
+          const bits = await subtle.deriveBits(
+            { name: "HKDF", hash: "SHA-256", salt, info: typeof info === "string" ? te.encode(info) : info },
+            key, n * 8);
+          return new Uint8Array(bits);
+        }
+
+        // linkId is sent in clear so the host can find the link; K never leaves
+        // this page.
+        async function linkKeys(secret) {
+          const none = new Uint8Array(0);
+          return {
+            linkId: b64u(await hkdf(secret, none, "concord guest v2 link id", 16)),
+            K: await hkdf(secret, none, "concord guest v2 link key", 32),
+          };
+        }
+
+        // ikm = K ‖ Z, salt = gn ‖ hn, info = label ‖ ctx, with
+        // ctx = 0 "v2" 0 linkId 0 hostPeerId 0 gpk 0 hpk (keys base64url).
+        async function sessionKeys(K, Z, gn, hn, linkId, hostPeer, gpk, hpk) {
+          const ctx = "\x00v2\x00" + linkId + "\x00" + hostPeer + "\x00" + b64u(gpk) + "\x00" + b64u(hpk);
+          const ikm = cat(K, Z), salt = cat(gn, hn);
+          return {
+            g2h: await hkdf(ikm, salt, "concord guest v2 g2h" + ctx, 32),
+            h2g: await hkdf(ikm, salt, "concord guest v2 h2g" + ctx, 32),
+          };
+        }
+
+        // 4 zero bytes, then the record counter as a 64-bit big-endian number.
+        function nonce(ctr) {
+          const n = new Uint8Array(12);
+          new DataView(n.buffer).setBigUint64(4, BigInt(ctr));
+          return n;
+        }
+
+        // UTF-8 bytes right-padded with spaces to a multiple of 256 (at least
+        // 256), so a record's length shows only its 256-byte bucket.
+        function pad(bytes) {
+          const n = Math.max(256, Math.ceil(bytes.length / 256) * 256);
+          const out = new Uint8Array(n).fill(0x20);
+          out.set(bytes);
+          return out;
+        }
+
+        const aesKey = (raw) => subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]);
+        async function seal(key, ctr, plaintext) {
+          return new Uint8Array(await subtle.encrypt({ name: "AES-GCM", iv: nonce(ctr) }, key, pad(plaintext)));
+        }
+        async function open(key, ctr, ct) {
+          return new Uint8Array(await subtle.decrypt({ name: "AES-GCM", iv: nonce(ctr) }, key, ct));
+        }
+
+        // Ephemeral P-256: fresh per connection, never stored, not extractable.
+        async function ephemeral() {
+          const kp = await subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
+          return { priv: kp.privateKey, pub: new Uint8Array(await subtle.exportKey("raw", kp.publicKey)) };
+        }
+        async function ecdh(priv, peerRaw) {
+          const pub = await subtle.importKey("raw", peerRaw, { name: "ECDH", namedCurve: "P-256" }, false, []);
+          return new Uint8Array(await subtle.deriveBits({ name: "ECDH", public: pub }, priv, 256));
+        }
+
+        return { subtle, te, cat, b64u, unb64u, random, hkdf, linkKeys, sessionKeys, nonce, pad, aesKey, seal, open, ephemeral, ecdh };
+      })();
+      // --- guest-crypto end
+
+      // The link: #h=<host peer id>&k=<secret>. Browsers never send a fragment
+      // to the server, and this page never puts the secret on the socket: the
+      // gateway sees only a link id derived from it, and everything after the
+      // handshake is sealed under keys only this page and the host can derive.
       const frag = new URLSearchParams(location.hash.slice(1));
       const hostId = frag.get("h") || "";
-      const token = frag.get("t") || "";
+      let secret = null;
+      try {
+        const s = GC.unb64u(frag.get("k") || "");
+        if (s.length === 32) secret = s;
+      } catch { /* malformed: refused below */ }
+      // An old-format link carries a bearer token. It no longer works, and
+      // sending it anywhere would hand it to whoever runs the gateway.
+      const oldLink = frag.has("t");
+      // WebCrypto exists only in secure contexts (https, or localhost). Without
+      // it this page cannot encrypt, so it does not connect at all.
+      const secure = !!(window.isSecureContext && GC.subtle);
 
       const $ = (id) => document.getElementById(id);
       const feed = $("feed");
@@ -544,10 +651,43 @@
       let ws = null;
       let myName = "";
 
-      if (!hostId || !token) {
-        $("title").textContent = "Invalid meeting link";
-        $("sub").textContent = "This link is missing its meeting details. Ask for a fresh one.";
+      const DEAD_LINK = "This link no longer works — ask the host for a new one.";
+      const UNREACHABLE = "The meeting host isn't reachable right now — ask them to keep Concord open.";
+      // Page text for the codes a clear (pre-handshake) frame may carry. The
+      // frame's own prose is never shown: the gateway could put anything there.
+      const CODE_TEXT = { unreachable: UNREACHABLE };
+      const GENERIC_END = "Couldn't reach the meeting. Try again in a moment.";
+
+      function refuse(title, sub) {
+        $("title").textContent = title;
+        $("sub").textContent = sub;
         $("joinForm").style.display = "none";
+      }
+      const linkOK = !oldLink && !!hostId && !!secret && secure;
+      if (oldLink) {
+        refuse("This link no longer works", "It is from an older version of Concord. Ask the host for a new one.");
+      } else if (!hostId || !secret) {
+        refuse("Invalid meeting link", "This link is missing its meeting details. Ask for a fresh one.");
+      } else if (!secure) {
+        refuse("This page can't be used here",
+          "This browser isn't offering the encryption the meeting needs (the page must be opened over https). Nothing was sent.");
+      }
+
+      // The guest id: random per link, kept so a returning browser does not use
+      // up another of the link's guest slots. localStorage, then
+      // sessionStorage, then memory.
+      function guestId(linkId) {
+        const key = "concord.guest.gid." + linkId;
+        for (const store of ["localStorage", "sessionStorage"]) {
+          try {
+            const st = window[store];
+            let v = st.getItem(key);
+            if (!v) { v = GC.b64u(GC.random(16)); st.setItem(key, v); }
+            if (st.getItem(key) === v) return v;
+          } catch { /* blocked: try the next */ }
+        }
+        guestId.mem ||= GC.b64u(GC.random(16));
+        return guestId.mem;
       }
 
       function addMsg(who, body, sys) {
@@ -621,20 +761,77 @@
       // The socket. Frames are line-delimited JSON in both directions; the
       // gateway re-attaches the '\n' it consumed, and we buffer any partial
       // tail rather than parsing half an SDP and dropping it.
+      //
+      // Two clear frames open a visit: our hello (link id, a nonce, an
+      // ephemeral key) and the host's chal (its nonce and key). From then on
+      // every frame either way is {"type":"e"} sealed under per-visit keys, and
+      // anything else is dropped. Sealing and opening each run through one
+      // promise queue, so WebCrypto's async completion can never put records
+      // out of counter order.
       // ---------------------------------------------------------------------
-      function connect() {
+      let sess = null; // { sock, tx, rx, txCtr, rxCtr } for the live visit
+      let txQ = Promise.resolve();
+      let rxQ = Promise.resolve();
+
+      // The one way a frame leaves this page after the handshake.
+      function send(frame) {
+        const s = sess;
+        if (!s || s.sock.readyState !== 1) return;
+        const bytes = GC.te.encode(JSON.stringify(frame));
+        txQ = txQ.then(async () => {
+          if (sess !== s || s.sock.readyState !== 1) return;
+          const ct = await GC.seal(s.tx, s.txCtr++, bytes);
+          if (sess === s && s.sock.readyState === 1) s.sock.send(JSON.stringify({ type: "e", c: GC.b64u(ct) }));
+        }).catch(() => { try { s.sock.close(); } catch {} });
+      }
+
+      async function connect() {
+        if (!linkOK) return;
         myName = ($("name").value || "").trim() || "Guest";
         setJoinState("connecting");
         $("err").textContent = "Connecting…";
 
-        const proto = location.protocol === "https:" ? "wss:" : "ws:";
-        ws = new WebSocket(`${proto}//${location.host}/guest/ws?h=${encodeURIComponent(hostId)}`);
+        const { linkId, K } = await GC.linkKeys(secret);
+        const gid = guestId(linkId);
+        const gn = GC.random(16);
+        const eph = await GC.ephemeral();
 
-        ws.onopen = () => {
-          ws.send(JSON.stringify({ type: "hello", token, name: myName }));
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        const sock = new WebSocket(`${proto}//${location.host}/guest/ws?h=${encodeURIComponent(hostId)}`);
+        ws = sock;
+        sess = null;
+        // What the page says if the socket closes before a welcome.
+        let opened = false, challenged = false, welcomed = false, ended = false, code = "";
+        sock.userClosed = false;
+
+        sock.onopen = () => {
+          opened = true;
+          sock.send(JSON.stringify({ type: "hello", v: 2, link: linkId, gn: GC.b64u(gn), gpk: GC.b64u(eph.pub) }));
         };
+
+        const onChal = async (f) => {
+          const hn = GC.unb64u(f.hn), hpk = GC.unb64u(f.hpk);
+          if (hn.length !== 16 || hpk.length !== 65) throw new Error("bad chal");
+          const Z = await GC.ecdh(eph.priv, hpk);
+          const keys = await GC.sessionKeys(K, Z, gn, hn, linkId, hostId, eph.pub, hpk);
+          sess = { sock, tx: await GC.aesKey(keys.g2h), rx: await GC.aesKey(keys.h2g), txCtr: 0, rxCtr: 0 };
+          // The first record proves we hold the link.
+          send({ type: "join", name: myName, gid });
+        };
+        const onRecord = async (c) => {
+          const s = sess;
+          if (!s || s.sock !== sock) return;
+          const pt = await GC.open(s.rx, s.rxCtr, GC.unb64u(c));
+          s.rxCtr++;
+          const f = JSON.parse(new TextDecoder().decode(pt));
+          if (f.type === "welcome") welcomed = true;
+          if (f.type === "end") ended = true;
+          onFrame(f);
+        };
+
         let rxBuf = "";
-        ws.onmessage = (ev) => {
+        sock.onmessage = (ev) => {
+          if (ws !== sock) return;
           rxBuf += String(ev.data);
           const lines = rxBuf.split("\n");
           rxBuf = lines.pop() ?? "";
@@ -642,21 +839,39 @@
             if (!line.trim()) continue;
             let f;
             try { f = JSON.parse(line); } catch { continue; }
-            onFrame(f);
+            if (!f || typeof f !== "object") continue;
+            if (challenged) {
+              // After chal only sealed records count; a clear frame here is
+              // the relay talking, and it gets no say.
+              if (f.type !== "e" || typeof f.c !== "string") continue;
+              const c = f.c;
+              rxQ = rxQ.then(() => onRecord(c)).catch(() => { try { sock.close(); } catch {} });
+            } else if (f.type === "chal") {
+              challenged = true;
+              rxQ = rxQ.then(() => onChal(f)).catch(() => { try { sock.close(); } catch {} });
+            } else if (f.type === "end") {
+              code = typeof f.code === "string" ? f.code : "unknown";
+              try { sock.close(); } catch {}
+            }
           }
         };
-        ws.onerror = () => {
-          $("err").textContent = "Couldn't reach the meeting. Ask the host to keep Concord open.";
-          setJoinState("form");
-        };
-        ws.onclose = () => {
+        sock.onerror = () => {};
+        sock.onclose = () => {
+          if (ws !== sock) return; // a socket we already replaced
+          ws = null;
+          sess = null;
           setJoinState("form");
           leaveCall();
           $("live").classList.add("bad");
-          if ($("room").classList.contains("on")) {
-            addMsg("", "Disconnected.", true);
+          if (welcomed) {
+            if (!ended) addMsg("", "Disconnected.", true);
             endComposer();
+            return;
           }
+          if (ended || sock.userClosed) return; // the host said why, or we walked away
+          if (code) $("err").textContent = CODE_TEXT[code] || GENERIC_END;
+          else if (!opened) $("err").textContent = "Couldn't reach the meeting. Check your connection and try again.";
+          else $("err").textContent = DEAD_LINK;
         };
       }
 
@@ -698,7 +913,7 @@
           $("over").classList.add("on");
           endComposer();
           setJoinState("form");
-          ws.close();
+          try { ws?.close(); } catch {}
         }
       }
 
@@ -712,13 +927,19 @@
         $("setBtn").style.display = "none";
       }
 
-      $("go").onclick = connect;
+      $("go").onclick = () => {
+        connect().catch(() => {
+          setJoinState("form");
+          $("err").textContent = "Couldn't start an encrypted connection in this browser.";
+        });
+      };
       $("name").addEventListener("keydown", (e) => {
         if (e.key === "Enter") $("go").click();
       });
       // Walking away from a locked door: close the socket so the host's knock
       // list clears instead of showing a stranger who left.
       $("knockCancel").onclick = () => {
+        if (ws) ws.userClosed = true;
         try { ws?.close(); } catch {}
         setJoinState("form");
         $("err").textContent = "";
@@ -727,16 +948,20 @@
       $("bar").onsubmit = (e) => {
         e.preventDefault();
         const text = $("msg").value.trim();
-        if (!text || !ws || ws.readyState !== 1) return;
-        ws.send(JSON.stringify({ type: "msg", content: text }));
+        if (!text || !sess || sess.sock.readyState !== 1) return;
+        send({ type: "msg", content: text });
         $("msg").value = "";
       };
 
       // ---------------------------------------------------------------------
       // The call. The guest is one more peer in the host's WebRTC mesh: SDP and
-      // ICE ride the same guest stream as chat ({type:"signal"}), and the media
-      // itself flows DIRECTLY browser↔app, encrypted (DTLS-SRTP). The rendezvous
-      // relays signaling bytes it cannot read and never sees a frame of video.
+      // ICE ride the same guest stream as chat ({type:"signal"}), sealed like
+      // every other record, so the rendezvous cannot read or swap the DTLS
+      // fingerprints in the SDP. Media is DTLS-SRTP between this browser and the
+      // host's app, through this node's TURN relay when it has one (the relay
+      // sees only SRTP ciphertext), directly otherwise. All of this rests on the
+      // page itself: an operator who served a modified copy of it could read
+      // everything the guest sees and says.
       //
       // We are always the POLITE peer: the app offers, we answer. That's the
       // standard perfect-negotiation role split, and it means no glare here.
@@ -778,9 +1003,7 @@
       let hostHere = false;
 
       const sig = (payload) => {
-        if (ws && ws.readyState === 1) {
-          ws.send(JSON.stringify({ type: "signal", data: { channelId, ...payload } }));
-        }
+        send({ type: "signal", data: { channelId, ...payload } });
       };
       // One status line, two facts: the connection, and what you're watching.
       // "Watching X" is the more useful of the two once media is flowing, but a
@@ -1343,12 +1566,12 @@
         upsertTile("self:voice", { kind: "voice", self: true, label: `${myName} (you)`, ph: "🎤" });
         // Honesty about IP privacy: with a relay we're IP-private (relayOnly).
         // Without one (a host on a relay-less deployment) the call is direct and
-        // the other participants can see your IP — say so plainly rather than
+        // the host's app sees your IP — say so plainly rather than
         // leak it silently.
         if (!relayOnly) {
           sayOnce(
             "norelay",
-            "⚠️ This meeting has no media relay — the other participants may see your IP address.",
+            "⚠️ This meeting has no media relay, so the call goes directly between your browser and the host's app, and the host can see your IP address.",
           );
         }
 
@@ -1395,7 +1618,7 @@
         };
 
         // Tell the app we're here; it opens the connection and offers.
-        ws.send(JSON.stringify({ type: "call", action: "join" }));
+        send({ type: "call", action: "join" });
         setStat("waiting for the host…");
       }
 
@@ -1523,7 +1746,7 @@
         stopShare();
         stopCamera();
         micSender = null;
-        if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "call", action: "leave" }));
+        send({ type: "call", action: "leave" });
         if (pc) { pc.close(); pc = null; }
         teardownChain();
         rawMic?.getTracks().forEach((t) => t.stop());
