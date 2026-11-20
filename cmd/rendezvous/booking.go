@@ -114,6 +114,9 @@ type bookingAPIRequest struct {
 	Slot  int64  `json:"slot,omitempty"`
 	Name  string `json:"name,omitempty"`
 	Note  string `json:"note,omitempty"`
+	// Epk is the page's ephemeral public key for a "book": the host seals the
+	// meeting link to it, so this node relays an answer it cannot read.
+	Epk string `json:"epk,omitempty"`
 }
 
 // hostBookingRequest is the line relayed to the host: the API request minus
@@ -124,6 +127,7 @@ type hostBookingRequest struct {
 	Slot  int64  `json:"slot,omitempty"`
 	Name  string `json:"name,omitempty"`
 	Note  string `json:"note,omitempty"`
+	Epk   string `json:"epk,omitempty"`
 }
 
 func writeBookingJSON(w http.ResponseWriter, status int, body string) {
@@ -193,7 +197,7 @@ func registerBookingGateway(ctx context.Context, mux *http.ServeMux, h host.Host
 		}
 
 		line, err := json.Marshal(hostBookingRequest{
-			Op: req.Op, Token: req.Token, Slot: req.Slot, Name: req.Name, Note: req.Note,
+			Op: req.Op, Token: req.Token, Slot: req.Slot, Name: req.Name, Note: req.Note, Epk: req.Epk,
 		})
 		if err != nil {
 			writeBookingJSON(w, http.StatusInternalServerError, `{"ok":false,"error":"Bad request."}`)

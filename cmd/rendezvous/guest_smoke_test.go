@@ -64,6 +64,7 @@ type testFrame struct {
 	Content string `json:"content,omitempty"`
 	Meeting string `json:"meeting,omitempty"`
 	Reason  string `json:"reason,omitempty"`
+	Code    string `json:"code,omitempty"`
 	Data    string `json:"data,omitempty"`
 }
 
@@ -292,7 +293,20 @@ func TestGuestGatewayUnreachableHost(t *testing.T) {
 
 	ws := dialGuestWS(t, srv, ghost.String())
 	frames := readFrames(t, ws, []string{"end"})
-	if !strings.Contains(frames[0].Reason, "isn't reachable") {
-		t.Errorf("end reason %q should tell the guest the host is unreachable", frames[0].Reason)
+	// A code the page maps to its own text, and no prose: the frame is clear
+	// and unauthenticated, so the page must never show what it says.
+	if frames[0].Code != "unreachable" || frames[0].Reason != "" {
+		t.Errorf("unreachable end is %+v, want code \"unreachable\" and no reason", frames[0])
+	}
+}
+
+// TestGuestPageCSP pins the guest page's connect-src to its own origin: the
+// page talks to this gateway's WebSocket and /turn and to nothing else.
+func TestGuestPageCSP(t *testing.T) {
+	rec := httptest.NewRecorder()
+	serveGuestPage(rec, httptest.NewRequest(http.MethodGet, "/guest", nil))
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "connect-src 'self';") || strings.Contains(csp, "wss:") {
+		t.Fatalf("guest page CSP %q, want connect-src 'self' only", csp)
 	}
 }

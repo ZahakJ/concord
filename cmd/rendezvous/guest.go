@@ -25,15 +25,22 @@ import (
 // open web. Someone with a meeting link opens /guest in any browser, the page
 // upgrades to a WebSocket, and this node pipes that socket byte-for-byte into
 // a libp2p stream to the MEETING HOST (whose PeerID the guest's link carries).
-// The host validates the token and runs the whole guest session (see
-// internal/app/guest.go) — this node is a dumb pipe: it does not read the
-// meeting, cannot decrypt member-to-member traffic, and keeps no state.
+// The host checks the link and runs the whole guest session (see
+// internal/app/guest.go) — this node is a dumb pipe and keeps no state.
 //
-// It is still a relaxation of the trust model versus full Concord peers, which
-// is why guests are (a) meeting-scoped, (b) chat-only, and (c) labelled as
-// guests in the room. The guest's traffic is TLS to here, then Noise to the
-// host — never plaintext on the wire, but this node COULD read the guest's
-// leg. That is the honest cost of "no install".
+// What it relays is end-to-end encrypted between the guest's page and the
+// host (internal/app/guestcrypt.go, docs/dev/guest-e2e.md): a clear hello
+// carrying an opaque link id, nonce and ephemeral key, the host's clear
+// challenge, then sealed records padded to 256-byte buckets. The link secret
+// stays in the URL fragment and never reaches this node. What this node does
+// learn is metadata: the host's peer id, the link id, the guest's IP, timing,
+// frame count and record sizes. It also serves the guest page, so an operator
+// who serves a modified page can read what that guest sees; guests are
+// therefore meeting-scoped and labelled as guests in the room.
+//
+// The one frame this node writes itself is the clear end it sends when the
+// host cannot be reached, before any handshake: it carries a "code" the page
+// maps to its own text, never prose the page would show.
 
 //go:embed guestpage/*
 var guestPage embed.FS
@@ -141,11 +148,15 @@ const (
 	// itself, below the page's JavaScript, so this keeps ANY version of the guest
 	// page alive, including one already sitting in someone's cached tab.
 	guestPingEvery = 45 * time.Second
-	// Big enough for a WebRTC offer/answer (SDP with video runs to several KB),
-	// not big enough to be a pipe: the gateway is a dumb relay of bytes it
-	// cannot read.
-	guestMaxFrameSize = 32 << 10
+	// Big enough for a WebRTC offer/answer (SDP with video runs to several KB)
+	// once sealed, base64'd and padded, not big enough to be a pipe: the gateway
+	// is a dumb relay of bytes it cannot read. The host caps at the same size.
+	guestMaxFrameSize = 64 << 10
 )
+
+// guestUnreachableFrame is the gateway's one frame of its own, sent in clear
+// before any handshake when the host cannot be dialled.
+const guestUnreachableFrame = `{"type":"end","code":"unreachable"}`
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
@@ -200,25 +211,7 @@ func serveGuestGateway(ctx context.Context, h host.Host, ts *turnServer) {
 	mux := http.NewServeMux()
 	// The guest page itself (the meeting link points here; the token rides the
 	// URL fragment, which the browser never sends to us).
-	mux.HandleFunc("/guest", func(w http.ResponseWriter, r *http.Request) {
-		b, err := guestPage.ReadFile("guestpage/index.html")
-		if err != nil {
-			http.Error(w, "guest page unavailable", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		// Hard CSP: the page is self-contained; it must not be able to load or
-		// exfiltrate anything anywhere. media-src admits the guest's own camera
-		// and the host's inbound tracks (MediaStreams attached via srcObject) —
-		// nothing is fetched, so this widens no exfiltration path.
-		w.Header().Set("Content-Security-Policy",
-			"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "+
-				"connect-src 'self' wss:; img-src data:; media-src mediastream: blob:;")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Referrer-Policy", "no-referrer")
-		_, _ = w.Write(b)
-	})
+	mux.HandleFunc("/guest", serveGuestPage)
 	// The relay socket: ?h=<host peer id>, then the guest's own frames.
 	mux.HandleFunc("/guest/ws", func(w http.ResponseWriter, r *http.Request) {
 		relayGuest(ctx, h, gate, w, r)
@@ -247,6 +240,31 @@ func serveGuestGateway(ctx context.Context, h host.Host, ts *turnServer) {
 			fmt.Fprintln(os.Stderr, "guest gateway:", err)
 		}
 	}()
+}
+
+// serveGuestPage serves the guest page (the meeting link points here; the
+// host peer id and link secret ride the URL fragment, which the browser never
+// sends to us).
+func serveGuestPage(w http.ResponseWriter, r *http.Request) {
+	b, err := guestPage.ReadFile("guestpage/index.html")
+	if err != nil {
+		http.Error(w, "guest page unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	// Hard CSP: the page is self-contained; it must not be able to load or
+	// exfiltrate anything anywhere. connect-src 'self' admits this origin's
+	// own WebSocket and /turn and nothing else (CSP3 matches ws/wss to
+	// 'self'). media-src admits the guest's own camera and the host's
+	// inbound tracks (MediaStreams attached via srcObject) — nothing is
+	// fetched, so this widens no exfiltration path.
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "+
+			"connect-src 'self'; img-src data:; media-src mediastream: blob:;")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	_, _ = w.Write(b)
 }
 
 // guestServer is the gateway's HTTP server with its limits.
@@ -319,9 +337,9 @@ func relayGuest(ctx context.Context, h host.Host, gate *guestGate, w http.Respon
 	stream, err := h.NewStream(network.WithAllowLimitedConn(dialCtx, "guest"), pid, cnet.GuestProtocol)
 	if err != nil {
 		// Newline-terminated like every other frame — the guest page only
-		// parses complete lines.
-		_ = ws.WriteMessage(websocket.TextMessage,
-			[]byte(`{"type":"end","reason":"The meeting host isn't reachable right now — ask them to keep Concord open."}`+"\n"))
+		// parses complete lines. A code, not prose: this frame is clear and
+		// unauthenticated, so the page shows its own text for it.
+		_ = ws.WriteMessage(websocket.TextMessage, []byte(guestUnreachableFrame+"\n"))
 		return
 	}
 	defer stream.Close()
