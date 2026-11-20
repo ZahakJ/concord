@@ -58,6 +58,21 @@ func (b *Bridge) MediaPage(channelID string, tab int, cursor string, limit int) 
 	return MediaPageView{Items: mediaViews(svc, items), Next: next}, nil
 }
 
+// RecentMedia is the attach menu's "Recent" strip: up to limit (at most 12)
+// items from every conversation, newest first (app.RecentMedia has the
+// rules).
+func (b *Bridge) RecentMedia(limit int) ([]MediaItemView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	items, err := svc.RecentMedia(limit)
+	if err != nil {
+		return nil, err
+	}
+	return mediaViews(svc, items), nil
+}
+
 // mediaViews turns a page into what the UI draws, leaving out blocked
 // senders' items as the feed leaves out their messages.
 func mediaViews(blk senderBlocker, items []store.MediaItem) []MediaItemView {

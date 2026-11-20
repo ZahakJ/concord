@@ -597,6 +597,9 @@ export const api = {
   // Make sure an item's blob is on this device. Resolves to "local",
   // "fetched", or "metered" (nothing fetched: billed connection, not asked).
   ensureMedia: (channelID, blobID, allowMetered = false) => call("EnsureMedia", channelID, blobID, allowMetered),
+  // The attach menu's "Recent" strip: up to 12 gallery items from every
+  // conversation, newest first. Resolves to an array of gallery items.
+  recentMedia: (limit = 12) => call("RecentMedia", limit),
   checkForUpdate: () => call("CheckForUpdate"),
   checkPeerUpdate: () => call("CheckPeerUpdate"),
   applyPeerUpdate: () => call("ApplyPeerUpdate"),

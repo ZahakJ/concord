@@ -45,6 +45,8 @@
   import { fmtBytes } from "./lib/chronicle.js";
   import { midTrunc, fileLabel } from "./lib/attachments.js";
   import { nativePicker, pickAndStage } from "./lib/pickmedia.js";
+  import { cachedAttachment, loadAttachment } from "./lib/attachments.js";
+  import { recentStrip, recentRequest, recentFileName, recentMime, dataUrlToFile, isPhoto, RECENT_MAX } from "./lib/recent.js";
   import { wantsTypeToFocus } from "./lib/typetofocus.js";
   import { isPttKey } from "./lib/shortcuts.js";
 
@@ -1639,12 +1641,70 @@
     haptic("light");
     composerEl?.blur(); // same reason as the emoji panel
     moreOpen = true;
+    loadRecent();
   }
   // Every row does its thing and dismisses — a sheet that stays up over the
   // modal it just opened is a second scrim to get out of.
   function fromSheet(run) {
     moreOpen = false;
     run();
+  }
+
+  // ---- "Recent": what this account sent or received lately, anywhere ----
+  // Asked of the core only when the menu or the sheet opens (lib/recent.js).
+  // Tiles draw a picture the renderer already holds; the others are fetched
+  // one at a time once the sheet has finished opening, never on a billed
+  // connection unasked. A pick is staged like a file from disk, so the send
+  // seals it again under a new key; nothing leaves the device until Send.
+  let recent = $state([]);
+  let recentThumbs = $state({}); // blobId -> data URL
+  let recentAdded = $state({}); // itemKey -> true, staged from this opening
+  let recentGen = 0;
+  const recentKey = (it) => `${it.messageId}:${it.ord}`;
+  async function loadRecent() {
+    const g = ++recentGen;
+    recentAdded = {};
+    let items;
+    try {
+      items = recentStrip(await api.recentMedia(RECENT_MAX), Date.now() / 1000);
+    } catch {
+      items = [];
+    }
+    if (g !== recentGen) return;
+    const thumbs = {};
+    for (const it of items) if (isPhoto(it) && cachedAttachment(it.blobId)) thumbs[it.blobId] = cachedAttachment(it.blobId);
+    recentThumbs = thumbs;
+    recent = items;
+    // After the sheet's open animation, so no decode lands in it.
+    setTimeout(() => fillRecentThumbs(g), 320);
+  }
+  async function fillRecentThumbs(g) {
+    for (const it of recent) {
+      if (g !== recentGen) return;
+      if (!isPhoto(it) || recentThumbs[it.blobId]) continue;
+      try {
+        if ((await api.ensureMedia(it.channelId, it.blobId, false)) === "metered") continue;
+        const src = await loadAttachment(it.channelId, it);
+        if (g === recentGen) recentThumbs = { ...recentThumbs, [it.blobId]: src };
+      } catch {
+        // Nobody reachable holds it: the tile keeps its glyph.
+      }
+    }
+  }
+  async function pickRecent(it) {
+    const k = recentKey(it);
+    if (recentAdded[k] || !ch) return;
+    recentAdded = { ...recentAdded, [k]: true };
+    try {
+      const r = recentRequest(it);
+      const url = r.method === "fetchAttachment" ? await loadAttachment(it.channelId, it) : await api.fetchFile(...r.args);
+      await attachFile(dataUrlToFile(url, recentFileName(it), recentMime(it)));
+    } catch (err) {
+      const rest = { ...recentAdded };
+      delete rest[k];
+      recentAdded = rest;
+      flash(`Couldn't add ${recentFileName(it)}: ${humanError(err)}`, "error");
+    }
   }
 
   // Everything + offers, ONCE: the desktop menu and the phone's sheet both
@@ -1747,6 +1807,41 @@
     {/if}
   {/if}
 </div>
+
+<!-- "Recent", at the top of the desktop + menu and the phone's sheet; absent
+     when there is nothing recent. One row that scrolls sideways, fixed-size
+     tiles, so a picture arriving late changes no layout. -->
+{#snippet recentRow(inMenu)}
+  {#if recent.length}
+    <div class="recent" class:in-menu={inMenu} role="group" aria-label="Recent in Concord">
+      <div class="recent-head">Recent</div>
+      <div class="recent-strip">
+        {#each recent as it (recentKey(it))}
+          {@const added = !!recentAdded[recentKey(it)]}
+          <button
+            type="button"
+            class="recent-tile"
+            class:menu-item={inMenu}
+            class:added
+            disabled={!ch}
+            aria-pressed={inMenu ? undefined : added}
+            aria-label={`Add ${recentFileName(it)} again${it.senderName ? `, from ${it.senderName}` : ""}`}
+            title={recentFileName(it)}
+            onclick={() => pickRecent(it)}
+          >
+            {#if isPhoto(it) && recentThumbs[it.blobId]}
+              <img src={recentThumbs[it.blobId]} alt="" decoding="async" draggable="false" />
+            {:else}
+              <span class="recent-ic"><Icon name={isPhoto(it) ? "image" : it.kind === 2 ? "play" : "attach"} size={18} /></span>
+              {#if !isPhoto(it)}<span class="recent-name">{recentFileName(it)}</span>{/if}
+            {/if}
+            {#if added}<span class="recent-check"><Icon name="check" size={14} /></span>{/if}
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
+{/snippet}
 
 <!-- One textarea, two layouts. A snippet rather than a copy in each branch: two
      copies mean two `bind:this`, and whichever mounted last silently owned the
@@ -2287,7 +2382,8 @@
              or do), the text, then emoji and Send. Attach, GIF and the voice
              message moved into + with the rest; the chords and drag-and-drop
              still attach directly. -->
-        <Menu label="Add to your message" icon="plus" align="left" up>
+        <Menu label="Add to your message" icon="plus" align="left" up onOpen={loadRecent}>
+          {@render recentRow(true)}
           {#each addItems as it (it.id)}
             <button
               type="button"
@@ -2394,6 +2490,7 @@
        to be. The sentence each row used to carry is the tile's tooltip/title,
        for anybody who long-presses to ask. -->
   <BottomSheet title="Add to your message" onClose={() => (moreOpen = false)} maxHeight="calc(76 * var(--vh))">
+    {@render recentRow(false)}
     <div class="sheet-grid">
       {#each addItems as it (it.id)}
         <button
@@ -3754,6 +3851,94 @@
       transform: none;
       opacity: 1;
     }
+  }
+
+  /* ---- "Recent": one sideways row of fixed tiles ---- */
+  .recent {
+    padding: var(--sp-1) var(--sp-2) var(--sp-2);
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: var(--sp-1);
+  }
+  .recent.in-menu {
+    padding: 2px 4px 6px;
+    margin-bottom: 4px;
+    width: 0;
+    min-width: 100%;
+  }
+  .recent-head {
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 0 2px 6px;
+  }
+  .recent-strip {
+    display: flex;
+    gap: var(--sp-1);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    contain: content;
+  }
+  .recent-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .recent-tile,
+  .recent-tile.menu-item {
+    position: relative;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: 64px;
+    height: 64px;
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--bg-2);
+    color: var(--accent-hover);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .recent-tile.menu-item {
+    width: 52px;
+    height: 52px;
+  }
+  .recent-tile img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .recent-name {
+    max-width: 100%;
+    padding: 0 4px;
+    font-size: 10px;
+    line-height: 1.1;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .recent-tile.added {
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+  .recent-tile.added img {
+    opacity: 0.6;
+  }
+  .recent-check {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-fg);
   }
 
   /* ---- the "+" sheet: a tray of tiles ---- */
