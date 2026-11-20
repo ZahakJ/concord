@@ -643,6 +643,9 @@ func TestGuestRevoke(t *testing.T) {
 		}
 	})
 
+	// Revoke does not touch a handshake still before its join (closing it would
+	// tell an operator the link had been live); the join then fails silently,
+	// exactly as on a link that never existed.
 	t.Run("between chal and join", func(t *testing.T) {
 		g, url := newGuestMeeting(t, s)
 		gc := dialGuest(t, s)
@@ -716,5 +719,52 @@ func TestGuestOldLinksDroppedOnLoad(t *testing.T) {
 	s2.guestMu.Unlock()
 	if n != 0 {
 		t.Fatalf("%d old-format links survived the restart", n)
+	}
+}
+
+// TestGuestRefusedAtAdmissionFreesItsSeat: a knock whose link expires before
+// the host clicks Admit is turned away, and its seat in the meeting is given
+// back. (The refusal once zeroed the link the cleanup used to find the seat,
+// so the session stayed counted against the five for good.)
+func TestGuestRefusedAtAdmissionFreesItsSeat(t *testing.T) {
+	skipShort(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startService(t, ctx)
+	g, url := newGuestMeeting(t, s)
+	channelID := g.Channels[0].ID
+	if err := s.PublishCallControl(channelID, "lock", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	secret := linkSecretBytes(t, url)
+	gc := joinGuest(t, s, secret, "Knocker", testGid())
+	gc.recvUntil(t, "waiting")
+	id := guestLinkID(secret)
+	s.guestMu.Lock()
+	tok := s.guestTokens[id]
+	tok.Expires = time.Now().Add(-time.Second)
+	s.guestTokens[id] = tok
+	var fpr string
+	for _, gs := range s.guestSessions[channelID] {
+		fpr = gs.fpr
+	}
+	s.guestMu.Unlock()
+	s.decideGuest(channelID, "admit", fpr)
+	if f := gc.recvUntil(t, "end", "welcome"); f[len(f)-1].Type != "end" {
+		t.Fatal("a guest whose link expired at the door was let in")
+	}
+	waitClosed(t, gc)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		s.guestMu.Lock()
+		n := len(s.guestSessions[channelID])
+		s.guestMu.Unlock()
+		if n == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d session(s) still hold a seat after the refusal", n)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

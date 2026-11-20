@@ -116,10 +116,12 @@ guest-session ciphertext. The host can read the guest's messages, as before.
   same browser cannot walk back in. (Someone holding the link can clear their
   storage and use a fresh slot; the slot limit and revoke cover that.)
 - Revoke: `RevokeGuestLink(guild)` deletes the link and ends every session in
-  that meeting at once, including knocking and pre-join ones, with a sealed
-  `end`. The session's call is left, the host's mesh closes the
-  RTCPeerConnection, and media stops. The link is re-checked after `join` and
-  again at admission, under the same lock revoke takes, so a revoke during the
+  that meeting at once, including knocking ones, with a sealed `end`. The
+  session's call is left, the host's mesh closes the RTCPeerConnection, and
+  media stops. A visit still before its `join` is not touched (closing it
+  would tell an operator parking hellos that the link had been live); it fails
+  silently at the join, because the link is re-checked after `join` and again
+  at admission under the same lock revoke takes. So a revoke during the
   handshake or the knock wins. The next Copy link mints a fresh `S`. Offered in
   the meeting dialog (reached also from the call's Meeting menu → Meeting
   details).
@@ -130,8 +132,9 @@ guest-session ciphertext. The host can read the guest's messages, as before.
   now also ends live sessions.
 - Old links: dropped on load. Event rooms are re-stamped with a fresh link at
   load. Outstanding booking rooms are re-minted at load and the host gets a
-  room notice in Notes that the visitor's link changed and must be re-sent;
-  the host has the visitor's name and note there.
+  notice in that booking's meeting room, carrying the new link, saying the
+  visitor's link changed and must be re-sent; the visitor's name and note are
+  on the booking's event in Notes.
 
 ## History
 

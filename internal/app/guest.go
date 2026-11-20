@@ -785,7 +785,6 @@ func (s *Service) dropGuestTokens(guildID string) {
 		}
 	}
 	s.mu.RUnlock()
-	var shakes []*guestHandshake
 	var sessions []*guestSession
 	s.guestMu.Lock()
 	for id, tok := range s.guestTokens {
@@ -793,20 +792,18 @@ func (s *Service) dropGuestTokens(guildID string) {
 			continue
 		}
 		channels[tok.ChannelID] = true
+		// Handshakes still before their join are left alone: closing them here
+		// would tell an operator parking hellos on a link id that it was live
+		// until this instant. They fail silently at the join instead, through
+		// the same re-check a dead link gets, within milliseconds for a real
+		// guest and at the hello timeout for a parked one.
 		delete(s.guestTokens, id)
-		for h := range s.guestShakes[id] {
-			shakes = append(shakes, h)
-		}
-		delete(s.guestShakes, id)
 	}
 	for ch := range channels {
 		sessions = append(sessions, s.guestSessions[ch]...)
 	}
 	s.guestMu.Unlock()
 	s.saveGuestTokens()
-	for _, h := range shakes {
-		_ = h.conn.Close()
-	}
 	for _, sess := range sessions {
 		sess.decide(guestEndRevoked)
 		// Not on this goroutine: the write is bounded but can still take its
@@ -999,13 +996,20 @@ func (s *Service) guestHandshake(conn io.ReadWriteCloser, r *bufio.Reader) (gues
 		}
 	}
 	if k == nil {
-		if k, err = guestRandom(32); err != nil {
+		// The same work a known link costs (decode aside), so the operator
+		// sitting next to the host cannot time the difference.
+		dummy, err := guestRandom(guestSecretBytes)
+		if err != nil {
 			release()
 			return res, false
 		}
+		k = guestLinkKey(dummy)
 	}
 	hpk := hsk.PublicKey().Bytes()
 	chal, _ := json.Marshal(guestChal{Type: "chal", Hn: b64url.EncodeToString(hn), Hpk: b64url.EncodeToString(hpk)})
+	if d, ok := conn.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		_ = d.SetWriteDeadline(time.Now().Add(guestWriteTimeout))
+	}
 	if _, err := conn.Write(append(chal, '\n')); err != nil {
 		release()
 		return res, false
@@ -1116,10 +1120,10 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 	}
 	defer func() {
 		s.guestMu.Lock()
-		list := s.guestSessions[tok.ChannelID]
+		list := s.guestSessions[sess.channelID]
 		for i, gs := range list {
 			if gs == sess {
-				s.guestSessions[tok.ChannelID] = append(list[:i], list[i+1:]...)
+				s.guestSessions[sess.channelID] = append(list[:i], list[i+1:]...)
 				break
 			}
 		}
@@ -1131,7 +1135,7 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 		// Someone who never got past the door was never in the room, so no
 		// arrival/departure notice belongs in the transcript.
 		if sess.isAdmitted() {
-			s.sendSystem(tok.ChannelID, guestLeftNotice(name))
+			s.sendSystem(sess.channelID, guestLeftNotice(name))
 		}
 	}()
 
@@ -1142,6 +1146,9 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 			select {
 			case line := <-sess.send:
 				if err := sess.writeLine(line); err != nil {
+					// The record's counter is spent whether or not its bytes
+					// left, so the stream can never resynchronise: end it.
+					sess.end("")
 					return
 				}
 			case <-done:
@@ -1173,7 +1180,9 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 			return
 		}
 	}
-	tok, reason := s.admitGuest(sess)
+	// A fresh name, not `tok`: on refusal admitGuest returns a zero link, and
+	// the deferred cleanup above must still find this session's channel.
+	link, reason := s.admitGuest(sess)
 	if reason != "" {
 		sess.end(reason)
 		return
@@ -1182,17 +1191,17 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 	// Welcome. `Channel` tells the guest which voice room to label its
 	// signaling with.
 	_ = sess.write(guestFrame{
-		Type: "welcome", Meeting: meetingName, Name: name, Channel: tok.ChannelID,
+		Type: "welcome", Meeting: meetingName, Name: name, Channel: link.ChannelID,
 	})
 	// An event room shows the event's details, rendered from the event record
 	// now rather than replayed from the room, so it holds with history off.
-	seed, isEvent := s.eventGuestSeedFor(tok.GuildID)
+	seed, isEvent := s.eventGuestSeedFor(link.GuildID)
 	if isEvent {
 		_ = sess.write(guestFrame{Type: "sys", Content: seed, Sent: time.Now().UTC().Format(time.RFC3339)})
 	}
 	// Recent history only when the host chose it for this link.
-	if tok.History {
-		if msgs, err := s.store.Messages(tok.ChannelID, guestHistoryCount); err == nil {
+	if link.History {
+		if msgs, err := s.store.Messages(link.ChannelID, guestHistoryCount); err == nil {
 			for _, m := range msgs {
 				if m.Deleted || (m.Kind != "" && m.Kind != "system" && m.Kind != "guest") {
 					continue
@@ -1211,11 +1220,11 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 			}
 		}
 	}
-	s.sendSystem(tok.ChannelID, guestJoinNotice(name))
+	s.sendSystem(link.ChannelID, guestJoinNotice(name))
 
 	// The clock the host set on the link applies to the people already inside,
 	// not only to the next arrival — see guestExpiryPoll.
-	go s.endGuestAtExpiry(sess, tok.GuildID, done)
+	go s.endGuestAtExpiry(sess, link.GuildID, done)
 
 	// Reader: guest messages, token-bucket rate limited. Signaling gets its own,
 	// looser bucket — it's machine traffic, not typing.
@@ -1294,7 +1303,7 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 		budget--
 		// The meeting may have been ended/left while the guest was connected.
 		s.mu.RLock()
-		_, stillAlive := s.guilds[tok.GuildID]
+		_, stillAlive := s.guilds[link.GuildID]
 		s.mu.RUnlock()
 		if !stillAlive {
 			sess.end(guestEndEnded)
@@ -1315,13 +1324,16 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 // guest away.
 func (s *Service) admitGuest(sess *guestSession) (guestToken, string) {
 	s.guestMu.Lock()
-	tok, _ := s.liveGuestLinkLocked(sess.linkID)
+	tok, live := s.liveGuestLinkLocked(sess.linkID)
 	s.guestMu.Unlock()
+	if !live {
+		return tok, guestEndRevoked
+	}
 	if _, open := s.meetingOpen(tok.GuildID); !open {
 		return tok, guestEndEnded
 	}
 	s.guestMu.Lock()
-	tok, live := s.liveGuestLinkLocked(sess.linkID)
+	tok, live = s.liveGuestLinkLocked(sess.linkID)
 	reason := ""
 	counted := false
 	switch {
@@ -1493,8 +1505,21 @@ func (s *Service) decideGuest(channelID, action, target string) {
 			// Removed means removed: the same browser cannot walk back in on
 			// this link. Someone with the link can clear their storage and use
 			// a fresh slot; the slot limit and revoke cover that.
+			// Every session of that browser on this link goes, not only the
+			// tile the host clicked: a second tab is the same guest.
 			s.banGuestGid(sess.linkID, sess.gid)
-			go sess.end(guestEndRemoved)
+			s.guestMu.Lock()
+			var same []*guestSession
+			for _, gs := range s.guestSessions[channelID] {
+				if gs.linkID == sess.linkID && gs.gid == sess.gid {
+					same = append(same, gs)
+				}
+			}
+			s.guestMu.Unlock()
+			for _, gs := range same {
+				gs.decide(guestEndRemoved)
+				go gs.end(guestEndRemoved)
+			}
 			return
 		}
 		sess.decide("The host didn't let you in this time.")
