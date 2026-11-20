@@ -78,6 +78,11 @@
             ? "dnd"
             : "on",
   );
+  // The dot scales with the avatar: a coloured disc a quarter of its width
+  // (6 to 14px) inside a cut-out ring, 2px (1.5 on a small avatar). A flat
+  // 14px was half of a 28px member row and read as a second avatar.
+  const dotRing = $derived(size <= 24 ? 1.5 : 2);
+  const dotSize = $derived(Math.min(14, Math.max(6, Math.round(size / 4))) + 2 * dotRing);
 </script>
 
 <span
@@ -117,7 +122,7 @@
       >{mood}</span
     >
   {:else if state}
-    <span class="dot {state}" class:small={size <= 24}></span>
+    <span class="dot {state}" style="--dot:{dotSize}px;--dot-ring:{dotRing}px"></span>
   {/if}
 </span>
 
@@ -170,22 +175,18 @@
   :global(:root[data-motion="reduced"]) img {
     animation: none;
   }
-  /* 10px (8 on a small avatar) with a 2px cut-out in the colour of the
-     surface the avatar sits on. --avatar-cut lets a caller on another ground
-     (the feed, a dialog) name it; the sidebar's is the default. */
+  /* Sized in the script (--dot, --dot-ring), with the cut-out in the colour
+     of the surface the avatar sits on. --avatar-cut lets a caller on another
+     ground (the feed, a dialog) name it; the sidebar's is the default. */
   .dot {
     position: absolute;
-    bottom: -2px;
-    right: -2px;
-    width: 14px;
-    height: 14px;
+    bottom: calc(-1 * var(--dot-ring));
+    right: calc(-1 * var(--dot-ring));
+    width: var(--dot);
+    height: var(--dot);
     border-radius: 50%;
-    border: 2px solid var(--avatar-cut, var(--bg-1));
+    border: var(--dot-ring) solid var(--avatar-cut, var(--bg-1));
     background: var(--ok);
-  }
-  .dot.small {
-    width: 12px;
-    height: 12px;
   }
   .dot.idle {
     background: radial-gradient(circle at 28% 28%, var(--avatar-cut, var(--bg-1)) 0 36%, var(--warn) 38%);
@@ -206,7 +207,7 @@
   }
   .dot.off {
     background: var(--avatar-cut, var(--bg-1));
-    box-shadow: inset 0 0 0 2px var(--text-faint);
+    box-shadow: inset 0 0 0 1.5px var(--text-faint);
   }
   .mood {
     position: absolute;
