@@ -9,6 +9,7 @@ require (
 	github.com/libp2p/go-libp2p-kad-dht v0.42.2
 	github.com/libp2p/go-libp2p-pubsub v0.17.0
 	github.com/multiformats/go-multiaddr v0.16.1
+	github.com/multiformats/go-multistream v0.6.1
 	github.com/pion/logging v0.2.4
 	github.com/pion/stun/v3 v3.1.6
 	github.com/pion/turn/v4 v4.0.2
@@ -90,7 +91,6 @@ require (
 	github.com/multiformats/go-multibase v0.3.0 // indirect
 	github.com/multiformats/go-multicodec v0.10.0 // indirect
 	github.com/multiformats/go-multihash v0.2.3 // indirect
-	github.com/multiformats/go-multistream v0.6.1 // indirect
 	github.com/multiformats/go-varint v0.1.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect

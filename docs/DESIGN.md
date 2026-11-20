@@ -288,17 +288,54 @@ Linking a second device does not copy an identity so much as *certify* one:
   second; and a second device joining a guild does not produce a bogus "joined
   the server" notice.
 
-**The linking handshake.** The already-unlocked device shows a QR code carrying a
-single-use 32-byte secret and its own address, valid for two minutes. The new
-device dials it over a Noise-encrypted stream, and both sides prove knowledge of
-the secret with an HMAC over role-separated labels (compared in constant time),
-so neither a network attacker nor an eavesdropper on the QR can insert
-themselves. The issuer then hands over the account seed, a device certificate it
-signs for the joiner's device key, its bootstrap configuration, the list of
-fingerprints it has verified, and one invite code per guild so the new device can
-join every existing group. The joiner checks that the certificate verifies,
+**The linking handshake.** The already-unlocked device (the issuer) shows a QR
+code carrying a 32-byte secret and its own address. The new device dials the
+peer ID in the code over a Noise-encrypted stream (protocol
+`/concord/link/2.0.0`), so it reaches the issuer and nobody else, and sends a
+request: an HMAC over the secret with a role label and a fresh nonce, its device
+public key, and a device name. The issuer refuses a request whose device key is
+not the key of the connection it arrived on.
+
+The code is a bearer secret: anyone who photographs the QR code or reads the
+pasted text knows it and can send a valid request. The HMAC therefore keeps out
+only those who never saw the code; what keeps out those who did is the owner.
+The issuer handles a request in three steps:
+
+1. **It takes the code.** Under one lock it checks the proof and the code's age
+   by its own monotonic clock, and the first valid request removes the code. A
+   wrong proof leaves the code in place. Any later request, concurrent or not,
+   is refused with "already used by another device"; a request past two minutes
+   is refused with "code expired".
+2. **It asks the owner.** The issuer's dialog shows the requesting device's name
+   and a six-digit code, the SAS: HMAC-SHA256 of the secret over the issuer's
+   peer ID and the device key, reduced mod 10⁶. It sends the new device a wait
+   frame, and only on that frame does the new device compute the same six digits
+   and show them. The owner compares the two screens and presses yes or no. The
+   name is whatever the requester typed and proves nothing; the digits are what
+   tie the prompt to the device in the owner's hand. A thief cannot shop for a
+   key whose digits match, because the new device shows its digits only after
+   its own request has taken the code, and only one request can.
+3. **It answers.** Nothing leaves before a yes within 60 seconds. A no, a closed
+   dialog, a new code or silence turns the device away, and the code stays spent.
+
+On a yes the issuer hands over the account seed, a device certificate it signs
+for the joiner's device key, its bootstrap configuration, the list of
+fingerprints it has verified, and one invite code per guild so the new device
+can join every existing group. The joiner checks that the certificate verifies,
 that it certifies *its own* device key, and that the seed it was given derives
-the account named in the certificate, before writing anything to disk.
+the account named in the certificate, before writing anything to disk. A
+Tamarin model of this handshake proves eight lemmas about it, among them that
+someone who saw the code does not learn the seed (the owner confirms only the
+device in their hand), that a code is redeemed at most once, and that none is
+redeemed after its two minutes.
+
+Devices from before 0.61 speak `/concord/link/1.0.0`, which handed the seed to
+any valid request. The two versions refuse each other rather than link without
+the confirm step. A 0.61 issuer still answers 1.0.0, but only with a refusal
+asking for an update, does not spend the code, and its dialog says an older
+device tried. A 0.61 new device never speaks 1.0.0; an issuer that does not
+offer 2.0.0 gets "the other device runs an older Concord… update Concord on
+it". There is no fallback.
 
 ### The keystore
 

@@ -296,6 +296,13 @@ export const api = {
   registerPush: (platform, token) => call("RegisterPush", platform, token),
   linkOffer: () => call("LinkOffer"),
   cancelLinkOffer: () => call("CancelLinkOffer"),
+  // The issuer's side of the confirm step: {prompt: {id, deviceName, sas,
+  // secondsLeft}?, used?, expired?, oldDevice?}, and the owner's answer.
+  linkStatus: () => call("LinkStatus"),
+  confirmLink: (id, yes) => call("ConfirmLink", id, yes),
+  // The new device's side: {sas, deviceName, seconds} once the other device
+  // is asking its owner, null before.
+  linkWaiting: () => call("LinkWaiting"),
   // confirm: the fingerprint of the account the user agreed may replace the
   // one on this device (see Login's replace step); "" for none.
   // confirm and typed: the replace question's ticket and the word typed there.

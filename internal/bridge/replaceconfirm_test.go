@@ -80,7 +80,7 @@ func TestReplaceTicketIsSingleUse(t *testing.T) {
 	orig := redeemLink
 	t.Cleanup(func() { redeemLink = orig })
 	var got []string
-	redeemLink = func(_ context.Context, _, _, _, confirm string) (appsvc.LinkResult, error) {
+	redeemLink = func(_ context.Context, _, _, _, confirm string, _ func(appsvc.LinkWaiting)) (appsvc.LinkResult, error) {
 		got = append(got, confirm)
 		if confirm == "" {
 			return appsvc.LinkResult{}, &appsvc.ReplaceRefusedError{Match: appsvc.MatchDifferent, Confirm: "app-token"}

@@ -212,6 +212,9 @@
     fromForgot = false;
   }
   let linkCode = $state("");
+  // While the other device asks its owner: {sas, deviceName, seconds}. The
+  // six digits appear only once that device has taken the code for this one.
+  let linkWait = $state(null);
   let scanning = $state(false); // in-app QR scanner overlay
   // Restore, Link and Forgot are screens stepped into from the first one, each
   // with its own Back link. The phone's back did not know about them: it fell
@@ -305,6 +308,17 @@
     }
     busy = true;
     error = "";
+    linkWait = null;
+    // The link call blocks until the other device's owner answers; the digits
+    // to compare come from a poll beside it.
+    const waitPoll = setInterval(async () => {
+      try {
+        const w = await api.linkWaiting();
+        if (busy) linkWait = w;
+      } catch {
+        /* an older core: no digits to show */
+      }
+    }, 400);
     try {
       // Dials the other device, adopts the account, logs in linked, and joins
       // your existing guilds — then we're in.
@@ -335,6 +349,8 @@
       }
       fail(err);
     } finally {
+      clearInterval(waitPoll);
+      linkWait = null;
       busy = false;
     }
   }
@@ -1118,6 +1134,13 @@
           ></textarea>
         {/if}
         <div class="error slot" role="alert">{error}</div>
+        {#if busy && linkWait}
+          <div class="link-sas" role="status" aria-live="assertive">
+            <span>Your other device is asking whether to add <strong>{linkWait.deviceName}</strong>. Check that it shows</span>
+            <span class="sas" aria-label="Code {linkWait.sas}">{linkWait.sas}</span>
+            <span>and choose <strong>Yes, link it</strong> there.</span>
+          </div>
+        {/if}
         <EraseConfirm
           bind:typed={replaceTyped}
           {busy}
@@ -1305,7 +1328,13 @@
       <span class="field-lbl" aria-hidden="true">Confirm passphrase</span>
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
-      {#if busy}
+      {#if busy && linkWait}
+        <div class="link-sas" role="status" aria-live="assertive">
+          <span>Your other device is asking whether to add <strong>{linkWait.deviceName}</strong>. Check that it shows</span>
+          <span class="sas" aria-label="Code {linkWait.sas}">{linkWait.sas}</span>
+          <span>and choose <strong>Yes, link it</strong> there.</span>
+        </div>
+      {:else if busy}
         <div class="linking-status">
           <span class="ls-spin"></span>
           <span>Connecting to your other device… this can take up to a minute over the internet — keep both devices on the link screen.</span>
@@ -1550,6 +1579,26 @@
     background: var(--accent-soft);
     border-radius: var(--radius-md, 10px);
     text-align: left;
+  }
+  .link-sas {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 12px;
+    margin: 4px 0 2px;
+    text-align: center;
+    font-size: var(--fs-compact);
+    line-height: 1.4;
+    border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    border-radius: var(--radius-md);
+  }
+  .link-sas .sas {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    font-variant-numeric: tabular-nums;
   }
   .ls-spin {
     flex-shrink: 0;

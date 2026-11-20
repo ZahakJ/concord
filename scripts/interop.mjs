@@ -1307,19 +1307,63 @@ async function ensureSession(base, pass, name) {
   if (!(await rpc(base, "Session"))) await login(base, pass, name);
 }
 
+// confirmsLinks: the build at base asks its owner before linking (0.61+).
+async function confirmsLinks(base) {
+  return (await tryRpc(base, "LinkStatus")).ok;
+}
+
+// answerLinks says yes on base to every device that asks, until stopped: the
+// owner at the device showing the code. A no-op on a build without the prompt.
+function answerLinks(base) {
+  let on = true;
+  (async () => {
+    while (on) {
+      const st = await tryRpc(base, "LinkStatus");
+      if (!st.ok) return;
+      if (st.result?.prompt) await tryRpc(base, "ConfirmLink", [st.result.prompt.id, true]);
+      await sleep(300);
+    }
+  })();
+  return () => (on = false);
+}
+
+// linkRefused: deviceBase, shown a code from accountBase, is refused with an
+// error matching want, and holds no identity afterwards.
+async function linkRefused(accountBase, deviceBase, want) {
+  let said = "";
+  await waitFor(
+    "the link to be refused for the version",
+    async () => {
+      const code = await rpc(accountBase, "LinkOffer");
+      const r = await tryRpc(deviceBase, "RedeemLinkCode", [code, PASS_LINK]);
+      if (r.ok) throw new Error("the device linked across the 0.61 boundary");
+      said = r.error;
+      return want.test(r.error);
+    },
+    { timeout: 120000, interval: 3000 },
+  );
+  if (await rpc(deviceBase, "HasIdentity")) throw new Error("the refused device holds an identity");
+  return { evidence: [`the device said: ${said}`] };
+}
+
 async function linkThenUnlink(accountBase, deviceBase, deviceDir) {
   // The account may already hold a linked device (the seats lanes link one to
   // OLD); only a device that appears after this link is the one to unlink.
   const before = new Set(((await rpc(accountBase, "LinkedDevices")) || []).map((d) => d.key));
-  await waitFor(
-    "link the device",
-    async () => {
-      const code = await rpc(accountBase, "LinkOffer");
-      await rpc(deviceBase, "RedeemLinkCode", [code, PASS_LINK]);
-      return true;
-    },
-    { timeout: 120000, interval: 3000 },
-  );
+  const stopAnswering = answerLinks(accountBase);
+  try {
+    await waitFor(
+      "link the device",
+      async () => {
+        const code = await rpc(accountBase, "LinkOffer");
+        await rpc(deviceBase, "RedeemLinkCode", [code, PASS_LINK]);
+        return true;
+      },
+      { timeout: 120000, interval: 3000 },
+    );
+  } finally {
+    stopAnswering();
+  }
   if (!(await rpc(deviceBase, "Session"))) await rpc(deviceBase, "Login", [PASS_LINK]);
   const account = await rpc(accountBase, "Identity");
   const device = await rpc(deviceBase, "Identity");
@@ -1351,12 +1395,28 @@ async function phaseUnlink() {
   if (!OLDLINK || !NEWLINK) throw new Error("INTEROP_OLDLINK/INTEROP_NEWLINK must be set");
   await ensureSession(OLD, PASS_OLD, "LegacyPeer");
   await ensureSession(NEW, PASS_NEW, "HeadPeer");
-  await lane("UL1", "OLD unlinks a device running HEAD, which erases itself", () =>
-    linkThenUnlink(OLD, NEWLINK, join(WORK, "newlink")),
-  );
-  await lane("UL2", "HEAD unlinks a device running OLD, which erases itself", () =>
-    linkThenUnlink(NEW, OLDLINK, join(WORK, "oldlink")),
-  );
+  // From 0.61 a link needs the owner's yes on the device showing the code,
+  // and builds either side of that boundary refuse to link to each other
+  // rather than link without it. Across the boundary the lanes check those
+  // refusals; there is then no cross-build linked device to unlink.
+  if ((await confirmsLinks(OLD)) !== (await confirmsLinks(NEW))) {
+    await lane("UL1", "a device running HEAD refuses to link to OLD, which would not ask its owner", () =>
+      linkRefused(OLD, NEWLINK, /older Concord/),
+    );
+    await lane("UL2", "HEAD refuses a device running OLD and tells it to update", async () => {
+      const out = await linkRefused(NEW, OLDLINK, /update Concord on this device/);
+      const st = await rpc(NEW, "LinkStatus");
+      if (!st?.oldDevice) throw new Error(`HEAD's dialog was not told about the old device: ${JSON.stringify(st)}`);
+      return out;
+    });
+  } else {
+    await lane("UL1", "OLD unlinks a device running HEAD, which erases itself", () =>
+      linkThenUnlink(OLD, NEWLINK, join(WORK, "newlink")),
+    );
+    await lane("UL2", "HEAD unlinks a device running OLD, which erases itself", () =>
+      linkThenUnlink(NEW, OLDLINK, join(WORK, "oldlink")),
+    );
+  }
   const st = loadState();
   st.lanes = (st.lanes || []).concat(results);
   saveState(st);

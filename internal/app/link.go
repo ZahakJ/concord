@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +12,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
+	lcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 
@@ -19,19 +24,32 @@ import (
 	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
-// Device linking (Phase 4), app layer. An already-unlocked device (the issuer)
-// shows a QR/code carrying a single-use secret + its address. A new device (the
-// joiner) scans it, dials over /concord/link/1.0.0, and both prove knowledge of
-// the secret. The issuer then hands over the account seed, a device certificate
-// it signs for the joiner's device key, and an invite code per guild so the new
-// device can join every existing group. The joiner rewrites its keystore with
-// the received account seed (keeping its own device seed), drops a device marker
+// Device linking, app layer. An already-unlocked device (the issuer) shows a
+// QR/code carrying a single-use secret + its address. A new device (the joiner)
+// scans it, dials over /concord/link/2.0.0 from a host keyed by its device key,
+// and proves knowledge of the secret. The issuer takes the code for that one
+// request, then asks its owner: it shows the requesting device's name and a
+// six-digit code (link.SAS), the joiner shows the same six digits, and only on
+// the owner's yes, within linkConfirmWindow, does the issuer hand over the
+// account seed, a device certificate it signs for the joiner's device key, and
+// an invite code per guild. The joiner rewrites its keystore with the received
+// account seed (keeping its own device seed), drops a device marker
 // (device.go), and restarts in linked mode.
 //
-// Security: the libp2p stream is Noise-encrypted; the mutual HMAC proof over the
-// out-of-band secret authenticates both ends, so a network attacker can neither
-// impersonate the issuer (and feed a bogus account) nor the joiner. The secret
-// is single-use and short-lived (see internal/link).
+// Security. The libp2p stream is Noise-encrypted, and the joiner dials the
+// PeerID in the code, so nobody on the network can stand in for the issuer.
+// The secret's HMAC proofs show knowledge of the code; they do not stop
+// somebody else who saw it (a photographed QR, the clipboard) from asking.
+// What stops them is the rest of the issuer side:
+//   - the device key to certify must be the dialler's own key (its PeerID), so
+//     the six digits the issuer shows are about the device that is connected;
+//   - the code is taken in the same critical section that checks it, so one
+//     request per code gets that far, and the joiner shows its digits only
+//     after its request was the one taken;
+//   - the issuer refuses a code older than link.OfferTTL by its own clock;
+//   - the seed leaves only after the owner confirms on the issuer.
+// The pre-0.61 protocol, /concord/link/1.0.0, is answered only with a refusal
+// telling the older device to update (refuseOldLinkRequest).
 
 // linkRequest is the joiner→issuer frame.
 type linkRequest struct {
@@ -73,9 +91,87 @@ type LinkResult struct {
 	MissingGuilds []string
 }
 
+// linkConfirmWindow is how long the owner has to answer on the issuer once a
+// device has asked. The code's own two minutes bound when a device may ask.
+const linkConfirmWindow = 60 * time.Second
+
+// issuedOffer is the issuer's record of the code it is showing.
+type issuedOffer struct {
+	secret []byte
+	peerID string    // our PeerID as written into the code
+	made   time.Time // our clock, monotonic: the code dies OfferTTL after this
+}
+
+// linkAsk is a device that proved the code and waits for the owner's answer.
+type linkAsk struct {
+	id       string
+	name     string
+	sas      string
+	deadline time.Time
+	answer   chan bool // buffered: the first answer is the one that counts
+	auto     bool      // tests only: answer yes without a person
+}
+
+// linkWait is the body of the issuer's wait frame.
+type linkWait struct {
+	Seconds int `json:"s"` // how long the owner has to answer
+}
+
+// LinkPrompt is the question the issuer's dialog puts to its owner.
+type LinkPrompt struct {
+	ID          string `json:"id"`
+	DeviceName  string `json:"deviceName"`
+	SAS         string `json:"sas"` // "123 456"; the new device shows the same
+	SecondsLeft int    `json:"secondsLeft"`
+}
+
+// LinkStatus is what the issuer's dialog shows besides the QR code.
+type LinkStatus struct {
+	// Prompt is a device waiting for the owner's yes, or nil.
+	Prompt *LinkPrompt `json:"prompt,omitempty"`
+	// Used: a device took the code and nothing is waiting any more (it was
+	// linked, declined, or not answered in time). The code no longer works.
+	Used bool `json:"used,omitempty"`
+	// Expired: the code is past its two minutes and no longer works.
+	Expired bool `json:"expired,omitempty"`
+	// OldDevice: a device with this code tried to link over the pre-0.61
+	// protocol and was refused; it needs updating.
+	OldDevice bool `json:"oldDevice,omitempty"`
+}
+
+// LinkWaiting is what the new device shows while the issuer asks its owner.
+type LinkWaiting struct {
+	SAS        string `json:"sas"`
+	DeviceName string `json:"deviceName"`
+	Seconds    int    `json:"seconds"`
+}
+
+// The issuer's refusals, sent to the joiner as the response's Error. The
+// front end matches on these words (frontend/src/lib/errors.js).
+const (
+	linkErrBadRequest = "bad link request"
+	linkErrNoOffer    = "no active link offer"
+	linkErrProof      = "link proof failed"
+	linkErrUsed       = "that code was already used by another device"
+	linkErrExpired    = "code expired"
+	linkErrKey        = "the link request did not come from the device it asks to add"
+	linkErrDeclined   = "the other device declined this link"
+	linkErrUnanswered = "nobody confirmed this link on the other device in time"
+	// linkErrOldJoiner is all a pre-0.61 device gets. Its front end shows
+	// any refusal as "already used or closed", so the issuer's dialog says
+	// it too (LinkStatus.OldDevice).
+	linkErrOldJoiner = "this device runs an older Concord: linking now asks for a yes on the device that shows the code. Update Concord on this device, then scan a new code"
+)
+
+// testLinkAutoConfirm answers yes for the owner, for tests that link devices
+// without a person. Only a _test.go file sets it; Service.linkManual opts a
+// test's issuer out.
+var testLinkAutoConfirm bool
+
 // LinkOffer starts an issuer-side linking session: it mints a single-use offer,
-// remembers its secret, and returns the code to render as a QR. Only one offer
-// is active at a time (a new call supersedes the previous).
+// remembers its secret and when it made it, and returns the code to render as
+// a QR. Only one offer is active at a time: a new call supersedes the previous
+// one and drops any question still open about it.
 func (s *Service) LinkOffer() (string, error) {
 	ai := s.host.AddrInfo()
 	// Same address set as an invite code, including relay paths for the
@@ -88,16 +184,72 @@ func (s *Service) LinkOffer() (string, error) {
 	}
 	off.Bootstrap = LoadNetConfig(s.dataDir).Bootstrap
 	s.linkMu.Lock()
-	s.linkSecret = off.Secret
+	s.linkOffer = &issuedOffer{secret: off.Secret, peerID: off.PeerID, made: time.Now()}
+	s.linkSpent = nil
+	s.linkOldDevice = false
+	s.dropLinkAskLocked()
 	s.linkMu.Unlock()
 	return off.Encode(), nil
 }
 
-// CancelLinkOffer clears any active offer (the user closed the QR).
+// CancelLinkOffer clears any active offer (the user closed the QR), and says
+// no to a device still waiting.
 func (s *Service) CancelLinkOffer() {
 	s.linkMu.Lock()
-	s.linkSecret = nil
+	s.linkOffer = nil
+	s.linkSpent = nil
+	s.linkOldDevice = false
+	s.dropLinkAskLocked()
 	s.linkMu.Unlock()
+}
+
+// dropLinkAskLocked answers no to the device waiting, if any. linkMu held.
+func (s *Service) dropLinkAskLocked() {
+	if a := s.linkAsk; a != nil {
+		select {
+		case a.answer <- false:
+		default:
+		}
+		s.linkAsk = nil
+	}
+}
+
+// LinkStatus reports the issuer's linking state for its dialog.
+func (s *Service) LinkStatus() LinkStatus {
+	s.linkMu.Lock()
+	defer s.linkMu.Unlock()
+	var st LinkStatus
+	if a := s.linkAsk; a != nil {
+		left := int((time.Until(a.deadline) + time.Second - 1) / time.Second)
+		st.Prompt = &LinkPrompt{ID: a.id, DeviceName: a.name, SAS: a.sas, SecondsLeft: max(left, 0)}
+	} else if s.linkOffer == nil && s.linkSpent != nil {
+		st.Used = true
+	}
+	if o := s.linkOffer; o != nil && time.Since(o.made) > link.OfferTTL {
+		st.Expired = true
+	}
+	st.OldDevice = s.linkOldDevice
+	return st
+}
+
+// ConfirmLink is the owner's answer on the issuer to the device in the prompt
+// with this id: yes releases the account to it, no refuses it. A yes after the
+// window, or for a device no longer waiting, is refused.
+func (s *Service) ConfirmLink(id string, yes bool) error {
+	s.linkMu.Lock()
+	defer s.linkMu.Unlock()
+	a := s.linkAsk
+	if a == nil || a.id != id {
+		return errors.New("app: that device is no longer waiting; make a new code")
+	}
+	if yes && time.Now().After(a.deadline) {
+		return errors.New("app: too late to confirm that device; make a new code")
+	}
+	select {
+	case a.answer <- yes:
+	default:
+	}
+	return nil
 }
 
 // linkCertTime is the issue time written into a device certificate. A
@@ -105,26 +257,165 @@ func (s *Service) CancelLinkOffer() {
 // times without waiting for the clock's second to turn.
 var linkCertTime = func() int64 { return time.Now().Unix() }
 
-// handleLinkRequest is the issuer-side stream responder: verify the joiner's
-// proof, then return the account material with a freshly-issued device cert.
-func (s *Service) handleLinkRequest(_ context.Context, _ peer.ID, reqBytes []byte) ([]byte, error) {
-	var req linkRequest
-	if json.Unmarshal(reqBytes, &req) != nil {
-		return nil, errors.New("app: bad link request")
+// linkRefusal is a final answer that refuses the link, with the reason.
+func linkRefusal(reason string) ([]byte, error) {
+	return json.Marshal(linkResponse{Error: reason})
+}
+
+// diallerIs reports whether the dialler's PeerID is the Ed25519 key pub.
+func diallerIs(from peer.ID, pub []byte) bool {
+	pk, err := from.ExtractPublicKey()
+	if err != nil {
+		return false
+	}
+	raw, err := pk.Raw()
+	return err == nil && pk.Type() == lcrypto.Ed25519 && subtle.ConstantTimeCompare(raw, pub) == 1
+}
+
+// linkDeviceLabel is the requesting device's name as the prompt shows it.
+func linkDeviceLabel(name string) string {
+	name = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, name)
+	name = strings.TrimSpace(name)
+	if r := []rune(name); len(r) > 64 {
+		name = string(r[:64]) + "…"
+	}
+	if name == "" {
+		return "A new device"
+	}
+	return name
+}
+
+// takeLinkOffer checks a request against the code on show and, if it proves
+// the code, takes the code for it, all in one hold of linkMu: of any number of
+// requests for one code, exactly one gets past here. It returns the question
+// to put to the owner, or the reason for refusing.
+func (s *Service) takeLinkOffer(req linkRequest) (*linkAsk, []byte, string) {
+	id, err := link.Nonce()
+	if err != nil {
+		return nil, nil, linkErrBadRequest
 	}
 	s.linkMu.Lock()
-	secret := s.linkSecret
-	s.linkMu.Unlock()
-	if secret == nil {
-		return nil, errors.New("app: no active link offer")
+	defer s.linkMu.Unlock()
+	window := s.linkWindow
+	if window <= 0 {
+		window = linkConfirmWindow
 	}
-	if len(req.DevicePub) != 32 || !link.VerifyProof(secret, link.RoleJoiner, req.JoinerNonce, req.JoinerProof) {
-		return nil, errors.New("app: link proof failed")
+	o := s.linkOffer
+	if o == nil {
+		if s.linkSpent != nil && link.VerifyProof(s.linkSpent, link.RoleJoiner, req.JoinerNonce, req.JoinerProof) {
+			return nil, nil, linkErrUsed
+		}
+		return nil, nil, linkErrNoOffer
 	}
+	if !link.VerifyProof(o.secret, link.RoleJoiner, req.JoinerNonce, req.JoinerProof) {
+		return nil, nil, linkErrProof
+	}
+	if time.Since(o.made) > link.OfferTTL {
+		s.linkOffer = nil
+		return nil, nil, linkErrExpired
+	}
+	s.linkOffer = nil
+	s.linkSpent = o.secret
+	s.dropLinkAskLocked()
+	a := &linkAsk{
+		id:       hex.EncodeToString(id[:16]),
+		name:     linkDeviceLabel(req.DeviceName),
+		sas:      link.SAS(o.secret, o.peerID, req.DevicePub),
+		deadline: time.Now().Add(window),
+		answer:   make(chan bool, 1),
+		auto:     testLinkAutoConfirm && !s.linkManual,
+	}
+	s.linkAsk = a
+	return a, o.secret, ""
+}
 
-	issuerNonce, err := link.Nonce()
+// endLinkAsk clears the question once its request is answered.
+func (s *Service) endLinkAsk(a *linkAsk) {
+	s.linkMu.Lock()
+	if s.linkAsk == a {
+		s.linkAsk = nil
+	}
+	s.linkMu.Unlock()
+}
+
+// handleLinkRequest is the issuer side of /concord/link/2.0.0: check the
+// request, take the code for it, tell the joiner to wait, ask the owner, and
+// on a yes return the account material with a freshly issued device cert.
+// Every refusal is a final answer naming the reason, so the new device can
+// say what happened.
+func (s *Service) handleLinkRequest(ctx context.Context, from peer.ID, reqBytes []byte, wait func([]byte) error) ([]byte, error) {
+	var req linkRequest
+	if json.Unmarshal(reqBytes, &req) != nil || len(req.DevicePub) != ed25519.PublicKeySize {
+		return linkRefusal(linkErrBadRequest)
+	}
+	// The key to certify must be the key of this connection. Then the digits
+	// shown to the owner are about the device actually connected, and the
+	// device the owner holds shows the same digits only if it is that device.
+	if !diallerIs(from, req.DevicePub) {
+		return linkRefusal(linkErrKey)
+	}
+	ask, secret, refused := s.takeLinkOffer(req)
+	if refused != "" {
+		return linkRefusal(refused)
+	}
+	defer s.endLinkAsk(ask)
+
+	body, _ := json.Marshal(linkWait{Seconds: int(time.Until(ask.deadline).Round(time.Second) / time.Second)})
+	if err := wait(body); err != nil {
+		return nil, err
+	}
+	if ask.auto {
+		select {
+		case ask.answer <- true:
+		default:
+		}
+	}
+	timer := time.NewTimer(time.Until(ask.deadline))
+	defer timer.Stop()
+	select {
+	case yes := <-ask.answer:
+		if !yes {
+			return linkRefusal(linkErrDeclined)
+		}
+	case <-timer.C:
+		return linkRefusal(linkErrUnanswered)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	resp, err := s.linkHandover(secret, req)
 	if err != nil {
 		return nil, err
+	}
+	return json.Marshal(resp)
+}
+
+// refuseOldLinkRequest answers the pre-0.61 protocol. That protocol handed the
+// seed to anyone who knew the code, so it never links now: a device on it is
+// told to update. A request that proves the code on show also tells the
+// owner's dialog, because the older device's own screen will only say the
+// code was used or closed. The code itself is left as it was.
+func (s *Service) refuseOldLinkRequest(_ context.Context, _ peer.ID, reqBytes []byte) ([]byte, error) {
+	var req linkRequest
+	if json.Unmarshal(reqBytes, &req) == nil {
+		s.linkMu.Lock()
+		if o := s.linkOffer; o != nil && link.VerifyProof(o.secret, link.RoleJoiner, req.JoinerNonce, req.JoinerProof) {
+			s.linkOldDevice = true
+		}
+		s.linkMu.Unlock()
+	}
+	return linkRefusal(linkErrOldJoiner)
+}
+
+// linkHandover builds the account material for a confirmed request.
+func (s *Service) linkHandover(secret []byte, req linkRequest) (linkResponse, error) {
+	issuerNonce, err := link.Nonce()
+	if err != nil {
+		return linkResponse{}, err
 	}
 	cert := s.id.IssueDeviceCertFor(req.DevicePub, req.DeviceName, linkCertTime())
 	// Keep a copy: we are the only peer that can state this mapping from
@@ -175,11 +466,7 @@ func (s *Service) handleLinkRequest(_ context.Context, _ peer.ID, reqBytes []byt
 		MissingGuilds: missing,
 		Verified:      verified,
 	}
-	// Single-use: burn the secret so the offer can't be redeemed twice.
-	s.linkMu.Lock()
-	s.linkSecret = nil
-	s.linkMu.Unlock()
-	return json.Marshal(resp)
+	return resp, nil
 }
 
 // linkGuildInvites builds the invite codes handed to a newly linked device: one
@@ -339,6 +626,19 @@ var testHookLinkBeforeWrite func()
 // agreed to nothing. A different account is refused before anything is written, with a
 // *ReplaceRefusedError naming both accounts.
 func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) (LinkResult, error) {
+	return RedeemLinkWatch(ctx, dataDir, code, passphrase, confirm, nil)
+}
+
+// RedeemLinkWatch is RedeemLink that reports the wait for the owner's yes:
+// onWait, if set, is called once the issuer has taken the code for this device
+// and is asking its owner, with the six digits this device must show (the
+// issuer shows the same). It is not called before that point, so a device
+// whose request was not the one taken never shows digits.
+//
+// An issuer from before 0.61 is refused with net.ErrLinkPeerTooOld: it would
+// hand the account over without asking, and this device does not fall back
+// to that.
+func RedeemLinkWatch(ctx context.Context, dataDir, code, passphrase, confirm string, onWait func(LinkWaiting)) (LinkResult, error) {
 	if passphrase == "" {
 		return LinkResult{}, errors.New("app: passphrase required")
 	}
@@ -411,18 +711,31 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 	if err != nil {
 		return LinkResult{}, err
 	}
+	deviceName := defaultDeviceName()
 	reqBytes, _ := json.Marshal(linkRequest{
 		JoinerNonce: joinerNonce,
 		JoinerProof: link.Proof(off.Secret, link.RoleJoiner, joinerNonce),
 		DevicePub:   joiner.DevicePublicKey(),
-		DeviceName:  defaultDeviceName(),
+		DeviceName:  deviceName,
 	})
-	// Generous overall budget: RequestLink retries the connect/hole-punch with
-	// backoff inside this window, so a first-attempt miss (common off-LAN) doesn't
-	// surface as a failure — it just tries again over a freshly-formed path.
+	// Generous budget for reaching the issuer: RequestLinkConfirmed retries the
+	// connect/hole-punch with backoff inside this window, so a first-attempt
+	// miss (common off-LAN) doesn't surface as a failure — it just tries again
+	// over a freshly-formed path. The wait for the owner's yes, once the
+	// issuer has said it is asking, runs on the stream's own deadline.
 	dialCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	respBytes, err := host.RequestLink(dialCtx, issuerAI, reqBytes)
+	respBytes, err := host.RequestLinkConfirmed(dialCtx, issuerAI, reqBytes, func(body []byte) {
+		var w linkWait
+		_ = json.Unmarshal(body, &w)
+		if onWait != nil {
+			onWait(LinkWaiting{
+				SAS:        link.SAS(off.Secret, issuerID.String(), joiner.DevicePublicKey()),
+				DeviceName: deviceName,
+				Seconds:    w.Seconds,
+			})
+		}
+	})
 	if err != nil {
 		return LinkResult{}, err
 	}
@@ -493,7 +806,9 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase, confirm string) 
 // device key). Returns the account seed on success.
 func verifyLinkResponse(secret, devicePub []byte, resp *linkResponse) ([]byte, error) {
 	if resp.Error != "" {
-		return nil, errors.New("app: link rejected: " + resp.Error)
+		// The issuer's own words (the linkErr* reasons): it was authenticated
+		// by Noise as the PeerID in the code.
+		return nil, errors.New("app: " + resp.Error)
 	}
 	if !link.VerifyProof(secret, link.RoleIssuer, resp.IssuerNonce, resp.IssuerProof) {
 		return nil, errors.New("app: issuer proof failed (possible MITM)")

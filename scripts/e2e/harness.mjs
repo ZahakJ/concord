@@ -908,15 +908,21 @@ export class World {
     await dev.start();
     // Each retry asks for a fresh offer rather than reusing one a failed
     // attempt may have spent. Retries cover the new device not having found
-    // the old one through the rendezvous yet.
-    await waitFor(
-      async () => {
-        const code = await account.rpc("LinkOffer");
-        await dev.rpc("RedeemLinkCode", code, dev.passphrase);
-        return true;
-      },
-      { timeout: 90000, interval: 2000, message: `${name} to link to ${account.name}'s account` },
-    );
+    // the old one through the rendezvous yet. The existing device's owner says
+    // yes to the prompt, as a person would after comparing the digits.
+    const stop = answerLinks(account);
+    try {
+      await waitFor(
+        async () => {
+          const code = await account.rpc("LinkOffer");
+          await dev.rpc("RedeemLinkCode", code, dev.passphrase);
+          return true;
+        },
+        { timeout: 90000, interval: 2000, message: `${name} to link to ${account.name}'s account` },
+      );
+    } finally {
+      stop();
+    }
     const id = await dev.rpc("Identity");
     dev.fingerprint = id.fingerprint;
     dev.peerId = id.peerId;
@@ -987,6 +993,25 @@ export class World {
 // A join needs the owner reachable through the rendezvous. Right after start
 // the peers may not have found each other yet; that is a retryable "not yet",
 // not the behaviour under test.
+// answerLinks says yes, on peer, to every device that asks to link until the
+// returned function is called: the owner at the device showing the code, who
+// has compared the six digits. Specs about the prompt itself drive it by hand.
+export function answerLinks(peer) {
+  let on = true;
+  (async () => {
+    while (on) {
+      try {
+        const st = await peer.rpc("LinkStatus");
+        if (st?.prompt) await peer.rpc("ConfirmLink", st.prompt.id, true);
+      } catch {
+        /* the peer is busy or stopping; the next pass asks again */
+      }
+      await sleep(250);
+    }
+  })();
+  return () => (on = false);
+}
+
 async function joinWithRetry(peer, code) {
   return waitFor(
     async () => {

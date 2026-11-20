@@ -14,11 +14,14 @@ Linking needs both devices online at the same time and able to reach each other.
 2. On the new device, at the first-run screen, choose **Add this device to my account**.
 3. Select **Scan QR code** and point the camera at the code, or paste the copied code into the box. **Scan QR code** appears on touch-screen devices with a camera, such as a phone; on a computer, paste the code.
 4. Choose a passphrase for the new device and type it twice. It protects your identity on that device only and does not have to match the passphrase on your other devices.
-5. Select **Link this device**, and keep both devices on their linking screens until it finishes.
+5. Select **Link this device**. When it reaches your other device, the new device shows six digits.
+6. Your other device asks whether to add the new device, by name, and shows six digits too. If they are the same, select **Yes, link it** within a minute. If they differ, or you did not just scan the code, select **No**.
 
 ![Settings → Your devices, linking a new device; the QR code is blurred in this picture](../media/manual/link-device.webp)
 
-The code is single-use and expires two minutes after it is shown. Anyone who scans it within that time can add a device to your account, so only scan it with a device you own.
+The code expires two minutes after it is shown, and works once: the first device to use it takes it, whatever you then answer, and any other device trying it is told it was already used. Anyone who sees the code can ask to join, but nothing is sent until you say yes, so check the digits rather than the name, which the asking device chooses itself. If your new device says the code was already used by another device, someone else got there first: select **No** on your other device and make a new code.
+
+Both devices need Concord 0.61 or later. A device with an older version is refused with a message to update it, because older versions link without asking.
 
 An already-set-up device can be re-linked from its unlock screen with **Re-link from another device**. This replaces the account material on it with your account's and sets a new passphrase, which is also the way to recover a device whose passphrase you have forgotten. One case goes wrong once: a device that was unlinked while it was switched off, and is then re-linked with the same passphrase, is erased again the first time it reaches the device that unlinked it. Link it once more and it stays.
 

@@ -18,7 +18,7 @@ The core lives under `internal/`. Each layer depends only on the ones below it.
 | `internal/store` | The local SQLite database, with message bodies sealed at rest |
 | `internal/net` | The libp2p host: mDNS and DHT discovery, circuit relay, gossipsub, and the `/concord/*` stream protocols |
 | `internal/mailbox` | The offline store-and-forward mailbox protocol, and its push bridge on the rendezvous side |
-| `internal/link` | Device-linking offers and the HMAC proof both devices exchange |
+| `internal/link` | Device-linking offers, the HMAC proof both devices exchange, and the six-digit code both screens show for the owner's confirmation |
 | `internal/compactcode` | The compact binary layout of invite and link codes |
 | `internal/chronimport` | Reads channel-export JSON archives into a guild's chronicle |
 | `internal/app` | The `Service`: owns every other layer and implements every feature |

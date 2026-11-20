@@ -2,7 +2,10 @@
   import Caution from "./Caution.svelte";
   // "Link a device": the issuer side. Shows a QR (and the raw code as a
   // fallback) that a new device scans/pastes to join this account. The code
-  // carries a single-use secret + how to reach us; it expires in ~2 minutes.
+  // carries a single-use secret + how to reach us; it expires in 2 minutes.
+  // Knowing the code is not enough to get the account: when a device asks,
+  // this dialog shows its name and six digits, the new device shows the same
+  // six, and nothing is sent until the owner says yes here.
   import { onMount, onDestroy } from "svelte";
   import { api } from "../lib/api.js";
   import { linkURLFor } from "../lib/deeplink.js";
@@ -43,6 +46,67 @@
   refresh();
   watch = setInterval(refresh, 2000);
 
+  // The confirm step. status is the core's LinkStatus, polled while the code
+  // is up: a device waiting for a yes, or the code used, expired, or tried
+  // by a device too old to link. answered is what the owner said here.
+  let status = $state(null);
+  let answered = $state(null); // null | {yes, name, at}
+  async function pollStatus() {
+    if (linked) return;
+    try {
+      status = await api.linkStatus();
+    } catch {
+      /* locked or older core */
+    }
+  }
+  pollStatus();
+  const statusWatch = setInterval(pollStatus, 500);
+
+  async function answer(yes) {
+    const p = status?.prompt;
+    if (!p) return;
+    answered = { yes, name: p.deviceName, at: Date.now() };
+    try {
+      await api.confirmLink(p.id, yes);
+    } catch (e) {
+      answered = null;
+      flash(e);
+    }
+    pollStatus();
+  }
+
+  // Once yes was said, the device shows as linked within a few seconds. If it
+  // never does (it went away before the account reached it), the code is
+  // still spent, and the dialog offers a new one. Re-evaluated on every poll.
+  const sending = $derived(!!answered?.yes && !linked && !(status?.used && Date.now() - answered.at > 20000));
+
+  async function showCode() {
+    code = await api.linkOffer();
+    // Fetched here rather than imported at the top: the encoder is only ever
+    // needed by this dialog, and it was riding into every cold start for the
+    // sake of a screen most sessions never open. The offer round-trip above
+    // covers the load.
+    const { default: QRCode } = await import("qrcode");
+    // The QR carries the concord:// deep-link form, so a plain OS-camera
+    // scan opens the Concord app with the code already filled in. The
+    // in-app scanner and the paste box accept both forms.
+    qr = await QRCode.toDataURL(linkURLFor(code), { margin: 1, width: 320, errorCorrectionLevel: "L" });
+  }
+
+  async function newCode() {
+    answered = null;
+    status = null;
+    qr = "";
+    error = "";
+    known = devices;
+    try {
+      await showCode();
+    } catch (e) {
+      error = humanError(e);
+    }
+    pollStatus();
+  }
+
   function fmtAgo(sec) {
     if (!sec) return "never";
     const s = Math.max(0, Math.floor(Date.now() / 1000) - sec);
@@ -70,16 +134,7 @@
 
   onMount(async () => {
     try {
-      code = await api.linkOffer();
-      // Fetched here rather than imported at the top: the encoder is only ever
-      // needed by this dialog, and it was riding into every cold start for the
-      // sake of a screen most sessions never open. The offer round-trip above
-      // covers the load.
-      const { default: QRCode } = await import("qrcode");
-      // The QR carries the concord:// deep-link form, so a plain OS-camera
-      // scan opens the Concord app with the code already filled in. The
-      // in-app scanner and the paste box accept both forms.
-      qr = await QRCode.toDataURL(linkURLFor(code), { margin: 1, width: 320, errorCorrectionLevel: "L" });
+      await showCode();
     } catch (e) {
       error = humanError(e);
     }
@@ -87,8 +142,9 @@
 
   onDestroy(() => {
     clearInterval(watch);
+    clearInterval(statusWatch);
     // Burn the offer server-side when the dialog closes so it can't be redeemed
-    // after the user walks away.
+    // after the user walks away. A device still waiting for a yes gets a no.
     api.cancelLinkOffer().catch(() => {});
   });
 
@@ -139,10 +195,44 @@
       <strong>{linked.name || "Your new device"} is linked.</strong>
       It is joining your guilds now. This code has been used and no longer works.
     </div>
+  {:else if status?.prompt}
+    <section class="ask" aria-label="Confirm the new device" aria-live="assertive">
+      <p class="ask-who"><strong>{status.prompt.deviceName}</strong> wants to join your account.</p>
+      <p class="muted">Check that the new device shows the same code:</p>
+      <div class="sas" aria-label="Code {status.prompt.sas}">{status.prompt.sas}</div>
+      <div class="ask-btns">
+        <button class="primary" onclick={() => answer(true)}>Yes, link it</button>
+        <button class="ghost" onclick={() => answer(false)}>No</button>
+      </div>
+      <p class="muted small">
+        {status.prompt.secondsLeft} s left. Say no if the codes differ or you did not just scan this
+        code: someone else may have it.
+      </p>
+    </section>
+  {:else if sending}
+    <div class="linked" role="status">
+      <span class="ls-spin"></span> Sending your account to {answered.name}…
+    </div>
+  {:else if answered || status?.used || status?.expired}
+    <div class="spent" role="status">
+      <p>
+        {#if answered && !answered.yes}
+          {answered.name} was turned away. This code no longer works.
+        {:else if answered}
+          The new device did not finish linking. This code no longer works.
+        {:else if status?.used}
+          This code has been used and no longer works.
+        {:else}
+          This code has expired.
+        {/if}
+      </p>
+      <button class="primary" onclick={newCode}>Show a new code</button>
+    </div>
   {:else}
   <p class="muted">
     On your other device, choose <strong>“Add this device to my account”</strong> and
-    scan this code (or paste it). It works for a few minutes, then expires.
+    scan this code (or paste it). It works for two minutes. When the device connects,
+    you confirm it here before anything is sent.
   </p>
 
   {#if error}
@@ -160,8 +250,13 @@
 
   <Caution
     text="Only scan this with a device you own."
-    detail="Anyone who scans this code within the next couple of minutes can add a device to your account."
+    detail="Anyone who sees this code can ask to join. Nothing is sent until you confirm here that the six digits match the new device."
   />
+  {/if}
+  {#if status?.oldDevice && !linked}
+    <div class="error" role="alert">
+      A device with an older Concord tried this code. Update Concord on that device, then scan a new code.
+    </div>
   {/if}
 </RailShell>
 
@@ -244,6 +339,65 @@
     border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--ok) 14%, transparent);
     border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent);
+  }
+  .linked .ls-spin {
+    display: inline-block;
+    vertical-align: -2px;
+    margin-inline-end: var(--sp-2);
+  }
+  .ls-spin {
+    width: 14px;
+    height: 14px;
+    border: 2px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+    border-top-color: var(--accent-hover);
+    border-radius: 50%;
+    animation: ls-spin 0.7s linear infinite;
+  }
+  @keyframes ls-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .ask,
+  .spent {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: var(--sp-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .ask {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  .ask p,
+  .spent p {
+    margin: 0;
+  }
+  .ask-who {
+    font-size: var(--fs-ui);
+  }
+  .sas {
+    align-self: center;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    font-variant-numeric: tabular-nums;
+    padding: var(--sp-1) var(--sp-3);
+  }
+  .ask-btns {
+    display: flex;
+    gap: var(--sp-2);
+  }
+  .ask-btns button {
+    flex: 1;
+  }
+  .small {
+    font-size: var(--fs-compact);
+  }
+  .spent button {
+    align-self: flex-start;
   }
   .qr-wrap {
     display: flex;

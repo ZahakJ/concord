@@ -79,6 +79,18 @@ const KNOWN = [
     "That isn't a link code. Copy it again from Settings → Your devices on your other device."],
   [/^code expired$/i, "code",
     "That code has expired — they last two minutes. Make a new one on your other device."],
+  // The device showing the code turned this one away (internal/app/link.go,
+  // the linkErr* reasons), or is too old to ask its owner first.
+  [/already used by another device/i, "code",
+    "That code was already used by another device. If that wasn't one of yours, choose No on your other device, then make a new code there."],
+  [/declined this link/i, "",
+    "Your other device said no. If that was a mistake, make a new code there and try again."],
+  [/nobody confirmed this link/i, "",
+    "Nobody confirmed on your other device in time. Make a new code there and try again."],
+  [/runs an older Concord, which links without asking/i, "",
+    "Your other device runs an older Concord, which would link without asking you first. Update Concord on it, then make a new code there."],
+  [/did not come from the device it asks to add/i, "",
+    "Your other device refused this request. Make a new code there and try again."],
   [/no active link offer|link rejected/i, "code",
     "That code was already used or closed on your other device. Make a new one there and paste it here."],
   // A dialog's code is fetched the first time it opens. With the core down

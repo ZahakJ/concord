@@ -90,6 +90,17 @@ eq(errorField("link: bad code"), "code", "bad link code is about the code");
 eq(errorField(new Error("link: bad code encoding")), "code", "bad code encoding");
 eq(humanError("link: code expired").startsWith("That code has expired"), true, "expired code");
 eq(errorField("app: link rejected: app: no active link offer"), "code", "spent code");
+// The confirm step's refusals, in the issuer's words (internal/app/link.go).
+eq(humanError("app: code expired").startsWith("That code has expired"), true, "expired by the issuer's clock");
+eq(humanError("app: that code was already used by another device").startsWith("That code was already used by another device."), true, "lost the race");
+eq(errorField("app: that code was already used by another device"), "code", "lost the race is about the code");
+eq(humanError("app: the other device declined this link").startsWith("Your other device said no."), true, "declined");
+eq(humanError("app: nobody confirmed this link on the other device in time").startsWith("Nobody confirmed"), true, "unanswered");
+eq(
+  humanError("net: the other device runs an older Concord, which links without asking you to confirm; update Concord on it, then make a new code").startsWith("Your other device runs an older Concord"),
+  true,
+  "old issuer",
+);
 eq(
   errorField("that recovery phrase isn't valid — check each word and their order"),
   "phrase",

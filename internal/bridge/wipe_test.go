@@ -218,7 +218,7 @@ func TestPanickingLinkDoesNotLockTheBridgeOut(t *testing.T) {
 	t.Setenv("CONCORD_HOME", t.TempDir())
 	orig := redeemLink
 	t.Cleanup(func() { redeemLink = orig })
-	redeemLink = func(context.Context, string, string, string, string) (appsvc.LinkResult, error) {
+	redeemLink = func(context.Context, string, string, string, string, func(appsvc.LinkWaiting)) (appsvc.LinkResult, error) {
 		panic("link exploded")
 	}
 	b := &Bridge{}
@@ -226,7 +226,7 @@ func TestPanickingLinkDoesNotLockTheBridgeOut(t *testing.T) {
 		defer func() { _ = recover() }()
 		_, _ = b.RedeemLinkCode("code", "pw", "", "")
 	}()
-	redeemLink = func(context.Context, string, string, string, string) (appsvc.LinkResult, error) {
+	redeemLink = func(context.Context, string, string, string, string, func(appsvc.LinkWaiting)) (appsvc.LinkResult, error) {
 		return appsvc.LinkResult{}, errors.New("no issuer")
 	}
 	if _, err := b.RedeemLinkCode("code", "pw", "", ""); errors.Is(err, errLinkInProgress) {

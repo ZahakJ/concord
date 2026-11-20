@@ -492,10 +492,23 @@ type Service struct {
 	bootstrapMu sync.RWMutex
 	bootstrap   []peer.AddrInfo
 
-	// Device linking (issuer side): the secret of the currently-displayed link
-	// offer, consumed once a joiner proves it. nil = no active offer. See link.go.
-	linkMu     sync.Mutex
-	linkSecret []byte
+	// Device linking (issuer side), all under linkMu. See link.go.
+	//   linkOffer      the code on show; nil = none. Taken (set to nil) by the
+	//                  one request that proves it.
+	//   linkSpent      the secret of the code last taken, so a later request
+	//                  for it hears "already used" rather than "no code".
+	//   linkAsk        the device waiting for the owner's yes, or nil.
+	//   linkOldDevice  a pre-0.61 device tried this code and was refused.
+	//   linkWindow     the owner's time to answer; 0 = linkConfirmWindow.
+	//                  Set only by tests.
+	//   linkManual     opts out of testLinkAutoConfirm. Set only by tests.
+	linkMu        sync.Mutex
+	linkOffer     *issuedOffer
+	linkSpent     []byte
+	linkAsk       *linkAsk
+	linkOldDevice bool
+	linkWindow    time.Duration
+	linkManual    bool
 
 	// myCredential is this install's MLS leaf credential — the bare account key
 	// (single-device) or this device's cert (linked). It's what we present when
@@ -1380,8 +1393,10 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// Owner side of the join handshake.
 	host.HandleInvites(s.handleInviteRequest)
 
-	// Issuer side of the device-linking handshake.
-	host.HandleLink(s.handleLinkRequest)
+	// Issuer side of the device-linking handshake, and the refusal for a
+	// device that still speaks the protocol from before the confirm step.
+	host.HandleLinkConfirmed(s.handleLinkRequest)
+	host.HandleLink(s.refuseOldLinkRequest)
 
 	// "Here is which account I belong to." The one thing a linked device's PeerID
 	// cannot say for itself — see hello.go.

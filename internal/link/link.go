@@ -2,14 +2,18 @@
 // multi-device support (Phase 4). When a user adds a second device to their
 // account, the already-unlocked device (the "issuer") displays a short-lived
 // QR/code carrying a random linking secret plus how to reach it; the new device
-// (the "joiner") scans it and dials the issuer over the /concord/link/1.0.0
-// stream. Both sides prove knowledge of the secret with an HMAC challenge before
-// any account material moves.
+// (the "joiner") scans it and dials the issuer over the /concord/link/2.0.0
+// stream. Each side shows the other an HMAC under the secret over a nonce of
+// its own; that proves knowledge of the code and nothing more. What ties the
+// session to the issuer is the libp2p Noise check of the PeerID in the code,
+// and what ties it to the device in the owner's hand is the confirm step: the
+// issuer shows the requesting device's name and a short authentication string
+// (SAS) derived from the dialler's key, the new device shows the same string,
+// and the seed moves only after the owner says yes on the issuer.
 //
 // This package has no network dependencies (crypto + pure encoding only) so
 // the handshake can be unit-tested without a network. The stream wiring and the
-// actual account-seed transfer live in the net/app layers and are gated on the
-// multi-device migration; these are the primitives they build on.
+// actual account-seed transfer live in the net/app layers.
 package link
 
 import (
@@ -27,15 +31,20 @@ import (
 	"github.com/ZahakJ/concord/internal/compactcode"
 )
 
-// Protocol is the libp2p stream protocol ID for device linking.
-const Protocol = "/concord/link/1.0.0"
+// Protocol is the libp2p stream protocol ID for device linking with the
+// confirm step. /concord/link/1.0.0, the protocol before it, handed the seed
+// to anyone who knew the code; an issuer now answers it only with a refusal
+// telling the older device to update.
+const Protocol = "/concord/link/2.0.0"
 
 // SecretSize is the linking secret length (256-bit, single-use).
 const SecretSize = 32
 
-// offerTTL bounds how long a displayed code is valid — a linking window should
-// be short so a leaked/photographed code can't be replayed later.
-const offerTTL = 2 * time.Minute
+// OfferTTL bounds how long a displayed code is valid — a linking window should
+// be short so a leaked/photographed code can't be replayed later. Both ends
+// enforce it: the joiner's decoder by the time written in the code, and the
+// issuer by its own clock from the moment it made the offer.
+const OfferTTL = 2 * time.Minute
 
 // Offer is what the issuer encodes into the QR/code shown to the user. The
 // secret authenticates the channel; PeerID + Addrs let the joiner dial the
@@ -140,13 +149,16 @@ func validateOffer(o *Offer) (*Offer, error) {
 
 // Expired reports whether the offer's validity window has passed.
 func (o *Offer) Expired() bool {
-	return time.Since(time.Unix(o.CreatedAt, 0)) > offerTTL
+	return time.Since(time.Unix(o.CreatedAt, 0)) > OfferTTL
 }
 
 // Proof is an HMAC over a role label + a per-session nonce, keyed by the linking
 // secret. Each side sends its own (with a distinct role) and verifies the
-// other's, so possession of the secret is proven mutually and neither proof can
-// be replayed as the other party's.
+// other's, so possession of the secret is shown both ways and neither proof can
+// be replayed as the other party's. It binds nothing else: not the device key,
+// not the connection. Against a man in the middle the protection is the Noise
+// check of the issuer's PeerID; against someone else who saw the code it is the
+// owner's confirmation with the SAS.
 func Proof(secret []byte, role string, nonce []byte) []byte {
 	m := hmac.New(sha256.New, secret)
 	m.Write([]byte(role))
@@ -166,6 +178,42 @@ const (
 func VerifyProof(secret []byte, role string, nonce, got []byte) bool {
 	want := Proof(secret, role, nonce)
 	return subtle.ConstantTimeCompare(want, got) == 1
+}
+
+// sasLabel separates the short authentication string from the proofs.
+const sasLabel = "concord-link-sas-v1"
+
+// SAS is the short authentication string both screens show while the issuer
+// asks its owner to confirm a new device: six digits, "123 456", from an HMAC
+// under the linking secret over the issuer's PeerID and the joiner's device
+// key. The issuer computes it from the key the request arrived on, the joiner
+// from its own key, so equal strings mean the device asking is the device in
+// the owner's hand.
+//
+// Six digits suffice because a code is redeemed once: the joiner shows its
+// string only after the issuer has taken the code for it, so nobody else can
+// still aim a key at that string, and a code holder who got in first shows a
+// string the owner's device never displays.
+func SAS(secret []byte, issuerPeerID string, devicePub []byte) string {
+	m := hmac.New(sha256.New, secret)
+	m.Write([]byte(sasLabel))
+	m.Write([]byte{0})
+	var n [4]byte
+	binary.BigEndian.PutUint32(n[:], uint32(len(issuerPeerID)))
+	m.Write(n[:])
+	m.Write([]byte(issuerPeerID))
+	m.Write(devicePub)
+	sum := m.Sum(nil)
+	v := binary.BigEndian.Uint64(sum[:8]) % 1_000_000
+	d := []byte("000 000")
+	for i := len(d) - 1; i >= 0; i-- {
+		if d[i] == ' ' {
+			continue
+		}
+		d[i] = byte('0' + v%10)
+		v /= 10
+	}
+	return string(d)
 }
 
 // Nonce returns a fresh 32-byte challenge nonce.

@@ -51,10 +51,14 @@ type Bridge struct {
 	// (see takeUnlockNotice); guarded by mu.
 	unlockNotice string
 	// linking is set while RedeemLinkCode runs. The link spends up to a
-	// minute and a half on the network without b.mu, and then erases or
+	// minute and a half reaching the other device and up to another minute
+	// waiting for its owner's yes, without b.mu, and then erases or
 	// replaces the identity on this device; an unlock, restore or reset from
 	// another window in that time would have the ground taken from under it.
 	linking bool
+	// linkWait is what the link shows while the other device asks its owner
+	// (see LinkWaiting); nil outside that wait. Guarded by mu.
+	linkWait *appsvc.LinkWaiting
 
 	// startOver is the outstanding lock-screen erase confirmation (see
 	// BeginStartOver): its ticket, the device state it was opened on, and
@@ -483,8 +487,8 @@ func (b *Bridge) takeUnlockNotice() string {
 	return n
 }
 
-// redeemLink is appsvc.RedeemLink, a variable so a test can make it fail.
-var redeemLink = appsvc.RedeemLink
+// redeemLink is appsvc.RedeemLinkWatch, a variable so a test can make it fail.
+var redeemLink = appsvc.RedeemLinkWatch
 
 // errLinkInProgress refuses an identity-changing call while another window
 // is linking this device.
@@ -3271,6 +3275,40 @@ func (b *Bridge) CancelLinkOffer() error {
 	return nil
 }
 
+// LinkStatus is the linking dialog's poll on the issuer: a device waiting for
+// the owner's yes (its name and the six digits to compare), or whether the
+// code was used, expired, or tried by a device too old to link.
+func (b *Bridge) LinkStatus() (appsvc.LinkStatus, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.LinkStatus{}, err
+	}
+	return svc.LinkStatus(), nil
+}
+
+// ConfirmLink is the owner's answer on the issuer to the device in the prompt
+// with this id: yes sends it the account, no turns it away.
+func (b *Bridge) ConfirmLink(id string, yes bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.ConfirmLink(id, yes)
+}
+
+// LinkWaiting is the new device's poll while RedeemLinkCode runs: once the
+// other device is asking its owner, the six digits this screen must show.
+// nil before that, and after the link ends.
+func (b *Bridge) LinkWaiting() (*appsvc.LinkWaiting, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.linkWait == nil {
+		return nil, nil
+	}
+	w := *b.linkWait
+	return &w, nil
+}
+
 // RedeemLinkCode is the new device's side of linking: from the LOCKED state, it
 // dials the issuer, adopts the account, then logs in (now in linked mode) and
 // joins every guild the issuer shared. The passphrase protects the new local
@@ -3316,9 +3354,14 @@ func (b *Bridge) RedeemLinkCode(code, passphrase, confirm, typed string) (string
 		defer func() {
 			b.mu.Lock()
 			b.linking = false
+			b.linkWait = nil
 			b.mu.Unlock()
 		}()
-		return redeemLink(b.ctx, dataDir, code, passphrase, token)
+		return redeemLink(b.ctx, dataDir, code, passphrase, token, func(w appsvc.LinkWaiting) {
+			b.mu.Lock()
+			b.linkWait = &w
+			b.mu.Unlock()
+		})
 	}()
 	if err != nil {
 		b.mu.Lock()
@@ -4165,6 +4208,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.LinkOffer()
 	case "CancelLinkOffer":
 		return nil, b.CancelLinkOffer()
+	case "LinkStatus":
+		return b.LinkStatus()
+	case "ConfirmLink":
+		return nil, b.ConfirmLink(argStr(args, 0), argBool(args, 1))
+	case "LinkWaiting":
+		return b.LinkWaiting()
 	case "RedeemLinkCode":
 		return b.RedeemLinkCode(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "Logout":

@@ -2,7 +2,7 @@
 // the recovery phrase belonged to somebody else, with no question asked. Then
 // the question's yes erased it in one tap, while starting over took ERASE
 // typed; now the yes takes the same word, and keeping comes first.
-import { test } from "../harness.mjs";
+import { test, answerLinks } from "../harness.mjs";
 
 async function toRestoreForm(app) {
   const { page } = app;
@@ -147,6 +147,17 @@ test("the replace question erases nothing in one tap: keeping comes first, and e
 
 test("a link code for another account: keep first, and the erase waits for the word and a new code", async ({ world, assert, waitFor, step }) => {
   const [alice, bashir] = await world.peers(2);
+  // Each code is put to Bashir's owner before anything is sent (the replace
+  // question comes after the account arrives); he says yes to both.
+  const stopAnswering = answerLinks(bashir);
+  try {
+    await linkCodeForAnotherAccount({ alice, bashir, assert, waitFor, step });
+  } finally {
+    stopAnswering();
+  }
+});
+
+async function linkCodeForAnotherAccount({ alice, bashir, assert, waitFor, step }) {
   await alice.rpc("Logout");
   const app = await alice.open({ unlock: false, viewport: "phone" });
   const { page } = app;
@@ -187,7 +198,7 @@ test("a link code for another account: keep first, and the erase waits for the w
   await yes.click();
   await waitFor(async () => (await alice.rpc("Session")) === true, { timeout: 90000, message: "the confirmed link unlocks" });
   assert.equal((await alice.rpc("Identity")).fingerprint, bashir.fingerprint, "the device does not hold the code's account");
-});
+}
 
 test("the core takes no yes without the word, whoever calls it", async ({ world, assert, step }) => {
   const [alice, bashir] = await world.peers(2);

@@ -91,6 +91,10 @@ Locally it is an encrypted SQLite database:
   query and order them (see *What is not protected*, below).
 - Your identity seed is itself encrypted at rest with Argon2id + secretbox,
   unlocked by your passphrase.
+- The seed leaves your device in one case: when you link another device. It
+  goes over an encrypted connection to the device that used your link code,
+  and only after you have said yes on this device to that device by name and
+  six-digit code. A code works once and for two minutes.
 - Full-text search runs entirely on your machine; queries never leave it.
 - Export is one click to Markdown — your data is yours.
 
