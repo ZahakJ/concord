@@ -83,7 +83,7 @@
 </div>
 {#if score?.label}
   <div class="strength" data-level={score.level}>
-    <div class="bar" aria-hidden="true"><span style:width="{score.percent}%"></span></div>
+    <div class="bar" aria-hidden="true"><span style:transform="scaleX({score.percent / 100})"></span></div>
     <!-- Spoken as well as drawn, and politely: it changes on every keystroke,
          so an assertive region would interrupt the typing it is describing. -->
     <span class="slabel" role="status" aria-live="polite">{score.label}</span>
@@ -102,6 +102,26 @@
   }
   .wrap input[aria-invalid] {
     border-color: var(--danger);
+  }
+  /* A refused passphrase gives the field a short shake (transform only) as
+     well as the red edge and the sentence under it. Reduced motion lands on
+     the still frame. */
+  .wrap:has(> input[aria-invalid]) {
+    animation: pf-shake var(--dur-stage) var(--ease-out);
+  }
+  @keyframes pf-shake {
+    20% {
+      transform: translateX(-6px);
+    }
+    45% {
+      transform: translateX(5px);
+    }
+    70% {
+      transform: translateX(-3px);
+    }
+    90% {
+      transform: translateX(1px);
+    }
   }
   .wrap input[aria-invalid]:focus {
     border-color: var(--danger);
@@ -178,14 +198,19 @@
     background: color-mix(in srgb, var(--text-muted) 22%, transparent);
     overflow: hidden;
   }
+  /* Filled by scaleX, not width: a meter that moves on every keystroke
+     should not lay the card out again each time. */
   .bar span {
     display: block;
     height: 100%;
-    border-radius: 999px;
     background: var(--danger);
+    transform-origin: left center;
     transition:
-      width var(--dur-calm) ease,
+      transform var(--dur-calm) var(--ease-out),
       background var(--dur-calm) ease;
+  }
+  .bar span:dir(rtl) {
+    transform-origin: right center;
   }
   .slabel {
     font-size: var(--fs-tiny);
