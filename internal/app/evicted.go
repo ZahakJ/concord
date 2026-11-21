@@ -322,6 +322,7 @@ func (s *Service) screenCommit(guildID string, groupID, commit []byte) (int, []S
 		return commitUnverified, nil
 	}
 	removed, replaced := s.commitRemovesUs(groupID, commit)
+	takenOut := false
 	if removed && !replaced && s.ownsGuild(guildID) && !s.commitFromOwnAccount(groupID, commit) {
 		// The owner's device settles as removed only on a commit from its own
 		// account. Anyone else's removal of it reads as a replacement: the
@@ -331,15 +332,23 @@ func (s *Service) screenCommit(guildID string, groupID, commit []byte) (int, []S
 		// and flags the guild; this one is seated nowhere, every member
 		// declines its catch-up, and nothing else would ever flag it.
 		replaced = true
+		takenOut = true
 		s.noteTakenOut(guildID)
 	}
 	found, refuse := s.checkSeats(guildID, groupID, commit)
 	if replaced {
-		adder := ""
+		by := ""
 		if sender, err := s.mls.CommitSender(s.ctx, groupID, commit); err == nil {
-			adder = accountFingerprintOf(sender)
+			by = accountFingerprintOf(sender)
 		}
-		s.noteSeatReplaced(guildID, adder)
+		if takenOut {
+			// No device stands in for this one: a member removed the
+			// owner's device outright. "Replaced" told the owner that a
+			// device not theirs stayed under their name.
+			s.noteOwnerDeviceRemoved(guildID, by)
+		} else {
+			s.noteSeatReplaced(guildID, by)
+		}
 		return commitProceed, found
 	}
 	if removed {

@@ -98,7 +98,7 @@ type SeatFlag struct {
 // SeatNotice is something already done or found that the person should be
 // told once: a leaf removed for them, a removal that did not stick.
 type SeatNotice struct {
-	Kind    string `json:"kind"` // "removed" | "repeats" | "replaced"
+	Kind    string `json:"kind"` // "removed" | "repeats" | "replaced" | "owner_removed"
 	Account string `json:"account,omitempty"`
 	Adder   string `json:"adder,omitempty"`
 	At      int64  `json:"at"`
@@ -848,6 +848,16 @@ func (s *Service) commitRemovesUs(groupID, commit []byte) (removed, replaced boo
 func (s *Service) noteSeatReplaced(guildID, adder string) {
 	log.Printf("concord/app: guild %s: this device's leaf was removed while another leaf under this account stays", guildID)
 	s.addSeatNotice(guildID, SeatNotice{Kind: "replaced", Account: s.id.Fingerprint(), Adder: adder, At: time.Now().Unix()})
+	s.emitGuildUpdate()
+}
+
+// noteOwnerDeviceRemoved tells the owner that a member of another account
+// removed this device from the guild, with no device standing in for it. by
+// is the remover's account, carried in Adder, the field the banner names a
+// member from.
+func (s *Service) noteOwnerDeviceRemoved(guildID, by string) {
+	log.Printf("concord/app: guild %s: another member removed this owner's device; asking to be let back in", guildID)
+	s.addSeatNotice(guildID, SeatNotice{Kind: "owner_removed", Account: s.id.Fingerprint(), Adder: by, At: time.Now().Unix()})
 	s.emitGuildUpdate()
 }
 

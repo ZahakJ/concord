@@ -40,6 +40,15 @@ export function seatBannerLines({ flags = [], notices = [], canManage = false, g
           `This device was taken out of ${guildName} while a device that is not yours stays there under your identity.` +
           addedBy(n.adder, name),
       });
+    } else if (n.kind === "owner_removed") {
+      // The owner's device removed by a member of another account, with no
+      // device in its place. adder is the member who removed it.
+      out.push({
+        key: `n-owner-removed-${n.at}`,
+        text:
+          `${by || "A member"} removed this device from ${guildName}. You still own ${guildName}, so this device asks to be let back in` +
+          " and rejoins once a member who can add it is online.",
+      });
     }
   }
   for (const f of flags) {

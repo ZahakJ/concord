@@ -75,4 +75,16 @@ for (const kind of ["key_differs", "seated", "repeated", "replaced", "not_theirs
   assert.equal(o.text, "Olu keeps adding a device under your identity to Den. Concord removed it again.");
 }
 
+// The owner's device removed by another member: nothing stands in for it, so
+// the line says who removed it and what happens next, and never that a device
+// not theirs stays under their identity.
+{
+  const [l] = seatBannerLines({ guildName: g, name, owner: "A", notices: [{ kind: "owner_removed", adder: "M", at: 4 }] });
+  assert.equal(l.text, "Mo removed this device from Den. You still own Den, so this device asks to be let back in and rejoins once a member who can add it is online.");
+  assert.doesNotMatch(l.text, /not yours|under your identity|replaced/);
+  assert.equal(l.action, undefined);
+  const [u] = seatBannerLines({ guildName: g, name, notices: [{ kind: "owner_removed", at: 5 }] });
+  assert.match(u.text, /^A member removed this device from Den\./);
+}
+
 console.log("seatbanner: ok");

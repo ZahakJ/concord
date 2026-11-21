@@ -254,6 +254,17 @@ func TestOwnerTakenOutFlagsItselfOnTheCommit(t *testing.T) {
 		t.Fatalf("after reading the removal: OutOfSync=%v latched=%v, want both",
 			s.owner.OutOfSync(s.g.ID), s.owner.takenOutLatched(s.g.ID))
 	}
+	// The banner says the mod removed this device, not that a device which is
+	// not the owner's replaced it: no such device exists.
+	notices := s.owner.SeatNotices(s.g.ID)
+	if len(notices) == 0 || notices[len(notices)-1].Kind != "owner_removed" || notices[len(notices)-1].Adder != s.mod.Fingerprint() {
+		t.Fatalf("notices after the removal: %+v, want owner_removed by the mod", notices)
+	}
+	for _, n := range notices {
+		if n.Kind == "replaced" {
+			t.Fatalf("the owner was told it was replaced: %+v", notices)
+		}
+	}
 
 	// The recovery that the flag started reaches the door and waits there.
 	select {
