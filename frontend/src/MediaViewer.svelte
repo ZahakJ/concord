@@ -623,6 +623,7 @@
   role="dialog"
   aria-modal="true"
   aria-label={label}
+  tabindex="-1"
   bind:this={overlayEl}
   onwheel={onWheel}
   onpointerdown={onPointerDown}
