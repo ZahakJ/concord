@@ -337,10 +337,7 @@ func (s *Service) screenCommit(guildID string, groupID, commit []byte) (int, []S
 	}
 	found, refuse := s.checkSeats(guildID, groupID, commit)
 	if replaced {
-		by := ""
-		if sender, err := s.mls.CommitSender(s.ctx, groupID, commit); err == nil {
-			by = accountFingerprintOf(sender)
-		}
+		by := s.commitSenderAccount(guildID, groupID, commit)
 		if takenOut {
 			// No device stands in for this one: a member removed the
 			// owner's device outright. "Replaced" told the owner that a
@@ -358,6 +355,40 @@ func (s *Service) screenCommit(guildID string, groupID, commit []byte) (int, []S
 		return commitRefused, nil
 	}
 	return commitProceed, found
+}
+
+// commitSenderAccount is the account a notice may name as a commit's author,
+// or "" (the banner then says "A member"). The signature proves only that the
+// sender leaf's key signed; the credential beside the key is what the member
+// who seated the leaf wrote, and a moderator can seat a leaf under another
+// member's account key. So the account is named only when the leaf's key is
+// the one its credential pairs with: a certificate that names the leaf key,
+// or a bare account key on the key this device recorded for it, on a leaf not
+// flagged.
+func (s *Service) commitSenderAccount(guildID string, groupID, commit []byte) string {
+	cl, err := s.mls.ReadCommitLeaves(s.ctx, groupID, commit)
+	if err != nil || cl == nil || cl.External {
+		return ""
+	}
+	leaves, err := s.mls.Leaves(s.ctx, groupID)
+	if err != nil {
+		return ""
+	}
+	for _, l := range leaves {
+		if l.Index != cl.Sender {
+			continue
+		}
+		if certNamesKey(l) {
+			return accountFingerprintOf(l.Credential)
+		}
+		if isAccountKeyCredential(l.Credential) && !s.committerFlagged(guildID, l) {
+			if want := s.recordedAccountKey(l.Credential); want != nil && bytes.Equal(want, l.Key) {
+				return accountFingerprintOf(l.Credential)
+			}
+		}
+		return ""
+	}
+	return ""
 }
 
 // ownsGuild reports whether this device's account is the guild's effective
