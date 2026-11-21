@@ -421,10 +421,12 @@
     height: fit-content;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-xl);
     display: flex;
     flex-direction: column;
-    box-shadow: var(--shadow-pop);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent),
+      var(--shadow-stage);
     overflow: hidden;
     animation: qs-pop var(--dur-enter) var(--ease-spring);
   }
@@ -534,7 +536,7 @@
     flex-shrink: 0;
     min-height: 40px;
     padding: 0 10px;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--text);
     text-align: start;
