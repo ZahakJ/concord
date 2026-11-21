@@ -403,8 +403,8 @@ async function phaseOnline() {
 
   // --- R1: receipts against a peer that has none ---------------------------
   await lane("R1", "NEW's delivered acks and read receipts do not stop OLD applying the DM", async () => {
-    // OLD (0.60) has no receipts and drops the "delivered" and "read_receipt"
-    // meta frames NEW sends. The DM must carry on both ways after them, and
+    // OLD before 0.61 has no receipts and drops the "delivered" and
+    // "read_receipt" meta frames NEW sends. The DM must carry on both ways after them, and
     // NEW must show no tick OLD never sent.
     const oldChan = st.dmChanOld;
     const newChan = st.dmChanNew;
@@ -421,12 +421,16 @@ async function phaseOnline() {
     await waitFor("NEW receives OLD's reply", () => findMessage(NEW, newChan, "R1-REPLY"));
     const ticks = (await rpc(NEW, "Receipts", [newChan])) || {};
     const t = ticks[sent.id] || {};
-    if (t.delivered || t.read) throw new Error(`NEW shows a tick OLD never sent: ${JSON.stringify(t)}`);
+    // 0.61 and later send delivered acks too (they answer Receipts); against
+    // one, a delivered tick is OLD's own and only a read tick is invented,
+    // since OLD never marks the DM read.
+    const oldAcks = (await tryRpc(OLD, "Receipts", [oldChan])).ok;
+    if (t.read || (t.delivered && !oldAcks)) throw new Error(`NEW shows a tick OLD never sent: ${JSON.stringify(t)}`);
     return {
       evidence: [
         `NEW received ${got.content}, marked the DM read with receipts on`,
         `OLD then received ${onOld.content}; NEW received R1-REPLY`,
-        `NEW's tick for its own message: ${JSON.stringify(t)} (OLD sends no acks)`,
+        `NEW's tick for its own message: ${JSON.stringify(t)} (${oldAcks ? "OLD sends delivered acks" : "OLD sends no acks"})`,
       ],
     };
   });
