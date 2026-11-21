@@ -528,7 +528,7 @@
         const seen = localStorage.getItem("concord.seenVersion") || "";
         if (seen === v) return;
         localStorage.setItem("concord.seenVersion", v);
-        if (seen && !S.modal) S.modal = { kind: "whatsNew", version: v };
+        if (seen && !S.modal) S.modal = { kind: "whatsNew", version: v, seen };
       })
       .catch(() => {});
   });
@@ -2374,7 +2374,7 @@
     {:else if modalLoadedKind === "shortcuts"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if modalLoadedKind === "whatsNew"}
-      <ModalView version={S.modal.version} onClose={() => (S.modal = null)} />
+      <ModalView version={S.modal.version} seen={S.modal.seen} onClose={() => (S.modal = null)} />
     {:else if modalLoadedKind === "saved"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if modalLoadedKind === "when"}
