@@ -236,7 +236,22 @@ func TestOwnerTakenOutFlagsItselfOnTheCommit(t *testing.T) {
 	if s.owner.OutOfSync(s.g.ID) {
 		t.Fatal("setup: the owner is out of sync before the removal")
 	}
-	if err := s.owner.syncGuildFromPeer(s.g.ID, s.mod.host.PeerID()); err != errSyncDeclined {
+	// The catch-up as a build before 0.62 asks it, without OwnerChain, so the
+	// mod declines it as it always did (ownerchain_test.go has the catch-up
+	// that is served the chain).
+	var asOld syncAskFunc = func(ctx context.Context, to peer.ID, req []byte) ([]byte, error) {
+		var r syncRequest
+		if err := json.Unmarshal(req, &r); err != nil {
+			return nil, err
+		}
+		r.OwnerChain = false
+		raw, _ := json.Marshal(r)
+		return s.owner.host.RequestSync(ctx, to, raw)
+	}
+	s.owner.requestSync.Store(&asOld)
+	err = s.owner.syncGuildFromPeer(s.g.ID, s.mod.host.PeerID())
+	s.owner.requestSync.Store(nil)
+	if err != errSyncDeclined {
 		t.Fatalf("the mod's answer to the owner's catch-up: %v, want declined", err)
 	}
 	if s.owner.OutOfSync(s.g.ID) {

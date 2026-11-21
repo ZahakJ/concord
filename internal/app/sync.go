@@ -98,6 +98,12 @@ type syncRequest struct {
 	// Absent from older peers, which reads as nil: serve the full snapshot, as
 	// this protocol always did.
 	Have *syncDigest `json:"have,omitempty"`
+	// OwnerChain says the requester owns the guild and reads a commit chain
+	// it is not seated in for what it is (ownerchain.go): a responder whose
+	// tree does not seat it may answer with the commits alone. Absent from
+	// older peers, which a responder whose tree does not seat them declines,
+	// as it always did.
+	OwnerChain bool `json:"ownerChain,omitempty"`
 	// Marks is where the requester stands in the responder's own change
 	// numbering (store/syncmarks.go). Its presence is what says the requester
 	// keeps marks at all; an older peer sends none and is answered by Since in
@@ -204,8 +210,11 @@ func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request [
 	// embed joiners' key packages (account pubkeys) — serving them to a non-member
 	// who merely knows the guild ID (e.g. a removed/banned member) would leak the
 	// membership roster. Membership is checked against the authenticated PeerID.
-	if !s.guildHasMember(req.GuildID, s.presence(from).Fingerprint) {
-		return []byte{}, nil
+	// The one exception is the guild's owner, which is served the commits alone
+	// (serveOwnerChain), so a device removed while it was away can read its
+	// own removal and ask back in.
+	if fpr := s.presence(from).Fingerprint; !s.guildHasMember(req.GuildID, fpr) {
+		return s.serveOwnerChain(ctx, req, guild, from, fpr)
 	}
 
 	var resp syncResponse
@@ -848,8 +857,9 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 		// not come back again.
 		reqBytes, _ := json.Marshal(syncRequest{
 			GuildID: guildID, Epoch: epoch, Since: cur.since,
-			Have:  s.syncDigestFor(guildID, guild, time.Now().Unix()),
-			Marks: cur.marks,
+			Have:       s.syncDigestFor(guildID, guild, time.Now().Unix()),
+			Marks:      cur.marks,
+			OwnerChain: s.ownsGuild(guildID),
 		})
 		ctx, cancel := context.WithTimeout(s.ctx, 20*time.Second)
 		ask := s.host.RequestSync

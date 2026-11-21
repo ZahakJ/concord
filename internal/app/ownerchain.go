@@ -1,0 +1,141 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/store"
+	"github.com/libp2p/go-libp2p/core/peer"
+)
+
+// The commit chain served to an owner's device this tree no longer seats.
+// docs/dev/owner-rejoin.md is the design; this is the responder's half.
+//
+// An owner's device that was offline when a member removed it never reads the
+// removal: gossip is gone by the time it is back, and every member that
+// applied the commit declines its catch-up (handleSyncRequest serves members
+// only), so screenCommit never sees the commit and noteTakenOut never latches.
+// The device sits at the old epoch for good. The fix is to hand it the commits,
+// and nothing else, so it can verify them itself.
+//
+// What the responder decides is only whether to send public bytes: commits
+// travel the control topic in the clear, and the heal door (handleInviteRequest)
+// already serves this requester a Welcome, which carries the whole current tree.
+// What the requester does with them is decided on its side, by the same checks
+// any commit passes: commitAuthorized, then screenCommit's VerifyCommit against
+// its own tree at its own epoch. Nothing in the answer is taken on the
+// responder's word.
+
+const (
+	// ownerChainMaxCommits and ownerChainMaxBytes bound one answer. The sync
+	// frame is 1 MiB and commits travel base64 in JSON; the requester asks
+	// again in the same catch-up (maxSyncRounds) when the page moved its epoch.
+	ownerChainMaxCommits = 64
+	ownerChainMaxBytes   = 512 << 10
+	// ownerChainWindow is how often one peer may have the same page again. A
+	// requester that applied a whole page asks from past it and is served at
+	// once; one that stopped inside a page (at its removal, say) is served
+	// again only after the window.
+	ownerChainWindow = 30 * time.Second
+	// ownerChainTrack bounds the throttle's memory.
+	ownerChainTrack = 256
+)
+
+type ownerChainServe struct {
+	at   time.Time
+	next uint64 // the requester epoch at which the page served is used up
+}
+
+// serveOwnerChain answers a catch-up from a requester this tree does not seat.
+// It serves only when every one of these holds, and otherwise declines with the
+// empty body every older build sends:
+//
+//   - the requester asked for it (OwnerChain), so a build that cannot read a
+//     chain it is not seated in is never handed one;
+//   - the requester's account, resolved from its Noise-authenticated peer key
+//     through a device certificate bound to that key (presence), is this
+//     guild's effective owner by this device's governance state;
+//   - this copy is not one that CannotRepairHere;
+//   - the requester stands behind this device's epoch;
+//   - the throttle allows it (claimOwnerChain).
+//
+// The answer carries commits only, never a payload: this device's tree does not
+// seat the requester, so nothing encrypted to it could be read, and no history
+// goes to a device the group has removed. When the log cannot bridge the
+// requester it says EpochGap, as it does for a seated member, which the
+// requester treats as a claim.
+func (s *Service) serveOwnerChain(ctx context.Context, req syncRequest, guild domain.Guild, from peer.ID, fpr string) ([]byte, error) {
+	if !req.OwnerChain || fpr == "" || fpr != s.effectiveOwner(req.GuildID) {
+		return []byte{}, nil
+	}
+	if s.CannotRepairHere(req.GuildID) {
+		return []byte{}, nil
+	}
+	myEpoch, err := s.mls.Epoch(ctx, guild.GroupID)
+	if err != nil || req.Epoch >= myEpoch {
+		return []byte{}, nil
+	}
+	rows, err := s.store.CommitsAfter(guild.GroupID, req.Epoch)
+	resp := syncResponse{Epoch: myEpoch}
+	if err != nil || !bridges(rows, req.Epoch, myEpoch) {
+		if !s.claimOwnerChain(req.GuildID, from, req.Epoch, 0) {
+			return []byte{}, nil
+		}
+		resp.EpochGap = true
+		return json.Marshal(resp)
+	}
+	page := ownerChainPage(rows)
+	if !s.claimOwnerChain(req.GuildID, from, req.Epoch, len(page)) {
+		return []byte{}, nil
+	}
+	resp.Commits = page
+	return json.Marshal(resp)
+}
+
+// ownerChainPage is the first commits of a chain within the count and byte
+// bounds, and always the first commit, so a chain is never served empty.
+func ownerChainPage(rows []store.CommitRow) [][]byte {
+	var out [][]byte
+	size := 0
+	for _, r := range rows {
+		if len(out) == ownerChainMaxCommits || (len(out) > 0 && size+len(r.Commit) > ownerChainMaxBytes) {
+			break
+		}
+		out = append(out, r.Commit)
+		size += len(r.Commit)
+	}
+	return out
+}
+
+// claimOwnerChain reports whether a page of n commits from epoch may go to this
+// peer now, and records it if so. The same page goes again only after
+// ownerChainWindow; a request from where the last page ended is the requester
+// paging through and is served at once, which bounds the serves in a window by
+// the chain's length over the page size.
+func (s *Service) claimOwnerChain(guildID string, p peer.ID, epoch uint64, n int) bool {
+	key := guildID + "|" + p.String()
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ownerChainServed == nil {
+		s.ownerChainServed = map[string]ownerChainServe{}
+	}
+	last, known := s.ownerChainServed[key]
+	if known && now.Sub(last.at) < ownerChainWindow && (n == 0 || epoch < last.next) {
+		return false
+	}
+	if !known && len(s.ownerChainServed) >= ownerChainTrack {
+		for k, v := range s.ownerChainServed {
+			if now.Sub(v.at) >= ownerChainWindow {
+				delete(s.ownerChainServed, k)
+			}
+		}
+		if len(s.ownerChainServed) >= ownerChainTrack {
+			return false
+		}
+	}
+	s.ownerChainServed[key] = ownerChainServe{at: now, next: epoch + uint64(n)}
+	return true
+}

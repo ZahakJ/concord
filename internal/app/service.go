@@ -334,6 +334,10 @@ type Service struct {
 	// its own sync request, that it stands ahead of us (see handleSyncRequest),
 	// keyed guildID|peerID.
 	lastReciprocal map[string]time.Time
+	// ownerChainServed throttles the commit chain served to an owner's device
+	// this tree does not seat (ownerchain.go), keyed guildID|peerID. Guarded
+	// by mu.
+	ownerChainServed map[string]ownerChainServe
 	// behindPersistMu orders the writes of the persisted seen-behind latch.
 	// See persistBehind.
 	behindPersistMu sync.Mutex
