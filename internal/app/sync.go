@@ -958,6 +958,24 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 			s.setOutOfSync(guildID, true)
 			return nil
 		}
+		if len(resp.Payload) == 0 {
+			// No payload proves nothing about the ratchet: an owner's chain
+			// (serveOwnerChain) never carries one, and any responder can send
+			// {"epoch":N}. Such an answer never lowers the flag or marks the
+			// guild caught up. If we are still behind what it claims, it is
+			// what EpochGap is, a claim: the flag goes up, and the heal asks
+			// the door, which decides on its own state. That is what moves an
+			// owner whose stale governance refuses the chain's first commit.
+			if cur, err := s.mls.Epoch(s.ctx, guild.GroupID); err == nil && resp.Epoch > cur {
+				s.noteBehindClaim(guildID, resp.Epoch)
+				s.noteAhead(guildID, p)
+				s.setOutOfSync(guildID, true)
+			}
+			if applied == 0 && !resp.More {
+				return nil
+			}
+			continue
+		}
 		payloadOK := true
 		if len(resp.Payload) > 0 {
 			var payload *syncPayload
