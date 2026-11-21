@@ -1348,6 +1348,13 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	if !credentialBoundToPeer(req.Credential, from) {
 		return json.Marshal(inviteResponse{Error: "credential does not match caller"})
 	}
+	// A device this account unlinked still holds a certificate that verifies
+	// and names the key it dials with, so the binding above passes it. This
+	// device holds the revocation and refuses it. A door held by another
+	// account does not know of the revocation yet (docs/dev/owner-rejoin.md).
+	if s.leafRevokedHere(req.Credential) {
+		return json.Marshal(inviteResponse{Error: "this device was unlinked"})
+	}
 	// Notes admits this account's own devices and nobody else, whatever code
 	// they hold (one minted before ShareableInviteCode refused it, say). It is
 	// judged here, on the credential the leaf would carry, so a request that
