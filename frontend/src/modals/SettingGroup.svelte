@@ -39,6 +39,8 @@
     display: flex;
     align-items: center;
     gap: var(--sp-1);
+    font-family: var(--display-font);
+    letter-spacing: 0.01em;
     font-size: var(--fs-compact);
     font-weight: 600;
     color: var(--text);

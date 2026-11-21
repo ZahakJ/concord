@@ -152,6 +152,12 @@ fine print (`## Security`, `## Also`, `## Known limits`,
 and never as a slide. A feature may name its drawing on the line under its
 heading (`<!-- hero: attach -->`; the list is `HEROES` in
 `frontend/src/lib/releasenotes.js`); GitHub does not render the comment. A
+slide shows only a headline and one sentence, so give each feature its own
+under the heading: `<!-- headline: Recent photos, one tap away -->` (about six
+words, the benefit) and `<!-- tagline: … -->` (one sentence, twenty words at
+most). The bullets appear only under Full notes. Without the fields the slide
+falls back to the heading and a short first sentence, and `npm test` fails on
+any shipped notes that lack them. A
 patch release without notes of its own shows nothing new on devices that
 already saw the previous notes.
 

@@ -246,21 +246,20 @@
                   {/each}
                 </ol>
               {:else if slide.kind === "feature"}
-                <div class="art">
-                  <div class="stagecard"><ReleaseHero kind={slide.f.hero} /></div>
+                <!-- One idea per slide: the drawing, a headline, one
+                     sentence. The bullets are in the full notes, a tap away. -->
+                <div class="art" aria-hidden="true">
+                  <div class="pool"></div>
+                  <div class="float"><ReleaseHero kind={slide.f.hero} /></div>
                 </div>
                 <div class="copy">
-                  <p class="fkicker rv" style="--i: 0">
-                    {String(slide.n).padStart(2, "0")}<span class="of">&ensp;/&ensp;{String(notes.features.length).padStart(2, "0")}</span>
-                  </p>
-                  <h2 class="headline rv" style="--i: 1">{@render runs(slide.f.title)}</h2>
-                  <ul class="bullets">
-                    {#each slide.f.items as it, i (i)}
-                      <li class="rv" class:lead={i === 0} class:para={it.kind === "p"} style="--i: {2 + Math.min(i, 5)}">
-                        {@render runs(it.text)}
-                      </li>
-                    {/each}
-                  </ul>
+                  <h2 class="headline rv" style="--i: 1">{@render runs(slide.f.headline)}</h2>
+                  {#if slide.f.tagline}
+                    <p class="tagline rv" style="--i: 2">{@render runs(slide.f.tagline)}</p>
+                  {/if}
+                  <button class="more rv" style="--i: 3" onclick={() => openNotes(notes.sections.indexOf(slide.f))}>
+                    The details<Icon name="chevron" size={16} />
+                  </button>
                 </div>
               {:else}
                 <div class="finehead">
@@ -333,7 +332,6 @@
               ><span></span></button>
             {/each}
           </div>
-          <span class="count" aria-hidden="true">{index + 1} / {slides.length}</span>
         {:else}
           <button class="navbtn textual" onclick={closeNotes}>
             <span class="flip"><Icon name="chevron" size={16} /></span>Highlights
@@ -553,13 +551,6 @@
     background: var(--aurora-ink);
     transform: scaleX(2.6);
   }
-  .count {
-    font-size: var(--fs-small);
-    color: var(--stage-ink-muted);
-    font-variant-numeric: tabular-nums;
-    min-width: 40px;
-    text-align: end;
-  }
   .go {
     display: inline-flex;
     align-items: center;
@@ -704,29 +695,24 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* A feature: the drawing is the hero, the notes' own words beside it. */
+  /* A feature: the drawing is the hero. It is drawn larger than its column
+     and runs off the frame's edge; the words sit on the calm side. */
   .slide.feature {
+    position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
-    gap: var(--sp-6);
-    padding: var(--sp-4) var(--sp-6) 0;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    align-items: center;
+    gap: var(--sp-5);
+    padding: 0 var(--sp-7) 0 0;
   }
   .art {
-    min-height: 0;
-    display: grid;
-  }
-  .stagecard {
+    position: relative;
+    align-self: stretch;
     min-height: 0;
     display: grid;
     place-items: center;
-    padding: var(--sp-6);
-    border-radius: var(--radius-xl);
-    background:
-      radial-gradient(closest-side at 50% 52%, color-mix(in srgb, var(--aurora-2) 20%, transparent), transparent),
-      radial-gradient(80% 70% at 22% 12%, color-mix(in srgb, var(--aurora-1) 16%, transparent), transparent 70%),
-      color-mix(in srgb, var(--stage-ground) 55%, transparent);
-    border: 1px solid color-mix(in srgb, var(--stage-ink) 10%, transparent);
-    box-shadow: var(--shadow-rest);
+    /* The bleed: wider and taller than the column, clipped by the frame. */
+    margin: calc(var(--sp-7) * -1) 0 calc(var(--sp-6) * -1) calc(var(--sp-7) * -1);
     animation: wn-card calc(var(--dur-reveal) * 1.2) var(--ease-spring) both;
   }
   @keyframes wn-card {
@@ -735,21 +721,55 @@
       transform: scale(var(--stage-scale));
     }
   }
-  .stagecard :global(svg) {
+  .pool {
+    position: absolute;
+    inset: 4% 0 0 8%;
+    border-radius: 50%;
+    background:
+      radial-gradient(closest-side, color-mix(in srgb, var(--aurora-2) 34%, transparent), transparent),
+      radial-gradient(closest-side at 30% 30%, color-mix(in srgb, var(--aurora-1) 26%, transparent), transparent);
+    animation: wn-breathe 7s ease-in-out infinite alternate;
+    pointer-events: none;
+  }
+  /* Ambient motion, transform and opacity only. The global stand-down zeroes
+     the duration under reduced motion, so the drawing simply rests. */
+  .float {
+    position: relative;
+    width: 118%;
+    max-width: 640px;
+    display: grid;
+    place-items: center;
+    animation: wn-float 9s ease-in-out infinite alternate;
+  }
+  .float :global(svg) {
+    width: 100%;
+    height: auto;
     max-height: 100%;
   }
+  @keyframes wn-float {
+    from {
+      transform: translate3d(0, -1.5%, 0) rotate(-1deg);
+    }
+    to {
+      transform: translate3d(0, 1.5%, 0) rotate(1deg);
+    }
+  }
+  @keyframes wn-breathe {
+    from {
+      opacity: 0.7;
+      transform: scale(0.94);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1.04);
+    }
+  }
   .copy {
-    min-height: 0;
-    overflow-y: auto;
-    padding: var(--sp-5) var(--sp-5) var(--sp-4);
-    border-radius: var(--radius-xl);
-    background: var(--stage-veil);
-    align-self: stretch;
-    scrollbar-width: thin;
-    /* Longer notes scroll: the last lines fade so the cut says "more". */
-    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--sp-6)), transparent);
-    mask-image: linear-gradient(to bottom, #000 calc(100% - var(--sp-6)), transparent);
-    padding-bottom: var(--sp-7);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-4);
   }
   .fkicker {
     margin: 0 0 var(--sp-2);
@@ -758,10 +778,6 @@
     font-weight: 700;
     color: var(--accent-hover);
     font-variant-numeric: tabular-nums;
-  }
-  .of {
-    color: var(--stage-ink-muted);
-    font-weight: 500;
   }
   .headline {
     margin: 0 0 var(--sp-4);
@@ -773,47 +789,43 @@
     color: var(--stage-ink);
     text-wrap: balance;
   }
-  .bullets {
-    list-style: none;
+  .copy .headline {
     margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-3);
+    font-size: var(--fs-hero);
+    line-height: 1.04;
+    letter-spacing: -0.03em;
   }
-  .bullets li {
-    position: relative;
-    padding-inline-start: var(--sp-4);
-    font-size: var(--fs-ui);
-    line-height: 1.6;
-    color: var(--stage-ink-muted);
-  }
-  .bullets li::before {
-    content: "";
-    position: absolute;
-    inset-inline-start: 0;
-    top: 0.62em;
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    background: var(--aurora-1);
-  }
-  .bullets li.para {
-    padding-inline-start: 0;
-  }
-  .bullets li.para::before {
-    display: none;
-  }
-  .bullets li.lead {
+  .tagline {
+    margin: 0;
+    max-width: 30ch;
     font-size: var(--fs-body);
     line-height: 1.55;
-    color: var(--stage-ink);
+    color: var(--stage-ink-muted);
+    text-wrap: pretty;
   }
-  .bullets :global(strong) {
+  .tagline :global(strong) {
     color: var(--stage-ink);
     font-weight: 600;
   }
-  .bullets :global(code),
+  .more {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    margin-top: var(--sp-2);
+    padding: var(--sp-2) var(--sp-3);
+    margin-inline-start: calc(var(--sp-3) * -1);
+    border: none;
+    border-radius: 999px;
+    background: none;
+    color: var(--accent-hover);
+    font: inherit;
+    font-size: var(--fs-ui);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .more:hover {
+    background: color-mix(in srgb, var(--stage-ink) 8%, transparent);
+  }
   .fullnotes :global(code),
   .limits :global(code) {
     font-family: var(--mono-font, ui-monospace, monospace);
@@ -987,9 +999,6 @@
       padding: var(--sp-3) var(--sp-4) var(--sp-4);
       gap: var(--sp-2);
     }
-    .count {
-      display: none;
-    }
     .dot {
       width: 20px;
     }
@@ -1019,21 +1028,25 @@
     }
     .slide.feature {
       grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: minmax(0, 36dvh) minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: var(--sp-2);
+      padding: 0 var(--sp-5) var(--sp-3);
+    }
+    .art {
+      margin: calc(var(--sp-6) * -1) calc(var(--sp-5) * -1) 0;
+    }
+    .float {
+      width: 112%;
+    }
+    .copy {
       gap: var(--sp-3);
-      padding: var(--sp-3) var(--sp-4) 0;
     }
     .slide.fine {
       grid-template-columns: minmax(0, 1fr);
       grid-template-rows: auto minmax(0, 1fr);
       gap: var(--sp-4);
       padding: var(--sp-4) var(--sp-4) 0;
-    }
-    .stagecard {
-      padding: var(--sp-4);
-    }
-    .copy {
-      padding: var(--sp-4) var(--sp-4) var(--sp-7);
     }
     .fullnotes {
       margin: var(--sp-2) var(--sp-3) 0;

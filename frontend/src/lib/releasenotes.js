@@ -11,6 +11,12 @@
 //
 //   ## A feature
 //   <!-- hero: attach -->        optional: which drawing the deck shows
+//   <!-- headline: Your recent photos, one tap away -->
+//   <!-- tagline: One sentence, twenty words at most, that says why. -->
+//                                optional: the slide's words. Without them
+//                                the slide shows the heading, and the first
+//                                sentence when it is short enough; the
+//                                bullets live only in the full notes.
 //   - a bullet
 //   - another, which may wrap
 //     onto the next line
@@ -81,11 +87,16 @@ export function parseNotes(md, version = "") {
       if (sec) sec.hint = hint[1].toLowerCase();
       continue;
     }
+    const field = /^\s*<!--\s*(headline|tagline):\s*([\s\S]*?)\s*-->\s*$/i.exec(line);
+    if (field) {
+      if (sec) sec[field[1].toLowerCase()] = field[2];
+      continue;
+    }
     if (/^\s*<!--[\s\S]*-->\s*$/.test(line)) continue; // any other comment
     const h2 = /^##\s+(.+?)\s*#*$/.exec(line);
     if (h2) {
       close();
-      sec = { title: h2[1].trim(), hint: "", items: [] };
+      sec = { title: h2[1].trim(), hint: "", headline: "", tagline: "", items: [] };
       sections.push(sec);
       continue;
     }
@@ -117,6 +128,8 @@ export function parseNotes(md, version = "") {
       items: s.items,
       fine,
       hero: fine ? "" : heroFor(s.title, s.hint, text),
+      headline: s.headline || s.title,
+      tagline: s.tagline || firstSentence(s.items[0]?.text || ""),
     };
   });
   return {
@@ -128,6 +141,15 @@ export function parseNotes(md, version = "") {
     sections: out,
   };
 }
+
+/** The opening sentence of `text` when it stands alone in at most `max`
+ *  words, else "". A slide never shows a sentence cut short. */
+export function firstSentence(text, max = TAGLINE_WORDS) {
+  const m = /^(.+?[.!?])(?:\s|$)/.exec(String(text).trim());
+  if (!m) return "";
+  return m[1].split(/\s+/).length <= max ? m[1] : "";
+}
+export const TAGLINE_WORDS = 20;
 
 // ---- versions -------------------------------------------------------------
 

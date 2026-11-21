@@ -395,8 +395,10 @@
        emoji picker already sat on --bg-elevated; this is the same surface. */
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: var(--sp-1);
+    /* Concentric with its rows, as ContextMenu: a 6px inset and rows whose
+       radius is the panel's less that inset. */
+    border-radius: var(--radius-lg);
+    padding: 6px;
     box-shadow: var(--shadow-pop);
     /* The floor of the layer band. place() writes the real value inline, read
        off the opener's own stacking chain (lib/layers.js zAbove), which is what
@@ -473,12 +475,12 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    min-height: 32px;
+    min-height: 34px;
     background: transparent;
     color: var(--text);
     text-align: left;
     padding: 0 8px 0 10px;
-    border-radius: var(--radius-sm);
+    border-radius: calc(var(--radius-lg) - 6px);
     font-size: var(--fs-ui);
     font-weight: 400;
     width: 100%;

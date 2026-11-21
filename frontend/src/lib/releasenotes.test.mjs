@@ -13,6 +13,8 @@ import {
   fineKind,
   inlineRuns,
   plainText,
+  firstSentence,
+  TAGLINE_WORDS,
 } from "./releasenotes.js";
 
 // ---- parsing ---------------------------------------------------------------
@@ -25,6 +27,8 @@ A second lead paragraph.
 
 ## Calls that ring
 <!-- hero: call -->
+<!-- headline: Your calls ring through -->
+<!-- tagline: A call rings on every device, and **ends** for both. -->
 - A direct call **rings**, then
   ends the same way on both sides.
 - Second bullet with \`code\`.
@@ -157,5 +161,25 @@ assert.deepEqual(inlineRuns("2 * 3 * 4"), [{ t: "text", v: "2 * 3 * 4" }], "a lo
 assert.deepEqual(inlineRuns("<img src=x onerror=alert(1)>"), [{ t: "text", v: "<img src=x onerror=alert(1)>" }], "markup is text, never HTML");
 assert.equal(plainText("Puts **Edit** first."), "Puts Edit first.");
 assert.deepEqual(inlineRuns(""), []);
+
+// ---- the slide's words -------------------------------------------------------------
+assert.equal(n.features[0].headline, "Your calls ring through", "a headline field wins over the heading");
+assert.equal(n.features[0].tagline, "A call rings on every device, and **ends** for both.");
+assert.equal(n.features[0].items.length, 2, "the fields are not bullets");
+assert.equal(n.features[1].headline, "Attaching pictures", "no field: the heading");
+assert.equal(n.features[1].tagline, "Recent row.", "no field: the first sentence");
+assert.equal(firstSentence("One. Two."), "One.");
+assert.equal(firstSentence("No full stop at all"), "", "a fragment is never a tagline");
+const long = Array.from({ length: TAGLINE_WORDS + 1 }, () => "word").join(" ") + ".";
+assert.equal(firstSentence(long), "", "a sentence too long is dropped, never cut");
+// The shipped notes: every feature has its own words, inside the limits.
+for (const f of fs.readdirSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../releases"))) {
+  if (!/^v\d+\.\d+\.\d+\.md$/.test(f)) continue;
+  const md = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../releases", f), "utf8");
+  for (const s of parseNotes(md).features) {
+    assert.ok(s.headline.split(/\s+/).length <= 8, `${f}: "${s.headline}" is longer than a headline`);
+    assert.ok(s.tagline && s.tagline.split(/\s+/).length <= TAGLINE_WORDS, `${f}: ${s.title} needs a tagline of at most ${TAGLINE_WORDS} words`);
+  }
+}
 
 console.log("releasenotes: ok");

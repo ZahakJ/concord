@@ -141,9 +141,9 @@
     align-items: center;
     gap: var(--sp-2);
     width: 100%;
-    min-height: 32px;
+    min-height: 34px;
     padding: 0 var(--sp-2);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--text-muted);
     text-align: start;
@@ -162,7 +162,7 @@
       color: var(--text);
     }
   }
-  /* Where you are: the hover fill made solid, full ink, and a 2px ink bar on
+  /* Where you are: the hover fill made solid, full ink, and a 3px ink bar on
      the start edge (the fill alone is 1.13:1 on paper). Not the accent: being
      on a page is not something that needs you. */
   .r-item.here {
@@ -175,13 +175,18 @@
     left: 0;
     top: 8px;
     bottom: 8px;
-    width: 2px;
-    border-radius: 0 2px 2px 0;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
     background: var(--text);
     opacity: 0;
+    transform: scaleY(0.4);
+    transition:
+      opacity var(--dur-quick) var(--ease-out),
+      transform var(--dur-move) var(--ease-spring);
   }
   .r-item.here .mark {
     opacity: 1;
+    transform: none;
   }
 
   /* Narrow windows: the rail keeps its icons and drops its words, and the
