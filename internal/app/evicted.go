@@ -325,8 +325,13 @@ func (s *Service) screenCommit(guildID string, groupID, commit []byte) (int, []S
 	if removed && !replaced && s.ownsGuild(guildID) && !s.commitFromOwnAccount(groupID, commit) {
 		// The owner's device settles as removed only on a commit from its own
 		// account. Anyone else's removal of it reads as a replacement: the
-		// device is out of step and asks to be let back in.
+		// device is out of step and asks to be let back in. It has to say so
+		// here. A device that was really replaced is still seated by account
+		// at the other members, so its catch-up is served, cannot be read,
+		// and flags the guild; this one is seated nowhere, every member
+		// declines its catch-up, and nothing else would ever flag it.
 		replaced = true
+		s.noteTakenOut(guildID)
 	}
 	found, refuse := s.checkSeats(guildID, groupID, commit)
 	if replaced {
@@ -364,6 +369,100 @@ func (s *Service) commitFromOwnAccount(groupID, commit []byte) bool {
 	}
 	sender, err := s.mls.CommitSender(s.ctx, groupID, commit)
 	return err == nil && accountFingerprintOf(sender) == s.id.Fingerprint()
+}
+
+// takenOutPrefix keys the persisted taken-out latch.
+const takenOutPrefix = "taken_out:"
+
+// noteTakenOut latches that this device, whose account owns the guild, read a
+// commit that removes its own leaf and that it will not settle on: one that
+// verified against its tree at its epoch (screenCommit), from a committer of
+// another account whose authority both callers of screenCommit checked first.
+// The guild has moved to an epoch this device cannot follow, since it cannot
+// apply the commit that blanks its leaf, so the guild is flagged and the heal
+// asks a committer to let the owner back in.
+//
+// The latch is what keeps the flag up until that happens. A member that has
+// not applied the removal yet still seats this device and answers its
+// catch-up readably, which lowers the flag for anyone else; and the members
+// that have applied it decline the catch-up, so the commit is never served
+// again and the flag would not come back, in this session or after a restart.
+// It ends where the seen-behind latch ends (clearForkEvidence): a heal Join,
+// an accepted ResolveStranding, or eviction.
+//
+// It decides nothing about re-entry. It only makes this device ask, as any
+// client can; whether it is let in is the committer's rule at the door
+// (handleInviteRequest), which serves an unseated account only if it is the
+// guild's owner.
+func (s *Service) noteTakenOut(guildID string) {
+	s.mu.Lock()
+	had := s.takenOut[guildID]
+	if s.takenOut == nil {
+		s.takenOut = map[string]bool{}
+	}
+	s.takenOut[guildID] = true
+	s.mu.Unlock()
+	if !had {
+		s.persistTakenOut(guildID)
+	}
+	s.setOutOfSync(guildID, true)
+}
+
+// takenOutLatched reports whether noteTakenOut stands for a guild.
+func (s *Service) takenOutLatched(guildID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.takenOut[guildID]
+}
+
+// clearTakenOut drops the latch and its persisted copy.
+func (s *Service) clearTakenOut(guildID string) {
+	s.mu.Lock()
+	had := s.takenOut[guildID]
+	delete(s.takenOut, guildID)
+	s.mu.Unlock()
+	if had {
+		s.persistTakenOut(guildID)
+	}
+}
+
+// persistTakenOut writes the latch as it stands in memory now, under the lock
+// that orders such writes, so the store ends where the memory does when a
+// note and a clear cross (see persistBehind).
+func (s *Service) persistTakenOut(guildID string) {
+	s.behindPersistMu.Lock()
+	defer s.behindPersistMu.Unlock()
+	s.mu.RLock()
+	on := s.takenOut[guildID]
+	s.mu.RUnlock()
+	v := ""
+	if on {
+		v = "1"
+	}
+	_ = s.store.SetSetting(takenOutPrefix+guildID, v)
+}
+
+// loadTakenOut restores the latch at startup and raises the flag with it. The
+// group state on disk reads as a healthy guild at the epoch the owner was
+// taken out of, and no member would serve the commit that says otherwise.
+func (s *Service) loadTakenOut() {
+	s.mu.RLock()
+	ids := make([]string, 0, len(s.guilds))
+	for id := range s.guilds {
+		ids = append(ids, id)
+	}
+	s.mu.RUnlock()
+	for _, id := range ids {
+		if v, err := s.store.GetSetting(takenOutPrefix + id); err != nil || v == "" {
+			continue
+		}
+		s.mu.Lock()
+		if s.evicted[id] == "" {
+			s.takenOut[id] = true
+			s.outOfSync[id] = true
+		}
+		s.mu.Unlock()
+	}
 }
 
 // evictedGuildIDs snapshots the guilds we are out of, so the heal loop can skip

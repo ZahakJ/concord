@@ -198,3 +198,149 @@ func TestOwnerAfterReplacementIgnoresRemovedText(t *testing.T) {
 		t.Fatalf("the owner recorded itself removed (%q) after %d asks", v, asked.Load())
 	}
 }
+
+// The order that left the owner out for good, forced: both other members have
+// applied the removal of the owner's leaf, and so decline its catch-up, before
+// the owner reads the commit. Reading it is what flags the guild. A member
+// still at the old epoch answering readably does not lower the flag, and a
+// restart does not lose it. The first committer asked lets the owner back in.
+func TestOwnerTakenOutFlagsItselfOnTheCommit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	holdSeatDefence(t)
+	s := newSeatSetup(t, ctx)
+
+	// Every heal the owner asks for waits here until the test lets it through.
+	asked := make(chan struct{}, 16)
+	release := make(chan struct{})
+	var hold inviteAskFunc = func(ctx context.Context, to peer.AddrInfo, req []byte) ([]byte, error) {
+		asked <- struct{}{}
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return s.owner.host.RequestInvite(ctx, to, req)
+	}
+	s.owner.requestInvite.Store(&hold)
+	defer s.owner.requestInvite.Store(nil)
+
+	ownerIdx, _ := s.owner.mls.OwnLeaf(ctx, s.gid)
+	epoch, _ := s.owner.mls.Epoch(ctx, s.gid)
+	rm, err := s.mod.mls.RemoveLeaf(ctx, s.gid, ownerIdx, s.owner.ownAccountSigningKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.mod.logCommit(s.gid, rm)
+	// Not published: each device meets the commit when the test hands it over.
+	if s.owner.OutOfSync(s.g.ID) {
+		t.Fatal("setup: the owner is out of sync before the removal")
+	}
+	if err := s.owner.syncGuildFromPeer(s.g.ID, s.mod.host.PeerID()); err != errSyncDeclined {
+		t.Fatalf("the mod's answer to the owner's catch-up: %v, want declined", err)
+	}
+	if s.owner.OutOfSync(s.g.ID) {
+		t.Fatal("a declined catch-up flagged the guild")
+	}
+
+	verdict, _ := s.owner.screenCommit(s.g.ID, s.gid, rm)
+	if verdict != commitProceed {
+		t.Fatalf("verdict %d, want commitProceed", verdict)
+	}
+	if v := s.owner.EvictedFrom(s.g.ID); v != "" {
+		t.Fatalf("the owner recorded itself removed (%q)", v)
+	}
+	if !s.owner.OutOfSync(s.g.ID) || !s.owner.takenOutLatched(s.g.ID) {
+		t.Fatalf("after reading the removal: OutOfSync=%v latched=%v, want both",
+			s.owner.OutOfSync(s.g.ID), s.owner.takenOutLatched(s.g.ID))
+	}
+
+	// The recovery that the flag started reaches the door and waits there.
+	select {
+	case <-asked:
+	case <-time.After(90 * time.Second):
+		t.Fatal("the owner never asked to be let back in")
+	}
+	// The member has not met the removal: it seats the owner at the old epoch
+	// and answers readably.
+	if e, _ := s.member.mls.Epoch(ctx, s.gid); e != epoch {
+		t.Fatalf("setup: the member is at epoch %d, want %d", e, epoch)
+	}
+	if err := s.owner.syncGuildFromPeer(s.g.ID, s.member.host.PeerID()); err != nil {
+		t.Fatalf("the member's answer to the owner's catch-up: %v", err)
+	}
+	if !s.owner.OutOfSync(s.g.ID) {
+		t.Fatal("a readable answer from the epoch the owner was taken out of lowered the flag")
+	}
+	// A restart: nothing in memory, the latch in the store.
+	s.owner.mu.Lock()
+	delete(s.owner.takenOut, s.g.ID)
+	delete(s.owner.outOfSync, s.g.ID)
+	s.owner.mu.Unlock()
+	s.owner.loadTakenOut()
+	if !s.owner.OutOfSync(s.g.ID) || !s.owner.takenOutLatched(s.g.ID) {
+		t.Fatal("the latch did not come back from the store")
+	}
+
+	close(release)
+	if !ownerPoll(90*time.Second, func() bool {
+		oe, _ := s.owner.mls.Epoch(ctx, s.gid)
+		me, _ := s.mod.mls.Epoch(ctx, s.gid)
+		return oe == me && oe > epoch+1 && len(leavesWith(s.mod, s.gid, s.owner.myCredential)) == 1 &&
+			!s.owner.OutOfSync(s.g.ID)
+	}) {
+		t.Fatalf("the owner was not let back in (EvictedFrom=%q)", s.owner.EvictedFrom(s.g.ID))
+	}
+	if s.owner.takenOutLatched(s.g.ID) {
+		t.Fatal("the latch outlived the heal")
+	}
+	if v, _ := s.owner.store.GetSetting(takenOutPrefix + s.g.ID); v != "" {
+		t.Fatalf("the stored latch outlived the heal (%q)", v)
+	}
+	if v := s.owner.EvictedFrom(s.g.ID); v != "" {
+		t.Fatalf("the owner recorded itself removed (%q)", v)
+	}
+}
+
+// The same commit against a member that does not own the guild settles as its
+// removal: no flag, no latch, and a committer refuses the heal it could still
+// send by hand.
+func TestTakenOutMemberGetsNoWayBack(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	holdSeatDefence(t)
+	s := newSeatSetup(t, ctx)
+	idx, _ := s.member.mls.OwnLeaf(ctx, s.gid)
+	rm, err := s.mod.mls.RemoveLeaf(ctx, s.gid, idx, s.member.ownAccountSigningKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.mod.logCommit(s.gid, rm)
+	if verdict, _ := s.member.screenCommit(s.g.ID, s.gid, rm); verdict != commitRemovesThisDevice {
+		t.Fatalf("verdict %d, want commitRemovesThisDevice", verdict)
+	}
+	if s.member.OutOfSync(s.g.ID) || s.member.takenOutLatched(s.g.ID) {
+		t.Fatalf("a removed member took the owner's path: OutOfSync=%v latched=%v",
+			s.member.OutOfSync(s.g.ID), s.member.takenOutLatched(s.g.ID))
+	}
+	// Even latched by a client that ignores the rule above, it only asks.
+	kp, err := s.member.mls.KeyPackage(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := json.Marshal(inviteRequest{GuildID: s.g.ID, KeyPackage: kp, Credential: s.member.myCredential, Heal: true})
+	raw, err := s.mod.handleInviteRequest(ctx, s.member.host.PeerID(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resp inviteResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Error != unseatedRefusal || len(resp.Welcome) != 0 {
+		t.Fatalf("the mod's answer to a removed member's heal: error %q, welcome %d bytes", resp.Error, len(resp.Welcome))
+	}
+	if len(leavesWith(s.mod, s.gid, s.member.myCredential)) != 0 {
+		t.Fatal("the removed member is seated again")
+	}
+}

@@ -313,6 +313,11 @@ type Service struct {
 	// it does not lapse when that member goes offline, and it is persisted: it
 	// is what CannotRepairHere reads. Guarded by mu. See heal.go.
 	behindSeen map[string]uint64
+	// takenOut marks the guilds this device owns in which it read a commit,
+	// from another account's committer, that removes its own leaf. Persisted,
+	// and it holds the out-of-sync flag up until a heal Join. Guarded by mu.
+	// See noteTakenOut in evicted.go.
+	takenOut map[string]bool
 	// behindClaimed is, per guild, the highest epoch a member CLAIMED to stand
 	// at ahead of this device without proof (an EpochGap, or an unreadable
 	// payload with no verifiable commit). In memory only, it bars nothing.
@@ -1304,6 +1309,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		evictedReason:    map[string]string{},
 		forkedPeers:      map[string]map[peer.ID]bool{},
 		behindSeen:       map[string]uint64{},
+		takenOut:         map[string]bool{},
 		behindClaimed:    map[string]uint64{},
 		seenAhead:        map[string]map[peer.ID]bool{},
 		lastReciprocal:   map[string]time.Time{},
@@ -1615,6 +1621,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// re-added instead of saying what happened.
 	s.loadEvicted()
 	s.loadBehindSeen()
+	s.loadTakenOut()
 	s.loadBlocked()
 	s.loadPendingMembers()
 	s.loadMessageRequests()

@@ -1223,6 +1223,8 @@ func (s *Service) redeemInvite(ic inviteCode, held *domain.Guild) (domain.Guild,
 	// Seated again — by a committer that consulted the same governance log that
 	// put us out, so this is the one event that lifts the terminal state.
 	s.clearEvicted(ic.GuildID)
+	// The join replaced the group state an owner's device was taken out of.
+	s.clearTakenOut(ic.GuildID)
 	// A welcome installs a fresh roster (this may be a REJOIN, so a cached one
 	// from the previous membership could still be sitting there).
 	s.forgetMemberSet(ic.GuildID)

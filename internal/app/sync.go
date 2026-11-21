@@ -549,13 +549,15 @@ func (s *Service) clearForkedPeer(guildID string, p peer.ID) bool {
 // heal, whose Join replaces our group state outright: nothing we believed about
 // our old tree survives it.
 //
-// It also drops the "seen behind" latch. Its callers are the three events that
-// end the latch: a heal Join, an accepted ResolveStranding, and eviction.
+// It also drops the "seen behind" latch and the owner's taken-out latch
+// (noteTakenOut). Its callers are the three events that end both: a heal
+// Join, an accepted ResolveStranding, and eviction.
 func (s *Service) clearForkEvidence(guildID string) {
 	s.mu.Lock()
 	delete(s.forkedPeers, guildID)
 	s.mu.Unlock()
 	s.clearBehind(guildID)
+	s.clearTakenOut(guildID)
 }
 
 // forkedWith lists the peers a guild's fork verdict currently rests on.
@@ -976,7 +978,10 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 				s.dropBehindClaim(guildID)
 			}
 			s.markCaughtUp(guildID)
-			if !s.clearForkedPeer(guildID, p) && !s.CannotRepairHere(guildID) {
+			// Nor does it lower the flag for an owner's device whose leaf was
+			// taken out (noteTakenOut): a member that has not applied that
+			// removal yet still answers readably, at the old epoch.
+			if !s.clearForkedPeer(guildID, p) && !s.CannotRepairHere(guildID) && !s.takenOutLatched(guildID) {
 				s.setOutOfSync(guildID, false)
 			}
 		} else if cur, err := s.mls.Epoch(s.ctx, guild.GroupID); err == nil && resp.Epoch >= cur {
