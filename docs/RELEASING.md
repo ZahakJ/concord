@@ -140,6 +140,21 @@ git tag v0.9.0 && git push origin main v0.9.0
 scripts/publish-release.sh v0.9.0 notes.md      # notes file is optional
 ```
 
+The release notes live in `frontend/src/releases/vX.Y.Z.md`, and that file is
+the notes file to give `publish-release.sh`
+(`scripts/publish-release.sh v0.9.0 frontend/src/releases/v0.9.0.md`). The
+in-app "What's new" deck is built from the same file, so the splash and the
+GitHub release say the same thing. Commit the notes before you build: the deck
+is bundled into the frontend. Its shape: a lead paragraph that says the release
+in one sentence, then one `## ` section per feature with its bullets, then the
+fine print (`## Security`, `## Also`, `## Known limits`,
+`## Before you downgrade`), which the deck shows word for word under Full notes
+and never as a slide. A feature may name its drawing on the line under its
+heading (`<!-- hero: attach -->`; the list is `HEROES` in
+`frontend/src/lib/releasenotes.js`); GitHub does not render the comment. A
+patch release without notes of its own shows nothing new on devices that
+already saw the previous notes.
+
 The project's own releases build its rendezvous in. Export it before publishing
 (and pass the same value to `make android-app`):
 
