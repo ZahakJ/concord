@@ -1040,7 +1040,7 @@
           <div class="hub">{@render mark(104)}</div>
         </div>
         <p class="wordmark" aria-hidden="true">Concord</p>
-        <p class="tagline">Talk with the people you trust, with no server in the middle.</p>
+        <p class="tagline">Talk with the people you trust: no account server, no message store.</p>
       </div>
 
   <form class="card" onsubmit={submit}>
