@@ -4324,7 +4324,7 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 	}
 	// Learn the sender's device→account mapping (if it's a device cert) so their
 	// linked-device PeerID resolves to the account in presence/roster views.
-	s.learnDeviceCert(senderID)
+	s.learnLeafDeviceCert(senderID, senderKey)
 	// Trust MLS's authenticated sender over the self-reported field, and
 	// normalize it to the account key: a message from any of an account's linked
 	// devices (whose leaf credential is a device cert) is attributed to the one

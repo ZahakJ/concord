@@ -2969,8 +2969,26 @@ func (s *Service) learnDeviceCert(cred []byte) {
 	if s.deviceAccounts == nil {
 		s.deviceAccounts = map[string]string{}
 	}
-	s.deviceAccounts[key] = fpr
+	// A key keeps the account it was first learnt for. A certificate is the
+	// account's word about a device key, and the key never signs back, so a
+	// second account's certificate for the same key proves nothing about it.
+	if had, ok := s.deviceAccounts[key]; !ok || had == fpr {
+		s.deviceAccounts[key] = fpr
+	}
 	s.deviceMu.Unlock()
+}
+
+// learnLeafDeviceCert is learnDeviceCert for a credential read off a leaf (a
+// roster, a message's sender): it is learnt only when the certificate names
+// the leaf's own signature key. Any committer of a group can seat a leaf whose
+// certificate, signed by its own account, names somebody else's key; without
+// the pairing that re-mapped the victim's peer to the committer's account.
+func (s *Service) learnLeafDeviceCert(cred, leafKey []byte) {
+	cert, ok := identity.ParseDeviceCert(cred)
+	if !ok || len(leafKey) == 0 || !bytes.Equal(cert.DevicePub, leafKey) {
+		return
+	}
+	s.learnDeviceCert(cred)
 }
 
 // relearnDevices rebuilds the device→account map from a guild's MLS roster.
@@ -2988,12 +3006,12 @@ func (s *Service) learnDeviceCert(cred []byte) {
 // The roster is the authority we already trust for membership, and every leaf
 // carries the device cert that states the mapping, so reading it back is enough.
 func (s *Service) relearnDevices(groupID []byte) {
-	creds, err := s.mls.Members(s.ctx, groupID)
+	leaves, err := s.mls.Leaves(s.ctx, groupID)
 	if err != nil {
 		return
 	}
-	for _, c := range creds {
-		s.learnDeviceCert(c)
+	for _, l := range leaves {
+		s.learnLeafDeviceCert(l.Credential, l.Key)
 	}
 }
 
