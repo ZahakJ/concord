@@ -1331,17 +1331,21 @@ function answerLinks(base) {
 // error matching want, and holds no identity afterwards.
 async function linkRefused(accountBase, deviceBase, want) {
   let said = "";
-  await waitFor(
-    "the link to be refused for the version",
-    async () => {
-      const code = await rpc(accountBase, "LinkOffer");
-      const r = await tryRpc(deviceBase, "RedeemLinkCode", [code, PASS_LINK]);
-      if (r.ok) throw new Error("the device linked across the 0.61 boundary");
-      said = r.error;
-      return want.test(r.error);
-    },
-    { timeout: 120000, interval: 3000 },
-  );
+  try {
+    await waitFor(
+      "the link to be refused for the version",
+      async () => {
+        const code = await rpc(accountBase, "LinkOffer");
+        const r = await tryRpc(deviceBase, "RedeemLinkCode", [code, PASS_LINK]);
+        if (r.ok) throw new Error("the device linked across the 0.61 boundary");
+        said = r.error;
+        return want.test(r.error);
+      },
+      { timeout: 120000, interval: 3000 },
+    );
+  } catch (err) {
+    throw new Error(`${err.message}; the device last said: ${JSON.stringify(said)}`);
+  }
   if (await rpc(deviceBase, "HasIdentity")) throw new Error("the refused device holds an identity");
   return { evidence: [`the device said: ${said}`] };
 }
@@ -1404,7 +1408,9 @@ async function phaseUnlink() {
       linkRefused(OLD, NEWLINK, /older Concord/),
     );
     await lane("UL2", "HEAD refuses a device running OLD and tells it to update", async () => {
-      const out = await linkRefused(NEW, OLDLINK, /update Concord on this device/);
+      // The core's error; the old front end shows any "link rejected" as
+      // "already used or closed", and HEAD's dialog says why (oldDevice).
+      const out = await linkRefused(NEW, OLDLINK, /update Concord on this device/i);
       const st = await rpc(NEW, "LinkStatus");
       if (!st?.oldDevice) throw new Error(`HEAD's dialog was not told about the old device: ${JSON.stringify(st)}`);
       return out;
