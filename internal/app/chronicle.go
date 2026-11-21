@@ -109,6 +109,21 @@ const (
 	chronicleChunkMessages    = 1000
 	chronicleChunkPlainTarget = 512 << 10
 
+	// maxChronicleChunkPlain and maxChronicleChunkMessages are the HARD caps
+	// on what one chunk may decompress to, enforced while it is read (see
+	// openChronicleChunk) and honoured by the sealer, which splits a run that
+	// would exceed them. A chunk is at most cnet.MaxChronicleChunk of
+	// ciphertext, and gzip of one repeated byte is about x1000, so without a
+	// cap one chunk is a gigabyte in every member's client that opens it. An
+	// honest page is at most about chronicleChunkPlainTarget of raw text plus
+	// one message, which JSON escaping can grow sixfold: 16 MiB is several
+	// times that and bounds the blow-up at x16 of the ciphertext cap. The
+	// message cap is four times the soft split, so a page from a build that
+	// splits later still opens; it bounds the per-message overhead, which a
+	// stream of empty messages makes the dominant cost.
+	maxChronicleChunkPlain    = 16 << 20
+	maxChronicleChunkMessages = 4 * chronicleChunkMessages
+
 	// chronicleFetchTimeout is the patience for one peer's answer, matching the
 	// attachment fetch: a chunk is a comparable size and a member who cannot
 	// serve a megabyte in fifteen seconds is a member worth skipping.
@@ -389,7 +404,8 @@ type chronicleMessage struct {
 func sealChronicleChunk(channelID string, msgs []chronicleMessage) (chronicleChunkRef, []byte, error) {
 	var plain bytes.Buffer
 	zw := gzip.NewWriter(&plain)
-	enc := json.NewEncoder(zw) // one JSON object per line
+	cw := &countingWriter{w: zw}
+	enc := json.NewEncoder(cw) // one JSON object per line
 	for _, m := range msgs {
 		if err := enc.Encode(m); err != nil {
 			return chronicleChunkRef{}, nil, err
@@ -397,6 +413,10 @@ func sealChronicleChunk(channelID string, msgs []chronicleMessage) (chronicleChu
 	}
 	if err := zw.Close(); err != nil {
 		return chronicleChunkRef{}, nil, err
+	}
+	if cw.n > maxChronicleChunkPlain || len(msgs) > maxChronicleChunkMessages {
+		// Never write a page the reader refuses to open. The caller splits.
+		return chronicleChunkRef{}, nil, errChunkOverReadCap
 	}
 
 	var key [32]byte
@@ -442,18 +462,51 @@ func openChronicleChunk(ct []byte, keys []byte) ([]chronicleMessage, error) {
 		return nil, fmt.Errorf("app: chronicle chunk is not readable: %w", err)
 	}
 	defer zr.Close()
+	// Bounded while streaming, not after: the point of a cap is not to
+	// allocate what it refuses. One byte over the cap is allowed through so
+	// that a stream that reaches it is told apart from one that ends exactly
+	// on it, and a page that reaches it is refused whole — a page cut at the
+	// cap would read as history that stopped there.
+	lr := &io.LimitedReader{R: zr, N: maxChronicleChunkPlain + 1}
 	var out []chronicleMessage
-	dec := json.NewDecoder(zr)
+	dec := json.NewDecoder(lr)
 	for {
 		var m chronicleMessage
 		if err := dec.Decode(&m); err == io.EOF {
 			break
 		} else if err != nil {
+			if lr.N <= 0 {
+				return nil, errChunkOverReadCap
+			}
 			return nil, fmt.Errorf("app: chronicle chunk is not readable: %w", err)
+		}
+		if len(out) == maxChronicleChunkMessages {
+			return nil, errChunkOverReadCap
 		}
 		out = append(out, m)
 	}
+	if lr.N <= 0 {
+		return nil, errChunkOverReadCap
+	}
 	return out, nil
+}
+
+// errChunkOverReadCap is a page past maxChronicleChunkPlain or
+// maxChronicleChunkMessages: refused on open, split on seal.
+var errChunkOverReadCap = fmt.Errorf("app: chronicle chunk is over %d bytes or %d messages decompressed",
+	maxChronicleChunkPlain, maxChronicleChunkMessages)
+
+// countingWriter counts what passes through it, so the sealer knows a page's
+// decompressed size without holding it twice.
+type countingWriter struct {
+	w io.Writer
+	n int
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += n
+	return n, err
 }
 
 // sealChronicleChunks splits one channel's ordered history into sealed chunks,
@@ -474,11 +527,16 @@ func sealChronicleChunks(channelID string, msgs []chronicleMessage) ([]chronicle
 			return nil
 		}
 		ref, ct, err := sealChronicleChunk(channelID, run)
-		if err != nil {
+		over := errors.Is(err, errChunkOverReadCap)
+		if err != nil && !over {
 			return err
 		}
-		if len(ct) > cnet.MaxChronicleChunk {
+		if over || len(ct) > cnet.MaxChronicleChunk {
 			if len(run) == 1 {
+				if over {
+					return fmt.Errorf("app: a single archived message is over the %d-byte page limit decompressed",
+						maxChronicleChunkPlain)
+				}
 				return fmt.Errorf("app: a single archived message seals to %d bytes, over the %d-byte page limit",
 					len(ct), cnet.MaxChronicleChunk)
 			}

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"os"
 	"path/filepath"
@@ -676,15 +677,16 @@ func (s *Service) emojiDataURI(dir string, e chronimport.EmojiStat) (string, boo
 	if e.Bytes <= 0 || e.Bytes > maxEmojiBytes {
 		return "", false
 	}
-	p, ok := chronimport.LocalEmojiPath(dir, e)
+	f, ok := chronimport.OpenLocalEmoji(dir, e)
 	if !ok {
 		return "", false
 	}
-	raw, err := os.ReadFile(p)
+	defer f.Close()
+	raw, err := readCapped(f, maxEmojiBytes)
 	if err != nil {
 		return "", false
 	}
-	sub := imageSubtypeOf(p)
+	sub := imageSubtypeOf(f.Name())
 	if sub == "" {
 		return "", false
 	}
@@ -872,14 +874,8 @@ func (s *Service) appendImported(acc *importAccumulator, pc *plannedChannel, m *
 		return
 	}
 
-	content := chronimport.SanitizeContent(m.Content)
 	tokens, notes := s.importAttachments(acc, m)
-	if len(notes) > 0 {
-		if content != "" {
-			content += "\n"
-		}
-		content += strings.Join(notes, "\n")
-	}
+	content := importedBody(m.Content, notes)
 	// A message with no text, no picture and no reaction is a message the export
 	// recorded and nobody wrote — an embed-only row, a deleted body. Dropping it
 	// keeps a decade of history from being a third empty.
@@ -965,22 +961,23 @@ func reactionLabel(e chronimport.Emoji) string {
 // still import; only the faces are optional, which is exactly the trade
 // buildChronicle already makes when an index will not fit.
 func (s *Service) importedAvatar(dir string, au chronimport.Author) string {
-	p, ok := chronimport.LocalAvatarPath(dir, au)
+	f, ok := chronimport.OpenLocalAvatar(dir, au)
 	if !ok {
 		return ""
 	}
-	fi, err := os.Stat(p)
+	defer f.Close()
+	fi, err := f.Stat()
 	// Base64 costs four bytes for every three, plus the ~22-byte prefix, so a
 	// file over three quarters of the cap cannot possibly fit and is refused
 	// before it is read.
 	if err != nil || fi.Size() <= 0 || fi.Size() > (maxChronicleAvatarBytes/4)*3 {
 		return ""
 	}
-	sub := imageSubtypeOf(p)
+	sub := imageSubtypeOf(f.Name())
 	if sub == "" {
 		return ""
 	}
-	raw, err := os.ReadFile(p)
+	raw, err := readCapped(f, (maxChronicleAvatarBytes/4)*3)
 	if err != nil {
 		return ""
 	}
@@ -1006,20 +1003,26 @@ func (s *Service) importAttachments(acc *importAccumulator, m *chronimport.Messa
 	for i := range m.Attachments {
 		at := m.Attachments[i]
 		kind := chronimport.KindOf(at)
-		path, local := chronimport.LocalAttachmentPath(acc.dir, at)
+		f, local := chronimport.OpenLocalAttachment(acc.dir, at)
 		size := at.FileSizeBytes
 		if local {
-			if fi, err := os.Stat(path); err == nil {
+			if fi, err := f.Stat(); err == nil {
 				size = fi.Size()
 			} else {
+				f.Close()
 				local = false
 			}
 		}
-		if local && acc.policy.TakesAttachment(kind, size) && size > 0 && size <= maxFilePlain {
-			if tok, ok := s.sealImportedFile(acc.guildID, path, at, size); ok {
+		if local {
+			tok, sealed, ok := "", int64(0), false
+			if acc.policy.TakesAttachment(kind, size) && size > 0 && size <= maxFilePlain {
+				tok, sealed, ok = s.sealImportedFile(acc.guildID, f, at, size)
+			}
+			f.Close()
+			if ok {
 				tokens = append(tokens, tok)
 				acc.sealed++
-				acc.sealedBytes += size
+				acc.sealedBytes += sealed
 				continue
 			}
 		}
@@ -1027,6 +1030,35 @@ func (s *Service) importAttachments(acc *importAccumulator, m *chronimport.Messa
 		notes = append(notes, placeholderLine(at, size))
 	}
 	return tokens, notes
+}
+
+// importedBody is an archived message's text: the export's body, sanitized,
+// with a line for each attachment the archive does not hold. The joined text
+// is defused as a whole, because the placeholder lines carry file names out of
+// the export ("@everyone.png" is a broadcast in the renderer's eyes) and a
+// check on each part is a check on every part but the seams.
+func importedBody(raw string, notes []string) string {
+	content := chronimport.SanitizeContent(raw)
+	if len(notes) > 0 {
+		if content != "" {
+			content += "\n"
+		}
+		content += strings.Join(notes, "\n")
+	}
+	return chronimport.Defuse(content)
+}
+
+// readCapped reads all of r, refusing it if it is over max bytes rather than
+// reading on: an asset can grow after its size was checked.
+func readCapped(r io.Reader, max int64) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(r, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > max {
+		return nil, fmt.Errorf("app: imported file is over %d bytes", max)
+	}
+	return raw, nil
 }
 
 // placeholderLine is what stands in for a file the archive does not hold.
@@ -1059,11 +1091,14 @@ func humanBytes(n int64) string {
 // the original, and letting the attachment LRU evict a picture out of an archive
 // nobody else has a copy of would destroy it. The pin records guildID, whose
 // members alone it is passed on to.
-func (s *Service) sealImportedFile(guildID, path string, at chronimport.Attachment, size int64) (string, bool) {
-	raw, err := os.ReadFile(path)
+func (s *Service) sealImportedFile(guildID string, f *os.File, at chronimport.Attachment, size int64) (string, int64, bool) {
+	path := f.Name()
+	raw, err := readCapped(f, maxFilePlain)
 	if err != nil || len(raw) == 0 {
-		return "", false
+		return "", 0, false
 	}
+	// What was read is what is sealed and counted, whatever the stat said.
+	size = int64(len(raw))
 	sub := imageSubtypeOf(path)
 	// An image over the inline ceiling is still a file, and a file token renders
 	// as a download card rather than being refused — which is what the live path
@@ -1080,20 +1115,20 @@ func (s *Service) sealImportedFile(guildID, path string, at chronimport.Attachme
 	case "jpeg", "png", "gif", "webp":
 		clean, err := imgmeta.Strip(raw)
 		if err != nil {
-			return "", false
+			return "", 0, false
 		}
 		raw, size = clean, int64(len(clean))
 	}
 	blobID, keys, err := s.sealBlob(raw)
 	if err != nil {
-		return "", false
+		return "", 0, false
 	}
 	// Pinning is best-effort: a failure here means the picture is evictable,
 	// not that the import failed.
 	_ = s.store.PinImportedBlob(guildID, blobID)
 
 	if sub != "" {
-		return fmt.Sprintf("concord://attach/v1/%s/%s/%s/0x0", blobID, keys, sub), true
+		return fmt.Sprintf("concord://attach/v1/%s/%s/%s/0x0", blobID, keys, sub), size, true
 	}
 	name := chronimport.SanitizeName(at.FileName)
 	if name == "" {
@@ -1108,5 +1143,5 @@ func (s *Service) sealImportedFile(guildID, path string, at chronimport.Attachme
 		mimeType = "application/octet-stream"
 	}
 	return fmt.Sprintf("concord://file/v1/%s/%s/%d/%s/%s", blobID, keys, size,
-		b64url.EncodeToString([]byte(mimeType)), b64url.EncodeToString([]byte(name))), true
+		b64url.EncodeToString([]byte(mimeType)), b64url.EncodeToString([]byte(name))), size, true
 }

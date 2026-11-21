@@ -7,6 +7,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // Imported text is the only text in Concord that nobody in the guild wrote and
@@ -80,9 +82,11 @@ var (
 	// The scheme this application carries structured content on.
 	concordSchemeRe = regexp.MustCompile(`(?i)concord://`)
 
-	// The unconditional broadcast mentions, matched exactly as the renderer
-	// matches them so that neutralising one here neutralises it there.
-	broadcastMentionRe = regexp.MustCompile(`@(everyone|here)(?:\b|$)`)
+	// The unconditional broadcast mentions, matched as the renderer matches
+	// them (an ASCII word boundary after the word) so that neutralising one
+	// here neutralises it there — and without regard to case, because the
+	// inbox's mention scan ignores case even though the renderer does not.
+	broadcastMentionRe = regexp.MustCompile(`(?i)@(everyone|here)(?:\b|$)`)
 
 	emojiNameStripRe = regexp.MustCompile(`[^a-z0-9_]+`)
 )
@@ -98,7 +102,51 @@ func SanitizeContent(s string) string {
 		return ""
 	}
 
-	// Translation first, while the ASCII markup is still intact.
+	// Characters first. The defusing passes below match ASCII spellings, and
+	// a character this pass drops, sitting inside one of those spellings,
+	// hides it from them and then disappears: "conc\u200bord://" and
+	// "@every\u200bone" used to come out live. So nothing is matched until
+	// everything that is going to be dropped has been.
+	s = stripInvisible(s)
+
+	// Translation, while the ASCII markup is intact, then defusing.
+	s = defuse(translateAll(s))
+
+	// The cap, and defusing again after every cut: cutting "@everyonex" to
+	// "@everyone" makes a broadcast that was not one, and the defusing can
+	// lengthen the tail by a rune, which the next cut takes back. Two rounds
+	// at most for an ASCII tail; the bound is a backstop.
+	cut := false
+	for i := 0; i < 8 && utf8.RuneCountInString(s) > maxImportedContentRunes; i++ {
+		runes := []rune(s)
+		s = defuse(strings.TrimRight(string(runes[:maxImportedContentRunes]), " \n"))
+		cut = true
+	}
+	if cut {
+		s += truncationMark
+	}
+	return strings.TrimSpace(s)
+}
+
+// translateAll runs translateMarkup until nothing changes, because one
+// replacement can complete another ("<<@1>23>" becomes "<@123>"). Every rule
+// but the stamp shortens the string and the stamp's date output cannot
+// complete a markup form, so this stops at once in practice; the bound is a
+// backstop against nesting built to make it quadratic, and what it leaves is
+// inert text either way.
+func translateAll(s string) string {
+	for i := 0; i < 8; i++ {
+		t := translateMarkup(s)
+		if t == s {
+			break
+		}
+		s = t
+	}
+	return s
+}
+
+// translateMarkup turns the export's own markup into plain text.
+func translateMarkup(s string) string {
 	s = exportEmojiRe.ReplaceAllStringFunc(s, func(m string) string {
 		g := exportEmojiRe.FindStringSubmatch(m)
 		// The shortcode form this application uses. If the emoji was imported
@@ -116,7 +164,7 @@ func SanitizeContent(s string) string {
 	s = exportUserRe.ReplaceAllString(s, "@$1")
 	s = exportRoleRe.ReplaceAllString(s, "@$1")
 	s = exportChannelRe.ReplaceAllString(s, "#$1")
-	s = exportStampRe.ReplaceAllStringFunc(s, func(m string) string {
+	return exportStampRe.ReplaceAllStringFunc(s, func(m string) string {
 		g := exportStampRe.FindStringSubmatch(m)
 		n, err := strconv.ParseInt(g[1], 10, 64)
 		if err != nil {
@@ -128,22 +176,55 @@ func SanitizeContent(s string) string {
 		}
 		return t.Format("2006-01-02 15:04 UTC")
 	})
+}
 
-	// Defusing. The scheme is renamed rather than the token deleted: the reader
-	// still sees what was written, no token regex matches any more, and the
-	// renderer's autolink pass only ever follows http and https, so the result
-	// is inert literal text.
+// defuse renames the scheme and breaks the broadcast mentions.
+//
+// The scheme is renamed rather than the token deleted: the reader still sees
+// what was written, no token regex matches any more, and the renderer's
+// autolink pass only ever follows http and https, so the result is inert
+// literal text. One space is enough to break a broadcast match and costs the
+// sentence nothing; "@ everyone" still reads as what it was. Neither
+// replacement can complete a new match next to it, so one pass of each is a
+// fixed point.
+//
+// Every consumer matches these forms as exact ASCII, so a full-width
+// "＠everyone" or "ｃｏｎｃｏｒｄ://" is
+// inert as written. It is not left that way: a later consumer that
+// normalises (a search index, a copy into the composer) would fold it into
+// the live form. A body whose NFKC form carries a live form is stored in its
+// NFKC form, cleaned and defused like any other. That is lossy for that one
+// message — compatibility characters elsewhere in it fold too — and costs
+// nothing for every message that does not spell a protected form in them.
+func defuse(s string) string {
+	s = defuseASCII(s)
+	if n := norm.NFKC.String(s); n != s && (concordSchemeRe.MatchString(n) || broadcastMentionRe.MatchString(n)) {
+		// Translated again: the fold can turn full-width brackets into markup
+		// the first translation never saw.
+		s = defuseASCII(translateAll(stripInvisible(n)))
+	}
+	return s
+}
+
+// Defuse is the defusing pass alone, for text assembled from already
+// sanitized parts: the importer joins a sanitized body with placeholder lines
+// that carry sanitized file names, and the join is defused as a whole so no
+// part, and no seam between parts, is the one place a live form gets through.
+func Defuse(s string) string { return defuse(stripInvisible(s)) }
+
+func defuseASCII(s string) string {
 	s = concordSchemeRe.ReplaceAllString(s, "concord-archived://")
-	// One space is enough to break the broadcast match and costs the sentence
-	// nothing. "@ everyone" still reads as what it was.
-	s = broadcastMentionRe.ReplaceAllString(s, "@ $1")
+	return broadcastMentionRe.ReplaceAllString(s, "@ $1")
+}
 
-	// Control and invisible codepoints. Newlines survive (a message is allowed
-	// to have paragraphs), tabs become spaces, and everything else in the C0/C1
-	// range, the DEL, the format category (bidi overrides, zero-width joiners)
-	// and unpaired surrogates go — the same screen validEventText holds live
-	// records to, applied here as a filter rather than a refusal because a
-	// twelve-year-old message with a stray byte in it is still history.
+// stripInvisible drops control and invisible codepoints. Newlines survive (a
+// message is allowed to have paragraphs), tabs become spaces, and everything
+// else in the C0/C1 range, the DEL, the format category (bidi overrides,
+// zero-width joiners) and unpaired surrogates go — the same screen
+// validEventText holds live records to, applied here as a filter rather than a
+// refusal because a twelve-year-old message with a stray byte in it is still
+// history.
+func stripInvisible(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	prevCR := false
@@ -164,20 +245,14 @@ func SanitizeContent(s string) string {
 		case r == utf8.RuneError:
 			// Invalid UTF-8 in the source. Dropped rather than kept as U+FFFD:
 			// a row of replacement characters is not information.
-		case r < 0x20 || r == 0x7f:
+		case unicode.IsControl(r): // C0, DEL and C1
 		case unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Cs, r):
 		default:
 			b.WriteRune(r)
 		}
 		prevCR = cr
 	}
-	s = b.String()
-
-	if utf8.RuneCountInString(s) > maxImportedContentRunes {
-		runes := []rune(s)
-		s = strings.TrimRight(string(runes[:maxImportedContentRunes]), " \n") + truncationMark
-	}
-	return strings.TrimSpace(s)
+	return b.String()
 }
 
 // SanitizeEmojiName folds an exported emoji name into the guild-emoji charset —
@@ -229,23 +304,46 @@ func SanitizeName(s string) string {
 		if r == '\n' || r == '\r' || r == '\t' {
 			return ' '
 		}
-		if r < 0x20 || r == 0x7f || r == utf8.RuneError ||
+		if unicode.IsControl(r) || r == utf8.RuneError ||
 			unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Cs, r) {
 			return -1
 		}
 		return r
 	}, s)
-	s = strings.Join(strings.Fields(s), " ")
+	// Defused like a body. A name is not rendered as markdown where it is a
+	// name, but it is carried into bodies: an attachment's file name goes into
+	// the "[attachment not exported: …]" line, and "@everyone.png" there is a
+	// broadcast.
+	s = strings.Join(strings.Fields(defuse(s)), " ")
+	// Bounded, and defused again after every cut, for the reason
+	// SanitizeContent gives. Converges in two rounds; a name that has not by
+	// the bound is dropped rather than returned over its size or live.
+	for i := 0; ; i++ {
+		s = boundName(s)
+		d := defuse(s)
+		if d == s {
+			break
+		}
+		if i == 8 {
+			return ""
+		}
+		s = d
+	}
+	return strings.TrimSpace(s)
+}
+
+// boundName cuts a name to maxImportedNameRunes and maxImportedNameBytes,
+// whole runes only: half a codepoint is a name that renders as a replacement
+// character on every member's screen.
+func boundName(s string) string {
 	if utf8.RuneCountInString(s) > maxImportedNameRunes {
 		s = string([]rune(s)[:maxImportedNameRunes])
 	}
 	for len(s) > maxImportedNameBytes {
-		// Cut whole runes, never bytes: half a codepoint is a name that renders
-		// as a replacement character on every member's screen.
 		r := []rune(s)
 		s = string(r[:len(r)-1])
 	}
-	return strings.TrimSpace(s)
+	return s
 }
 
 // ChannelTypeOf maps an export's channel-type string onto the types this
