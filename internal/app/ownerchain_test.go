@@ -240,6 +240,14 @@ func TestOwnerChainFromAHostilePeer(t *testing.T) {
 	}
 	s.owner.requestSync.Store(&hostile)
 	defer s.owner.requestSync.Store(nil)
+	// The door is held while the hostile peer answers: a chain the owner
+	// cannot use, from a peer that claims to be ahead, raises the flag (as
+	// EpochGap does), and the heal would otherwise re-add the owner before
+	// the test looks at what the chain itself moved.
+	var noDoor inviteAskFunc = func(context.Context, peer.AddrInfo, []byte) ([]byte, error) {
+		return nil, fmt.Errorf("door held by the test")
+	}
+	s.owner.requestInvite.Store(&noDoor)
 	mod := s.mod.host.PeerID()
 
 	flip := func(b []byte, at int) []byte {
@@ -301,6 +309,7 @@ func TestOwnerChainFromAHostilePeer(t *testing.T) {
 	nothingMoved("forged removal at its epoch", epoch+1)
 
 	// The honest member answers: the removal is read, and the owner heals.
+	s.owner.requestInvite.Store(nil)
 	s.owner.requestSync.Store(nil)
 	s.owner.syncGuildFromAnyPeer(s.g.ID)
 	if !ownerPoll(30*time.Second, func() bool { return s.owner.takenOutLatched(s.g.ID) }) {
@@ -447,12 +456,25 @@ func TestClaimOwnerChainThrottle(t *testing.T) {
 	if !s.claimOwnerChain("h", p, 15, 5) || !s.claimOwnerChain("g", peer.ID("q"), 15, 5) {
 		t.Fatal("another guild or peer was throttled by this one")
 	}
-	// The table is bounded and fails closed while every entry is fresh.
-	for i := 0; len(s.ownerChainServed) < ownerChainTrack; i++ {
-		s.claimOwnerChain("x", peer.ID(fmt.Sprintf("p%d", i)), 0, 1)
+	// One guild holds at most its share, whatever number of keys asks.
+	for i := 0; i < 3*ownerChainPerGuild; i++ {
+		if !s.claimOwnerChain("x", peer.ID(fmt.Sprintf("p%d", i)), 0, 1) {
+			t.Fatalf("key %d of guild x refused instead of replacing the oldest", i)
+		}
 	}
-	if s.claimOwnerChain("new", p, 0, 1) {
-		t.Fatal("a full table of fresh entries took one more")
+	if n := countOwnerChainGuild(s, "x"); n != ownerChainPerGuild {
+		t.Fatalf("guild x holds %d entries, want its share of %d", n, ownerChainPerGuild)
+	}
+	// The table is bounded, and a full one takes a new key in place of its
+	// oldest entry rather than refusing it.
+	for i := 0; len(s.ownerChainServed) < ownerChainTrack; i++ {
+		s.claimOwnerChain(fmt.Sprintf("fill%d", i/ownerChainPerGuild), peer.ID(fmt.Sprintf("f%d", i)), 0, 1)
+	}
+	if !s.claimOwnerChain("new", p, 0, 1) {
+		t.Fatal("a full table of fresh entries refused a new owner")
+	}
+	if n := len(s.ownerChainServed); n != ownerChainTrack {
+		t.Fatalf("table at %d entries, want %d", n, ownerChainTrack)
 	}
 	s.mu.Lock()
 	for k, v := range s.ownerChainServed {
@@ -460,7 +482,19 @@ func TestClaimOwnerChainThrottle(t *testing.T) {
 		s.ownerChainServed[k] = v
 	}
 	s.mu.Unlock()
-	if !s.claimOwnerChain("new", p, 0, 1) {
-		t.Fatal("stale entries were not pruned")
+	if !s.claimOwnerChain("new2", p, 0, 1) || len(s.ownerChainServed) != 1 {
+		t.Fatalf("stale entries were not pruned (%d left)", len(s.ownerChainServed))
 	}
+}
+
+func countOwnerChainGuild(s *Service, guildID string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := 0
+	for _, v := range s.ownerChainServed {
+		if v.guild == guildID {
+			n++
+		}
+	}
+	return n
 }
