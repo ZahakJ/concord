@@ -152,10 +152,10 @@
     margin-top: var(--sp-1);
     width: min(420px, 100%);
     max-height: 360px;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     overflow: hidden;
     background: #000;
-    border: 1px solid var(--border);
+    border: 1px solid var(--hairline);
   }
   .vid {
     display: block;

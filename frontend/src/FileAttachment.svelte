@@ -59,6 +59,12 @@
       busy = false;
     }
   }
+  // The type, written on the file's own tile: "PDF", "ZIP", "TXT". Four
+  // letters at most; anything longer (or none) keeps the clip glyph.
+  const ext = $derived.by(() => {
+    const m = /\.([a-z0-9]{1,4})$/i.exec(tok.name || "");
+    return m ? m[1].toUpperCase() : "";
+  });
 </script>
 
 <button
@@ -70,6 +76,8 @@
   <span class="thumb">
     {#if busy}
       <span class="spin"></span>
+    {:else if ext}
+      <span class="ext">{ext}</span>
     {:else}
       <Icon name="attach" size={18} />
     {/if}
@@ -91,10 +99,10 @@
     gap: 10px;
     margin-top: var(--sp-1);
     max-width: 340px;
-    padding: 10px 12px;
+    padding: 10px 12px 10px 10px;
     background: var(--bg-2);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     text-align: left;
     color: var(--text);
     transition:
@@ -112,14 +120,19 @@
   }
   .thumb {
     position: relative;
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     flex-shrink: 0;
     display: grid;
     place-items: center;
-    border-radius: var(--radius-sm);
-    background: var(--bg-3);
-    color: var(--text-muted);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--aurora-2) 16%, var(--bg-2));
+    color: color-mix(in srgb, var(--aurora-2) 72%, var(--text));
+  }
+  .ext {
+    font-size: var(--fs-micro);
+    font-weight: 800;
+    letter-spacing: 0.02em;
   }
   .meta {
     display: flex;
@@ -150,14 +163,21 @@
     line-height: 1.35;
   }
   .dl {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
     color: var(--text-muted);
     flex-shrink: 0;
     transition:
-      color var(--dur-quick) ease;
+      color var(--dur-quick) ease,
+      background var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .file-card:hover .dl {
       color: var(--text);
+      background: var(--bg-3);
     }
   }
   .spin {

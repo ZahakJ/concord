@@ -1812,6 +1812,12 @@
       { id: "advanced", label: "Advanced", icon: "docpen", title: "Colours, rich embeds, preview", disabled: !ch, run: openAdvanced },
     ].filter(Boolean),
   );
+  // The picker leads with what people add most — pictures and files, GIFs,
+  // polls, a voice note or the camera — as large tiles; the rest follow as a
+  // quieter list. Same items, same order of preference, both presentations.
+  const PRIMARY = ["media", "file", "camera", "gif", "voice", "poll"];
+  const primaryItems = $derived(addItems.filter((it) => PRIMARY.includes(it.id)).slice(0, 4));
+  const restItems = $derived(addItems.filter((it) => !primaryItems.includes(it)));
   // Hardware back closes the sheet before it reaches the drawers or exits.
   $effect(() => {
     if (moreOpen) return pushLayer("sheet", () => (moreOpen = false));
@@ -1868,15 +1874,19 @@
 {#snippet recentRow(inMenu)}
   {#if recent.length}
     <div class="recent" class:in-menu={inMenu} role="group" aria-label="Recent in Concord">
-      <div class="recent-head">Recent</div>
-      <div class="recent-strip">
-        {#each recent as it (recentKey(it))}
+      <div class="recent-head">
+        <span>Recent</span>
+        <span class="recent-sub">Sealed again when you send</span>
+      </div>
+      <div class="recent-strip" class:grid={inMenu}>
+        {#each inMenu ? recent.slice(0, 10) : recent as it (recentKey(it))}
           {@const added = !!recentAdded[recentKey(it)]}
           <button
             type="button"
             class="recent-tile"
             class:menu-item={inMenu}
             class:added
+            class:pic={isPhoto(it) && !!recentThumbs[it.blobId]}
             disabled={!ch}
             aria-pressed={inMenu ? undefined : added}
             aria-label={`Add ${recentFileName(it)} again${it.senderName ? `, from ${it.senderName}` : ""}`}
@@ -2123,17 +2133,82 @@
     {#if pending.length || uploading > 0}
       <div class="attach-tray">
         {#each pending as p (p.id)}
-          <div class="att-wrap">
+          <!-- One card per staged file, the shape it will have once sent: the
+               picture (or the file's card) on top, and under it what it is and
+               what can be done to it, in one row. The row's FIRST slot is kept
+               for a picture's own Edit step (crop, resize, mark up), which
+               opens on the staged picture and hands back a new data URL in
+               place of p.dataUrl; until it ships the row starts at Spoiler. -->
+          <div class="att-wrap" class:img={p.isImage}>
           <div class="att-chip" class:file={!p.isImage} class:spoilered={p.spoiler}>
             {#if p.isImage}
-              <img src={p.dataUrl} alt="" class:blur={p.spoiler} />
-              {#if p.spoiler}<span class="att-tag">SPOILER</span>{/if}
+              <span class="att-pic" class:fill={!p.spoiler} style:--pic={`url("${p.dataUrl}")`}>
+                <img src={p.dataUrl} alt="" class:blur={p.spoiler} />
+                {#if p.spoiler}<span class="att-tag"><Icon name="spoiler" size={12} /> Spoiler</span>{/if}
+                {#if mobile}
+                  <!-- Touch gets ONE target — the picture itself — instead of
+                       small buttons over a thumbnail, where aiming at one
+                       regularly hit its neighbour. The actions move into the
+                       panel below, at a size a finger can actually hit. -->
+                  <button
+                    type="button"
+                    class="att-open"
+                    aria-label="Attachment options for {p.name || p.origName || 'image'}"
+                    aria-expanded={editingAtt === p.id}
+                    onclick={() => (editingAtt = editingAtt === p.id ? "" : p.id)}
+                  ></button>
+                {/if}
+              </span>
+              <!-- What is about to be sent, before it is sent: "how big is
+                   this?" is a question to answer BEFORE Enter, not after the
+                   send fails. Shape before weight: the dimensions decide
+                   whether the picture lands as a postage stamp or eats the
+                   pane, and the size whether it goes through at all. -->
+              <span class="att-foot">
+                <span class="att-meta" title={p.name || p.origName || ""}>
+                  <span class="am-name">{p.name || p.origName || "image"}</span>
+                  <span class="am-num">{p.w ? `${p.w}×${p.h} · ` : ""}{fmtBytes(p.bytes)}</span>
+                </span>
+                {#if !mobile}
+                  <span class="att-tools" role="toolbar" aria-label="Attachment actions">
+                    <!-- Slot 1: the picture editor's Edit, when it lands. -->
+                    <button
+                      type="button"
+                      class="att-tool"
+                      class:on={p.spoiler}
+                      aria-label={p.spoiler ? "Not a spoiler" : "Mark as spoiler"}
+                      aria-pressed={!!p.spoiler}
+                      use:tooltip
+                      onclick={() => toggleSpoiler(p.id)}
+                    >
+                      <Icon name="spoiler" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      class="att-tool"
+                      class:on={editingAtt === p.id}
+                      aria-label="Edit name and description"
+                      use:tooltip={"Name and description"}
+                      onclick={() => (editingAtt = editingAtt === p.id ? "" : p.id)}
+                    >
+                      <Icon name="docpen" size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      class="att-tool danger"
+                      aria-label="Remove attachment"
+                      use:tooltip={"Remove"}
+                      onclick={() => removePending(p.id)}
+                    >
+                      <Icon name="trash" size={14} />
+                    </button>
+                  </span>
+                {/if}
+              </span>
             {:else}
               <!-- The posted file card's own shape (FileAttachment): a 36px
                    tile, the name once on one line cut from the middle so the
-                   extension survives, and "TXT · 13 B" under it. The staged
-                   one used to cut the name mid-word with no ellipsis, lay the
-                   remove button over it, and print it again underneath. -->
+                   extension survives, and "TXT · 13 B" under it. -->
               <span class="att-file" title={p.name}>
                 <span class="af-tile"><Icon name={p.isVideo ? "play" : "attach"} size={16} /></span>
                 <span class="af-meta">
@@ -2141,71 +2216,39 @@
                   <span class="af-sub">{fileLabel(p.name, p.bytes)}</span>
                 </span>
               </span>
-            {/if}
-            {#if mobile}
-              <!-- Touch gets ONE target — the chip itself — instead of three
-                   19px buttons 2px apart in the corner of a 66px thumbnail,
-                   where aiming at "edit" regularly deleted the attachment. The
-                   spoiler and remove controls move into the panel below, at a
-                   size a finger can actually hit. -->
-              <button
-                type="button"
-                class="att-open"
-                aria-label="Attachment options for {p.name || p.origName || 'image'}"
-                aria-expanded={editingAtt === p.id}
-                onclick={() => (editingAtt = editingAtt === p.id ? "" : p.id)}
-              ></button>
-            {/if}
-            <div class="att-tools">
-              {#if p.isImage}
+              {#if mobile}
                 <button
                   type="button"
-                  class="att-tool"
-                  class:on={p.spoiler}
-                  aria-label={p.spoiler ? "Not a spoiler" : "Mark as spoiler"}
-                  aria-pressed={!!p.spoiler}
-                  use:tooltip
-                  onclick={() => toggleSpoiler(p.id)}
-                >
-                  <Icon name="spoiler" size={13} />
-                </button>
+                  class="att-open"
+                  aria-label="Attachment options for {p.name || p.origName || 'file'}"
+                  aria-expanded={editingAtt === p.id}
+                  onclick={() => (editingAtt = editingAtt === p.id ? "" : p.id)}
+                ></button>
+              {:else}
+                <span class="att-tools" role="toolbar" aria-label="Attachment actions">
+                  <button
+                    type="button"
+                    class="att-tool"
+                    class:on={editingAtt === p.id}
+                    aria-label="Edit name and description"
+                    use:tooltip={"Name and description"}
+                    onclick={() => (editingAtt = editingAtt === p.id ? "" : p.id)}
+                  >
+                    <Icon name="docpen" size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    class="att-tool danger"
+                    aria-label="Remove attachment"
+                    use:tooltip={"Remove"}
+                    onclick={() => removePending(p.id)}
+                  >
+                    <Icon name="trash" size={14} />
+                  </button>
+                </span>
               {/if}
-              <button
-                type="button"
-                class="att-tool"
-                class:on={editingAtt === p.id}
-                aria-label="Edit name and description"
-                use:tooltip={"Edit"}
-                onclick={() => (editingAtt = editingAtt === p.id ? "" : p.id)}
-              >
-                <Icon name="edit" size={13} />
-              </button>
-              <button
-                type="button"
-                class="att-tool danger"
-                aria-label="Remove attachment"
-                use:tooltip={"Remove"}
-                onclick={() => removePending(p.id)}
-              >
-                <Icon name="trash" size={13} />
-              </button>
-            </div>
+            {/if}
           </div>
-          <!-- What is about to be sent, before it is sent. The chip was a 100x70
-               thumbnail and a bin: no filename, no size, no dimensions, in a
-               client that refuses images over 5 MB and files over 25 MB. "How
-               big is this?" is a question to answer BEFORE Enter, not after the
-               send fails. -->
-          {#if p.isImage}
-          <span class="att-meta" title={p.name || p.origName || ""}>
-              <!-- Shape before weight: the dimensions decide whether the
-                   picture lands as a postage stamp or eats the pane, and the
-                   size decides whether it goes through at all. -->
-              <span class="am-name">{p.name || p.origName || "image"}</span>
-              <span class="am-num">{p.w ? `${p.w}×${p.h} · ` : ""}{fmtBytes(p.bytes)}</span>
-            {#if p.spoiler}<span class="am-spoil">spoiler</span>{/if}
-          </span>
-          {/if}
           </div>
         {/each}
         {#if uploading > 0}<div class="att-chip loading"><span class="att-spin"></span></div>{/if}
@@ -2242,8 +2285,9 @@
             />
           </label>
           {#if mobile}
-            <!-- The overlay controls the chip no longer carries. Full-width rows,
-                 with the destructive one last and visually apart. -->
+            <!-- The actions the card does not carry on touch. Full-width rows,
+                 with the destructive one last and visually apart; the first
+                 row is kept for the picture editor's Edit when it lands. -->
             <div class="att-acts">
               {#if p.isImage}
                 <button type="button" class="att-act" class:on={p.spoiler} aria-pressed={!!p.spoiler} onclick={() => toggleSpoiler(p.id)}>
@@ -2438,21 +2482,42 @@
              message moved into + with the rest; the chords and drag-and-drop
              still attach directly. -->
         <Menu label="Add to your message" icon="plus" align="left" up onOpen={loadRecent} onClose={clearRecent}>
-          {@render recentRow(true)}
-          {#each addItems as it (it.id)}
-            <button
-              type="button"
-              class="menu-item"
-              disabled={it.disabled}
-              aria-pressed={it.pressed ?? undefined}
-              title={it.title}
-              onclick={it.run}
-            >
-              <Icon name={it.icon} size={14} />
-              {it.label}
-              {#if it.pressed}<span class="add-on"><Icon name="check" size={14} /></span>{/if}
-            </button>
-          {/each}
+          <div class="picker">
+            {@render recentRow(true)}
+            <div class="pick-prime">
+              {#each primaryItems as it, i (it.id)}
+                <button
+                  type="button"
+                  class="menu-item pick-tile hue-{i + 1}"
+                  disabled={it.disabled}
+                  aria-pressed={it.pressed ?? undefined}
+                  title={it.title}
+                  onclick={it.run}
+                >
+                  <span class="pick-well" aria-hidden="true">
+                    {#if it.glyph}<span class="pick-glyph">{it.glyph}</span>{:else}<Icon name={it.icon} size={20} />{/if}
+                  </span>
+                  <span class="pick-lbl">{it.label}</span>
+                </button>
+              {/each}
+            </div>
+            <div class="pick-rest">
+              {#each restItems as it (it.id)}
+                <button
+                  type="button"
+                  class="menu-item pick-row"
+                  disabled={it.disabled}
+                  aria-pressed={it.pressed ?? undefined}
+                  title={it.title}
+                  onclick={it.run}
+                >
+                  <Icon name={it.icon} size={16} />
+                  <span class="pick-row-lbl">{it.label}</span>
+                  {#if it.pressed}<span class="add-on"><Icon name="check" size={14} /></span>{/if}
+                </button>
+              {/each}
+            </div>
+          </div>
         </Menu>
         {@render draftBox()}
         <!-- One tab stop, not several: ←/→ walk the cluster, Tab leaves it. -->
@@ -2548,10 +2613,13 @@
     {@render recentRow(false)}
     <div class="sheet-grid">
       {#each addItems as it (it.id)}
+        {@const prime = primaryItems.includes(it)}
+        {#if !prime && it === restItems[0]}<span class="sheet-rule" aria-hidden="true"></span>{/if}
         <button
           type="button"
           class="tile"
           class:wide={it.wide}
+          class:prime
           class:on={it.pressed}
           aria-pressed={it.pressed ?? undefined}
           disabled={it.disabled}
@@ -2559,9 +2627,9 @@
           onclick={() => fromSheet(it.run)}
         >
           {#if it.glyph}
-            <span class="tile-ic" class:tile-gif={it.glyph === "GIF"} class:tile-aa={it.glyph === "Aa"}>{it.glyph}</span>
+            <span class="tile-ic hue-{primaryItems.indexOf(it) + 1}" class:tile-gif={it.glyph === "GIF"} class:tile-aa={it.glyph === "Aa"}>{it.glyph}</span>
           {:else}
-            <span class="tile-ic"><Icon name={it.icon} size={22} /></span>
+            <span class="tile-ic hue-{primaryItems.indexOf(it) + 1}"><Icon name={it.icon} size={prime ? 24 : 20} /></span>
           {/if}
           <span class="tile-lbl">{it.label}</span>
         </button>
@@ -3059,121 +3127,159 @@
   }
   .attach-tray {
     display: flex;
-    flex-wrap: wrap;
     gap: var(--sp-2);
-    padding: 10px 10px 6px;
+    padding: var(--sp-3) var(--sp-3) var(--sp-2);
     border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+    /* One row that scrolls sideways: a tray of eight pictures is a strip, not
+       a wall that pushes the text box off the screen. */
+    overflow-x: auto;
+    scrollbar-width: thin;
     /* Several staged files make this row scroll; without containment the flick
        that runs out of tray carries on into the conversation behind it. */
     overscroll-behavior: contain;
   }
   .att-wrap {
+    flex: none;
     display: flex;
     flex-direction: column;
+    max-width: 214px;
+    animation: att-stage-in var(--dur-move) var(--ease-out);
+  }
+  /* A picked file arrives in the tray with a short rise, transform only. */
+  @keyframes att-stage-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.97);
+    }
+  }
+  .att-chip {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-rest);
+  }
+  .att-chip.spoilered {
+    border-color: color-mix(in srgb, var(--warn-text) 55%, var(--border));
+  }
+  .att-pic {
+    position: relative;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--bg-0) 70%, black);
+  }
+  /* Fixed height, free width: a cover-crop showed the middle of every staged
+     picture, which is the one thing that cannot tell you whether you picked
+     the right file. The row still lines up — every card is the same height —
+     and each preview is recognisably its own image. */
+  /* The bars beside a narrow picture carry the picture itself, blurred and
+     dimmed, so the card reads as one piece instead of a photo on black. */
+  .att-pic.fill::before {
+    content: "";
+    position: absolute;
+    inset: -16px;
+    background: var(--pic) center / cover;
+    filter: blur(14px) saturate(1.2);
+    opacity: 0.55;
+  }
+  .att-chip img {
+    position: relative;
+    display: block;
+    height: 96px;
+    width: auto;
+    max-width: 212px;
+    min-width: 176px;
+    object-fit: contain;
+  }
+  /* The staged preview blurs too, so "spoiler" is a state you can see before
+     you send rather than a promise about what the other side will get. */
+  .att-chip img.blur {
+    filter: blur(10px);
+  }
+  .att-tag {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    display: inline-flex;
+    align-items: center;
     gap: 3px;
-    max-width: 132px;
+    padding: 2px var(--sp-2);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.62);
+    color: #fff;
+    font-size: var(--fs-small);
+    font-weight: 600;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  /* Under the picture: what it is on the left, what can be done on the right. */
+  .att-foot {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    min-width: 0;
+    padding: 6px 6px 6px 10px;
+    border-top: 1px solid var(--hairline);
   }
   .att-meta {
+    flex: 1;
     display: flex;
     flex-direction: column;
     min-width: 0;
-    font-size: var(--fs-tiny);
-    color: var(--text-faint);
-    line-height: 1.35;
+    font-size: var(--fs-small);
+    color: var(--text-muted);
+    line-height: 1.3;
   }
   .am-name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    color: var(--text-muted);
+    color: var(--text);
+    font-weight: 500;
     unicode-bidi: plaintext;
   }
   .am-num {
     font-variant-numeric: tabular-nums;
-  }
-  .am-spoil {
-    color: var(--warn-text);
-  }
-  .att-chip {
-    position: relative;
-    border-radius: var(--radius-md);
+    white-space: nowrap;
     overflow: hidden;
-    background: color-mix(in srgb, var(--border) 30%, var(--bg-input));
-    border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+    text-overflow: ellipsis;
   }
-  /* Fixed height, free width: a 64x64 cover-crop showed the middle of every
-     staged picture, which is the one thing that cannot tell you whether you
-     picked the right file. The row still lines up — every chip is the same
-     height — and each preview is now recognisably its own image. */
-  .att-chip img {
-    display: block;
-    height: 64px;
-    width: auto;
-    max-width: 148px;
-    min-width: 40px;
-    object-fit: contain;
-    transition: filter var(--dur-standard) ease;
-  }
-  /* The staged preview blurs too, so "spoiler" is a state you can see before
-     you send rather than a promise about what the other side will get. */
-  .att-chip img.blur {
-    filter: blur(8px);
-  }
-  .att-tag {
-    position: absolute;
-    left: 3px;
-    bottom: 3px;
-    padding: 0 4px;
-    border-radius: 3px;
-    background: rgba(0, 0, 0, 0.72);
-    color: #fff;
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.4px;
-    pointer-events: none;
-  }
-  /* The three controls, revealed on hover. A mouse can land on a
-     19px button; a fingertip covers all three, and the middle one is a delete
-     with no undo. On touch the chip is the target instead (.att-open) and these
-     move into the edit panel — see .att-acts. */
+  /* The actions, always drawn: "how do I take this one back off?" is the
+     question a staged attachment actually raises, and a keyboard user must
+     find every control at full strength. */
   .att-tools {
-    position: absolute;
-    top: 3px;
-    right: 3px;
+    flex: none;
     display: flex;
     gap: 2px;
-    transition: opacity var(--dur-quick) ease;
   }
-  /* Remove is fully drawn: "how do I take this one back off?" is the question a
-     staged attachment actually raises, and answering it only on hover means a
-     keyboard user tabs through the tray looking for a control at zero opacity.
-     Spoiler is now drawn too, quietly — hiding a picture is a decision people
-     make BEFORE they send it, and a control nobody can see is a control nobody
-     uses. Edit stays hover-only: the caption under the chip already names the
-     file, which is most of what that panel was for. Two buttons over a 64px
-     thumbnail, not three. */
-  .att-tool:not(.danger) {
-    opacity: 0;
+  .att-tool {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
   }
-  .att-tool[aria-pressed] {
-    opacity: 0.6;
+  @media (pointer: fine) {
+    .att-tool:hover {
+      background: var(--bg-3);
+      color: var(--text);
+    }
+    .att-tool.danger:hover {
+      background: color-mix(in srgb, var(--danger) 16%, transparent);
+      color: var(--danger-text);
+    }
   }
-  .att-chip:hover .att-tool,
-  .att-chip:focus-within .att-tool {
-    opacity: 1;
-  }
-  .att-tools .att-tool.danger {
-    opacity: 0.75;
-  }
-  .att-chip:hover .att-tool.danger,
-  .att-tool.danger:focus-visible {
-    opacity: 1;
-  }
-  /* Scoped to the layout class, not the media query: whether .att-open exists at
-     all is a JS decision, and the two must never disagree — a hidden overlay
-     with nothing under it is a chip with no controls. */
-  .composer.mobile .att-tools {
-    display: none;
+  .att-tool.on {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
   }
   .att-open {
     position: absolute;
@@ -3186,15 +3292,15 @@
   .att-open[aria-expanded="true"] {
     box-shadow: inset 0 0 0 2px var(--accent);
   }
-  /* The chip IS the control on touch, so it has to be a target — and a 64px
-     square is the floor with nothing spare for a thumb landing off-centre. */
-  .composer.mobile .att-chip img,
-  .composer.mobile .att-chip.loading {
-    width: 84px;
-    height: 84px;
+  /* The picture IS the control on touch, so it has to be a target. */
+  .composer.mobile .att-chip img {
+    height: 104px;
+    min-width: 104px;
   }
-  /* The 34px right padding held the hover tools clear of the filename; with the
-     tools gone on touch it's just a truncated name for no reason. */
+  .composer.mobile .att-chip.loading {
+    width: 104px;
+    height: 104px;
+  }
   .composer.mobile .att-file {
     min-height: var(--tap-min);
   }
@@ -3228,26 +3334,6 @@
   .att-act.danger {
     color: var(--danger-text);
     border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
-  }
-  .att-tool {
-    width: 19px;
-    height: 19px;
-    display: grid;
-    place-items: center;
-    padding: 0;
-    border: none;
-    border-radius: var(--radius-sm);
-    background: rgba(0, 0, 0, 0.68);
-    color: #fff;
-  }
-  .att-tool:hover {
-    background: rgba(0, 0, 0, 0.86);
-  }
-  .att-tool.on {
-    background: var(--accent);
-  }
-  .att-tool.danger:hover {
-    background: var(--danger, #d9534f);
   }
   .att-edit {
     display: flex;
@@ -3310,14 +3396,13 @@
      laid over the name. */
   .att-wrap:has(.att-chip.file) {
     max-width: 320px;
+    justify-content: flex-end;
   }
   .att-chip.file {
-    display: flex;
+    flex-direction: row;
     align-items: center;
     gap: var(--sp-2);
     padding: var(--sp-2) var(--sp-2) var(--sp-2) 10px;
-    background: var(--bg-2);
-    border-color: var(--border);
   }
   .att-file {
     display: flex;
@@ -3355,13 +3440,9 @@
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
   }
-  .att-chip.file .att-tools {
-    position: static;
-    flex: none;
-  }
   .att-chip.loading {
-    width: 64px;
-    height: 64px;
+    width: 132px;
+    height: 132px;
     display: grid;
     place-items: center;
   }
@@ -3908,92 +3989,229 @@
     }
   }
 
-  /* ---- "Recent": one sideways row of fixed tiles ---- */
+  /* ---- the media picker: Recent, the four big ones, then the rest ---- */
+  .picker {
+    width: 352px;
+    max-width: calc(100vw - 32px);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+    padding: 2px;
+  }
   .recent {
-    padding: var(--sp-1) var(--sp-2) var(--sp-2);
-    border-bottom: 1px solid var(--hairline);
-    margin-bottom: var(--sp-1);
+    padding: var(--sp-1) var(--sp-3) var(--sp-3);
   }
   .recent.in-menu {
-    padding: 2px 4px 6px;
-    margin-bottom: var(--sp-1);
+    padding: var(--sp-1) 2px var(--sp-2);
+    border-bottom: 1px solid var(--hairline);
     width: 0;
     min-width: 100%;
   }
   .recent-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sp-2);
+    padding: 0 2px var(--sp-2);
     font-size: var(--fs-small);
     font-weight: 600;
-    color: var(--text-muted);
-    padding: 0 2px 6px;
+    color: var(--text);
   }
+  .recent-sub {
+    font-weight: 400;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* The phone's strip: big tiles in one row that scrolls sideways. */
   .recent-strip {
     display: flex;
-    gap: var(--sp-1);
+    gap: var(--sp-2);
     overflow-x: auto;
     overscroll-behavior-x: contain;
     scrollbar-width: none;
     contain: content;
+    margin: 0 calc(-1 * var(--sp-3));
+    padding: 0 var(--sp-3);
+    scroll-snap-type: x proximity;
+    scroll-padding: 0 var(--sp-3);
   }
   .recent-strip::-webkit-scrollbar {
     display: none;
   }
-  .recent-tile,
-  .recent-tile.menu-item {
+  /* The desktop grid: five across, two rows at most, so the newest ten
+     pictures read as a contact sheet above the actions. */
+  .recent-strip.grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: var(--sp-1);
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+  }
+  .recent .recent-tile {
     position: relative;
     flex: none;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 2px;
-    width: 64px;
-    height: 64px;
+    gap: var(--sp-1);
+    width: 96px;
+    height: 96px;
     min-height: 0;
     padding: 0;
     overflow: hidden;
-    border: none;
-    border-radius: var(--radius-md);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-xl);
     background: var(--bg-2);
-    color: var(--accent-hover);
+    color: var(--text-muted);
+    scroll-snap-align: start;
     -webkit-tap-highlight-color: transparent;
+    transition: transform var(--dur-quick) var(--ease-out);
   }
-  .recent-tile.menu-item {
-    width: 52px;
-    height: 52px;
+  .recent .recent-tile.menu-item {
+    width: auto;
+    height: auto;
+    aspect-ratio: 1;
+    border-radius: var(--radius-md);
+    padding: 0;
+    gap: 2px;
+  }
+  .recent .recent-tile.pic {
+    border-color: transparent;
+  }
+  .recent .recent-tile:active {
+    transform: scale(0.96);
+  }
+  @media (pointer: fine) {
+    .recent .recent-tile.menu-item:hover {
+      background: var(--bg-3);
+    }
+    .recent .recent-tile.pic.menu-item:hover img {
+      transform: scale(1.06);
+    }
+  }
+  .recent .recent-tile.menu-item:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--accent-hover);
   }
   .recent-tile img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
+    transition: transform var(--dur-move) var(--ease-out);
+  }
+  .recent-ic {
+    display: grid;
+    place-items: center;
+    color: var(--accent-hover);
   }
   .recent-name {
     max-width: 100%;
-    padding: 0 4px;
+    padding: 0 6px;
     font-size: var(--fs-micro);
-    line-height: 1.1;
+    line-height: 1.15;
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .recent-tile.added {
+  .recent .recent-tile.added {
     box-shadow: inset 0 0 0 2px var(--accent);
   }
   .recent-tile.added img {
-    opacity: 0.6;
+    opacity: 0.55;
   }
   .recent-check {
     position: absolute;
-    top: 3px;
-    right: 3px;
+    top: 5px;
+    right: 5px;
     display: grid;
     place-items: center;
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
     background: var(--accent);
     color: var(--accent-fg);
+  }
+
+  /* The four big ones: a tinted well over a label, each in its own hue of the
+     brand light, so the eye finds "picture" or "GIF" by colour as much as by
+     word. The wells' ink is the aurora token of the theme in force, which
+     clears 3:1 on its own tint in both. */
+  .pick-prime {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--sp-1);
+    padding: var(--sp-1) 0;
+  }
+  .picker .pick-tile.menu-item {
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    min-height: 0;
+    padding: var(--sp-2) 2px;
+    border-radius: var(--radius-lg);
+    font-size: var(--fs-small);
+    font-weight: 600;
+    text-align: center;
+  }
+  .pick-well {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--well) 17%, var(--bg-elevated));
+    color: color-mix(in srgb, var(--well) 74%, var(--text));
+    transition: transform var(--dur-quick) var(--ease-out);
+  }
+  .picker .pick-tile.menu-item:active .pick-well {
+    transform: scale(0.94);
+  }
+  .pick-glyph {
+    font-size: var(--fs-compact);
+    font-weight: 800;
+  }
+  .pick-lbl {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hue-1 {
+    --well: var(--aurora-1);
+  }
+  .hue-2 {
+    --well: var(--aurora-2);
+  }
+  .hue-3 {
+    --well: var(--aurora-3);
+  }
+  .hue-4 {
+    --well: var(--aurora-spark);
+  }
+  /* The rest: a quiet two-column list. */
+  .pick-rest {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px var(--sp-1);
+    padding-top: var(--sp-1);
+    border-top: 1px solid var(--hairline);
+  }
+  .picker .pick-row.menu-item {
+    gap: var(--sp-2);
+    min-height: 34px;
+    padding: 0 var(--sp-2);
+    min-width: 0;
+  }
+  .pick-row-lbl {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* ---- the "+" sheet: a tray of tiles ---- */
@@ -4007,20 +4225,26 @@
   .sheet-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: var(--sp-2) var(--sp-1);
-    padding: var(--sp-2) var(--sp-2) var(--sp-3);
+    gap: var(--sp-1);
+    padding: var(--sp-1) var(--sp-2) var(--sp-3);
+  }
+  .sheet-rule {
+    grid-column: 1 / -1;
+    height: 1px;
+    margin: var(--sp-1) var(--sp-2);
+    background: var(--hairline);
   }
   .tile {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     min-width: 0;
-    padding: 10px var(--sp-1) var(--sp-2);
+    padding: var(--sp-2) var(--sp-1);
     background: transparent;
     color: var(--text);
     border: none;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     -webkit-tap-highlight-color: transparent;
   }
   .tile:active {
@@ -4034,10 +4258,7 @@
     justify-content: flex-start;
     gap: var(--sp-3);
     padding: var(--sp-2) var(--sp-3);
-    background: var(--bg-2);
-  }
-  .tile.wide .tile-ic {
-    background: var(--bg-1);
+    background: color-mix(in srgb, var(--aurora-1) 10%, var(--bg-2));
   }
   .tile.wide .tile-lbl {
     font-size: var(--fs-ui);
@@ -4048,14 +4269,21 @@
   .tile-ic {
     display: grid;
     place-items: center;
-    width: 54px;
-    height: 54px;
+    width: 48px;
+    height: 48px;
     border-radius: var(--radius-lg);
     /* --bg-2, not --bg-3: the sheet itself is grounded on --bg-elevated, which
        aliases --bg-3, so a plate in the same colour vanished into it. */
     background: var(--bg-2);
-    color: var(--accent-hover);
+    color: var(--text-muted);
     transition: transform var(--dur-quick) ease, background var(--dur-quick) ease;
+  }
+  .tile.prime .tile-ic {
+    width: 60px;
+    height: 60px;
+    border-radius: var(--radius-xl);
+    background: color-mix(in srgb, var(--well) 18%, var(--bg-elevated));
+    color: color-mix(in srgb, var(--well) 74%, var(--text));
   }
   /* A lit tile is a switch that is ON — Formatting is the one tile that stays
      rather than opens. */
@@ -4064,9 +4292,9 @@
     color: var(--accent-fg);
   }
   /* Word, not glyph: no icon for "GIF" reads correctly, and every other client
-     spells it out. Sized to sit as one optical weight with the 22px glyphs. */
+     spells it out. Sized to sit as one optical weight with the glyphs. */
   .tile-gif {
-    font-size: var(--fs-compact);
+    font-size: var(--fs-ui);
     font-weight: 800;
     letter-spacing: 0.02em;
   }
@@ -4083,5 +4311,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .tile:not(.prime) .tile-lbl {
+    font-weight: 500;
+    color: var(--text-muted);
   }
 </style>

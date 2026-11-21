@@ -223,8 +223,8 @@
     });
   }
   let landscape = $state(window.innerWidth > window.innerHeight);
-  const GAP = 2;
-  const HEAD_H = 34;
+  const GAP = 3;
+  const HEAD_H = 40;
   const FILE_H = 56;
   const cols = $derived(tab === TAB_VISUAL ? columnsFor(width, { phone: S.isMobile, landscape }) : 1);
   const tileW = $derived(cols > 1 ? Math.max(40, (width - GAP * (cols - 1)) / cols) : width);
@@ -478,7 +478,7 @@
     flex-direction: column;
   }
   .gal-switch {
-    padding: var(--sp-2) 8px;
+    padding: var(--sp-2) var(--sp-3);
   }
   .gal-scroll {
     flex: 1;
@@ -503,11 +503,13 @@
   .gal-head {
     display: flex;
     align-items: flex-end;
-    padding: 0 10px 6px;
+    padding: 0 var(--sp-3) var(--sp-2);
     box-sizing: border-box;
-    font-size: var(--fs-small);
+    font-family: var(--display-font);
+    font-size: var(--fs-ui);
     font-weight: 600;
-    color: var(--text-muted);
+    letter-spacing: -0.01em;
+    color: var(--text);
   }
   .gal-row {
     display: grid;
@@ -519,17 +521,36 @@
     width: 100%;
     height: 100%;
     padding: 0;
-    border-radius: 0;
+    border-radius: var(--radius-sm);
     overflow: hidden;
     background: var(--bg-3);
     color: var(--text-faint);
     contain: strict;
+  }
+  .tile:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -2px;
   }
   .tile img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
+    transition: transform var(--dur-move) var(--ease-out);
+  }
+  /* A soft inner edge, so pale pictures keep their corners on a pale ground. */
+  .tile::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 8%, transparent);
+    pointer-events: none;
+  }
+  @media (pointer: fine) {
+    .tile:not(.spoiler):hover img {
+      transform: scale(1.05);
+    }
   }
   .tile.spoiler img {
     filter: blur(18px);
