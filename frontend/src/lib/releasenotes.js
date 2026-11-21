@@ -8,6 +8,7 @@
 // The shape a release's notes take (docs/RELEASING.md):
 //
 //   Concord 0.62.0 lets … (the lead paragraph: the release in one breath)
+//   <!-- tagline: … -->          optional: the opening slide's one line
 //
 //   ## A feature
 //   <!-- hero: attach -->        optional: which drawing the deck shows
@@ -72,6 +73,7 @@ export function parseNotes(md, version = "") {
   const lines = String(md || "").replace(/\r\n?/g, "\n").split("\n");
   const lead = []; // paragraphs before the first section
   const sections = [];
+  const top = { headline: "", tagline: "" }; // fields above the first section
   let sec = null;
   let para = null; // the open paragraph or bullet: { kind, text }
   const close = () => {
@@ -90,6 +92,7 @@ export function parseNotes(md, version = "") {
     const field = /^\s*<!--\s*(headline|tagline):\s*([\s\S]*?)\s*-->\s*$/i.exec(line);
     if (field) {
       if (sec) sec[field[1].toLowerCase()] = field[2];
+      else top[field[1].toLowerCase()] = field[2];
       continue;
     }
     if (/^\s*<!--[\s\S]*-->\s*$/.test(line)) continue; // any other comment
@@ -135,6 +138,9 @@ export function parseNotes(md, version = "") {
   return {
     version,
     summary: lead[0]?.text || "",
+    // The opening slide's line: the release's own tagline, else the lead
+    // when it is short enough to stand there whole.
+    tagline: top.tagline || firstSentence(lead[0]?.text || "", 30),
     lead: lead.map((p) => p.text),
     features: out.filter((s) => !s.fine),
     fine: out.filter((s) => s.fine),

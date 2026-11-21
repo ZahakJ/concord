@@ -234,13 +234,13 @@
                 <h2 class="hero rv" style="--i: 1">
                   Concord <span class="glow">{short}</span>
                 </h2>
-                <p class="summary rv" style="--i: 2">{@render runs(notes.summary)}</p>
+                {#if notes.tagline}<p class="summary rv" style="--i: 2">{@render runs(notes.tagline)}</p>{/if}
                 <ol class="toc rv" style="--i: 3" aria-label="In this release">
                   {#each notes.features as f, i (i)}
                     <li>
                       <button class="chip" onclick={() => go(i + 1)}>
                         <span class="num" aria-hidden="true">{String(i + 1).padStart(2, "0")}</span>
-                        <span class="cname">{plainText(f.title)}</span>
+                        <span class="cname">{plainText(f.headline)}</span>
                       </button>
                     </li>
                   {/each}
