@@ -1181,6 +1181,8 @@ async function phaseSeats() {
     // Typing is off by default from 0.61 on; this lane is about the wire.
     await rpc(NEW, "SetTypingEnabled", [true]);
     ev.push(`NEW typing on: ${await rpc(NEW, "TypingEnabled")}`);
+    // An OLD at 0.61 or later has the same switch, off by default.
+    if ((await tryRpc(OLD, "SetTypingEnabled", [true])).ok) ev.push("OLD typing on");
     for (const [dir, from, to, chan, fpr] of [
       ["OLD->NEW", OLD, NEW, st.oldGuildChanOld, st.oldFP],
       ["NEW->OLD", NEW, OLD, st.newGuildChanNew, st.newFP],
@@ -1258,7 +1260,15 @@ async function phaseSeats() {
     const code = await rpc(OLD, "LinkOffer");
     // The link's own report: "" when every guild came across, otherwise the
     // sentence the user reads, naming each guild that did not.
-    const linkMsg = (await rpc(SEATLINK, "RedeemLinkCode", [code, PASS_SEATLINK, ""])) || "";
+    // From 0.61 OLD asks its owner before linking; say yes there, as the
+    // owner holding OLD would (a no-op on older builds).
+    const stopAnswering = answerLinks(OLD);
+    let linkMsg;
+    try {
+      linkMsg = (await rpc(SEATLINK, "RedeemLinkCode", [code, PASS_SEATLINK, ""])) || "";
+    } finally {
+      stopAnswering();
+    }
     ev.push(`link said: ${JSON.stringify(linkMsg)}`);
     if (linkMsg) {
       const newGuild = (await rpc(NEW, "Guilds")).find((g) => g.id === st.newGuildID);
