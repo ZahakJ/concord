@@ -1135,6 +1135,11 @@
     // Checked at click time: the recipe index is plain module state.
     const memeTok = isOwn ? atts.find((t) => knownRecipe(t.blobId)) : null;
     openContextMenu(e, [
+      // Your own message: Edit comes first, so a quick fix is one tap at the
+      // top of the long-press sheet instead of a reach to the bottom (owner,
+      // 20 Nov). startEdit already refuses what cannot be edited; the menu
+      // hides Edit for those so it never offers a toast that says no.
+      isOwn && !uneditableReason(m.content) && { label: "Edit", icon: "edit", kbd: "E", onClick: startEdit },
       link && {
         label: "Open link",
         sub: linkSub,
@@ -1148,8 +1153,8 @@
         onClick: () => copy(pre.textContent || "", "Copied code"),
       },
       (link || pre) && { sep: true },
-      // Groups, in the order a reader reaches for them: answer it, pass it
-      // on, keep it, change it, and the two that need care last.
+      // Then, in the order a reader reaches for them: answer it, pass it
+      // on, keep it, and the two that need care last.
       { label: "Reply", icon: "reply", kbd: "R", onClick: replyHere },
       canThread && {
         label: "Start a thread",
@@ -1222,10 +1227,7 @@
             historyOpen = true;
           },
         },
-      // The refusal already exists in startEdit; the menu had no idea, so the
-      // only possible outcome of this item was a toast saying no.
-      (isOwn && !uneditableReason(m.content)) || memeTok ? { sep: true } : null,
-      isOwn && !uneditableReason(m.content) && { label: "Edit", icon: "edit", kbd: "E", onClick: startEdit },
+      memeTok ? { sep: true } : null,
       memeTok && {
         label: "Edit meme",
         icon: "spark",
