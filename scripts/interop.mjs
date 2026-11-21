@@ -506,6 +506,68 @@ async function phaseOnline() {
     return { evidence: ev };
   });
 
+  // --- C: profiles after rings, decorations and effects were removed --------
+  // An older peer keeps wearing (and sending) a ring in `frame`, a card effect
+  // and a decoration in `style`. NEW draws none of them, but the fields stay on
+  // the wire, so NEW must receive OLD's profile whole: the rest of it parses
+  // and the old ids arrive untouched. The other way, NEW's editor writes those
+  // fields empty, and OLD must take that profile as one wearing nothing.
+  const setLook = (base, name, color, frame, effect, style) =>
+    rpc(base, "SetProfile", [name, "", "", color, "", "", "online", "an old look", "", frame, effect, JSON.stringify(style), ""]);
+  const memberOf = (base, fp) =>
+    waitFor(`${fp.slice(0, 8)} in member list`, async () => (await rpc(base, "Members", [st.newGuildID])).find((x) => x.fingerprint === fp), {
+      timeout: 30000,
+    });
+
+  await lane("C1", "OLD's ring, decoration and effect ids reach NEW with the rest of its profile intact", async () => {
+    await setLook(OLD, "LegacyPeer", "#3366cc", "orbit", "sparkle-card", { dec: "gold-filigree", dc: "gold", cf: "old-card", sat: "🚀" });
+    const m = await waitFor(
+      "NEW sees OLD's profile",
+      async () => {
+        const x = await memberOf(NEW, st.oldFP);
+        return x.name === "LegacyPeer" && x.frame === "orbit" ? x : null;
+      },
+      { timeout: 60000 },
+    );
+    if (m.color !== "#3366cc" || m.bio !== "an old look") throw new Error(`the rest of OLD's profile did not survive: ${JSON.stringify(m)}`);
+    if (m.effect !== "sparkle-card" || m.style?.dec !== "gold-filigree" || m.style?.cf !== "old-card")
+      throw new Error(`old ids not carried intact: ${JSON.stringify(m)}`);
+    return {
+      evidence: [`NEW Members(OLD): name=${m.name} color=${m.color} bio=${m.bio} frame=${m.frame} effect=${m.effect} style=${JSON.stringify(m.style)}`],
+    };
+  });
+
+  await lane("C2", "the empty ring, decoration and effect NEW's editor writes reach OLD as none", async () => {
+    // First NEW wears old ids (as a profile saved by an older build would) and
+    // OLD must see them, so that the clear below is a change OLD has to apply,
+    // not a state it was already in.
+    await setLook(NEW, "HeadPeer", "#3366cc", "orbit", "sparkle-card", { dec: "gold-filigree", dc: "gold" });
+    await waitFor(
+      "OLD sees NEW's old ids",
+      async () => {
+        const x = await memberOf(OLD, st.newFP);
+        return x.frame === "orbit" && x.style?.dec === "gold-filigree" ? x : null;
+      },
+      { timeout: 60000 },
+    );
+    // Then what ModalProfile saves: frame and effect empty, style holding only
+    // the banner's gradient dials.
+    await setLook(NEW, "HeadPeer", "#cc6633", "", "", { angle: 120, fill: "gradient" });
+    const m = await waitFor(
+      "OLD sees NEW's profile",
+      async () => {
+        const x = await memberOf(OLD, st.newFP);
+        return x.name === "HeadPeer" && x.color === "#cc6633" ? x : null;
+      },
+      { timeout: 60000 },
+    );
+    if (m.frame || m.effect || m.style?.dec || m.style?.cf) throw new Error(`OLD sees a cosmetic NEW did not write: ${JSON.stringify(m)}`);
+    if (m.bio !== "an old look") throw new Error(`NEW's bio did not reach OLD: ${JSON.stringify(m)}`);
+    return {
+      evidence: [`OLD Members(NEW): name=${m.name} color=${m.color} frame=${JSON.stringify(m.frame || "")} effect=${JSON.stringify(m.effect || "")} style=${JSON.stringify(m.style || null)}`],
+    };
+  });
+
   // --- L4: attachments ------------------------------------------------------
   await lane("L4a", "ordinary image from NEW is a v1 token OLD can render", async () => {
     const id = await rpc(NEW, "SendAttachment", [

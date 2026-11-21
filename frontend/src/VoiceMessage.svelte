@@ -13,8 +13,11 @@
     cachedEnvelope,
     cacheEnvelope,
   } from "./lib/voicemsg.js";
+  import { media, mediaReady } from "./lib/mediasupport.svelte.js";
+  import MediaOutside from "./MediaOutside.svelte";
 
   let { channelId, tok } = $props();
+  mediaReady(); // asked once per page; the player or the card follows the answer
 
   let audio; // HTMLAudioElement, created on first play
   let audioP = null; // in-flight ensureAudio(), so a scrub + a tap can't build two
@@ -69,6 +72,13 @@
     loading = true;
     audioP = (async () => {
       try {
+        // An engine that would crash on the element gets none; the card has
+        // already replaced the player (lib/mediasupport.svelte.js).
+        if (!(await mediaReady())) {
+          if (media.inline !== false) flash("Concord isn't responding — trying to reconnect", "error");
+          audioP = null;
+          return null;
+        }
         const dataUrl = await api.fetchFile(channelId, tok.blobId, tok.keys, tok.mime);
         if (destroyed) return null; // fetched for a row that is gone
         audio = new Audio(dataUrl);
@@ -181,6 +191,9 @@
   }
 </script>
 
+{#if media.inline === false}
+  <MediaOutside {channelId} {tok} />
+{:else}
 <div class="vm">
   <button class="vm-play" onclick={toggle} aria-label={playing ? "Pause" : "Play voice message"}>
     {#if loading}
@@ -215,6 +228,7 @@
   </div>
   <span class="vm-time">{fmt(playing || cur ? cur : dur)}</span>
 </div>
+{/if}
 
 <style>
   .vm {

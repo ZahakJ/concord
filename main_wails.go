@@ -78,6 +78,9 @@ func main() {
 	}
 	// Native build: the update check must only ever offer desktop assets.
 	bridge.NativeBuild = true
+	// Linux: find out before the page loads whether the webview can be handed a
+	// media element without crashing (webkitmedia_linux.go).
+	armMediaCheck()
 	// Clear the parked binary from a completed self-update, if any.
 	bridge.CleanupOldBinary()
 	b := bridge.New(context.Background())

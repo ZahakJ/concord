@@ -2017,9 +2017,6 @@
         size={32}
         online={true}
         presence={S.identity.presence || ""}
-        frame={S.identity.frame || ""}
-        decoration={S.identity.style?.dec || ""}
-        dc={S.identity.style?.dc || ""}
         mood={myStatus.emoji}
         moodTitle={myStatus.text}
       />
@@ -2141,9 +2138,9 @@
     /* A fling that runs out of channel list must not continue into the message
        feed showing through the open drawer. */
     overscroll-behavior: contain;
-    /* Decorative avatar rings (which spin OUTSIDE the avatar box) must not
-       make this column think it needs a horizontal scrollbar — that's what
-       made the divider "pulsate". clip keeps them visible; hidden would too,
+    /* Anything that pokes outside a row (a presence mark, a hover lift) must
+       not make this column think it needs a horizontal scrollbar — that once
+       made the divider "pulsate". clip keeps it visible; hidden would too,
        but clip doesn't create a scroll port. */
     overflow-x: clip;
     padding: var(--sp-1) var(--sp-2) var(--sp-2);

@@ -7,7 +7,6 @@
   // backend event wiring live in lib/state.svelte.js.
   import { onMount, untrack } from "svelte";
   import { watchMoments, refreshMoments } from "./lib/momentsunseen.svelte.js";
-  import { precacheCosmetics } from "./lib/cosmetics.svelte.js";
   import { precacheEmoji } from "./lib/emojifull.svelte.js";
   import { api, leaveVoiceOnUnload } from "./lib/api.js";
   import { callIce } from "./lib/callice.js";
@@ -92,6 +91,7 @@
   import ContextMenu from "./ContextMenu.svelte";
   import Toasts from "./Toasts.svelte";
   import { micReason, canCarryACall, noCallReason } from "./lib/devices.js";
+  import { media, mediaReady } from "./lib/mediasupport.svelte.js";
   import FxOverlay from "./FxOverlay.svelte";
   import { validFx } from "./lib/themefx.js";
   import JoinVeil from "./JoinVeil.svelte";
@@ -752,21 +752,15 @@
     window.Capacitor?.Plugins?.ConcordCore?.appReady?.().catch(() => {});
     watchSystemBars();
     watchVisibility();
-    // Fetch the cosmetic tables once there is something on screen. They are
-    // lazy so that a boot never waits for a quarter of a megabyte of path data
-    // (lib/cosmetics.svelte.js), but a guild that uses decorations wants them
-    // by the time its member list is scrolled — so ask for them in the first
-    // idle moment rather than on the first avatar that needs one. On a phone
-    // that means requestIdleCallback; a desktop window has the headroom to just
-    // do it after the frame.
-    // The full emoji table rides the same idle moment, for the same reason:
-    // typing a colon or opening the picker must not be the first time anyone
-    // asks for 35KB of Unicode.
+    // Fetch the full emoji table once there is something on screen, in the
+    // first idle moment: typing a colon or opening the picker must not be the
+    // first time anyone asks for 35KB of Unicode. On a phone that means
+    // requestIdleCallback; a desktop window has the headroom to just do it
+    // after the frame.
     // The dialogs people open most ride it too: the first Settings of a
     // session otherwise waited on a chunk fetch (about 100 ms on a desktop,
     // more on a phone) before its first frame.
     const warm = () => {
-      precacheCosmetics();
       precacheEmoji();
       warmIslands();
       for (const k of ["settings", "guildSettings", "profile", "confirm"]) MODAL_LOADERS[k]?.().catch(() => {});
@@ -1389,6 +1383,25 @@
   let hidIpNotice = false;
   async function joinVoice(channelId = S.activeChannelId, admitted = false) {
     if (!channelId || joining) return; // re-entrancy guard: no orphan meshes
+    // Before anything else — before leaving the call we are in, before knocking
+    // on a locked one: is there a peer connection to be had at all? On the
+    // Linux desktop build the answer can be no — WebKitGTK exposes no
+    // RTCPeerConnection when the system's GStreamer WebRTC elements are absent
+    // — and joining then produces a call in which nobody can hear anybody and
+    // nothing says why. This is the one failure that is NOT worth entering the
+    // room for: a mic-less join still lets you listen, and this one does not.
+    // The same holds for an engine with no audio sink to play the room
+    // through: it would crash on the first peer's audio element.
+    if (!(await mediaReady()) && media.inline !== false) {
+      flash("Concord isn't responding — trying to reconnect", "error");
+      return;
+    }
+    if (!canCarryACall()) {
+      hapticNotify("ERROR");
+      flash(noCallReason(), "error");
+      S.joiningVoice = "";
+      return;
+    }
     if (S.voice) {
       const inThisRoom = S.voice.channelId === channelId;
       await leaveVoice();
@@ -1536,19 +1549,6 @@
         }
       },
     });
-    // Before anything else: is there a peer connection to be had at all? On the
-    // Linux desktop build the answer can be no — WebKitGTK exposes no
-    // RTCPeerConnection when the system's GStreamer WebRTC elements are absent
-    // — and joining then produces a call in which nobody can hear anybody and
-    // nothing says why. This is the one failure that is NOT worth entering the
-    // room for: a mic-less join still lets you listen, and this one does not.
-    if (!canCarryACall()) {
-      hapticNotify("ERROR");
-      flash(noCallReason(), "error");
-      joining = false;
-      S.joiningVoice = "";
-      return;
-    }
     // A microphone is not a condition of entry. mesh.start() no longer throws
     // for a mic it could not open — it records why and comes up listen-only —
     // so the only thing left to do here is say so, once, and let the room have

@@ -8,6 +8,7 @@
 
   import { openSystemSettings } from "./lib/notify.js";
   import { haptic } from "./lib/touch.js";
+  import { media, mediaReady, MEDIA_CAMERA_NOTE } from "./lib/mediasupport.svelte.js";
   let { onScan, onClose } = $props();
   // Hardware-back / global overlay stack: closing this scanner is what back
   // should do, not exit the app.
@@ -88,6 +89,13 @@
     stop();
     const mine = gen;
     const stale = () => mine !== gen || destroyed;
+    // A camera in a <video> is a media element too, and on a WebKitGTK with
+    // no GStreamer audio sink that crashes the page (lib/mediasupport.svelte.js).
+    // Pasting the code still works, which the failure panel says.
+    if (!(await mediaReady())) {
+      if (!stale()) error = media.inline === false ? MEDIA_CAMERA_NOTE : "Couldn't open the camera.";
+      return;
+    }
     if (!(await loadDecoder())) {
       if (!stale()) error = "Couldn't load the QR decoder.";
       return;
@@ -154,7 +162,9 @@
 
 <div class="scanner" role="dialog" aria-label="Scan QR code">
   <!-- svelte-ignore a11y_media_has_caption -->
-  <video bind:this={video} playsinline muted></video>
+  {#if media.inline !== false}
+    <video bind:this={video} playsinline muted></video>
+  {/if}
   {#if !error}
     <div class="frame" aria-hidden="true">
       <span class="c tl"></span><span class="c tr"></span>

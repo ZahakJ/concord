@@ -320,9 +320,6 @@
           size={28}
           online={mem.online}
           presence={mem.presence}
-          frame={mem.frame}
-          decoration={mem.style?.dec || ""}
-          dc={mem.style?.dc || ""}
         />
         <span class="member-text">
           <span class="member-name" title={mem.fingerprint}>
@@ -432,8 +429,8 @@
     /* A fling that runs out of member list stops there instead of dragging the
        message feed visible past the open drawer's edge. */
     overscroll-behavior: contain;
-    /* Spinning avatar rings overflow their box by design — don't let that
-       summon a horizontal scrollbar (see ChannelList .scroll). */
+    /* Nothing in a row may summon a horizontal scrollbar (see ChannelList
+       .scroll). */
     overflow-x: clip;
   }
   .section-head {

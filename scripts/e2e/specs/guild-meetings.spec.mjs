@@ -40,6 +40,11 @@ test("an instant meeting starts from the strip's + and from the palette, and its
   const live = await throughToMeeting(a, waitFor);
   const link = (await live.locator("code.link").innerText()).trim();
   assert.match(link, /\/guest#/, "a guest link is offered");
+  // A guest joins the call as well as the chat (the guest page has had a
+  // Join call button since guests got media); the dialog must not say otherwise.
+  const said = await live.innerText();
+  assert.doesNotMatch(said, /chat-only/i, "the dialog does not call guests chat-only");
+  assert.match(said, /Guests join the chat and the call/, "the dialog says guests can join the call");
   assert.equal(await a.page.getByRole("dialog").count(), 1, "nothing else is open behind the meeting");
   await shot(a, "meeting live");
   await a.closeModals();

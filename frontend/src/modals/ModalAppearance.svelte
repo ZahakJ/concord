@@ -5,7 +5,7 @@
   // (S.prefs) and applies live — no save step. setAppearance persists the pref
   // and stamps <html> with a short cross-fade; see state.svelte.js.
   //
-  // What other people see of you (banner, avatar ring, profile colours) is
+  // What other people see of you (picture, banner, profile colours) is
   // Your profile, linked from the foot of this page.
   import { motionInView } from "../lib/inview.js";
   import RailShell from "./RailShell.svelte";
@@ -398,7 +398,7 @@
   <SettingGroup label="What others see">
     <SettingRow
       title="Your profile's look"
-      sub="Banner, avatar ring and profile colours live with your profile."
+      sub="Picture, banner and profile colours live with your profile."
       to="profile"
       from="appearance"
     />

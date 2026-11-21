@@ -1,5 +1,5 @@
 <script>
-  // One effect layer: takes an fx descriptor (from rings.js / banners.js) and
+  // One effect layer: takes an fx descriptor (from banners.js / themefx.js) and
   // paints it. Particle kinds get a deterministic field from lib/fx.js; layered
   // kinds (ripple, bolt, bars, blobs, grid, waves, sheen, scan, rays) get a
   // fixed number of shaped spans. All the motion lives in app.css.

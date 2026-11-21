@@ -36,10 +36,21 @@
     // picker has to announce what is currently chosen, which its visible
     // text shows and `label` alone ("Microphone") hides.
     name = "",
+    // Called each time the menu opens, for contents worked out only then
+    // (the composer's Recent strip asks the core at that moment, not before).
+    onOpen = null,
+    // Called each time it closes, so such contents can be forgotten.
+    onClose = null,
     trigger,
     children,
   } = $props();
   let open = $state(false);
+  let wasOpen = false;
+  $effect(() => {
+    if (open) untrack(() => onOpen?.());
+    else if (wasOpen) untrack(() => onClose?.());
+    wasOpen = open;
+  });
   // Both presentations are a layer: back closes the sheet on a phone, Escape
   // the dropdown on a desktop, and neither needs a listener of its own. Note
   // this is also why nothing below adds a window Escape handler — that would
@@ -129,10 +140,18 @@
 
   // Whether rows run past the edge is asked again whenever the panel's box
   // changes: measured once at placement, it saw the stylesheet's height
-  // before the measured one landed and faded a menu that fits.
+  // before the measured one landed and faded a menu that fits. The panel is
+  // placed again too: a row that arrives after opening (the composer's Recent
+  // strip) made an `up` menu grow down over its own trigger.
   $effect(() => {
     if (!open || S.isMobile || !panel || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(measureMore);
+    let lastH = -1;
+    const ro = new ResizeObserver(() => {
+      measureMore();
+      const h = panel?.offsetHeight ?? 0;
+      if (lastH >= 0 && h !== lastH) place();
+      lastH = h;
+    });
     ro.observe(panel);
     return () => ro.disconnect();
   });

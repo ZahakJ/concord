@@ -22,6 +22,7 @@
   import { emoteText } from "./lib/emote.js";
   import { plainSnippet } from "./lib/snippet.js";
   import { S, activeChannel, activeGuild, react, flash, flashSlot, nameColorFor, mentionRefs, customEmojiMap, setPref } from "./lib/state.svelte.js";
+  import { media, mediaReady, MEDIA_OUTSIDE_NOTE } from "./lib/mediasupport.svelte.js";
   import { humanError } from "./lib/errors.js";
 
   import { PERM, has } from "./lib/perms.js";
@@ -44,6 +45,20 @@
   import { fmtBytes } from "./lib/chronicle.js";
   import { midTrunc, fileLabel } from "./lib/attachments.js";
   import { nativePicker, pickAndStage } from "./lib/pickmedia.js";
+  import { cachedAttachment } from "./lib/attachments.js";
+  import { voiceMembersFor } from "./lib/state.svelte.js";
+  import {
+    recentStrip,
+    recentRequest,
+    recentFileName,
+    recentMime,
+    dataUrlToFile,
+    isPhoto,
+    recentAllowed,
+    recentKeyOf,
+    stillOffered,
+    RECENT_MAX,
+  } from "./lib/recent.js";
   import { wantsTypeToFocus } from "./lib/typetofocus.js";
   import { isPttKey } from "./lib/shortcuts.js";
 
@@ -1283,9 +1298,16 @@
     preview = null;
   }
 
-  function togglePreview() {
+  async function togglePreview() {
     if (!preview) return;
     if (!prevAudio) {
+      // No <audio> on an engine it would crash (lib/mediasupport.svelte.js);
+      // the clip can still be sent and played elsewhere.
+      if (!(await mediaReady())) {
+        flash(media.inline === false ? MEDIA_OUTSIDE_NOTE : "Concord isn't responding — trying to reconnect", "error");
+        return;
+      }
+      if (!preview || prevAudio) return togglePreview();
       // The element is captured in a local: a `timeupdate` can still be in
       // flight when Send or Discard has already dropped our reference, and
       // reading `prevAudio.currentTime` from the handler then throws.
@@ -1632,12 +1654,111 @@
     haptic("light");
     composerEl?.blur(); // same reason as the emoji panel
     moreOpen = true;
+    loadRecent();
   }
   // Every row does its thing and dismisses — a sheet that stays up over the
   // modal it just opened is a second scrim to get out of.
   function fromSheet(run) {
     moreOpen = false;
     run();
+  }
+
+  // ---- "Recent": what this account sent or received lately, anywhere ----
+  // Asked of the core only when the menu or the sheet opens (lib/recent.js),
+  // and forgotten when it closes: the items, the decrypted thumbnails, the
+  // ticks. Never drawn while this screen is shared or a guest is in the call.
+  // A tile draws a picture only when its blob is already on this device; the
+  // network is used for a pick and nothing else. A pick is checked against a
+  // fresh listing, then staged like a file from disk, so the send seals it
+  // again under a new key. Nothing leaves the device until Send.
+  let recent = $state([]);
+  let recentThumbs = $state({}); // blobId -> data URL, this opening only
+  let recentAdded = $state({}); // itemKey -> true, staged from this opening
+  let recentGen = 0;
+  const recentKey = recentKeyOf;
+  const recentOk = $derived(
+    recentAllowed({ sharing: S.sharing, callMembers: S.voice?.channelId ? voiceMembersFor(S.voice.channelId) : [] }),
+  );
+  function clearRecent() {
+    recentGen++;
+    recent = [];
+    recentThumbs = {};
+    recentAdded = {};
+  }
+  // Sharing starting, or a guest arriving, while the menu is open.
+  $effect(() => {
+    if (!recentOk) untrack(clearRecent);
+  });
+  // The phone's sheet closing.
+  $effect(() => {
+    if (!moreOpen) untrack(clearRecent);
+  });
+  async function listRecent() {
+    try {
+      return recentStrip(await api.recentMedia(RECENT_MAX), Date.now() / 1000);
+    } catch {
+      return [];
+    }
+  }
+  async function loadRecent() {
+    clearRecent();
+    if (!recentOk) return;
+    const g = recentGen;
+    const items = await listRecent();
+    if (g !== recentGen || !recentOk) return;
+    const thumbs = {};
+    for (const it of items) if (isPhoto(it) && cachedAttachment(it.blobId)) thumbs[it.blobId] = cachedAttachment(it.blobId);
+    recentThumbs = thumbs;
+    recent = items;
+    // After the sheet's open animation, so no decode lands in it.
+    setTimeout(() => fillRecentThumbs(g), 320);
+  }
+  // Local blobs only, one at a time, decrypted for this opening and not put
+  // in the feed's cache: a picture from another conversation stays out of it.
+  async function fillRecentThumbs(g) {
+    for (const it of recent) {
+      if (g !== recentGen) return;
+      if (!isPhoto(it) || !it.local || recentThumbs[it.blobId]) continue;
+      try {
+        const src = await api.fetchAttachment(it.channelId, it.blobId, it.keys, it.subtype);
+        if (g === recentGen) recentThumbs = { ...recentThumbs, [it.blobId]: src };
+      } catch {
+        // The tile keeps its glyph.
+      }
+    }
+  }
+  async function pickRecent(it) {
+    const k = recentKey(it);
+    const into = S.activeChannelId;
+    if (recentAdded[k] || !ch || !into || !recentOk) return;
+    const g = recentGen;
+    recentAdded = { ...recentAdded, [k]: true };
+    const unmark = () => {
+      if (g !== recentGen) return;
+      const rest = { ...recentAdded };
+      delete rest[k];
+      recentAdded = rest;
+    };
+    try {
+      const fresh = await listRecent();
+      if (!stillOffered(fresh, it)) {
+        unmark();
+        if (g === recentGen) recent = fresh;
+        flash(`${recentFileName(it)} can no longer be added`, "error");
+        return;
+      }
+      const r = recentRequest(it);
+      const url = await api[r.method](...r.args);
+      // Staged into the conversation it was picked for, or not at all.
+      if (S.activeChannelId !== into) {
+        unmark();
+        return;
+      }
+      await attachFile(dataUrlToFile(url, recentFileName(it), recentMime(it)));
+    } catch (err) {
+      unmark();
+      flash(`Couldn't add ${recentFileName(it)}: ${humanError(err)}`, "error");
+    }
   }
 
   // Everything + offers, ONCE: the desktop menu and the phone's sheet both
@@ -1740,6 +1861,41 @@
     {/if}
   {/if}
 </div>
+
+<!-- "Recent", at the top of the desktop + menu and the phone's sheet; absent
+     when there is nothing recent. One row that scrolls sideways, fixed-size
+     tiles, so a picture arriving late changes no layout. -->
+{#snippet recentRow(inMenu)}
+  {#if recent.length}
+    <div class="recent" class:in-menu={inMenu} role="group" aria-label="Recent in Concord">
+      <div class="recent-head">Recent</div>
+      <div class="recent-strip">
+        {#each recent as it (recentKey(it))}
+          {@const added = !!recentAdded[recentKey(it)]}
+          <button
+            type="button"
+            class="recent-tile"
+            class:menu-item={inMenu}
+            class:added
+            disabled={!ch}
+            aria-pressed={inMenu ? undefined : added}
+            aria-label={`Add ${recentFileName(it)} again${it.senderName ? `, from ${it.senderName}` : ""}`}
+            title={recentFileName(it)}
+            onclick={() => pickRecent(it)}
+          >
+            {#if isPhoto(it) && recentThumbs[it.blobId]}
+              <img src={recentThumbs[it.blobId]} alt="" decoding="async" draggable="false" />
+            {:else}
+              <span class="recent-ic"><Icon name={isPhoto(it) ? "image" : it.kind === 2 ? "play" : "attach"} size={18} /></span>
+              {#if !isPhoto(it)}<span class="recent-name">{recentFileName(it)}</span>{/if}
+            {/if}
+            {#if added}<span class="recent-check"><Icon name="check" size={14} /></span>{/if}
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
+{/snippet}
 
 <!-- One textarea, two layouts. A snippet rather than a copy in each branch: two
      copies mean two `bind:this`, and whichever mounted last silently owned the
@@ -2281,7 +2437,8 @@
              or do), the text, then emoji and Send. Attach, GIF and the voice
              message moved into + with the rest; the chords and drag-and-drop
              still attach directly. -->
-        <Menu label="Add to your message" icon="plus" align="left" up>
+        <Menu label="Add to your message" icon="plus" align="left" up onOpen={loadRecent} onClose={clearRecent}>
+          {@render recentRow(true)}
           {#each addItems as it (it.id)}
             <button
               type="button"
@@ -2388,6 +2545,7 @@
        to be. The sentence each row used to carry is the tile's tooltip/title,
        for anybody who long-presses to ask. -->
   <BottomSheet title="Add to your message" onClose={() => (moreOpen = false)} maxHeight="calc(76 * var(--vh))">
+    {@render recentRow(false)}
     <div class="sheet-grid">
       {#each addItems as it (it.id)}
         <button
@@ -3748,6 +3906,94 @@
       transform: none;
       opacity: 1;
     }
+  }
+
+  /* ---- "Recent": one sideways row of fixed tiles ---- */
+  .recent {
+    padding: var(--sp-1) var(--sp-2) var(--sp-2);
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: var(--sp-1);
+  }
+  .recent.in-menu {
+    padding: 2px 4px 6px;
+    margin-bottom: var(--sp-1);
+    width: 0;
+    min-width: 100%;
+  }
+  .recent-head {
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--text-muted);
+    padding: 0 2px 6px;
+  }
+  .recent-strip {
+    display: flex;
+    gap: var(--sp-1);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    contain: content;
+  }
+  .recent-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .recent-tile,
+  .recent-tile.menu-item {
+    position: relative;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: 64px;
+    height: 64px;
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+    border: none;
+    border-radius: var(--radius-md);
+    background: var(--bg-2);
+    color: var(--accent-hover);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .recent-tile.menu-item {
+    width: 52px;
+    height: 52px;
+  }
+  .recent-tile img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .recent-name {
+    max-width: 100%;
+    padding: 0 4px;
+    font-size: var(--fs-micro);
+    line-height: 1.1;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .recent-tile.added {
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+  .recent-tile.added img {
+    opacity: 0.6;
+  }
+  .recent-check {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-fg);
   }
 
   /* ---- the "+" sheet: a tray of tiles ---- */

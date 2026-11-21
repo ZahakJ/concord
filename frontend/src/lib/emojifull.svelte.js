@@ -1,8 +1,7 @@
 // emojifull.svelte.js — the full Unicode emoji table, on its own chunk.
 //
-// Same shape as lib/cosmetics.svelte.js: a $state box, a once-started dynamic
-// import, and a getter that both triggers the fetch and subscribes whoever read
-// it. The generated table is ~35KB of source and nothing on a cold start needs
+// A $state box, a once-started dynamic import, and a getter that both triggers
+// the fetch and subscribes whoever read it. The generated table is ~35KB of source and nothing on a cold start needs
 // it, so it must not sit in the boot bundle beside the login screen.
 //
 // The install is the point, not the return value: lib/emoji.js is on the
@@ -31,7 +30,7 @@ export function emojiTable() {
   return box.ready;
 }
 
-// Warm it during idle, beside the cosmetics tables: by the time anyone opens a
+// Warm it during idle: by the time anyone opens a
 // picker or types a colon it is already in, and a cold start still paid nothing
 // for it.
 export function precacheEmoji() {

@@ -794,10 +794,10 @@ for (const [rel, raw] of FILES) {
 // Tracked-out capitals ("PICK ONE", "TUESDAY · 18:30", "MEMBERS & ROLES")
 // were the old system's labels, and they survived in corners of the feed long
 // after the rest went to sentence case. A label is --fs-small/600 in muted
-// ink. Initials in an avatar tile are not a label. The two art studios are
-// still waiting for their pass and are listed so the rule can hold everywhere
-// else; take them off the list when they get it.
-const CAPS_OK = new Set(["Avatar.svelte", "GroupAvatar.svelte", "BannerStudio.svelte", "DecorStudio.svelte"]);
+// ink. Initials in an avatar tile are not a label. The banner studio is still
+// waiting for its pass and is listed so the rule can hold everywhere else;
+// take it off the list when it gets it.
+const CAPS_OK = new Set(["Avatar.svelte", "GroupAvatar.svelte", "BannerStudio.svelte"]);
 for (const [rel, raw] of FILES) {
   if (CAPS_OK.has(rel)) continue;
   if (/text-transform:\s*uppercase/.test(strip(raw))) fail(`${rel}: text-transform: uppercase — labels are sentence case (--fs-small, 600, --text-muted)`);

@@ -585,10 +585,6 @@
           size={72}
           online={mem.online}
           presence={mem.presence}
-          frame={mem.frame}
-          decoration={mem.style?.dec || ""}
-          style={mem.style}
-          color2={mem.color2}
         />
       </div>
       {#if mem.verified && !mem.isSelf}

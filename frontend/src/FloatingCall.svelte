@@ -270,9 +270,6 @@
         emoji: S.identity.emoji,
         color: S.identity.color,
         image: S.identity.avatar,
-        frame: S.identity.frame || "",
-        decoration: S.identity.style?.dec || "",
-        dc: S.identity.style?.dc || "",
         mood: st.emoji,
         moodTitle: st.text,
         speaking: S.voiceSpeaking.includes("self"),
@@ -289,9 +286,6 @@
       emoji: m?.emoji || "",
       color: m?.color || "",
       image: m?.avatar || "",
-      frame: m?.frame || "",
-      decoration: m?.style?.dec || "",
-      dc: m?.style?.dc || "",
       mood: st.emoji,
       moodTitle: st.text,
       speaking: S.voiceSpeaking.includes(pid),
@@ -428,9 +422,6 @@
             emoji={p.emoji}
             color={p.color}
             image={p.image}
-            frame={p.frame}
-            decoration={p.decoration}
-            dc={p.dc}
             mood={p.mood}
             moodTitle={p.moodTitle}
             size={36}

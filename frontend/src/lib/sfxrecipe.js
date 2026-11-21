@@ -53,7 +53,7 @@ export const SFX_WAVES = ["sine", "triangle", "square", "sawtooth"];
 
 // A small closed table of faces. An index with no entry is refused, which is
 // the same "safety is the lookup failing, not the list being exhaustive" rule
-// the card effects and frames are resolved by.
+// every preset id is resolved by.
 export const SFX_GLYPHS = [
   "🔊", "📯", "🥁", "🎺", "👏", "🦗", "✨", "💥",
   "🫧", "🎉", "🔔", "⚡", "🐸", "🚨", "🎹", "🛎️",

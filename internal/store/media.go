@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS media_index (
   PRIMARY KEY (message_id, ord)
 );
 CREATE INDEX IF NOT EXISTS idx_media_page ON media_index(channel_id, tab, sent DESC, message_id DESC, ord DESC);
+CREATE INDEX IF NOT EXISTS idx_media_recent ON media_index(sent DESC, message_id DESC, ord DESC);
 CREATE TABLE IF NOT EXISTS media_pending (
   channel_id TEXT NOT NULL,
   message_id TEXT NOT NULL,
@@ -259,8 +260,11 @@ func (s *Store) mediaDrainLoop(delay time.Duration) {
 		for {
 			n, err := s.drainMediaChunk("", mediaDrainChunk)
 			if err != nil || n < mediaDrainChunk {
+				s.mediaDraining.Store(false)
 				break
 			}
+			// A backlog: the Recent strip reads without adding to it.
+			s.mediaDraining.Store(true)
 			select {
 			case <-s.closing:
 				return
@@ -383,6 +387,84 @@ func (s *Store) MediaPage(channelID string, tab mediatok.Tab, cursor MediaCursor
 		exp := max(miExp, mExp)
 		out = append(out, MediaItem{MessageID: id, ChannelID: channelID, Sender: sender, SenderName: name, Sent: sent, Expires: exp,
 			Unverified: unverified != 0, Guest: mkind == "guest", Item: it})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, MediaCursor{}, err
+	}
+	if n < limit {
+		last = MediaCursor{}
+	}
+	return out, last, nil
+}
+
+// recentDrainMax bounds the indexing a "Recent" query does before it reads:
+// the strip asks each time the attach menu opens, so it must not be the one
+// that indexes a whole imported history (the background drain does that).
+const recentDrainMax = 500
+
+// mediaRecentQuery is mediaPageQuery across every channel, stricter in two
+// ways. Only rows signed by their sender (no unverified relayed copy, no
+// guest row), because a re-send puts this account's own signature on the
+// bytes. And no disappearing message at all, live or not (the row's deadline
+// or the one the drain read from the body): one tap must not turn something
+// sent to vanish into a permanent copy elsewhere.
+const mediaRecentQuery = `
+SELECT mi.message_id, mi.channel_id, mi.ord, mi.kind, mi.sent, mi.expires, m.expires, m.sender, m.name, m.content_enc, m.nonce
+FROM media_index mi JOIN messages m ON m.id = mi.message_id
+WHERE m.deleted = 0 AND m.kind = '' AND m.unverified = 0
+  AND m.expires = 0 AND mi.expires = 0
+  AND NOT EXISTS (SELECT 1 FROM hidden_messages h WHERE h.message_id = mi.message_id AND h.hidden = 1)
+  AND (mi.sent, mi.message_id, mi.ord) < (?, ?, ?)
+ORDER BY mi.sent DESC, mi.message_id DESC, mi.ord DESC
+LIMIT ?`
+
+// RecentMedia returns up to limit gallery items from every channel this
+// device holds, newest first, starting after cursor, and the cursor for the
+// next page ("" at the end). It is the attach menu's "Recent" strip; the
+// caller drops the channels it no longer belongs to. The first page indexes
+// at most recentDrainMax pending messages first.
+func (s *Store) RecentMedia(cursor MediaCursor, limit int) ([]MediaItem, MediaCursor, error) {
+	if limit <= 0 || limit > MediaPageMax {
+		limit = MediaPageMax
+	}
+	if cursor.MessageID == "" {
+		// Not while the background drain is working through a backlog: the
+		// two would take turns on the writer, and the menu would wait.
+		if !s.mediaDraining.Load() {
+			if _, err := s.drainMedia("", recentDrainMax); err != nil {
+				return nil, MediaCursor{}, err
+			}
+		}
+		cursor = MediaCursor{Sent: int64(^uint64(0) >> 1), MessageID: "\U0010FFFF", Ord: 1 << 30}
+	}
+	rows, err := s.rd().Query(mediaRecentQuery, cursor.Sent, cursor.MessageID, cursor.Ord, limit)
+	if err != nil {
+		return nil, MediaCursor{}, err
+	}
+	defer rows.Close()
+	var out []MediaItem
+	var last MediaCursor
+	n := 0
+	for rows.Next() {
+		var id, channel, name string
+		var ord, kind int
+		var sent, miExp, mExp int64
+		var sender, enc, nonce []byte
+		if err := rows.Scan(&id, &channel, &ord, &kind, &sent, &miExp, &mExp, &sender, &name, &enc, &nonce); err != nil {
+			return nil, MediaCursor{}, err
+		}
+		n++
+		last = MediaCursor{Sent: sent, MessageID: id, Ord: ord}
+		body, err := s.open(enc, nonce)
+		if err != nil {
+			continue
+		}
+		it, ok := mediatok.At(body, ord, mediatok.Kind(kind))
+		if !ok {
+			continue
+		}
+		out = append(out, MediaItem{MessageID: id, ChannelID: channel, Sender: sender, SenderName: name, Sent: sent,
+			Expires: max(miExp, mExp), Item: it})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, MediaCursor{}, err

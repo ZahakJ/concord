@@ -1,11 +1,11 @@
-// fx.js — the effects engine shared by avatar rings and profile banners.
+// fx.js — the effects engine shared by banners and the window effects.
 //
 // An effect is DATA, not a bespoke CSS class: a kind ("fall", "streak",
 // "bolt"…), how many particles, their glyphs/colors/sizes/speeds. This file
 // turns that description into a deterministic list of particles; app.css owns
-// the keyframes; FxLayer.svelte paints them. A ring and a banner using the
-// same kind share every line of code — snow is snow whether it falls past your
-// avatar or across your banner.
+// the keyframes; FxLayer.svelte paints them. A banner and a window effect
+// using the same kind share every line of code — snow is snow whether it falls
+// across your banner or the whole window.
 //
 // Deterministic: the same seed always yields the same field, so a preset looks
 // identical in the picker, on the card, and on everyone else's screen — and it
@@ -28,12 +28,11 @@ export function rng(seed) {
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
-// scale < 1 means a small canvas (a 32px avatar or a picker tile, not a
-// banner). Small canvases get FAR fewer particles and no glow — this is the
-// difference between a smooth app and a laptop fan: a member list with 40
-// ringed avatars, or a picker with 43 live tiles, would otherwise animate a
-// thousand blurred, glowing boxes at once. Nobody can see a 3px glow on a 5px
-// snowflake anyway.
+// scale < 1 means a small canvas (a picker tile, not a banner). Small
+// canvases get FAR fewer particles and no glow — this is the difference
+// between a smooth app and a laptop fan: a picker with 43 live tiles would
+// otherwise animate a thousand blurred, glowing boxes at once. Nobody can see
+// a 3px glow on a 5px snowflake anyway.
 export function particles(seed, fx, scale = 1) {
   const r = rng(seed + (fx.kind || ""));
   const budget = scale >= 0.75 ? 1 : scale >= 0.5 ? 0.4 : 0.28;

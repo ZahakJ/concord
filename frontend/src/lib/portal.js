@@ -1,9 +1,9 @@
 // portal — move a node to <body> for as long as it is mounted.
 //
-// `position: fixed` is not enough on its own, and the four cosmetic studios are
-// where that stopped being a footnote. All four are rendered from inside the
-// profile dialog, which is a scrollable box that plays a slide-in animation, so
-// a fixed child of it has two ways to lose the viewport: any ancestor with a
+// `position: fixed` is not enough on its own, and the art studios (the banner
+// studio among them) are where that stopped being a footnote. They are
+// rendered from inside a settings dialog, which is a scrollable box that plays
+// a slide-in animation, so a fixed child of it has two ways to lose the viewport: any ancestor with a
 // transform (or a running animation that implies one) becomes the containing
 // block, and WebKit resolves a fixed descendant of an `overflow: auto` element
 // against the SCROLLER rather than the screen. Either way the studio stops

@@ -1,11 +1,13 @@
 <script>
-  import AvatarRing from "./AvatarRing.svelte";
-  import AvatarDecoration from "./AvatarDecoration.svelte";
-  import { wornRing } from "./lib/wornrings.js";
   // The one avatar. Renders, in priority order: uploaded image, profile emoji,
   // name/fingerprint initials — tinted by the member's accent color, with an
   // optional presence dot or custom-status emoji. Replaces five copy-pasted
   // implementations.
+  //
+  // Nothing is drawn around it. Rings, decorations and profile effects were
+  // removed; a peer on an older build may still send their ids (`frame`,
+  // `effect`, `style.dec`), and nothing here reads them, so such a profile
+  // draws exactly like one without them.
   let {
     name = "",
     emoji = "",
@@ -14,21 +16,6 @@
     size = 32,
     online = null, // null hides the dot; true/false shows connection state
     presence = "", // "" | online | idle | dnd | invisible — shades the dot when connected
-    frame = "", // gradient ring id — see lib/rings.js (snow, comet, orbit-cow…)
-    style = null, // ring dials: { speed, dir, glow, width, sat } (lib/rings.js)
-    color2 = "", // second theme color — the "theme" ring spins between the two
-    // Anything worn on the avatar — ears, a crown, wings, a band of runes.
-    // See lib/decorations.js. Independent of `frame`: a decoration composes
-    // WITH a gradient ring rather than replacing it.
-    decoration = "",
-    // The colourway the decoration is painted in — a bounded id out of
-    // lib/decorations.js COLORWAYS. Given as a prop for the call sites that
-    // hand this component nothing but a member row, and read off `style`
-    // otherwise, which is where it travels.
-    dc = "",
-    // Passed straight through to the decoration painter: let a picker tile
-    // animate even at thumbnail size.
-    preview = false,
     // Custom-status emoji, as a badge on the corner. A voice tile is where this
     // earns its keep: "I'm gaming" has to read at a glance, and the presence
     // dot yields to it because they share the same corner and the emoji is the
@@ -43,25 +30,6 @@
   // recycles these) does not inherit the last one's failure.
   let failedSrc = $state("");
   const imageFailed = $derived(!!image && failedSrc === image);
-  const cw = $derived(dc || style?.dc || "");
-
-  // The drawn RINGS used to be their own library and used to travel in `frame`.
-  // They are decorations now, but the ids never changed, so a `frame` naming
-  // one is painted through the decoration painter. Anyone already wearing one
-  // keeps it, with no migration and no rewrite of what they broadcast.
-  //
-  // `wornRing` and not a plain lookup, because only those twenty-one were ever
-  // reachable from `frame`. Matching the whole decoration table here means a
-  // figure that happens to share a name with a gradient ring takes that ring's
-  // wearers with it — "comet" is in both libraries, and for a while the
-  // gradient one could not be worn at all.
-  const legacy = $derived(!!frame && wornRing(frame));
-
-  // A circle around a squircle reads as a rendering bug, so app.css keeps the
-  // circular silhouette for `.ringed` avatars only. That has to hold however
-  // the ring arrived: as a gradient ring in `frame`, as a legacy drawn ring in
-  // `frame`, or — now that the libraries are one — as a decoration in `dec`.
-  const ringed = $derived(!!frame || wornRing(decoration));
 
   // Presence, by SHAPE as well as colour, so it reads without colour vision:
   // online is a filled disc, idle a crescent, do-not-disturb a disc with a bar,
@@ -78,28 +46,20 @@
             ? "dnd"
             : "on",
   );
+  // The dot scales with the avatar: a coloured disc a quarter of its width
+  // (6 to 14px) inside a cut-out ring, 2px (1.5 on a small avatar). A flat
+  // 14px was half of a 28px member row and read as a second avatar.
+  const dotRing = $derived(size <= 24 ? 1.5 : 2);
+  const dotSize = $derived(Math.min(14, Math.max(6, Math.round(size / 4))) + 2 * dotRing);
 </script>
 
 <span
   class="avatar"
-  class:ringed={ringed}
   class:pictured={!!image && !imageFailed}
   style="width:{size}px;height:{size}px;font-size:{Math.max(10, Math.round(size * 0.38))}px;{color
     ? `background:${color};`
     : ''}"
 >
-  <!-- A `frame` saved before the two libraries merged may name a drawn ring;
-       it paints through the decoration painter. Anything else is a gradient
-       ring (lib/rings.js). Both may be on at once — someone who set a drawn
-       ring AND a decoration chose to wear two, and wears two. -->
-  {#if legacy}
-    <AvatarDecoration id={frame} {size} {color} {color2} {cw} {preview} />
-  {:else if frame}
-    <AvatarRing ring={frame} {size} {style} {color} {color2} />
-  {/if}
-  {#if decoration}
-    <AvatarDecoration id={decoration} {size} {color} {color2} {cw} {preview} />
-  {/if}
   {#if image && !imageFailed}
     <!-- A picture that will not decode falls back to the initials underneath
          it rather than to the browser's broken-image glyph. Ordinary profile
@@ -117,14 +77,14 @@
       >{mood}</span
     >
   {:else if state}
-    <span class="dot {state}" class:small={size <= 24}></span>
+    <span class="dot {state}" style="--dot:{dotSize}px;--dot-ring:{dotRing}px"></span>
   {/if}
 </span>
 
 <style>
   .avatar {
     position: relative;
-    isolation: isolate; /* the ring sits behind the avatar, not the page */
+    isolation: isolate; /* the mood badge stacks within the avatar, not the page */
     overflow: visible;
     border-radius: 50%;
     /* The tint is the backdrop for INITIALS and an emoji — see .pictured below,
@@ -170,22 +130,18 @@
   :global(:root[data-motion="reduced"]) img {
     animation: none;
   }
-  /* 10px (8 on a small avatar) with a 2px cut-out in the colour of the
-     surface the avatar sits on. --avatar-cut lets a caller on another ground
-     (the feed, a dialog) name it; the sidebar's is the default. */
+  /* Sized in the script (--dot, --dot-ring), with the cut-out in the colour
+     of the surface the avatar sits on. --avatar-cut lets a caller on another
+     ground (the feed, a dialog) name it; the sidebar's is the default. */
   .dot {
     position: absolute;
-    bottom: -2px;
-    right: -2px;
-    width: 14px;
-    height: 14px;
+    bottom: calc(-1 * var(--dot-ring));
+    right: calc(-1 * var(--dot-ring));
+    width: var(--dot);
+    height: var(--dot);
     border-radius: 50%;
-    border: 2px solid var(--avatar-cut, var(--bg-1));
+    border: var(--dot-ring) solid var(--avatar-cut, var(--bg-1));
     background: var(--ok);
-  }
-  .dot.small {
-    width: 12px;
-    height: 12px;
   }
   .dot.idle {
     background: radial-gradient(circle at 28% 28%, var(--avatar-cut, var(--bg-1)) 0 36%, var(--warn) 38%);
@@ -206,7 +162,7 @@
   }
   .dot.off {
     background: var(--avatar-cut, var(--bg-1));
-    box-shadow: inset 0 0 0 2px var(--text-faint);
+    box-shadow: inset 0 0 0 1.5px var(--text-faint);
   }
   .mood {
     position: absolute;

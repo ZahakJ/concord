@@ -12,7 +12,7 @@
   import { pushLayer } from "./lib/navstack.svelte.js";
   import Banner from "./Banner.svelte";
   import { rangefill } from "./lib/rangefill.js";
-  import { BANNERS, BANNER_GROUPS, isPreset, presetId } from "./lib/banners.js";
+  import { BANNERS, BANNER_GROUPS, PROFILE_BANNERS, isPreset, presetId } from "./lib/banners.js";
   import { pointOf } from "./lib/place.js";
 
   let {
@@ -33,6 +33,10 @@
 
   let tab = $state(isPreset(banner) ? "presets" : banner ? "image" : "presets");
   let sel = $state(isPreset(banner) ? presetId(banner) : "");
+  // The profile picker's twelve, plus whatever you are wearing now if it is
+  // one of the others, so it is still there to keep (lib/banners.js).
+  const worn = isPreset(banner) ? presetId(banner) : "";
+  const offered = BANNERS.filter((b) => PROFILE_BANNERS.includes(b.id) || b.id === worn);
   let ang = $state(angle);
 
   // ---- image framing ----
@@ -157,10 +161,10 @@
         <Banner banner={sel ? `preset:${sel}` : ""} {color} {color2} style={{ angle: ang }} class="hero banner" />
       </div>
       <div class="shelves">
-        {#each BANNER_GROUPS as g (g)}
+        {#each BANNER_GROUPS.filter((g) => offered.some((b) => b.group === g)) as g (g)}
           <div class="gtitle">{g}</div>
           <div class="grid">
-            {#each BANNERS.filter((b) => b.group === g) as p (p.id)}
+            {#each offered.filter((b) => b.group === g) as p (p.id)}
               <button
                 class="tile"
                 class:sel={sel === p.id}

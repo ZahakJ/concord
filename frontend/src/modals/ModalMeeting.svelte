@@ -255,9 +255,10 @@
         </Switch>
       </label>
       <p class="muted tiny">
-        Guest chat and calls are encrypted between the guest's browser and your
-        app; the rendezvous relays only ciphertext. It also serves the guest
-        page, so an operator who altered that page could read the meeting.
+        Guests join the chat and the call, labelled in the room. Their chat and
+        calls are encrypted between the guest's browser and your app; the
+        rendezvous relays only ciphertext. It also serves the guest page, so an
+        operator who altered that page could read the meeting.
       </p>
       <button class="ghost small danger" disabled={busy || !guildId} onclick={revoke}>
         Revoke link

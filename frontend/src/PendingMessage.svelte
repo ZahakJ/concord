@@ -77,13 +77,8 @@
         name={myName}
         emoji={me?.emoji}
         color={me?.color}
-        color2={me?.color2}
         image={me?.avatar}
         size={avSize}
-        frame={me?.frame}
-        decoration={me?.style?.dec || ""}
-        dc={me?.style?.dc || ""}
-        style={me?.style}
       />
     </span>
   {:else}

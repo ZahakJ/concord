@@ -35,6 +35,9 @@ type MediaItemView struct {
 	// mark (frontend lib/unsigned.js).
 	Unverified bool `json:"unverified,omitempty"`
 	Guest      bool `json:"guest,omitempty"`
+	// Local: the blob is on this device. Set by RecentMedia only, whose tiles
+	// draw a picture only when it is.
+	Local bool `json:"local,omitempty"`
 }
 
 // MediaPageView is one page and where the next starts ("" at the end).
@@ -56,6 +59,25 @@ func (b *Bridge) MediaPage(channelID string, tab int, cursor string, limit int) 
 		return MediaPageView{}, err
 	}
 	return MediaPageView{Items: mediaViews(svc, items), Next: next}, nil
+}
+
+// RecentMedia is the attach menu's "Recent" strip: up to limit (at most 12)
+// items from every conversation, newest first (app.RecentMedia has the
+// rules).
+func (b *Bridge) RecentMedia(limit int) ([]MediaItemView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	items, err := svc.RecentMedia(limit)
+	if err != nil {
+		return nil, err
+	}
+	out := mediaViews(svc, items)
+	for i := range out {
+		out[i].Local = svc.MediaLocal(out[i].BlobID)
+	}
+	return out, nil
 }
 
 // mediaViews turns a page into what the UI draws, leaving out blocked
