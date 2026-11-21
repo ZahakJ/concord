@@ -465,10 +465,10 @@
     z-index: 401;
     min-width: 220px;
     max-width: 280px;
-    padding: var(--sp-1);
+    padding: 6px;
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-pop);
     display: flex;
     flex-direction: column;
@@ -500,14 +500,15 @@
     justify-content: flex-start;
     gap: 10px;
     width: 100%;
-    min-height: 32px;
+    min-height: 34px;
     padding: 0 8px 0 10px;
     background: transparent;
     color: var(--text);
     text-align: left;
     font-size: var(--fs-ui);
     font-weight: 400;
-    border-radius: var(--radius-sm);
+    /* Concentric with the panel: its corner less the 6px inset. */
+    border-radius: calc(var(--radius-lg) - 6px);
   }
   .cm-item > :global(svg) {
     flex: none;

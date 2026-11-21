@@ -96,28 +96,36 @@
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    padding: 10px 8px 10px 12px;
+    align-items: center;
+    padding: 10px 8px 10px 10px;
     color: var(--text);
     background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     font-size: var(--fs-compact);
     line-height: 1.4;
     box-shadow: var(--shadow-pop);
   }
+  /* 0.63: the kind is a small tinted disc, read before the words. */
   .toast.error .t-icon {
     color: var(--danger-text);
+    background: var(--danger-soft);
   }
   .toast.success .t-icon {
     color: var(--ok-text);
+    background: var(--ok-soft);
   }
   .toast.info .t-icon {
-    color: var(--text-muted);
+    color: var(--accent-hover);
+    background: var(--accent-soft);
   }
   .t-icon {
     flex-shrink: 0;
-    display: flex;
-    margin-top: 1px;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
   }
   .t-text {
     flex: 1;

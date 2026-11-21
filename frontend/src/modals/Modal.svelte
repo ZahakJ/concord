@@ -466,7 +466,10 @@
     overscroll-behavior: contain;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
+    /* 0.63: the dialog is the app's top step of elevation (DESIGN-063.md):
+       the stage radius and the long, soft stage shadow, with a hairline of
+       light along the top edge so the surface reads as lifted toward you. */
+    border-radius: var(--radius-xl);
     padding: 0 var(--dlg-pad) var(--dlg-pad);
     /* ONE body size. A dialog used to inherit the document's 16px, so every
        sentence and field nobody had sized explicitly came out at 16 while its
@@ -478,7 +481,9 @@
     display: flex;
     flex-direction: column;
     gap: var(--sp-3);
-    box-shadow: var(--shadow-pop);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent),
+      var(--shadow-stage);
     /* Never a ring round the whole dialog: focus goes to the first field, the
        primary or the title, never the box. */
     outline: none;
@@ -648,7 +653,7 @@
     padding: var(--sp-4) var(--dlg-pad);
     background: var(--bg-elevated);
     border-top: 1px solid transparent;
-    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    border-radius: 0 0 var(--radius-xl) var(--radius-xl);
   }
   .dialog.scrolls :global(.actions) {
     border-top-color: var(--hairline);

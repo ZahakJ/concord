@@ -25,7 +25,7 @@
 </script>
 
 <div class="empty" class:compact class:center>
-  <div class="mark"><Icon name={icon} size={compact ? 16 : 22} /></div>
+  <div class="mark" aria-hidden="true"><Icon name={icon} size={compact ? 16 : 26} /></div>
   <h3>{headline}</h3>
   {#if sub}<p>{sub}</p>{/if}
   {#if actions}<div class="acts">{@render actions()}</div>{/if}
@@ -33,6 +33,9 @@
 </div>
 
 <style>
+  /* 0.63: the full-size empty state is a small STAGE (DESIGN-063.md): the
+     mark is lit by the aurora and the lines arrive in a short staggered rise.
+     The compact one (panels, popovers) stays chrome: outlined and still. */
   .empty {
     display: flex;
     flex-direction: column;
@@ -40,6 +43,26 @@
     text-align: start;
     max-width: 560px;
     padding: var(--sp-5) var(--sp-4);
+  }
+  .empty:not(.compact) > * {
+    animation: empty-rise var(--dur-reveal) var(--ease-spring) both;
+  }
+  .empty:not(.compact) > :nth-child(2) {
+    animation-delay: var(--stagger);
+  }
+  .empty:not(.compact) > :nth-child(3) {
+    animation-delay: calc(var(--stagger) * 2);
+  }
+  .empty:not(.compact) > :nth-child(n + 4) {
+    animation-delay: calc(var(--stagger) * 3);
+  }
+  @keyframes empty-rise {
+    from {
+      opacity: 0;
+      transform: translateY(var(--stage-rise));
+    }
+  }
+  .compact {
     animation: empty-in var(--dur-standard) var(--ease-out) both;
   }
   @keyframes empty-in {
@@ -47,26 +70,45 @@
       opacity: 0;
     }
   }
-  /* Outlined, not a tinted blob: the mark says "this is a place", the
-     headline says which. */
+  /* The lit mark: a tile on the stage ground with the aurora behind a frosted
+     face, the glyph in stage ink. The light is painted, never animated. */
   .mark {
-    width: 48px;
-    height: 48px;
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--border);
+    position: relative;
+    width: 64px;
+    height: 64px;
+    border-radius: var(--radius-xl);
     display: grid;
     place-items: center;
-    color: var(--text-muted);
-    margin-bottom: 18px;
+    color: var(--stage-ink);
+    background: var(--aurora), var(--stage-ground);
+    background-size: 220% 220%, auto;
+    background-position: 30% 20%, center;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--aurora-1) 38%, transparent),
+      var(--shadow-rest);
+    margin-bottom: var(--sp-5);
+    isolation: isolate;
+  }
+  /* A second, wider pool of the same light under the tile, so the mark sits
+     in a glow of its own room rather than on a flat page. Static. */
+  .mark::before {
+    content: "";
+    position: absolute;
+    inset: -28px;
+    z-index: -1;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--aurora-1) 22%, transparent), transparent);
+    pointer-events: none;
   }
   .empty h3 {
     margin: 0;
     font-family: var(--display-font);
-    font-size: var(--fs-display);
+    font-size: var(--fs-headline);
     font-weight: 600;
-    letter-spacing: -0.02em;
-    line-height: 1.2;
+    letter-spacing: -0.025em;
+    line-height: 1.12;
     color: var(--text);
+    text-wrap: balance;
   }
   .empty p {
     margin: var(--sp-2) 0 0;
@@ -74,12 +116,13 @@
     font-size: var(--fs-ui);
     line-height: 1.55;
     color: var(--text-muted);
+    text-wrap: pretty;
   }
   .acts {
     display: flex;
     flex-wrap: wrap;
     gap: var(--sp-2);
-    margin-top: 18px;
+    margin-top: 20px;
   }
   .meta {
     display: flex;
@@ -108,6 +151,12 @@
     height: 32px;
     border-radius: var(--radius-md);
     margin-bottom: var(--sp-3);
+    color: var(--text-muted);
+    background: none;
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+  .compact .mark::before {
+    content: none;
   }
   .compact h3 {
     font-size: var(--fs-title);

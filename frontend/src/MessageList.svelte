@@ -2358,22 +2358,31 @@
   /* Dividers are left-aligned labels with a hairline to the right — sentence
      case, never a pill. Each carries its own space above (the feed has no
      gap; see .feed), and a new group always starts under one. */
+  /* 0.63: the day is a small centred plate on a hairline that runs both
+     ways, in the display face (which has no italic to lean on). */
   .day-divider {
     display: flex;
     align-items: center;
     gap: var(--sp-3);
     color: var(--text-muted);
     font-family: var(--display-font);
-    font-size: var(--fs-ui);
-    font-style: italic;
+    font-size: var(--fs-small);
     font-weight: 600;
+    letter-spacing: 0.01em;
     margin: 20px 0 4px;
   }
+  .day-divider::before,
   .day-divider::after {
     content: "";
     flex: 1;
     height: 1px;
     background: var(--hairline);
+  }
+  .day-divider > span {
+    padding: 3px 10px;
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    background: var(--bg-2);
   }
   /* The New line is YOUR accent, as ink, at every size and in both themes:
      a hairline across and the word at the end. */

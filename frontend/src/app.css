@@ -1447,6 +1447,13 @@ button.primary {
   background: var(--accent);
   color: var(--accent-fg);
   font-weight: 600;
+  /* 0.63: a hairline of light along the top edge, so the one primary on a
+     surface reads as a raised key rather than a flat swatch. Not a glow: it
+     never leaves the button's own box. */
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
+}
+button:is(.primary, .quiet, .ghost, .danger) {
+  border-radius: var(--radius-md);
 }
 button.ghost {
   background: transparent;
