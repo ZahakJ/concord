@@ -589,7 +589,7 @@ func TestEveryCreatorUsesTheFounderID(t *testing.T) {
 	if len(slots) == 0 {
 		t.Fatal("no slot to book")
 	}
-	if resp := s.bookSlot(bookingRequest{Op: "book", Slot: slots[0], Name: "Sam"}); !resp.OK {
+	if resp := s.bookSlot(bookingRequest{Op: "book", Slot: slots[0], Name: "Sam", Epk: testEpk(t)}); !resp.OK {
 		t.Fatalf("booking refused: %+v", resp)
 	}
 	bookings := s.BookingSettings().Bookings
