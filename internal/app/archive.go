@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -148,6 +149,13 @@ func (s *Service) ExportArchive(passphrase string, withAttachments bool) ([]byte
 	if int64(len(raw)) > archivePlainCap(buf.Len()) {
 		return nil, st, errArchiveOverCap
 	}
+	entries := len(af.Guilds) + len(af.Messages) + len(af.Saved) + len(af.Blobs)
+	for _, g := range af.Guilds {
+		entries += len(g.Channels)
+	}
+	if entries > archiveEntryBudget(len(raw)) {
+		return nil, st, errArchiveOverCount
+	}
 	sealed, err := identity.SealWithPassphrase(passphrase, buf.Bytes())
 	if err != nil {
 		return nil, st, err
@@ -184,6 +192,194 @@ func archivePlainCap(n int) int64 {
 	return c
 }
 
+// archiveBytesPerEntry bounds what the JSON text of an archive may parse
+// into. The text cap alone did not: "{}" is three bytes of JSON and a
+// 280-byte message, so a 3 KiB file held a million messages. Every guild,
+// channel, message, saved id and blob counts against one budget of a
+// sixty-fourth of the text, the way the chronicle chunk reader counts its
+// messages. A real message, with its ids, sender key and timestamp, is well
+// over 64 bytes of JSON, and a saved id comes with the message it names.
+const (
+	archiveBytesPerEntry = 64
+	archiveEntrySlack    = 16
+)
+
+var errArchiveOverCount = errors.New("app: archive holds more entries than its size allows")
+
+// archiveEntryBudget is how many entries n bytes of archive JSON may hold.
+func archiveEntryBudget(n int) int { return n/archiveBytesPerEntry + archiveEntrySlack }
+
+// parseArchive is json.Unmarshal into an archiveFile, with the entry budget
+// applied while decoding: an entry past the budget is refused before it is
+// allocated. Unknown keys are skipped as raw bytes.
+func parseArchive(raw []byte) (archiveFile, error) {
+	var af archiveFile
+	budget := archiveEntryBudget(len(raw))
+	take := func(n int) error {
+		budget -= n
+		if budget < 0 {
+			return errArchiveOverCount
+		}
+		return nil
+	}
+	bad := func(err error) (archiveFile, error) {
+		if errors.Is(err, errArchiveOverCount) {
+			return archiveFile{}, err
+		}
+		return archiveFile{}, fmt.Errorf("app: archive is not readable: %w", err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := expectDelim(dec, '{'); err != nil {
+		return bad(err)
+	}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return bad(err)
+		}
+		key, _ := tok.(string)
+		switch key {
+		case "version":
+			err = dec.Decode(&af.Version)
+		case "created":
+			err = dec.Decode(&af.Created)
+		case "app":
+			err = dec.Decode(&af.App)
+		case "guilds":
+			err = decodeArchiveArray(dec, func(null bool) { af.Guilds = emptyOrNil[archiveGuild](null) }, func() error {
+				var g archiveGuild
+				if err := take(1); err != nil {
+					return err
+				}
+				if err := dec.Decode(&g); err != nil {
+					return err
+				}
+				if err := take(len(g.Channels)); err != nil {
+					return err
+				}
+				af.Guilds = append(af.Guilds, g)
+				return nil
+			})
+		case "messages":
+			err = decodeArchiveArray(dec, func(null bool) { af.Messages = emptyOrNil[domain.Message](null) }, func() error {
+				var m domain.Message
+				if err := take(1); err != nil {
+					return err
+				}
+				if err := dec.Decode(&m); err != nil {
+					return err
+				}
+				af.Messages = append(af.Messages, m)
+				return nil
+			})
+		case "saved":
+			err = decodeArchiveArray(dec, func(null bool) { af.Saved = emptyOrNil[string](null) }, func() error {
+				var id string
+				if err := take(1); err != nil {
+					return err
+				}
+				if err := dec.Decode(&id); err != nil {
+					return err
+				}
+				af.Saved = append(af.Saved, id)
+				return nil
+			})
+		case "blobs":
+			err = decodeArchiveBlobs(dec, take, &af)
+		default:
+			var skip json.RawMessage
+			err = dec.Decode(&skip)
+		}
+		if err != nil {
+			return bad(err)
+		}
+	}
+	if err := expectDelim(dec, '}'); err != nil {
+		return bad(err)
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return bad(fmt.Errorf("data after the archive"))
+	}
+	return af, nil
+}
+
+// decodeArchiveArray reads a JSON array, or null, calling each for every
+// element with the decoder positioned on it. start resets the field first, as
+// json.Unmarshal does: null leaves it nil, an array starts it empty (a key
+// that appears twice keeps the second).
+func decodeArchiveArray(dec *json.Decoder, start func(null bool), each func() error) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	start(tok == nil)
+	if tok == nil {
+		return nil
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '[' {
+		return fmt.Errorf("want an array, got %v", tok)
+	}
+	for dec.More() {
+		if err := each(); err != nil {
+			return err
+		}
+	}
+	return expectDelim(dec, ']')
+}
+
+// decodeArchiveBlobs reads the blobs object, or null, an entry at a time.
+func decodeArchiveBlobs(dec *json.Decoder, take func(int) error, af *archiveFile) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		af.Blobs = nil
+		return nil
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return fmt.Errorf("want an object, got %v", tok)
+	}
+	// Into an existing map, as json.Unmarshal merges a repeated key's object.
+	if af.Blobs == nil {
+		af.Blobs = map[string][]byte{}
+	}
+	for dec.More() {
+		k, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		id, _ := k.(string)
+		if err := take(1); err != nil {
+			return err
+		}
+		var b []byte
+		if err := dec.Decode(&b); err != nil {
+			return err
+		}
+		af.Blobs[id] = b
+	}
+	return expectDelim(dec, '}')
+}
+
+func emptyOrNil[T any](null bool) []T {
+	if null {
+		return nil
+	}
+	return []T{}
+}
+
+func expectDelim(dec *json.Decoder, want json.Delim) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if d, ok := tok.(json.Delim); !ok || d != want {
+		return fmt.Errorf("want %q, got %v", want, tok)
+	}
+	return nil
+}
+
 // decodeArchive gunzips and parses an opened archive, streaming through the
 // cap rather than checking after: the point of a cap is not to allocate what
 // it refuses. One byte over the cap is let through so a stream that reaches
@@ -204,8 +400,9 @@ func decodeArchive(plain []byte) (archiveFile, error) {
 	if int64(len(raw)) > limit {
 		return af, errArchiveOverCap
 	}
-	if err := json.Unmarshal(raw, &af); err != nil {
-		return af, fmt.Errorf("app: archive is not readable: %w", err)
+	af, err = parseArchive(raw)
+	if err != nil {
+		return af, err
 	}
 	if af.Version > archiveVersion {
 		return af, fmt.Errorf("app: this archive was written by a newer version (%d); upgrade first", af.Version)
