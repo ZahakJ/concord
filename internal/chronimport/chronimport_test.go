@@ -644,7 +644,7 @@ func TestRemoteAttachmentsAreNeverOpened(t *testing.T) {
 		if !isRemoteURL(u) {
 			t.Errorf("%q was not recognised as remote", u)
 		}
-		if _, ok := LocalAttachmentPath(root, Attachment{URL: u}); ok {
+		if _, ok := OpenLocalAttachment(root, Attachment{URL: u}); ok {
 			t.Errorf("%q resolved to a local file", u)
 		}
 	}

@@ -62,9 +62,10 @@
 //
 // A local asset path comes out of the export file, which means it is untrusted
 // input naming a file on the importing machine. Every path is resolved against
-// the export directory and refused if it escapes it (see localAssetPath), so an
-// export cannot talk the importer into sealing /etc/shadow into a guild's
-// history.
+// the export directory, refused if it escapes it or passes through a symlink,
+// and opened without following links (see localAssetPath and OpenLocalAsset),
+// so an export cannot talk the importer into sealing /etc/shadow into a
+// guild's history.
 package chronimport
 
 import (
@@ -564,14 +565,62 @@ func isRemoteURL(u string) bool {
 // This is the security boundary of the whole importer. The URL is a string a
 // stranger's tool wrote into a file, and the caller is about to read whatever it
 // names and seal it into a guild's permanent history. So: remote URLs are never
-// opened, the path is resolved against the export root, symlinks are resolved
-// before the containment check rather than after, and anything that lands
-// outside the root is refused. "../../.ssh/id_ed25519" has to be a miss, not a
-// blob every member of the guild can fetch.
+// opened, absolute paths and paths that climb out are refused, and a symlink
+// anywhere below the export root — file or directory, pointing out or back in —
+// is refused outright. "../../.ssh/id_ed25519" has to be a miss, not a blob
+// every member of the guild can fetch, and so does "d/id_ed25519" when the
+// archive extractor restored "d" as a link to the home directory.
+//
+// Refusing every link rather than resolving and re-checking is what keeps this
+// simple enough to trust: with no links below the root, the lexically cleaned
+// path IS the file, so containment is a string property. No real export needs
+// a link; an extractor that restores one is restoring something the export
+// tool did not write.
+//
+// This is the check; OpenLocalAsset is the read. Between a check and an open
+// somebody can swap a directory for a link, so anything that reads the bytes
+// goes through OpenLocalAsset, which walks the same path again without
+// following links at the moment it opens it.
 func localAssetPath(root, raw string) (string, bool) {
+	rootReal, rels := assetCandidates(root, raw)
+	for _, rel := range rels {
+		if p, ok := checkBeneath(rootReal, rel); ok {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// OpenLocalAsset opens the file an asset URL names inside the export directory
+// for reading, or reports ok=false. The file is opened one path component at a
+// time without following symlinks (see openBeneath), so what is read is what
+// was checked, and it is a regular file: a FIFO, a device or a directory is
+// refused. The file's Name is its path under the root, for the extension.
+func OpenLocalAsset(root, raw string) (*os.File, bool) {
+	rootReal, rels := assetCandidates(root, raw)
+	for _, rel := range rels {
+		if f, err := openBeneath(rootReal, rel); err == nil {
+			return f, true
+		}
+	}
+	return nil, false
+}
+
+// assetCandidates resolves the export root (which the owner chose, and which may
+// itself be reached through a link) and lists the relative, cleaned paths an
+// asset URL could mean, none of which is absolute or climbs out of the root.
+func assetCandidates(root, raw string) (string, []string) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || isRemoteURL(raw) {
-		return "", false
+		return "", nil
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", nil
+	}
+	rootReal, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return "", nil
 	}
 	// Exports percent-encode spaces and non-ASCII in asset paths. Try the
 	// decoded form first and fall back to the literal one, because a filename
@@ -580,68 +629,68 @@ func localAssetPath(root, raw string) (string, bool) {
 	if dec, err := url.PathUnescape(raw); err == nil && dec != raw {
 		cands = append([]string{dec}, cands...)
 	}
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		return "", false
-	}
-	if resolved, err := filepath.EvalSymlinks(rootAbs); err == nil {
-		rootAbs = resolved
-	}
+	var rels []string
 	for _, c := range cands {
 		c = filepath.FromSlash(c)
-		if filepath.IsAbs(c) {
+		if filepath.IsAbs(c) || filepath.VolumeName(c) != "" {
 			// An absolute path in an export is never something we brought with
 			// us. Refused outright rather than checked for containment: the only
 			// way it could pass is by naming a file inside the export directory,
 			// which the relative form already covers.
 			continue
 		}
-		p := filepath.Join(rootAbs, c)
-		st, err := os.Lstat(p)
-		if err != nil {
+		c = filepath.Clean(c)
+		if c == "." || c == ".." || strings.HasPrefix(c, ".."+string(filepath.Separator)) {
 			continue
 		}
-		if st.Mode()&os.ModeSymlink != 0 {
-			// Resolve it, then re-check containment: a symlink is exactly how an
-			// export would try to reach outside its own directory.
-			p, err = filepath.EvalSymlinks(p)
-			if err != nil {
-				continue
-			}
-			st, err = os.Stat(p)
-			if err != nil {
-				continue
-			}
-		}
-		if !st.Mode().IsRegular() {
-			continue
-		}
-		if !withinRoot(rootAbs, p) {
-			continue
-		}
-		return p, true
+		rels = append(rels, c)
 	}
-	return "", false
+	return rootReal, rels
 }
 
-// LocalAttachmentPath resolves an attachment to a readable file inside the
-// export, or reports ok=false — which is the answer for a remote-only export,
-// for a file the user deleted after exporting, and for anything trying to name
-// a path outside the directory.
-func LocalAttachmentPath(root string, a Attachment) (string, bool) {
-	return localAssetPath(root, a.URL)
+// checkBeneath walks rel below root one component at a time with Lstat, and
+// accepts it only if no component is a link, every one but the last is a
+// directory, and the last is a regular file.
+func checkBeneath(root, rel string) (string, bool) {
+	parts := strings.Split(rel, string(filepath.Separator))
+	p := root
+	for i, part := range parts {
+		p = filepath.Join(p, part)
+		st, err := os.Lstat(p)
+		if err != nil || st.Mode()&os.ModeSymlink != 0 {
+			return "", false
+		}
+		if i < len(parts)-1 && !st.IsDir() {
+			return "", false
+		}
+		if i == len(parts)-1 && !st.Mode().IsRegular() {
+			return "", false
+		}
+	}
+	if !withinRoot(root, p) {
+		return "", false
+	}
+	return p, true
 }
 
-// LocalAvatarPath resolves an author's portrait the same way.
-func LocalAvatarPath(root string, a Author) (string, bool) {
-	return localAssetPath(root, a.AvatarURL)
+// OpenLocalAttachment opens an attachment's file inside the export, or reports
+// ok=false — which is the answer for a remote-only export, for a file the user
+// deleted after exporting, and for anything trying to name a path outside the
+// directory.
+func OpenLocalAttachment(root string, a Attachment) (*os.File, bool) {
+	return OpenLocalAsset(root, a.URL)
 }
 
-// LocalEmojiPath resolves a custom emoji's image the same way. The stat carries
+// OpenLocalAvatar opens an author's portrait the same way.
+func OpenLocalAvatar(root string, a Author) (*os.File, bool) {
+	return OpenLocalAsset(root, a.AvatarURL)
+}
+
+// OpenLocalEmoji opens a custom emoji's image the same way. The stat carries
 // the URL it was found at so the importer does not have to hold the whole
 // reaction that named it.
-func LocalEmojiPath(root string, e EmojiStat) (string, bool) {
-	return localAssetPath(root, e.ImageURL)
+func OpenLocalEmoji(root string, e EmojiStat) (*os.File, bool) {
+	return OpenLocalAsset(root, e.ImageURL)
 }
 
 // withinRoot reports whether p is root itself or sits under it.
