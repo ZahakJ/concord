@@ -2142,7 +2142,7 @@
           <div class="att-wrap" class:img={p.isImage}>
           <div class="att-chip" class:file={!p.isImage} class:spoilered={p.spoiler}>
             {#if p.isImage}
-              <span class="att-pic">
+              <span class="att-pic" class:fill={!p.spoiler} style:--pic={`url("${p.dataUrl}")`}>
                 <img src={p.dataUrl} alt="" class:blur={p.spoiler} />
                 {#if p.spoiler}<span class="att-tag"><Icon name="spoiler" size={12} /> Spoiler</span>{/if}
                 {#if mobile}
@@ -3142,7 +3142,7 @@
     flex: none;
     display: flex;
     flex-direction: column;
-    max-width: 200px;
+    max-width: 214px;
     animation: att-stage-in var(--dur-move) var(--ease-out);
   }
   /* A picked file arrives in the tray with a short rise, transform only. */
@@ -3169,18 +3169,30 @@
     position: relative;
     display: grid;
     place-items: center;
+    overflow: hidden;
     background: color-mix(in srgb, var(--bg-0) 70%, black);
   }
   /* Fixed height, free width: a cover-crop showed the middle of every staged
      picture, which is the one thing that cannot tell you whether you picked
      the right file. The row still lines up — every card is the same height —
      and each preview is recognisably its own image. */
+  /* The bars beside a narrow picture carry the picture itself, blurred and
+     dimmed, so the card reads as one piece instead of a photo on black. */
+  .att-pic.fill::before {
+    content: "";
+    position: absolute;
+    inset: -16px;
+    background: var(--pic) center / cover;
+    filter: blur(14px) saturate(1.2);
+    opacity: 0.55;
+  }
   .att-chip img {
+    position: relative;
     display: block;
     height: 96px;
     width: auto;
-    max-width: 198px;
-    min-width: 132px;
+    max-width: 212px;
+    min-width: 176px;
     object-fit: contain;
   }
   /* The staged preview blurs too, so "spoiler" is a state you can see before
@@ -3233,6 +3245,8 @@
   .am-num {
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   /* The actions, always drawn: "how do I take this one back off?" is the
      question a staged attachment actually raises, and a keyboard user must

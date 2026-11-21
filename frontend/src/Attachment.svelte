@@ -278,6 +278,7 @@
       class:tile
       class:hidden
       bind:this={frameEl}
+      style:width={!tile && tok.w && tok.h ? `min(${dims.w}px, 100%)` : undefined}
       data-att-msg={tile ? messageId : undefined}
       onclick={hidden ? reveal : openLightbox}
       oncontextmenu={hidden ? undefined : imageMenu}
@@ -292,7 +293,11 @@
         {src}
         alt={tok.desc || "attachment"}
         class:blur={hidden}
-        style={tile ? "" : `max-width:min(${MAXW}px, 100%);max-height:${MAXH}px`}
+        style={tile
+          ? ""
+          : tok.w && tok.h
+            ? `width:100%;height:auto;aspect-ratio:${tok.w} / ${tok.h}`
+            : `max-width:min(${MAXW}px, 100%);max-height:${MAXH}px`}
       />
       {#if hidden}<span class="spoiler-tag"><Icon name="spoiler" size={16} /> Spoiler</span>{/if}
       {#if tile && captionShown && !hidden}
