@@ -3304,7 +3304,9 @@
     background: var(--sel-bar), var(--bg-3);
   }
   .cols {
-    --sel-bar: linear-gradient(var(--text), var(--text)) 3px 50% / 2px calc(100% - 16px) no-repeat;
+    /* 0.63: the bar is lit in the accent's ink — where YOU are — and a
+       touch heavier, so it reads at a glance in both themes. */
+    --sel-bar: linear-gradient(var(--accent-hover), var(--accent-hover)) 3px 50% / 3px calc(100% - 14px) no-repeat;
   }
   .channel-row.active .channel {
     color: var(--text);

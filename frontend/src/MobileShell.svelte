@@ -1231,6 +1231,30 @@
     place-items: center;
     width: 28px;
     height: 26px;
+    isolation: isolate;
+  }
+  /* 0.63: the current section sits on a pill of the accent's light. It grows
+     in from the icon's centre (transform and opacity only) and is identity
+     under reduced motion, where it simply appears. */
+  .tab-ic::before {
+    content: "";
+    position: absolute;
+    inset: -3px -16px;
+    z-index: -1;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    opacity: 0;
+    transform: scaleX(0.55);
+    transition:
+      opacity var(--dur-standard) var(--ease-out),
+      transform var(--dur-move) var(--ease-spring);
+  }
+  .tab.on .tab-ic::before {
+    opacity: 1;
+    transform: none;
+  }
+  .tab.on .tab-ic {
+    color: var(--accent-hover);
   }
   .tab-lbl {
     max-width: 100%;
