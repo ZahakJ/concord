@@ -142,11 +142,75 @@ func (s *Service) ExportArchive(passphrase string, withAttachments bool) ([]byte
 	if err := zw.Close(); err != nil {
 		return nil, st, err
 	}
+	// An archive this device writes must be one it can read back: the import
+	// caps the decompressed size by the compressed size, and a file past the
+	// cap would be refused on the day it is needed.
+	if int64(len(raw)) > archivePlainCap(buf.Len()) {
+		return nil, st, errArchiveOverCap
+	}
 	sealed, err := identity.SealWithPassphrase(passphrase, buf.Bytes())
 	if err != nil {
 		return nil, st, err
 	}
 	return sealed, st, nil
+}
+
+// The decompressed archive is capped by the size of the compressed one. A
+// file is the operator's own, but one handed to them is not, and before the
+// cap a few hundred kilobytes inflated to whatever its author chose before
+// the JSON was looked at. Text-heavy archives with their random ids and
+// signatures compress well under 10:1 and attachment ciphertext not at all,
+// so 64:1 leaves an honest archive a wide margin; the floor covers small
+// files, the ceiling the largest an honest export with attachments can be
+// (the attachment cache is bounded at a gigabyte, base64 in the JSON).
+const (
+	archiveInflateRatio = 64
+	archivePlainFloor   = 64 << 20
+	archivePlainCeiling = 3 << 30
+)
+
+var errArchiveOverCap = fmt.Errorf("app: archive is over its decompressed size limit (%d times the file, at least %d MiB, at most %d GiB)",
+	archiveInflateRatio, archivePlainFloor>>20, archivePlainCeiling>>30)
+
+// archivePlainCap is the most a compressed archive of n bytes may inflate to.
+func archivePlainCap(n int) int64 {
+	c := int64(n) * archiveInflateRatio
+	if c < archivePlainFloor {
+		c = archivePlainFloor
+	}
+	if c > archivePlainCeiling {
+		c = archivePlainCeiling
+	}
+	return c
+}
+
+// decodeArchive gunzips and parses an opened archive, streaming through the
+// cap rather than checking after: the point of a cap is not to allocate what
+// it refuses. One byte over the cap is let through so a stream that reaches
+// it is told apart from one that ends exactly on it.
+func decodeArchive(plain []byte) (archiveFile, error) {
+	var af archiveFile
+	zr, err := gzip.NewReader(bytes.NewReader(plain))
+	if err != nil {
+		return af, fmt.Errorf("app: archive is not readable: %w", err)
+	}
+	defer zr.Close()
+	limit := archivePlainCap(len(plain))
+	lr := &io.LimitedReader{R: zr, N: limit + 1}
+	raw, err := io.ReadAll(lr)
+	if err != nil {
+		return af, fmt.Errorf("app: archive is truncated: %w", err)
+	}
+	if int64(len(raw)) > limit {
+		return af, errArchiveOverCap
+	}
+	if err := json.Unmarshal(raw, &af); err != nil {
+		return af, fmt.Errorf("app: archive is not readable: %w", err)
+	}
+	if af.Version > archiveVersion {
+		return af, fmt.Errorf("app: this archive was written by a newer version (%d); upgrade first", af.Version)
+	}
+	return af, nil
 }
 
 // ImportArchive merges a sealed archive into this device. It is ADDITIVE and
@@ -160,21 +224,9 @@ func (s *Service) ImportArchive(sealed []byte, passphrase string) (ArchiveStats,
 	if err != nil {
 		return st, err // ErrWrongPassphrase reaches the UI intact
 	}
-	zr, err := gzip.NewReader(bytes.NewReader(plain))
+	af, err := decodeArchive(plain)
 	if err != nil {
-		return st, fmt.Errorf("app: archive is not readable: %w", err)
-	}
-	defer zr.Close()
-	raw, err := io.ReadAll(zr)
-	if err != nil {
-		return st, fmt.Errorf("app: archive is truncated: %w", err)
-	}
-	var af archiveFile
-	if err := json.Unmarshal(raw, &af); err != nil {
-		return st, fmt.Errorf("app: archive is not readable: %w", err)
-	}
-	if af.Version > archiveVersion {
-		return st, fmt.Errorf("app: this archive was written by a newer version (%d); upgrade first", af.Version)
+		return st, err
 	}
 
 	// Only channels this device actually has are restored into. An archive can
