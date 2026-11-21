@@ -1671,14 +1671,14 @@
            photo, then a 60px-tall panorama, then a screenshot — and reading
            four of those meant scrolling past three. -->
       {#if atts.length > 1}
-        <div class="att-grid">
+        <div class="att-grid" data-n={Math.min(atts.length, 5)}>
           {#each atts as tok (tok.blobId)}
-            <Attachment channelId={m.channelId} {tok} messageId={m.id} own={isOwn} sender={m.sender} tile />
+            <Attachment channelId={m.channelId} {tok} messageId={m.id} own={isOwn} sender={m.sender} sent={m.sent} text={bodyText} tile />
           {/each}
         </div>
       {:else}
         {#each atts as tok (tok.blobId)}
-          <Attachment channelId={m.channelId} {tok} messageId={m.id} own={isOwn} sender={m.sender} />
+          <Attachment channelId={m.channelId} {tok} messageId={m.id} own={isOwn} sender={m.sender} sent={m.sent} text={bodyText} />
         {/each}
       {/if}
       {#each files as tok (tok.blobId)}
@@ -3053,26 +3053,47 @@
     font-family: var(--mono-font), "Noto Sans Arabic", monospace;
     font-size: 0.88em;
   }
-  /* Two columns, 4:3 cells, capped so a grid of eight does not take over the
-     window. minmax(0,…) is load-bearing: a grid track's automatic minimum is
-     its content, so without it a wide image widens its own column and the two
-     stop matching — which is the ragged stack again, in a grid. */
+  /* A set of pictures is one composition, not a stack: two side by side,
+     three as one tall and two small, four as a square, more in pairs with a
+     wide last one when the count is odd. The set shares one outer radius and
+     a hairline gap inside, the way a contact sheet is cut. minmax(0,…) is
+     load-bearing: a grid track's automatic minimum is its content, so without
+     it a wide image widens its own column and the two stop matching — which
+     is the ragged stack again, in a grid. */
   .att-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--sp-1);
+    gap: 3px;
     margin-top: var(--sp-1);
     max-width: 432px;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
   }
   .att-grid > :global(*) {
     aspect-ratio: 4 / 3;
     min-width: 0;
-    border-radius: var(--radius-md);
+    min-height: 0;
     overflow: hidden;
+  }
+  .att-grid[data-n="2"] > :global(*) {
+    aspect-ratio: 4 / 5;
+  }
+  .att-grid[data-n="3"] {
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    aspect-ratio: 4 / 3;
+  }
+  .att-grid[data-n="3"] > :global(*) {
+    aspect-ratio: auto;
+  }
+  .att-grid[data-n="3"] > :global(*:first-child) {
+    grid-row: 1 / span 2;
+  }
+  .att-grid[data-n="4"] > :global(*) {
+    aspect-ratio: 1;
   }
   /* An odd count would leave a half-width orphan on the last row; let it take
      the full width instead, which is also the more useful shape for it. */
-  .att-grid > :global(*:last-child:nth-child(odd)) {
+  .att-grid[data-n="5"] > :global(*:last-child:nth-child(odd)) {
     grid-column: 1 / -1;
     aspect-ratio: 16 / 9;
   }

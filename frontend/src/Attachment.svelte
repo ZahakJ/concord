@@ -6,7 +6,7 @@
   // in steps, double-click toggles fit and 100%, drag pans, pinch works on
   // touch, Esc / backdrop / ✕ close.
   import Icon from "./Icon.svelte";
-  import { pushLayer } from "./lib/navstack.svelte.js";
+  import MediaViewer from "./MediaViewer.svelte";
   import {
     loadAttachment,
     copyImageToClipboard,
@@ -15,26 +15,12 @@
     worthRetrying,
     placeholderName,
   } from "./lib/attachments.js";
+  import { dataUrlBytes } from "./lib/attachopts.js";
   import { knownRecipe } from "./lib/memerecipe.js";
-  import { openContextMenu, flash, S, memberByFpr, nameFor } from "./lib/state.svelte.js";
+  import { openContextMenu, flash, S, memberByFpr, nameFor, fmtClock } from "./lib/state.svelte.js";
   import { humanError } from "./lib/errors.js";
-  import { longpress, haptic } from "./lib/touch.js";
-  import { pointOf, rectOf } from "./lib/place.js";
-  import { portal } from "./lib/portal.js";
-  import { focusOnMount } from "./lib/focus.js";
-  import {
-    clampPan as clampView,
-    clampZoom,
-    fitSize,
-    MARGIN_DESKTOP,
-    MARGIN_PHONE,
-    refit,
-    toggleZoom,
-    wheelSteps,
-    zoomAt,
-    ZOOM_STEP_CLICK,
-    ZOOM_STEP_WHEEL,
-  } from "./lib/viewerfit.js";
+  import { longpress } from "./lib/touch.js";
+  import { registerFrame, frameEntry, whenLabel } from "./lib/viewerset.js";
 
   // `messageId`/`own` exist only for "Edit meme": editing a picture in place
   // means editing the message that carries it, and only its author may.
@@ -47,7 +33,10 @@
   // peers that hold its bytes, so "we can't get it" almost always means "the
   // person who sent it is offline", and naming them is the difference between
   // a broken frame and a wait with an end to it.
-  let { channelId, tok, messageId = "", own = false, tile = false, sender = "" } = $props();
+  // `sent` (the message's time) and `text` (its words) are for the caption and
+  // the viewer's details: a description that only repeats the message's own
+  // text is not printed twice under the picture.
+  let { channelId, tok, messageId = "", own = false, tile = false, sender = "", sent = "", text = "" } = $props();
 
   // Right-click on the image (thumbnail or lightbox): copy to the system
   // clipboard as a real image (paste it anywhere — in Concord or outside),
@@ -199,398 +188,138 @@
     fetchNow();
   });
 
-  // ---- lightbox ----
-  // The image is drawn at an explicit fitted size (lib/viewerfit.js: the whole
-  // picture inside the window less a margin, never past its natural size);
-  // zoom/pan are a transform on top: translate(tx,ty) then scale(s), both
-  // around the viewport center, so zoom 1 is "fitted".
-  let lightbox = $state(false);
-  let zoom = $state(1);
-  let tx = $state(0);
-  let ty = $state(0);
-  let dragging = $state(false);
-  let overlayEl = $state(null); // for backdrop-click detection and pointer math
-  let imgEl; // the viewer's <img>, for its natural size
-  // The picture's natural size: the token's until the viewer's <img> reports
-  // its own.
-  let natural = $state(null);
-  // The viewer's box in layout pixels, re-read when the window resizes.
-  let vp = $state({ w: 0, h: 0 });
-  function measure() {
-    if (!overlayEl) return;
-    const r = rectOf(overlayEl);
-    vp = { w: r.w, h: r.h };
-  }
-  // On a resize the fit changes, so a zoomed view is re-clamped to it: without
-  // that the picture could show an edge until the next drag or zoom.
-  function onResize() {
-    measure();
-    if (!fit) return;
-    const v = refit({ zoom, tx, ty }, fit, vp, fit.scale);
-    zoom = v.zoom;
-    tx = v.tx;
-    ty = v.ty;
-  }
-  $effect(() => {
-    if (!lightbox || !overlayEl) return;
-    measure();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  });
-  const fit = $derived.by(() => {
-    const n = natural || (tok.w && tok.h ? { w: tok.w, h: tok.h } : null);
-    if (!n || !vp.w) return null;
-    return fitSize(n, vp, vp.w < 768 ? MARGIN_PHONE : MARGIN_DESKTOP);
-  });
-  function onViewerLoad() {
-    if (imgEl?.naturalWidth) natural = { w: imgEl.naturalWidth, h: imgEl.naturalHeight };
-  }
-
   async function saveThis() {
     const how = await saveImageSrc(src, tok.name || `concord-${(tok.blobId || "image").slice(0, 8)}.png`);
     if (how === "gallery") flash("Saved to your gallery", "success");
     else if (!how) flash("Couldn't save that image");
   }
-
-  function openLightbox() {
-    zoom = 1;
-    tx = 0;
-    ty = 0;
-    natural = null;
-    lightbox = true;
+  async function copyThis() {
+    try {
+      await copyImageToClipboard(src);
+      flash("Image copied", "success");
+    } catch (err) {
+      flash(`Couldn't copy image: ${humanError(err)}`, "error");
+    }
   }
-  // Next / previous between a message's pictures (gallery rows only). Each
-  // picture owns its own decrypted source and its own viewer, so stepping
-  // closes this one and opens the neighbour's — found in the row by the
-  // message id the gallery stamps on every tile.
+
+  // ---- the viewer (MediaViewer.svelte) ----
+  // Each picture registers what the viewer needs under its frame. A message
+  // with several pictures is one set: the viewer opened on one of them walks
+  // the others without closing, found through the message id the grid stamps
+  // on every tile.
   let frameEl = $state(null);
+  const captionShown = $derived(!!tok.desc && tok.desc.trim() !== String(text || "").trim());
+  $effect(() => {
+    if (!frameEl || state !== "done") return;
+    return registerFrame(frameEl, {
+      get src() {
+        return src;
+      },
+      get covered() {
+        return hidden;
+      },
+      tok,
+      sender,
+      sent,
+      reveal,
+      menu: imageMenu,
+      save: saveThis,
+      copy: copyThis,
+    });
+  });
   function siblings() {
     if (!messageId || !frameEl) return [];
     const row = frameEl.closest("[data-msg-id]");
     return row ? [...row.querySelectorAll(`.frame.done[data-att-msg="${CSS.escape(messageId)}"]`)] : [];
   }
-  const gallery = $derived(lightbox ? siblings() : []);
-  function step(d) {
-    const list = siblings();
-    const at = list.indexOf(frameEl);
-    const next = list[at + d];
-    if (at < 0 || !next) return;
-    closeLightbox();
-    requestAnimationFrame(() => next.click());
+  let lightbox = $state(false);
+  let set = $state([]);
+  let at = $state(0);
+  function openLightbox() {
+    const list = tile ? siblings() : [];
+    set = list.length ? list : [frameEl];
+    at = Math.max(0, set.indexOf(frameEl));
+    lightbox = true;
   }
+  const cur = $derived(lightbox ? frameEntry(set[at]) : null);
+  const viewItem = $derived.by(() => {
+    const e = cur;
+    if (!e) return null;
+    const t = e.tok;
+    return {
+      key: t.blobId,
+      kind: "image",
+      src: e.src,
+      w: t.w,
+      h: t.h,
+      name: t.name,
+      desc: t.desc,
+      size: dataUrlBytes(e.src),
+      sender: e.sender ? nameFor(e.sender) : "",
+      when: e.sent ? whenLabel(e.sent, fmtClock) : "",
+      spoiler: e.covered,
+    };
+  });
   function closeLightbox() {
     if (!lightbox) return;
+    const back = set[at];
     lightbox = false;
-    pointers.clear();
-    dragging = false;
-    flinging = false;
-    clearTimeout(clickTimer);
-    // Focus goes back to the picture the viewer was opened from.
-    if (frameEl?.isConnected) frameEl.focus({ preventScroll: true });
-  }
-
-  // Android's hardware back is the reflex for "get this picture off my screen".
-  // Without registering here the back handler fell straight through to closing
-  // drawers behind the black overlay — or exiting the app with the photo still
-  // up. Escape (below) is the desktop half of the same job.
-  $effect(() => {
-    if (!lightbox) return;
-    return pushLayer("lightbox", closeLightbox);
-  });
-
-  function onKeydown(e) {
-    if (!lightbox) return;
-    if (e.key === "Tab") trapTab(e);
-    else if (e.key === "Escape") closeLightbox();
-    else if (e.key === "ArrowRight" && gallery.length > 1) step(1);
-    else if (e.key === "ArrowLeft" && gallery.length > 1) step(-1);
-
-    else if (e.key === "+" || e.key === "=") zoomAround(center(), zoom * 1.5);
-    else if (e.key === "-") zoomAround(center(), zoom / 1.5);
-    else if (e.key === "0") zoomAround(center(), 1);
-  }
-
-  // Focus stays inside the viewer while it is open: Tab and Shift+Tab cycle
-  // through its buttons.
-  function trapTab(e) {
-    const items = [...(overlayEl?.querySelectorAll("button:not(:disabled)") || [])];
-    if (!items.length) return;
-    const at = items.indexOf(document.activeElement);
-    e.preventDefault();
-    const next = e.shiftKey ? (at <= 0 ? items.length - 1 : at - 1) : at < 0 || at === items.length - 1 ? 0 : at + 1;
-    items[next].focus();
-  }
-
-  // Everything in here is LAYOUT pixels: tx/ty are written into a transform
-  // and the image is measured with offsetWidth, while a rect and a pointer are
-  // visual. Mixing them made the lightbox pan faster than the hand and clamp
-  // against the wrong edges at any UI scale but 100%. See lib/place.js.
-  function center() {
-    const r = rectOf(overlayEl);
-    return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
-  }
-
-  // zoomAround rescales while keeping the point under `p` (client coords)
-  // fixed — the anchored zoom a map does — as far as the pan clamp allows. At
-  // fit (1) the picture re-centres.
-  function zoomAround(p, next) {
-    if (!fit) return;
-    const c = center();
-    const v = zoomAt({ zoom, tx, ty }, { x: p.x - c.x, y: p.y - c.y }, next, fit, vp, fit.scale);
-    zoom = v.zoom;
-    tx = v.tx;
-    ty = v.ty;
-  }
-
-  // clampPan keeps the picture on screen: a zoomed picture's edges never come
-  // inside the window, and an axis that fits stays centred.
-  function clampPan() {
-    if (!fit) return;
-    const v = clampView({ zoom, tx, ty }, fit, vp);
-    tx = v.tx;
-    ty = v.ty;
-  }
-
-  // The wheel zooms toward the cursor, one step per ~100px of scroll
-  // (wheelSteps): a mouse notch is one step, and a touchpad's stream of small
-  // events adds up instead of stepping on every event.
-  let wheelAcc = null;
-  function onWheel(e) {
-    e.preventDefault(); // never scroll the chat behind the overlay
-    if (!e.deltaY) return;
-    const r = wheelSteps(wheelAcc, e.deltaY, e.deltaMode, e.timeStamp);
-    wheelAcc = r.acc;
-    if (r.steps) zoomAround(pointOf(e), zoom * ZOOM_STEP_WHEEL ** -r.steps);
-  }
-
-  // A mouse click on the picture zooms in a step toward the cursor (back to fit
-  // from the furthest zoom). It waits out the double-click interval, so a
-  // double-click is one toggle between fit and 100% rather than two steps.
-  let clickTimer = 0;
-  const CLICK_WAIT_MS = 220;
-  function clickStep(p) {
-    clearTimeout(clickTimer);
-    clickTimer = setTimeout(() => {
-      if (!fit) return;
-      const next = clampZoom(zoom * ZOOM_STEP_CLICK, fit.scale);
-      zoomAround(p, next === zoom ? 1 : next);
-    }, CLICK_WAIT_MS);
-  }
-  // Mouse only: a touch double-tap is already two taps (in, then back to fit).
-  // On the picture only, judged at pointerdown: the overlay captures the
-  // pointer, so the dblclick itself is targeted at the overlay.
-  let lastPointer = "mouse";
-  let downOnImage = false;
-  function onDblClick(e) {
-    if (!fit || !downOnImage || lastPointer !== "mouse") return;
-    clearTimeout(clickTimer);
-    zoomAround(pointOf(e), toggleZoom(zoom, fit.scale));
-  }
-
-  // Pointers: one finger/button drags (pan) — or clicks (zoom toggle) when it
-  // never really moved; two fingers pinch.
-  const pointers = new Map(); // pointerId -> {x, y}
-  let moved = 0; // px travelled since pointerdown (click vs drag)
-  let pinchDist = 0;
-  let downOnBackdrop = false; // pointer capture retargets pointerup, so record at DOWN
-  // A long-press inside the viewer opens the image sheet; the lift that follows
-  // is a motionless pointerup, which the click path below would otherwise read
-  // as "zoom to 2.5×" — sheet and zoom at once. Cleared at each pointerdown.
-  let pressedMenu = false;
-  const lightboxLongPress = (e) => {
-    pressedMenu = true;
-    imageMenu(e);
-  };
-  // At fit scale there is nothing to pan, so a one-finger drag used to be a
-  // dead gesture that also swallowed its own lift. It is now the dismissal:
-  // the photo follows the finger, the backdrop thins, and a throw past
-  // FLING_PX (or a fast flick) lets go of it — what every native viewer does.
-  let flinging = $state(false);
-  const FLING_PX = 110;
-  // Backdrop opacity tracks the throw so the photo feels like it is leaving.
-  const backdrop = $derived(
-    flinging ? Math.max(0.15, 0.85 - Math.abs(ty) / 420) : 0.85,
-  );
-
-  function onPointerDown(e) {
-    downOnImage = false;
-    if (e.button !== 0 && e.pointerType === "mouse") return;
-    if (e.target.closest?.(".lb-bar")) return; // let the ✕ button be a button
-    pressedMenu = false;
-    lastPointer = e.pointerType;
-    downOnBackdrop = e.target === overlayEl;
-    downOnImage = e.target === imgEl;
-    overlayEl.setPointerCapture?.(e.pointerId);
-    pointers.set(e.pointerId, pointOf(e));
-    if (pointers.size === 1) moved = 0;
-    if (pointers.size === 2) pinchDist = pinchDistance();
-  }
-
-  function pinchDistance() {
-    const [a, b] = [...pointers.values()];
-    return Math.hypot(a.x - b.x, a.y - b.y);
-  }
-
-  function onPointerMove(e) {
-    const prev = pointers.get(e.pointerId);
-    if (!prev) return;
-    const cur = pointOf(e);
-    pointers.set(e.pointerId, cur);
-    if (pointers.size === 2) {
-      // Pinch: zoom around the midpoint, pan with the midpoint drift.
-      const [a, b] = [...pointers.values()];
-      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const d = pinchDistance();
-      if (pinchDist > 0) zoomAround(mid, zoom * (d / pinchDist));
-      pinchDist = d;
-      moved = 99;
-      return;
-    }
-    const dx = cur.x - prev.x;
-    const dy = cur.y - prev.y;
-    moved += Math.abs(dx) + Math.abs(dy);
-    if (moved > 4 && zoom > 1) {
-      dragging = true;
-      tx += dx;
-      ty += dy;
-      clampPan();
-    } else if (moved > 6 && e.pointerType !== "mouse") {
-      // Fit scale: throw-to-dismiss. Touch only — a mouse has the ✕, Escape and
-      // a backdrop click, and dragging a photo out of a desktop viewer isn't a
-      // gesture anyone means. Sideways gets a fraction of the travel so the
-      // image still feels grabbed without pretending it can be panned.
-      flinging = true;
-      dragging = true;
-      ty += dy;
-      tx += dx * 0.3;
-    }
-  }
-
-  function onPointerUp(e) {
-    const wasPinching = pointers.size === 2;
-    pointers.delete(e.pointerId);
-    if (pointers.size > 0 || wasPinching) return;
-    if (flinging) {
-      const thrown = Math.abs(ty) > FLING_PX;
-      flinging = false;
-      dragging = false;
-      if (thrown) {
-        haptic("light");
-        closeLightbox();
-      } else {
-        tx = 0; // short of the threshold: spring back (the img keeps its transition)
-        ty = 0;
-      }
-      return;
-    }
-    const wasDrag = dragging || moved > 4;
-    dragging = false;
-    if (wasDrag || pressedMenu) return;
-    // A clean click: on the backdrop it closes. On the image a mouse steps the
-    // zoom (clickStep); a tap toggles zoom at the tap point (in), or back to
-    // fit (out).
-    if (downOnBackdrop) {
-      closeLightbox();
-    } else if (e.pointerType === "mouse") {
-      clickStep(pointOf(e));
-    } else if (zoom === 1) {
-      zoomAround(pointOf(e), 2.5);
-    } else {
-      zoomAround(center(), 1);
-    }
+    set = [];
+    // Focus goes back to the picture the viewer ended on.
+    const to = back?.isConnected ? back : frameEl;
+    if (to?.isConnected) to.focus({ preventScroll: true });
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
-
 {#if state === "done"}
-  <button
-    class="frame done"
-    class:tile
-    class:hidden={hidden}
-    bind:this={frameEl}
-    data-att-msg={tile ? messageId : undefined}
-    onclick={hidden ? reveal : openLightbox}
-    oncontextmenu={hidden ? undefined : imageMenu}
-    title={hidden ? "Spoiler — click to reveal" : "Click to enlarge"}
-    use:imageTouch
-    use:longpress={{ handler: imageLongPress }}
-  >
-    <!-- min(): 380px is the desktop ceiling, but a phone's message column is
-         ~300px and the feed clips its overflow — an unclamped landscape photo
-         simply lost its right-hand third with no way to reach it. -->
-    <img
-      {src}
-      alt={tok.desc || "attachment"}
-      class:blur={hidden}
-      style={tile
-        ? "width:100%;height:100%;object-fit:contain"
-        : `max-width:min(${MAXW}px, 100%);max-height:${MAXH}px`}
-    />
-    {#if hidden}<span class="spoiler-tag">SPOILER</span>{/if}
-  </button>
-  {#if tok.desc && !hidden}
-    <!-- The sender's description, shown as a caption as well as being the alt
-         text: it's useful to everyone, not only to a screen reader. -->
-    <span class="att-desc">{tok.desc}</span>
-  {/if}
-  {#if lightbox}
-    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <!-- Out at <body>: inside the message row it was trapped in the row's
-         stacking context, so the channel header drew over the dimmed viewer —
-         and on a phone over its close button, where a tap opened the channel
-         menu instead. -->
-    <div
-      class="lightbox"
-      use:portal
-      class:flinging
-      style="--lb-dim:{backdrop}"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Image viewer"
-      bind:this={overlayEl}
-      onwheel={onWheel}
-      onpointerdown={onPointerDown}
-      onpointermove={onPointerMove}
-      onpointerup={onPointerUp}
-      onpointercancel={onPointerUp}
-      ondblclick={onDblClick}
+  <div class="att" class:tile>
+    <button
+      class="frame done"
+      class:tile
+      class:hidden
+      bind:this={frameEl}
+      data-att-msg={tile ? messageId : undefined}
+      onclick={hidden ? reveal : openLightbox}
+      oncontextmenu={hidden ? undefined : imageMenu}
+      title={hidden ? "Spoiler — click to reveal" : "Click to enlarge"}
+      use:imageTouch
+      use:longpress={{ handler: imageLongPress }}
     >
+      <!-- min(): 380px is the desktop ceiling, but a phone's message column is
+           ~300px and the feed clips its overflow — an unclamped landscape photo
+           simply lost its right-hand third with no way to reach it. -->
       <img
         {src}
-        alt={tok.desc || "attachment full size"}
-        bind:this={imgEl}
-        onload={onViewerLoad}
-        class:zoomed={zoom > 1}
-        class:dragging
-        class:unsized={!fit}
-        style="{fit ? `width:${fit.w}px;height:${fit.h}px;` : ''}transform: translate({tx}px, {ty}px) scale({zoom})"
-        draggable="false"
-        oncontextmenu={imageMenu}
-        use:longpress={{ handler: lightboxLongPress }}
+        alt={tok.desc || "attachment"}
+        class:blur={hidden}
+        style={tile ? "" : `max-width:min(${MAXW}px, 100%);max-height:${MAXH}px`}
       />
-      <div class="lb-bar">
-        <!-- The share of the picture's natural size on screen, announced as it
-             changes. -->
-        <span class="lb-zoom" class:show={zoom > 1} role="status" aria-live="polite">{fit ? Math.round(zoom * fit.scale * 100) : 100}%</span>
-        {#if tok.name}<span class="lb-name">{tok.name}</span>{/if}
-        {#if gallery.length > 1}
-          <button class="lb-close" onclick={() => step(-1)} disabled={gallery.indexOf(frameEl) <= 0} aria-label="Previous image">
-            <Icon name="back" size={18} />
-          </button>
-          <span class="lb-zoom show">{gallery.indexOf(frameEl) + 1} of {gallery.length}</span>
-          <button class="lb-close" onclick={() => step(1)} disabled={gallery.indexOf(frameEl) >= gallery.length - 1} aria-label="Next image">
-            <Icon name="chevron" size={18} />
-          </button>
-        {/if}
-        <button class="lb-close" onclick={saveThis} aria-label="Save image">
-          <Icon name="download" size={18} />
-        </button>
-        <button class="lb-close" onclick={closeLightbox} aria-label="Close image (Esc)" use:focusOnMount>
-          <Icon name="close" size={18} />
-        </button>
-      </div>
-    </div>
+      {#if hidden}<span class="spoiler-tag"><Icon name="spoiler" size={16} /> Spoiler</span>{/if}
+      {#if tile && captionShown && !hidden}
+        <!-- In a grid the caption rides on its own picture, over a fade, so
+             the grid stays a grid. -->
+        <span class="tile-cap" aria-hidden="true">{tok.desc}</span>
+      {/if}
+    </button>
+    {#if !tile && captionShown && !hidden}
+      <!-- The sender's description, shown as a caption as well as being the alt
+           text: it's useful to everyone, not only to a screen reader. -->
+      <span class="att-desc" dir="auto">{tok.desc}</span>
+    {/if}
+  </div>
+  {#if lightbox && viewItem}
+    <MediaViewer
+      item={viewItem}
+      index={at}
+      count={set.length}
+      origin={() => set[at]}
+      onStep={set.length > 1 ? (d) => (at = Math.max(0, Math.min(set.length - 1, at + d))) : null}
+      onClose={closeLightbox}
+      onSave={() => cur?.save()}
+      onCopy={() => cur?.copy()}
+      onMenu={(e) => cur?.menu(e)}
+      onReveal={() => cur?.reveal()}
+    />
   {/if}
 {:else}
   <div
@@ -604,8 +333,11 @@
         : `width:${dims.w}px;aspect-ratio:${dims.w} / ${dims.h}`}
   >
     {#if state === "loading"}
-      <span class="spin"></span>
-      <span class="muted small">fetching image…</span>
+      <!-- A shimmer in the picture's own shape: the frame is already the size
+           the picture will be, so nothing moves when it lands. -->
+      <span class="shimmer" aria-hidden="true"></span>
+      <span class="ph-ic" aria-hidden="true"><Icon name="image" size={20} /></span>
+      <span class="sr-only">Fetching image…</span>
     {:else}
       <Icon name="close" size={18} />
       <!-- Name the picture the reader is missing. A v2 token carries the
@@ -623,42 +355,26 @@
 {/if}
 
 <style>
+  .att {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    margin-top: var(--sp-1);
+  }
+  .att.tile {
+    width: 100%;
+    height: 100%;
+    margin-top: 0;
+  }
   .frame {
-    position: relative; /* anchors the SPOILER label over the blurred image */
+    position: relative; /* anchors the spoiler label and the caption */
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: var(--sp-2);
-    margin-top: var(--sp-1);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-lg);
     overflow: hidden;
-  }
-  .frame.done img.blur {
-    filter: blur(22px);
-  }
-  .frame.hidden {
-    cursor: pointer;
-  }
-  .spoiler-tag {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    font-size: var(--fs-small);
-    font-weight: 800;
-    letter-spacing: 1.2px;
-    color: #fff;
-    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
-    pointer-events: none;
-  }
-  .att-desc {
-    display: block;
-    margin-top: 3px;
-    font-size: var(--fs-small);
-    line-height: 1.4;
-    color: var(--text-muted);
-    max-width: min(420px, 100%);
   }
   .frame.done {
     background: transparent;
@@ -669,10 +385,74 @@
        max-width:100% has a containing block wider than the column. */
     max-width: 100%;
     cursor: zoom-in;
+    /* Its own layer for the clip, so the picture's hover scale stays inside
+       the rounded corners in every engine. */
+    isolation: isolate;
   }
   .frame.done:hover {
     background: transparent;
   }
+  .frame.done:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: var(--focus-ring-offset);
+  }
+  /* A hairline ring inside the edge, so a photo whose own edge is the colour
+     of the page still has one. */
+  .frame.done::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 9%, transparent);
+    pointer-events: none;
+  }
+  .frame.done img {
+    display: block;
+    border-radius: inherit;
+    transition: transform var(--dur-move) var(--ease-out);
+  }
+  .frame.done img.blur {
+    filter: blur(22px);
+    transform: scale(1.12); /* the blur's soft edge stays outside the frame */
+  }
+  .frame.hidden {
+    cursor: pointer;
+  }
+  /* Leaning in: on a real pointer the picture comes a little closer under the
+     cursor, inside its own frame. Not on touch: Chromium latches :hover onto
+     the last-tapped element. */
+  @media (pointer: fine) {
+    .frame.done:not(.hidden):hover img {
+      transform: scale(1.025);
+    }
+  }
+  .spoiler-tag {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    padding: 6px var(--sp-3);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    color: #fff;
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .att-desc {
+    display: block;
+    margin-top: 6px;
+    font-size: var(--fs-compact);
+    line-height: 1.45;
+    color: var(--text-muted);
+    max-width: min(380px, 100%);
+  }
+
   /* One cell of a grid: the cell owns the box, the image fills it. `contain`
      rather than `cover` on purpose — a cropped thumbnail of a screenshot is
      a picture of the middle of a screenshot, and the whole reason to send four
@@ -680,51 +460,80 @@
   .frame.tile {
     width: 100%;
     height: 100%;
-    margin-top: 0;
-    background: var(--bg-0);
+    border-radius: inherit;
+    background: color-mix(in srgb, var(--bg-0) 70%, black);
     color: var(--text);
-    border: 1px solid var(--border);
   }
   .frame.done.tile img {
-    border-radius: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
-  .frame.done img {
-    display: block;
-    border-radius: var(--radius-sm);
-    transition: filter var(--dur-standard) ease;
+  .tile-cap {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: var(--sp-5) var(--sp-3) var(--sp-2);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.72), transparent);
+    color: #fff;
+    font-size: var(--fs-small);
+    line-height: 1.35;
+    text-align: start;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    pointer-events: none;
   }
-  /* Dim a touch on hover so the thumbnail reads as "click to enlarge". Gated on
-     a real pointer: Chromium latches :hover onto the last-tapped element, so on
-     a phone this left every photo you had opened permanently darkened. */
-  @media (pointer: fine) {
-    .frame.done:hover img {
-      filter: brightness(0.9);
-    }
-  }
+
   .placeholder {
-    background: var(--bg-1);
-    border: 1px solid var(--border);
+    background: var(--bg-2);
     color: var(--text-faint);
     max-width: 100%;
+    margin-top: var(--sp-1);
+    box-shadow: inset 0 0 0 1px var(--hairline);
   }
-  .spin {
-    width: 20px;
-    height: 20px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: rot 0.8s linear infinite;
+  .placeholder.tile {
+    margin-top: 0;
   }
-  @keyframes rot {
-    to {
-      transform: rotate(360deg);
+  /* A soft band of light that crosses the frame while the bytes arrive:
+     transform only, on one layer. */
+  .shimmer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+  .shimmer::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    width: 60%;
+    background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--text) 7%, transparent), transparent);
+    animation: att-shimmer 1.3s var(--ease-calm) infinite;
+  }
+  @keyframes att-shimmer {
+    from {
+      transform: translateX(-100%);
     }
+    to {
+      transform: translateX(260%);
+    }
+  }
+  :global(:root[data-motion="reduced"]) .shimmer::before {
+    animation: none;
+    opacity: 0;
+  }
+  .ph-ic {
+    position: relative;
+    color: var(--text-faint);
+    opacity: 0.7;
   }
   .small {
     font-size: var(--fs-compact);
   }
-  /* The error box says four short things, so it needs room and its own gutter;
-     the loading box is one spinner and keeps the tight layout it had. */
+  /* The error box says four short things, so it needs room and its own gutter. */
   .placeholder.gone {
     gap: var(--sp-1);
     padding: var(--sp-3) var(--sp-2);
@@ -746,108 +555,5 @@
   .retry {
     padding: 3px 12px;
     font-size: var(--fs-compact);
-  }
-  .lightbox {
-    position: fixed;
-    inset: 0;
-    z-index: 300;
-    background: rgba(0, 0, 0, var(--lb-dim, 0.85));
-    display: grid;
-    place-items: center;
-    /* No padding: the margin is in the fitted size (lib/viewerfit.js), and the
-       picture's resting centre is the window's centre, which the zoom math
-       measures from. */
-    overflow: hidden;
-    touch-action: none; /* pointer events own pinch/drag */
-    animation: lb-in var(--dur-standard) ease;
-    transition: background var(--dur-standard) ease;
-  }
-  .lightbox.flinging {
-    transition: none; /* the backdrop tracks the finger 1:1 during a throw */
-  }
-  @keyframes lb-in {
-    from {
-      opacity: 0;
-    }
-  }
-  .lightbox img {
-    max-width: none;
-    max-height: none;
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-pop);
-    cursor: zoom-in;
-    user-select: none;
-    -webkit-user-drag: none;
-    transition: transform var(--dur-standard) ease;
-    will-change: transform;
-  }
-  /* Until the size is known (a picture with no dimensions in its token, for the
-     moment its bytes take to decode) it is kept out of sight rather than
-     flashed at full size. */
-  .lightbox img.unsized {
-    visibility: hidden;
-  }
-  .lightbox img.zoomed {
-    cursor: grab;
-  }
-  .lightbox img.dragging {
-    cursor: grabbing;
-    transition: none; /* 1:1 with the pointer while panning */
-  }
-  /* The overlay is edge-to-edge, and the app draws under the status bar (see
-     MobileShell's own inset padding) — without the safe-area offset the ✕ sits
-     beneath the clock and the camera cutout. */
-  .lb-bar {
-    position: absolute;
-    top: calc(14px + var(--safe-top));
-    right: calc(16px + var(--safe-right));
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .lb-name {
-    max-width: 40vw;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--fs-compact);
-    color: rgba(255, 255, 255, 0.85);
-  }
-  .lb-zoom {
-    font-size: var(--fs-compact);
-    font-variant-numeric: tabular-nums;
-    color: rgba(255, 255, 255, 0.85);
-    background: rgba(0, 0, 0, 0.45);
-    border-radius: 999px;
-    padding: 3px 10px;
-    opacity: 0;
-    transition: opacity var(--dur-standard) ease;
-    pointer-events: none;
-  }
-  .lb-zoom.show {
-    opacity: 1;
-  }
-  .lb-close {
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.45);
-    color: rgba(255, 255, 255, 0.9);
-    border: none;
-    cursor: pointer;
-  }
-  .lb-close:hover {
-    background: rgba(255, 255, 255, 0.18);
-  }
-  @media (max-width: 768px) {
-    /* Far top-right is the worst place on a phone for a thumb, so the button
-       gets the full tap minimum — and throw-to-dismiss plus hardware back are
-       the gestures actually meant to be used. */
-    .lb-close {
-      width: var(--tap-min);
-      height: var(--tap-min);
-    }
   }
 </style>
