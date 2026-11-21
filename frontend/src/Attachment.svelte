@@ -277,8 +277,10 @@
       class="frame done"
       class:tile
       class:hidden
+      class:fill={tile && !hidden && !!src}
       bind:this={frameEl}
       style:width={!tile && tok.w && tok.h ? `min(${dims.w}px, 100%)` : undefined}
+      style:--pic={tile && !hidden && src ? `url("${src}")` : undefined}
       data-att-msg={tile ? messageId : undefined}
       onclick={hidden ? reveal : openLightbox}
       oncontextmenu={hidden ? undefined : imageMenu}
@@ -470,9 +472,22 @@
     color: var(--text);
   }
   .frame.done.tile img {
+    position: relative;
     width: 100%;
     height: 100%;
     object-fit: contain;
+  }
+  /* The room beside a picture that does not share its cell's shape carries
+     the picture itself, blurred and dimmed, as the staged cards do: the set
+     reads as one composition, not photos on grey. Never under a spoiler. */
+  .frame.tile.fill::before {
+    content: "";
+    position: absolute;
+    inset: -16px;
+    background: var(--pic) center / cover;
+    filter: blur(16px) saturate(1.2);
+    opacity: 0.6;
+    pointer-events: none;
   }
   .tile-cap {
     position: absolute;
