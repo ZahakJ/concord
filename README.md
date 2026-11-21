@@ -100,6 +100,8 @@ you are in.
 - [Bots](docs/BOTS.md): a script with its own identity, speaking JSON lines
 - Desktop apps for Linux and Windows, a browser-served build for Linux, macOS
   and Windows, and Android
+- [sotto](https://github.com/ZahakJ/sotto), a minimal terminal client that
+  drives `concord --bot` and can be attached from any machine you can reach
 
 Emoji, fonts, icons and sounds are compiled in. Nothing is fetched from a
 third party unless you switch on a feature that says it will;
