@@ -39,13 +39,18 @@ const (
 	// once; one that stopped inside a page (at its removal, say) is served
 	// again only after the window.
 	ownerChainWindow = 30 * time.Second
-	// ownerChainTrack bounds the throttle's memory.
-	ownerChainTrack = 256
+	// ownerChainTrack bounds the throttle's memory, and ownerChainPerGuild
+	// one guild's share of it. A full table or guild share loses its oldest
+	// entry rather than refusing: refusing let the owner of one guild, with
+	// many device keys, lock the owners of other guilds out.
+	ownerChainTrack    = 256
+	ownerChainPerGuild = 8
 )
 
 type ownerChainServe struct {
-	at   time.Time
-	next uint64 // the requester epoch at which the page served is used up
+	guild string
+	at    time.Time
+	next  uint64 // the requester epoch at which the page served is used up
 }
 
 // serveOwnerChain answers a catch-up from a requester this tree does not seat.
@@ -75,6 +80,10 @@ func (s *Service) serveOwnerChain(ctx context.Context, req syncRequest, guild do
 	}
 	myEpoch, err := s.mls.Epoch(ctx, guild.GroupID)
 	if err != nil || req.Epoch >= myEpoch {
+		return []byte{}, nil
+	}
+	// A repeat inside the window is declined before the log is read.
+	if s.ownerChainThrottled(req.GuildID, from, req.Epoch) {
 		return []byte{}, nil
 	}
 	rows, err := s.store.CommitsAfter(guild.GroupID, req.Epoch)
@@ -109,11 +118,22 @@ func ownerChainPage(rows []store.CommitRow) [][]byte {
 	return out
 }
 
+// ownerChainThrottled reports whether every answer to this request would be
+// refused by claimOwnerChain: the same page, or a point inside it, again
+// inside the window. A gap answer may still be refused by the claim.
+func (s *Service) ownerChainThrottled(guildID string, p peer.ID, epoch uint64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	last, known := s.ownerChainServed[guildID+"|"+p.String()]
+	return known && time.Since(last.at) < ownerChainWindow && epoch < last.next
+}
+
 // claimOwnerChain reports whether a page of n commits from epoch may go to this
 // peer now, and records it if so. The same page goes again only after
 // ownerChainWindow; a request from where the last page ended is the requester
 // paging through and is served at once, which bounds the serves in a window by
-// the chain's length over the page size.
+// the chain's length over the page size. A new key that finds its guild's
+// share or the table full takes the place of the oldest entry there.
 func (s *Service) claimOwnerChain(guildID string, p peer.ID, epoch uint64, n int) bool {
 	key := guildID + "|" + p.String()
 	now := time.Now()
@@ -126,16 +146,39 @@ func (s *Service) claimOwnerChain(guildID string, p peer.ID, epoch uint64, n int
 	if known && now.Sub(last.at) < ownerChainWindow && (n == 0 || epoch < last.next) {
 		return false
 	}
-	if !known && len(s.ownerChainServed) >= ownerChainTrack {
+	if !known {
+		inGuild := 0
 		for k, v := range s.ownerChainServed {
 			if now.Sub(v.at) >= ownerChainWindow {
 				delete(s.ownerChainServed, k)
+			} else if v.guild == guildID {
+				inGuild++
 			}
 		}
+		if inGuild >= ownerChainPerGuild {
+			s.evictOldestOwnerChain(guildID)
+		}
 		if len(s.ownerChainServed) >= ownerChainTrack {
-			return false
+			s.evictOldestOwnerChain("")
 		}
 	}
-	s.ownerChainServed[key] = ownerChainServe{at: now, next: epoch + uint64(n)}
+	s.ownerChainServed[key] = ownerChainServe{guild: guildID, at: now, next: epoch + uint64(n)}
 	return true
+}
+
+// evictOldestOwnerChain drops the oldest throttle entry, of guildID when it is
+// set and of the whole table otherwise. The caller holds s.mu.
+func (s *Service) evictOldestOwnerChain(guildID string) {
+	oldest, at := "", time.Time{}
+	for k, v := range s.ownerChainServed {
+		if guildID != "" && v.guild != guildID {
+			continue
+		}
+		if oldest == "" || v.at.Before(at) {
+			oldest, at = k, v.at
+		}
+	}
+	if oldest != "" {
+		delete(s.ownerChainServed, oldest)
+	}
 }
