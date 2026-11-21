@@ -94,7 +94,7 @@
      tail generic is sans on purpose (see [data-font="serif"]: a serif generic
      tofus keycap emoji on Android). A pack or an explicit Typeface choice
      replaces it with the UI face. */
-  --display-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, sans-serif;
+  --display-font: "Space Grotesk", "Inter", "Noto Sans Arabic", system-ui, sans-serif;
   /* The one shadow, and only things that float over the page (menus, dialogs,
      sheets, toasts, popovers) cast it. A contact line and one soft ambient
      layer: enough to lift a surface off the page without smudging it. */
@@ -176,6 +176,44 @@
   --shelf-lift-y: -3px;
   --shelf-lift-scale: 1.14;
   --shelf-current-scale: 1.12;
+
+  /* ---- Stages (DESIGN-063.md) ------------------------------------------
+     Chrome stays calm; a STAGE is a moment that owns the screen for a few
+     seconds — unlocking, first run, what's new, the media viewer, an empty
+     conversation. Stages may use the aurora, the hero type and the longer
+     arrival below. Nothing here is allowed into chrome: a menu does not
+     glow, a list row does not wear a gradient. */
+  --aurora-1: #19b3a3;
+  --aurora-2: #2f8fe0;
+  --aurora-3: #8a6cf6;
+  --aurora-spark: #f3c06b;
+  --stage-ground: #060808;
+  --stage-ink: #f2f5f4;
+  --stage-ink-muted: #b4bdbf;
+  --stage-veil: color-mix(in srgb, var(--stage-ground) 72%, transparent);
+  /* The aurora as one background-image: three wide soft fields on the stage
+     ground. Painted once and moved with transform by whoever owns it; blur is
+     baked into the gradients, never a filter that animates. */
+  --aurora:
+    radial-gradient(60% 55% at 18% 22%, color-mix(in srgb, var(--aurora-1) 55%, transparent), transparent 70%),
+    radial-gradient(50% 60% at 85% 30%, color-mix(in srgb, var(--aurora-2) 42%, transparent), transparent 72%),
+    radial-gradient(70% 55% at 60% 100%, color-mix(in srgb, var(--aurora-3) 40%, transparent), transparent 70%);
+  /* The aurora's ink: hero type and stage glyphs filled with the light. */
+  --aurora-ink: linear-gradient(100deg, var(--aurora-1), var(--aurora-2) 55%, var(--aurora-3));
+  --fs-hero: clamp(34px, 4.2vw + 12px, 60px);
+  --fs-headline: clamp(24px, 1.6vw + 16px, 32px);
+  --sp-7: 48px;
+  --sp-8: 72px;
+  --radius-xl: calc(var(--radius-lg) + 8px);
+  --shadow-rest: 0 1px 1px rgba(0, 0, 0, 0.24), 0 4px 14px rgba(0, 0, 0, 0.22);
+  --shadow-stage: 0 2px 6px rgba(0, 0, 0, 0.3), 0 28px 80px rgba(0, 0, 0, 0.55);
+  --dur-stage: 420ms;
+  --dur-reveal: 560ms;
+  --stagger: 55ms;
+  /* Travel on a stage: how far a revealed item rises, and the scale a stage
+     panel arrives from. Identity under reduced motion. */
+  --stage-rise: 18px;
+  --stage-scale: 0.96;
 
   /* ---- Focus ------------------------------------------------------------
      One ring recipe, so a component that has to re-declare the ring (an inset
@@ -474,6 +512,21 @@
   --danger-fg: #ffffff;
   --ok-fg: #ffffff;
   --fx-halo: #fbfcfe;
+
+  --aurora-1: #0e7c70;
+  --aurora-2: #1f63b0;
+  --aurora-3: #5b3fc4;
+  --aurora-spark: #a8640f;
+  --stage-ground: #f4f6f3;
+  --stage-ink: #0f1314;
+  --stage-ink-muted: #3f484c;
+  --stage-veil: color-mix(in srgb, var(--stage-ground) 78%, transparent);
+  --aurora:
+    radial-gradient(60% 55% at 18% 22%, color-mix(in srgb, var(--aurora-1) 26%, transparent), transparent 70%),
+    radial-gradient(50% 60% at 85% 30%, color-mix(in srgb, var(--aurora-2) 20%, transparent), transparent 72%),
+    radial-gradient(70% 55% at 60% 100%, color-mix(in srgb, var(--aurora-3) 20%, transparent), transparent 70%);
+  --shadow-rest: 0 1px 1px rgba(22, 25, 26, 0.05), 0 4px 14px rgba(22, 25, 26, 0.08);
+  --shadow-stage: 0 2px 6px rgba(22, 25, 26, 0.08), 0 28px 80px rgba(22, 25, 26, 0.2);
 
   --shadow-pop: 0 1px 2px rgba(22, 25, 26, 0.06), 0 10px 30px rgba(22, 25, 26, 0.13);
   --float-shadow: var(--shadow-pop);
@@ -2277,6 +2330,9 @@ textarea[aria-invalid="true"] {
   --shelf-lift-y: 0px;
   --shelf-lift-scale: 1;
   --shelf-current-scale: 1;
+  --stage-rise: 0px;
+  --stage-scale: 1;
+  --stagger: 0ms;
 }
 :root[data-motion="reduced"],
 :root[data-motion="reduced"] *,
