@@ -910,14 +910,150 @@
             ? "1 of 3"
             : "",
   );
+  const stepNo = $derived(step ? Number(step[0]) : 0);
+  // Which screen is up, by the same branches the template takes. The panel's
+  // contents re-enter on a change of screen only, never on a change inside
+  // one (a profile turning up while a name is being typed must not move it).
+  const screen = $derived(
+    !checked
+      ? "loading"
+      : stranded && !confirmingReset
+        ? "stranded"
+        : resumeBackup && !backupPhrase
+          ? "resume"
+          : naming
+            ? "naming"
+            : replaceAsk
+              ? "replace"
+              : offerBio
+                ? "bio"
+                : backupPhrase && verifying
+                  ? "verify"
+                  : backupPhrase
+                    ? "phrase"
+                    : confirmingReset
+                      ? "reset"
+                      : linking
+                        ? "link"
+                        : restoring
+                          ? "restore"
+                          : forgot
+                            ? "forgot"
+                            : hasIdentity
+                              ? "unlock"
+                              : "create",
+  );
+  // The mesh on the stage: your devices and the people you trust, joined
+  // directly, the mark at the middle. Positions in the 480×320 viewBox.
+  const NODES = [
+    [62, 92, 5],
+    [128, 252, 4],
+    [404, 70, 4.5],
+    [432, 214, 5.5],
+    [330, 286, 3.5],
+    [96, 176, 3],
+    [372, 150, 3],
+  ];
+  const HUB = [240, 160];
+  const ARCS = [
+    [0, 5],
+    [5, 1],
+    [2, 6],
+    [6, 3],
+    [3, 4],
+    [1, 4],
+    [0, 2],
+  ];
+  // A gentle curve between two nodes, bowed away from the hub like a route
+  // on a map.
+  function arc(a, b) {
+    const [x1, y1] = a;
+    const [x2, y2] = b;
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    const k = 0.18;
+    const cx = mx + (mx - HUB[0]) * k;
+    const cy = my + (my - HUB[1]) * k;
+    return `M${x1} ${y1}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x2} ${y2}`;
+  }
 </script>
 
-<div class="login" onfocusin={keepFieldInView}>
+{#snippet mark(size)}
+  <!-- The Concord mark: the delta in the aurora's light on a dark tile, drawn
+       inline so the stage needs no image. -->
+  <svg class="mark" width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <defs>
+      <linearGradient id="lg-ink" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" class="s1" />
+        <stop offset="0.55" class="s2" />
+        <stop offset="1" class="s3" />
+      </linearGradient>
+    </defs>
+    <rect class="tile" x="1" y="1" width="62" height="62" rx="17" />
+    <rect class="tile-edge" x="1.5" y="1.5" width="61" height="61" rx="16.5" />
+    <path
+      fill="url(#lg-ink)"
+      fill-rule="evenodd"
+      transform="translate(6.4 6.6) scale(0.8)"
+      d="M32 6C31.1 6 30.6 6.7 30.6 8.2L30.2 17C27.3 17.8 25.2 20.5 25.2 23.8L25.2 27.6L4.6 41.6C3.4 42.4 4.1 44.3 5.5 44L24 40.7C24.7 41.9 25.8 42.8 27.1 43.3L26.2 50.6C26.1 51.6 26.9 52.2 27.7 51.7L30.3 45.9L31 55.2C31 56 31.4 56.4 32 56.4C32.6 56.4 33 56 33 55.2L33.7 45.9L36.3 51.7C37.1 52.2 37.9 51.6 37.8 50.6L36.9 43.3C38.2 42.8 39.3 41.9 40 40.7L58.5 44C59.9 44.3 60.6 42.4 59.4 41.6L38.8 27.6L38.8 23.8C38.8 20.5 36.7 17.8 33.8 17L33.4 8.2C33.4 6.7 32.9 6 32 6ZM28.4 22.3L31 22.3L31 27.2L27.4 27.2L27.4 24.3C27.4 23.3 27.7 22.3 28.4 22.3ZM33 22.3L35.6 22.3C36.3 22.3 36.6 23.3 36.6 24.3L36.6 27.2L33 27.2Z"
+    />
+  </svg>
+{/snippet}
+
+<!-- The lock and first-run stage. The aurora is one layer moved by transform
+     behind everything; the hero (mark, mesh, wordmark) is decoration and a
+     sentence; the form sits on an opaque panel, so every word in it — the
+     warnings above all — keeps the chrome's ink and contrast. -->
+<div class="login" class:deep={!["loading", "unlock", "create", "stranded"].includes(screen)}>
+  <div class="sky" aria-hidden="true"><div class="aurora"></div></div>
+  <div class="scroller" onfocusin={keepFieldInView}>
+    <div class="stage">
+      <div class="hero">
+        <div class="emblem" aria-hidden="true">
+          <svg class="mesh" viewBox="0 0 480 320" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <radialGradient id="lg-node">
+                <stop offset="0" class="n0" />
+                <stop offset="1" class="n1" />
+              </radialGradient>
+              <radialGradient id="lg-spark">
+                <stop offset="0" class="k0" />
+                <stop offset="1" class="k1" />
+              </radialGradient>
+            </defs>
+            <ellipse class="orbit" cx="240" cy="160" rx="150" ry="104" />
+            <ellipse class="orbit far" cx="240" cy="160" rx="222" ry="150" />
+            {#each ARCS as [a, b], i (i)}
+              <path class="route" style:--i={i} d={arc(NODES[a], NODES[b])} />
+            {/each}
+            {#each NODES as [x, y], i (i)}
+              <line class="spoke" style:--i={i} x1={HUB[0]} y1={HUB[1]} x2={x} y2={y} />
+            {/each}
+            {#each NODES as [x, y, r], i (i)}
+              <!-- One spark per stage: the node that is you. -->
+              <g class="node" class:spark={i === 3} style:--i={i}>
+                <circle class="halo" cx={x} cy={y} r={r * 4.2} fill={i === 3 ? "url(#lg-spark)" : "url(#lg-node)"} />
+                <circle class="dot" cx={x} cy={y} r={r} />
+              </g>
+            {/each}
+          </svg>
+          <div class="hub">{@render mark(104)}</div>
+        </div>
+        <p class="wordmark" aria-hidden="true">Concord</p>
+        <p class="tagline">Talk with the people you trust, with no server in the middle.</p>
+      </div>
+
   <form class="card" onsubmit={submit}>
-    <!-- The app's own mark on a tile of its own, so it reads on the dark
-         ground as well as on paper. -->
-    <div class="logo"><Icon name="concorde" size={28} /></div>
-    {#if step}<p class="step">{step}</p>{/if}
+    {#key screen}
+    <div class="screen">
+    {#if step}
+      <div class="steps">
+        <span class="segs" aria-hidden="true">
+          {#each [1, 2, 3] as n (n)}<span class="seg" class:on={n <= stepNo}></span>{/each}
+        </span>
+        <p class="step">{step}</p>
+      </div>
+    {/if}
     <h1>{heading}</h1>
 
     {#if endedReason && !backupPhrase && !resumeBackup}
@@ -1235,8 +1371,8 @@
           </button>
         </div>
       {/if}
-      <p class="muted tiny note-line">
-        <Icon name="alert" size={13} />
+      <p class="caution">
+        <Icon name="alert" size={16} />
         <span>
           Anyone with these words can become you — never share them. You can see them again later in
           Settings.
@@ -1564,7 +1700,11 @@
     {#if !backupPhrase && !resumeBackup && !naming && !replaceAsk}
       <p class="foot"><Icon name="lock" size={14} /> Your keys never leave this device.</p>
     {/if}
+    </div>
+    {/key}
   </form>
+    </div>
+  </div>
 </div>
 
 {#if scanning}
@@ -1622,15 +1762,277 @@
   :global(:root[data-motion="reduced"]) .ls-spin {
     animation: none;
   }
-  /* The lock and onboarding screens: no card, a 340px column on the canvas,
-     everything left-aligned to it — the mark, the heading in the display
-     face, one sentence, the field, the full-width primary, the links. */
+  /* ---- the stage ----
+     The lock and first-run screens are a stage (DESIGN-063.md): the aurora on
+     the stage ground, the mark at the hub of a mesh of peers, the wordmark in
+     the display face, and the form on an opaque panel beside it. On a phone
+     the same pieces stack in one column. */
   .login {
+    position: relative;
     height: 100%;
+    overflow: hidden;
+    isolation: isolate;
+    background: var(--stage-ground);
+    color: var(--text);
+  }
+  /* One layer moves: the aurora, by transform, slowly. The dot field over it
+     is static paint, faded out toward the edges. */
+  .sky {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+    animation: lg-fade calc(var(--dur-reveal) * 2) var(--ease-spring) both;
+  }
+  .aurora {
+    position: absolute;
+    inset: -20%;
+    background: var(--aurora);
+    will-change: transform;
+    animation: lg-drift 28s ease-in-out infinite alternate;
+  }
+  .sky::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(color-mix(in srgb, var(--stage-ink) 16%, transparent) 1px, transparent 1.5px);
+    background-size: 26px 26px;
+    -webkit-mask-image: radial-gradient(ellipse 60% 70% at 30% 45%, #000 10%, transparent 72%);
+    mask-image: radial-gradient(ellipse 60% 70% at 30% 45%, #000 10%, transparent 72%);
+  }
+  @keyframes lg-drift {
+    0% {
+      transform: translate3d(-4%, -3%, 0) rotate(-5deg) scale(1.04);
+    }
+    50% {
+      transform: translate3d(3%, 4%, 0) rotate(2deg) scale(1.1);
+    }
+    100% {
+      transform: translate3d(5%, -2%, 0) rotate(6deg) scale(1);
+    }
+  }
+  :global(:root[data-motion="reduced"]) .aurora {
+    animation: none;
+    will-change: auto;
+  }
+  .scroller {
+    height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .stage {
+    box-sizing: border-box;
+    min-height: 100%;
+    max-width: 1240px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 440px;
+    align-items: center;
+    gap: var(--sp-8);
+    padding: var(--sp-7) var(--sp-8);
+  }
+
+  /* ---- the hero ---- */
+  .hero {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-4);
+  }
+  .emblem {
+    position: relative;
+    width: min(100%, 600px);
+    aspect-ratio: 3 / 2;
+    margin: 0 0 calc(-1 * var(--sp-5)) calc(-1 * var(--sp-6));
+    animation: lg-rise var(--dur-reveal) var(--ease-spring) both;
+  }
+  .mesh {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .mesh .orbit {
+    fill: none;
+    stroke: color-mix(in srgb, var(--stage-ink) 14%, transparent);
+    stroke-width: 1;
+    stroke-dasharray: 1 7;
+    stroke-linecap: round;
+  }
+  .mesh .orbit.far {
+    stroke: color-mix(in srgb, var(--stage-ink) 8%, transparent);
+  }
+  .mesh .route {
+    fill: none;
+    stroke: color-mix(in srgb, var(--aurora-2) 60%, transparent);
+    stroke-width: 1.25;
+    stroke-linecap: round;
+  }
+  .mesh .spoke {
+    stroke: color-mix(in srgb, var(--aurora-1) 45%, transparent);
+    stroke-width: 1;
+    stroke-dasharray: 3 5;
+  }
+  .mesh .n0 {
+    stop-color: var(--aurora-1);
+    stop-opacity: 0.5;
+  }
+  .mesh .n1 {
+    stop-color: var(--aurora-1);
+    stop-opacity: 0;
+  }
+  .mesh .k0 {
+    stop-color: var(--aurora-spark);
+    stop-opacity: 0.6;
+  }
+  .mesh .k1 {
+    stop-color: var(--aurora-spark);
+    stop-opacity: 0;
+  }
+  .mesh .dot {
+    fill: var(--stage-ink);
+  }
+  .mesh .spark .dot {
+    fill: var(--aurora-spark);
+  }
+  .mesh .node {
+    animation: lg-fade var(--dur-reveal) var(--ease-spring) both;
+    animation-delay: calc(var(--stagger) * (var(--i) + 1));
+  }
+  /* The hub: the mark on a pool of the brand light (static). */
+  .hub {
+    position: absolute;
+    left: 50%;
+    top: 50%;
     display: grid;
     place-items: center;
-    background: var(--bg-2);
-    overflow-y: auto;
+    width: 240px;
+    height: 240px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--aurora-1) 34%, transparent), transparent);
+  }
+  .mark .tile {
+    fill: #0f1518;
+  }
+  .mark .tile-edge {
+    fill: none;
+    stroke: url(#lg-ink);
+    stroke-opacity: 0.55;
+  }
+  .mark .s1 {
+    stop-color: #3fe0cc;
+  }
+  .mark .s2 {
+    stop-color: #5aaef0;
+  }
+  .mark .s3 {
+    stop-color: #a58cff;
+  }
+  .wordmark {
+    margin: 0;
+    font-family: var(--display-font);
+    font-size: var(--fs-hero);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+    /* The aurora's ink, with the stage ink under it for anything that cannot
+       clip a background to text. */
+    color: var(--stage-ink);
+    background: var(--aurora-ink);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: lg-rise var(--dur-reveal) var(--ease-spring) both;
+    animation-delay: var(--stagger);
+  }
+  .tagline {
+    max-width: 19ch;
+    font-family: var(--display-font);
+    font-size: var(--fs-headline);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    color: var(--stage-ink);
+    animation: lg-rise var(--dur-reveal) var(--ease-spring) both;
+    animation-delay: calc(var(--stagger) * 2);
+  }
+
+  /* ---- the panel ----
+     Opaque, so the chrome's contrast holds whatever the aurora does behind
+     it; the light catches its top edge. Present from the first frame: it
+     settles in, but its field takes focus and keys at once. */
+  .card {
+    position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--sp-7);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-stage);
+    text-align: start;
+    animation: lg-panel var(--dur-stage) var(--ease-spring) both;
+  }
+  .card::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    left: var(--sp-7);
+    right: var(--sp-7);
+    height: 1px;
+    background: var(--aurora-ink);
+    opacity: 0.9;
+  }
+  .screen {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    animation: lg-step var(--dur-stage) var(--ease-spring) both;
+  }
+  .steps {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    margin-bottom: var(--sp-1);
+  }
+  .segs {
+    display: flex;
+    gap: var(--sp-1);
+  }
+  .seg {
+    width: 28px;
+    height: 4px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text-muted) 28%, transparent);
+  }
+  .seg.on {
+    background: var(--accent);
+  }
+  @keyframes lg-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes lg-rise {
+    from {
+      opacity: 0;
+      transform: translateY(var(--stage-rise));
+    }
+  }
+  @keyframes lg-panel {
+    from {
+      opacity: 0;
+      transform: translateY(var(--stage-rise)) scale(var(--stage-scale));
+    }
+  }
+  @keyframes lg-step {
+    from {
+      opacity: 0;
+      transform: translateY(calc(var(--stage-rise) / 2));
+    }
   }
   .error.slot {
     min-height: 1.3em;
@@ -1643,39 +2045,19 @@
     min-height: 0;
     margin: -6px 0 0;
   }
-  .card {
-    width: 340px;
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-3);
-    padding: var(--sp-6) 0;
-    text-align: start;
-  }
-  /* The existing mark, on a raised tile with a hairline so it holds on the
-     graphite canvas as well as on paper. */
-  .logo {
-    display: grid;
-    place-items: center;
-    width: 48px;
-    height: 48px;
-    margin-bottom: var(--sp-3);
-    border-radius: var(--radius-lg);
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    color: var(--text);
-  }
   .step {
-    margin: 0 0 -6px;
     font-size: var(--fs-small);
-    color: var(--text-faint);
+    font-weight: 600;
+    color: var(--accent-hover);
   }
   h1 {
-    margin: 0;
+    margin: 0 0 var(--sp-1);
     font-family: var(--display-font);
-    font-size: var(--fs-display);
+    font-size: var(--fs-headline);
     font-weight: 600;
     letter-spacing: -0.02em;
-    line-height: 1.2;
+    line-height: 1.1;
+    overflow-wrap: anywhere;
   }
   p {
     margin: 0;
@@ -1749,13 +2131,11 @@
     display: flex;
     align-items: center;
     gap: var(--sp-2);
-    margin-top: 40px;
+    margin-top: var(--sp-3);
+    padding-top: var(--sp-4);
+    border-top: 1px solid var(--hairline);
     font-size: var(--fs-small);
-    color: var(--text-faint);
-  }
-  .card.wide {
-    width: 440px;
-    max-width: calc(100 * var(--vw) - 28px);
+    color: var(--text-muted);
   }
   .phrase-in {
     font-family: var(--mono-font);
@@ -1936,18 +2316,23 @@
     display: flex;
     gap: var(--sp-2);
   }
-  /* A caution, not an error: muted, with the alert glyph carrying it. */
-  .note-line {
+  /* A caution, not an error: the chrome's own ink on a warn-edged panel,
+     the alert glyph in the warn colour carrying it. */
+  .caution {
     display: flex;
     align-items: flex-start;
-    gap: 6px;
+    gap: var(--sp-2);
+    padding: 10px var(--sp-3);
+    border-radius: var(--radius-md);
+    border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+    color: var(--text);
+    font-size: var(--fs-compact);
   }
-  .note-line :global(svg) {
+  .caution :global(svg) {
     flex: none;
-    margin-top: 2px;
-  }
-  .tiny {
-    font-size: var(--fs-small);
+    margin-top: 1px;
+    color: var(--warn);
   }
   .verify {
     display: flex;
@@ -1964,20 +2349,70 @@
     font-size: var(--fs-small);
     color: var(--text-faint);
   }
-  @media (max-width: 768px) {
-    /* The same column, 14px from the edges, its top a fifth of the way down
-       below the safe area. It scrolls when a step and the keyboard need it. */
-    .login {
-      display: flex;
-      overscroll-behavior: contain;
-      border-top: var(--safe-top) solid transparent;
-      padding: 0 14px calc(12px + var(--safe-bottom) + var(--kb, 0px));
+  /* Too narrow for the hero beside the panel: one column, the hero compact
+     and centred above. */
+  @media (max-width: 1080px) {
+    .stage {
+      grid-template-columns: minmax(0, 480px);
+      justify-content: center;
+      align-content: center;
+      gap: var(--sp-5);
+      padding: var(--sp-7) var(--sp-5);
     }
-    .card,
-    .card.wide {
-      margin: calc(14 * var(--vh)) auto auto;
-      width: 100%;
-      max-width: 460px;
+    .hero {
+      align-items: center;
+      text-align: center;
+      gap: var(--sp-2);
+    }
+    .emblem {
+      width: min(100%, 300px);
+      margin: 0 0 calc(-1 * var(--sp-3));
+    }
+    .tagline {
+      max-width: 26ch;
+      font-family: var(--ui-font);
+      font-size: var(--fs-body);
+      font-weight: 400;
+      letter-spacing: 0;
+      line-height: 1.45;
+      /* Body-sized on the aurora: the full stage ink, which holds AA on the
+         aurora's brightest point; the muted ink does not. */
+      color: var(--stage-ink);
+    }
+  }
+  @media (max-width: 768px) {
+    /* One column 14px from the edges, under the safe area; it scrolls when a
+       step and the keyboard need it. */
+    .stage {
+      gap: var(--sp-4);
+      padding: calc(var(--safe-top) + var(--sp-5)) 14px calc(12px + var(--safe-bottom) + var(--kb, 0px));
+    }
+    .emblem {
+      width: min(100%, 240px);
+    }
+    .hub {
+      width: 150px;
+      height: 150px;
+    }
+    .hub :global(svg) {
+      width: 64px;
+      height: 64px;
+    }
+    .card {
+      padding: var(--sp-5) var(--sp-4);
+    }
+    /* Past the first screen (the phrase, a restore, a link) the steps are
+       long: the hero steps down to the wordmark and gives them the room. */
+    .deep .emblem,
+    .deep .tagline {
+      display: none;
+    }
+    .deep .wordmark {
+      font-size: var(--fs-headline);
+    }
+    .card::before {
+      left: var(--sp-5);
+      right: var(--sp-5);
     }
     input,
     .phrase-in {
