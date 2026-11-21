@@ -12,34 +12,35 @@ import (
 )
 
 // TestImportArchiveBoundsDecompression: ImportArchive gunzipped the opened
-// archive with io.ReadAll and no bound, so a few hundred kilobytes of sealed
-// file inflated to whatever its author chose before the JSON was even looked
-// at. The other decoders (chronicle chunks, link cards, imports) stream through
-// a cap; this one now does too, scaled to the size of the file, and refuses an
+// archive with io.ReadAll and no bound, so a sealed file of about a megabyte
+// inflated to whatever its author chose before the JSON was even looked at.
+// The other decoders (chronicle chunks, link cards, imports) stream through a
+// cap; this one now does too, scaled to the size of the file, and refuses an
 // archive that reaches it without reading on.
 //
-// The archive is 256 MiB of JSON whitespace (about 250 KB once gzipped)
-// followed by a byte that is not JSON, so the import fails either way and
-// never touches the Service; what the test checks is why it failed and what
-// that cost.
+// The archive is 1 GiB of JSON whitespace followed by a byte that is not
+// JSON, written as 1024 gzip members of 1 MiB each (gzip readers read every
+// member in turn), so the import fails either way and never touches the
+// Service; what the test checks is why it failed and what that cost.
 func TestImportArchiveBoundsDecompression(t *testing.T) {
-	var gz bytes.Buffer
-	zw, _ := gzip.NewWriterLevel(&gz, gzip.BestCompression)
-	if _, err := zw.Write([]byte("{")); err != nil {
-		t.Fatal(err)
-	}
-	mib := bytes.Repeat([]byte{' '}, 1<<20)
-	for i := 0; i < 256; i++ {
-		if _, err := zw.Write(mib); err != nil {
+	member := func(b []byte) []byte {
+		var g bytes.Buffer
+		zw, _ := gzip.NewWriterLevel(&g, gzip.BestCompression)
+		if _, err := zw.Write(b); err != nil {
 			t.Fatal(err)
 		}
+		if err := zw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return g.Bytes()
 	}
-	if _, err := zw.Write([]byte("x")); err != nil {
-		t.Fatal(err)
+	spaces := member(bytes.Repeat([]byte{' '}, 1<<20))
+	var gz bytes.Buffer
+	gz.Write(member([]byte("{")))
+	for i := 0; i < 1024; i++ {
+		gz.Write(spaces)
 	}
-	if err := zw.Close(); err != nil {
-		t.Fatal(err)
-	}
+	gz.Write(member([]byte("x")))
 	sealed, err := identity.SealWithPassphrase("bomb", gz.Bytes())
 	if err != nil {
 		t.Fatal(err)
@@ -53,12 +54,14 @@ func TestImportArchiveBoundsDecompression(t *testing.T) {
 	runtime.ReadMemStats(&after)
 
 	if !errors.Is(err, errArchiveOverCap) || !strings.Contains(err.Error(), "decompressed") {
-		t.Fatalf("a %d-byte archive that inflates to 256 MiB: got %v, want a refusal for its decompressed size", len(sealed), err)
+		t.Fatalf("a %d-byte archive that inflates to 1 GiB: got %v, want a refusal for its decompressed size", len(sealed), err)
 	}
-	// The floor is 64 MiB; reading up to it in a growing buffer allocates
-	// about three and a half times that in all (222 MiB measured); reading the
-	// whole 256 MiB bomb the same way allocates several times the bound.
-	if got := after.TotalAlloc - before.TotalAlloc; got > 4*archivePlainFloor {
+	// The cap here is the 64 MiB floor. Reading up to it in a growing buffer
+	// allocates about three and a half times that (222 MiB measured alone,
+	// 380 MiB in the full -race package run, where TotalAlloc also counts
+	// other tests' services). Reading the whole bomb holds 1 GiB in its last
+	// buffer alone.
+	if got := after.TotalAlloc - before.TotalAlloc; got > 10*archivePlainFloor {
 		t.Fatalf("the refusal allocated %d MiB; the cap should stop the read at the limit", got>>20)
 	}
 }
