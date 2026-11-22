@@ -397,6 +397,50 @@ func (s *Store) MediaPage(channelID string, tab mediatok.Tab, cursor MediaCursor
 	return out, last, nil
 }
 
+// MediaCount is how many items one sender has under one tab of a channel.
+type MediaCount struct {
+	Sender []byte
+	Tab    mediatok.Tab
+	N      int
+}
+
+// mediaCountQuery counts what mediaPageQuery would list, by sender and tab,
+// without opening a single body. Per sender so the caller can leave out the
+// senders it blocks, as it does with a page's items.
+const mediaCountQuery = `
+SELECT m.sender, mi.tab, COUNT(*)
+FROM media_index mi JOIN messages m ON m.id = mi.message_id
+WHERE mi.channel_id = ?
+  AND m.deleted = 0 AND m.kind IN ('', 'guest')
+  AND (m.expires = 0 OR m.expires > ?) AND (mi.expires = 0 OR mi.expires > ?)
+  AND NOT EXISTS (SELECT 1 FROM hidden_messages h WHERE h.message_id = mi.message_id AND h.hidden = 1)
+GROUP BY m.sender, mi.tab`
+
+// MediaCounts is the size of each of a channel's gallery tabs, by sender.
+// Like MediaPage it indexes the channel's pending messages first.
+func (s *Store) MediaCounts(channelID string) ([]MediaCount, error) {
+	if _, err := s.drainMedia(channelID, 0); err != nil {
+		return nil, err
+	}
+	now := time.Now().Unix()
+	rows, err := s.rd().Query(mediaCountQuery, channelID, now, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MediaCount
+	for rows.Next() {
+		var c MediaCount
+		var tab int
+		if err := rows.Scan(&c.Sender, &tab, &c.N); err != nil {
+			return nil, err
+		}
+		c.Tab = mediatok.Tab(tab)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // recentDrainMax bounds the indexing a "Recent" query does before it reads:
 // the strip asks each time the attach menu opens, so it must not be the one
 // that indexes a whole imported history (the background drain does that).

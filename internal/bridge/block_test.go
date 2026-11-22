@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/mediatok"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 // blockList is a stand-in for the service's block list. visibleViews only ever
@@ -116,5 +118,19 @@ func TestNoBlocksMeansEveryMessageRenders(t *testing.T) {
 	}
 	if got := visibleViews(blockList{}, nil); len(got) != 0 {
 		t.Fatalf("an empty channel produced %d messages", len(got))
+	}
+}
+
+// A blocked sender's items leave the tab sizes as they leave the pages.
+func TestMediaCountsLeaveOutBlockedSenders(t *testing.T) {
+	cs := []store.MediaCount{
+		{Sender: []byte("alice"), Tab: mediatok.TabVisual, N: 4},
+		{Sender: []byte("mallory"), Tab: mediatok.TabVisual, N: 9},
+		{Sender: []byte("alice"), Tab: mediatok.TabFiles, N: 2},
+		{Sender: []byte("mallory"), Tab: mediatok.TabFiles, N: 5},
+	}
+	got := mediaCounts(blockList{"mallory": true}, cs)
+	if got.Visual != 4 || got.Files != 2 {
+		t.Fatalf("counts %+v, want 4 visual and 2 files", got)
 	}
 }

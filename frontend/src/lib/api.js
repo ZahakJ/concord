@@ -613,6 +613,7 @@ export const api = {
   // The conversation's gallery (lib/gallery.js): one page of tab 1 (photos
   // and videos) or tab 2 (files), newest first. Resolves to { items, next }.
   mediaPage: (channelID, tab, cursor = "", limit = 120) => call("MediaPage", channelID, tab, cursor, limit),
+  mediaCounts: (channelID) => call("MediaCounts", channelID),
   // Make sure an item's blob is on this device. Resolves to "local",
   // "fetched", or "metered" (nothing fetched: billed connection, not asked).
   ensureMedia: (channelID, blobID, allowMetered = false) => call("EnsureMedia", channelID, blobID, allowMetered),

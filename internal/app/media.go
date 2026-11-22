@@ -25,6 +25,12 @@ func (s *Service) MediaPage(channelID string, tab mediatok.Tab, cursor string, l
 	return items, next.String(), nil
 }
 
+// MediaCounts is the size of each gallery tab of a conversation, by sender
+// (store.MediaCounts); the bridge leaves out blocked senders.
+func (s *Service) MediaCounts(channelID string) ([]store.MediaCount, error) {
+	return s.store.MediaCounts(channelID)
+}
+
 // RecentMax caps the attach menu's "Recent" strip.
 const RecentMax = 12
 

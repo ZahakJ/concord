@@ -61,6 +61,41 @@ func (b *Bridge) MediaPage(channelID string, tab int, cursor string, limit int) 
 	return MediaPageView{Items: mediaViews(svc, items), Next: next}, nil
 }
 
+// MediaCountsView is how many items each gallery tab holds.
+type MediaCountsView struct {
+	Visual int `json:"visual"`
+	Files  int `json:"files"`
+}
+
+// MediaCounts is the size of a conversation's gallery tabs, blocked senders
+// left out as MediaPage leaves out their items.
+func (b *Bridge) MediaCounts(channelID string) (MediaCountsView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return MediaCountsView{}, err
+	}
+	cs, err := svc.MediaCounts(channelID)
+	if err != nil {
+		return MediaCountsView{}, err
+	}
+	return mediaCounts(svc, cs), nil
+}
+
+func mediaCounts(blk senderBlocker, cs []store.MediaCount) MediaCountsView {
+	var v MediaCountsView
+	for _, c := range cs {
+		if blk.SenderBlocked(c.Sender) {
+			continue
+		}
+		if c.Tab == mediatok.TabFiles {
+			v.Files += c.N
+		} else {
+			v.Visual += c.N
+		}
+	}
+	return v
+}
+
 // RecentMedia is the attach menu's "Recent" strip: up to limit (at most 12)
 // items from every conversation, newest first (app.RecentMedia has the
 // rules).

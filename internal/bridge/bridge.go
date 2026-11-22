@@ -4405,6 +4405,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.MediaPage(argStr(args, 0), argInt(args, 1), argStr(args, 2), argInt(args, 3))
 	case "EnsureMedia":
 		return b.EnsureMedia(argStr(args, 0), argStr(args, 1), argBool(args, 2))
+	case "MediaCounts":
+		return b.MediaCounts(argStr(args, 0))
 	case "RecentMedia":
 		return b.RecentMedia(argInt(args, 0))
 	case "SendFile":

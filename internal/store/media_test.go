@@ -910,3 +910,38 @@ func TestMediaInsertAndQueueAreOneWrite(t *testing.T) {
 		t.Fatalf("gallery has %d items, want 2:\n%s", len(got), mtDump(st, "c"))
 	}
 }
+
+// The tab sizes count what the pages list: a deleted message, a hidden one
+// and an expired one are not counted, and each sender's count stands apart.
+func TestMediaCountsMatchPages(t *testing.T) {
+	st := sidebarStore(t)
+	now := time.Now()
+	mtSave(t, st, "a", "c", now, mtImage(1)+"\n"+mtImage(2))
+	mtSave(t, st, "b", "c", now.Add(time.Second), mtVideo(3))
+	mtSave(t, st, "f", "c", now.Add(2*time.Second), mtFile(4))
+	mtSave(t, st, "gone", "c", now.Add(3*time.Second), mtImage(5))
+	mtSave(t, st, "old", "c", now.Add(4*time.Second), mtEph(now.Add(-time.Minute))+mtImage(6))
+	mtSave(t, st, "other", "d", now, mtImage(7))
+	if _, err := st.db.Exec(`UPDATE messages SET deleted = 1 WHERE id = 'gone'`); err != nil {
+		t.Fatal(err)
+	}
+	cs, err := st.MediaCounts("c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[mediatok.Tab]int{}
+	for _, c := range cs {
+		got[c.Tab] += c.N
+	}
+	visual, files := 0, 0
+	for _, k := range mtAll(t, st, "c", 10) {
+		if k.kind == mediatok.File {
+			files++
+		} else {
+			visual++
+		}
+	}
+	if got[mediatok.TabVisual] != visual || got[mediatok.TabFiles] != files || visual != 3 || files != 1 {
+		t.Fatalf("counts %v, pages list %d visual and %d files (want 3 and 1)", got, visual, files)
+	}
+}
