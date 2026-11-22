@@ -114,31 +114,194 @@ func TestAMembersDoorRefusesADeviceTheAccountUnlinked(t *testing.T) {
 	}
 }
 
-// The per-account cap keeps an account's newest records and leaves others'.
-func TestPeerRevocationsCapPerAccount(t *testing.T) {
+// A stranger can make us keep nothing. presence() gives any peer that says
+// hello a fingerprint of its own key, so "placed as the account that signed"
+// alone let anyone mint identities and fill our store; only an account we
+// share a guild with is a source now.
+func TestAStrangersHelloKeepsNoRevocations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := newUnlinkWorld(t, ctx) // no guild: Carol is a stranger to Alice
+	carol := w.carol.host.PeerID()
+	var recs []*identity.DeviceRevocation
+	for i := 0; i < helloRevocationsMax; i++ {
+		d, _ := identity.Generate()
+		recs = append(recs, w.carol.id.RevokeDevice(d.PublicKey(), int64(1000+i)))
+	}
+	raw, _ := json.Marshal(helloFrame{Credential: w.carol.myCredential, AccountRevoked: recs})
+	w.alice.ingestHello(carol, raw)
+	if fp := w.alice.presence(carol).Fingerprint; fp != w.carol.Fingerprint() {
+		t.Fatalf("Alice places Carol as %q; the test needs her placed as herself", fp)
+	}
+	if v, _ := w.alice.store.GetSetting(peerRevocationsKey); v != "" {
+		t.Fatalf("a stranger's hello wrote %d bytes of revocations", len(v))
+	}
+	w.alice.deviceMu.RLock()
+	n := len(w.alice.peerRevoked)
+	w.alice.deviceMu.RUnlock()
+	if n != 0 {
+		t.Fatalf("a stranger's hello put %d revocations in memory", n)
+	}
+	if w.alice.revocationSource(w.carol.Fingerprint()) {
+		t.Fatal("a stranger counts as a revocation source")
+	}
+}
+
+func revService(t *testing.T) *Service {
+	t.Helper()
+	me, err := identity.Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := recordService(t, me)
+	s.loadPeerRevoked()
+	return s
+}
+
+func revocationsBy(t *testing.T, a *identity.Identity, n int, at int64) []*identity.DeviceRevocation {
+	t.Helper()
+	var out []*identity.DeviceRevocation
+	for i := 0; i < n; i++ {
+		d, err := identity.Generate()
+		if err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, a.RevokeDevice(d.PublicKey(), at+int64(i)))
+	}
+	return out
+}
+
+func keptCount(t *testing.T, s *Service) (mem, disk int) {
+	t.Helper()
+	s.deviceMu.RLock()
+	mem = len(s.peerRevoked)
+	s.deviceMu.RUnlock()
+	recs, err := s.readPeerRevocations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mem, len(recs)
+}
+
+// The caps refuse instead of evicting: an account's 65th record, however new
+// its signer says it is, does not push out an older one, and memory and the
+// store hold the same set.
+func TestPeerRevocationCapsRefuseAndNeverEvict(t *testing.T) {
+	s := revService(t)
+	a, _ := identity.Generate()
+	fpr := a.Fingerprint()
+	old := revocationsBy(t, a, peerRevocationsPerAccount, 100)
+	for i := 0; i < len(old); i += helloRevocationsMax {
+		if err := s.keepPeerRevocations(fpr, old[i:min(i+helloRevocationsMax, len(old))]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	late := revocationsBy(t, a, 3, 1<<40) // "newer" by the signer's own clock
+	if err := s.keepPeerRevocations(fpr, late); err != nil {
+		t.Fatal(err)
+	}
+	if mem, disk := keptCount(t, s); mem != peerRevocationsPerAccount || disk != peerRevocationsPerAccount {
+		t.Fatalf("kept %d in memory and %d stored, want %d in both", mem, disk, peerRevocationsPerAccount)
+	}
+	for _, r := range old {
+		if !s.certRevoked(&identity.DeviceCert{AccountPub: r.AccountPub, DevicePub: r.DevicePub}) {
+			t.Fatal("an older record was evicted")
+		}
+	}
+	for _, r := range late {
+		if s.certRevoked(&identity.DeviceCert{AccountPub: r.AccountPub, DevicePub: r.DevicePub}) {
+			t.Fatal("a record past the cap was kept")
+		}
+	}
+	// Records from the wrong account, or that do not verify, are not taken.
+	b, _ := identity.Generate()
+	bad := revocationsBy(t, b, 1, 1)
+	bad[0].Sig = append([]byte(nil), bad[0].Sig...)
+	bad[0].Sig[0] ^= 1
+	_ = s.keepPeerRevocations(b.Fingerprint(), append(bad, revocationsBy(t, a, 1, 1)...))
+	if mem, disk := keptCount(t, s); mem != peerRevocationsPerAccount || disk != peerRevocationsPerAccount {
+		t.Fatalf("a forged or misattributed record was kept (%d, %d)", mem, disk)
+	}
+	// A reload gives back the same set.
+	s.loadPeerRevoked()
+	if mem, _ := keptCount(t, s); mem != peerRevocationsPerAccount {
+		t.Fatalf("reload holds %d", mem)
+	}
+}
+
+// The whole set has a cap too, across accounts.
+func TestPeerRevocationsTotalCap(t *testing.T) {
+	s := revService(t)
+	for n := 0; n*peerRevocationsPerAccount <= peerRevocationsTotal; n++ {
+		a, _ := identity.Generate()
+		recs := revocationsBy(t, a, peerRevocationsPerAccount, 1)
+		for i := 0; i < len(recs); i += helloRevocationsMax {
+			_ = s.keepPeerRevocations(a.Fingerprint(), recs[i:i+helloRevocationsMax])
+		}
+	}
+	if mem, disk := keptCount(t, s); mem != peerRevocationsTotal || disk != peerRevocationsTotal {
+		t.Fatalf("kept %d in memory and %d stored, want %d", mem, disk, peerRevocationsTotal)
+	}
+}
+
+// A stored set that cannot be read is not taken for an empty one: nothing is
+// written over it, the new record still counts in memory, and the failure is
+// reported.
+func TestPeerRevocationsUnreadableSetIsNotOverwritten(t *testing.T) {
+	s := revService(t)
+	if err := s.store.SetSetting(peerRevocationsKey, "{not json"); err != nil {
+		t.Fatal(err)
+	}
+	s.loadPeerRevoked()
+	a, _ := identity.Generate()
+	recs := revocationsBy(t, a, 1, 1)
+	if err := s.keepPeerRevocations(a.Fingerprint(), recs); err == nil {
+		t.Fatal("keeping a record over an unreadable set reported no error")
+	}
+	if v, _ := s.store.GetSetting(peerRevocationsKey); v != "{not json" {
+		t.Fatalf("the unreadable set was overwritten with %q", v)
+	}
+	if !s.certRevoked(&identity.DeviceCert{AccountPub: recs[0].AccountPub, DevicePub: recs[0].DevicePub}) {
+		t.Fatal("the new record does not count in memory")
+	}
+}
+
+// Past one hello's worth, the newest half goes every time and the rest walk
+// through the older records, so every unlink reaches a member eventually.
+func TestShareWindowReachesEveryRecord(t *testing.T) {
+	s := revService(t)
+	a, _ := identity.Generate()
+	recs := revocationsBy(t, a, 100, 1)
+	seen := map[string]bool{}
+	for i := 0; i < 6; i++ {
+		out := s.shareWindow(recs)
+		if len(out) != helloRevocationsMax {
+			t.Fatalf("a hello carried %d", len(out))
+		}
+		for j := 0; j < helloRevocationsMax/2; j++ {
+			if out[j].RevokedAt != int64(100-j) {
+				t.Fatalf("slot %d is not the %d-th newest", j, j)
+			}
+		}
+		for _, r := range out {
+			seen[peerRevKey(r.AccountPub, r.DevicePub)] = true
+		}
+	}
+	if len(seen) != len(recs) {
+		t.Fatalf("six hellos carried %d of %d records", len(seen), len(recs))
+	}
+	if got := s.shareWindow(recs[:5]); len(got) != 5 {
+		t.Fatalf("a short list went as %d", len(got))
+	}
+}
+
+func TestPeerRevocationValidRefusesTheAccountKey(t *testing.T) {
 	a, err := identity.Generate()
 	if err != nil {
 		t.Fatal(err)
-	}
-	b, err := identity.Generate()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var recs []*identity.DeviceRevocation
-	for i := 0; i < 10; i++ {
-		d, _ := identity.Generate()
-		recs = append(recs, a.RevokeDevice(d.PublicKey(), int64(100+i)))
-	}
-	d, _ := identity.Generate()
-	recs = append(recs, b.RevokeDevice(d.PublicKey(), 1))
-	out := capPerAccount(recs, 3)
-	if len(out) != 4 {
-		t.Fatalf("kept %d, want 3 of A and 1 of B", len(out))
-	}
-	for _, r := range out[:3] {
-		if r.RevokedAt < 107 {
-			t.Fatalf("kept an older record of A (%d)", r.RevokedAt)
-		}
 	}
 	self := a.RevokeDevice(a.PublicKey(), 5)
 	if peerRevocationValid(self) {

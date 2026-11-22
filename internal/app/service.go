@@ -542,6 +542,11 @@ type Service struct {
 	// See peerrevoke.go.
 	peerRevoked map[string]bool
 	peerRevMu   sync.Mutex
+	// peerRevRecs is the kept set as stored (peerRevMu); peerRevLoaded is
+	// false when the start could not read it, and then nothing is written.
+	peerRevRecs    []*identity.DeviceRevocation
+	peerRevLoaded  bool
+	peerRevShareAt atomic.Uint64 // shareWindow's place among older records
 
 	// regMu guards the persisted own-device registry (devices.go). Separate from
 	// deviceMu on purpose: the registry writes to the store, and the in-memory

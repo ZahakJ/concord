@@ -5,6 +5,8 @@ import (
 	"cmp"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"log"
 	"slices"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -41,6 +43,21 @@ import (
 // which other accounts would now honour at their doors; that is no new power,
 // since the same seed can already remove those devices' leaves wherever the
 // account commits.
+// Both last until account rotation exists. Records are keyed by the signing
+// account key (unlink.go drops non-current signers), so a rotation must carry
+// the old key's revocations over, or unlinked devices come back.
+//
+// Who may hand us revocations at all: only an account that shares a guild
+// with us (sharesGuild). Doors, the owner chain and catch-up are about guild
+// members, so an account we share no guild with has nothing to withdraw here,
+// and a stranger who mints identities cannot make us store anything.
+//
+// The store holds what we kept, verified once on the way in; a start verifies
+// it once more, and nothing after that re-verifies a record we already hold.
+// Caps refuse, never evict: a kept revocation stays kept, so an account cannot
+// push its own older (or another account's) record out by sending new ones,
+// and what memory holds is what the store holds. A failed read never turns
+// into an empty set that the next write would make permanent.
 //
 // The keys are (account, device) pairs: a revocation is the account's word
 // about its own device and nobody else's, so an account cannot shut another
@@ -51,35 +68,43 @@ const peerRevocationsKey = "peer.revocations"
 
 // peerRevocationsPerAccount bounds what one account can make us store. An
 // account unlinks a handful of devices in its life; a flood is someone
-// minting keys to fill our settings.
+// minting keys to fill our settings. At the cap new records are refused.
 const peerRevocationsPerAccount = 64
 
-// helloRevocationsMax is the most revocations one hello carries (newest
-// first): about 250 bytes each, well inside the 64 KiB frame.
+// peerRevocationsTotal bounds the whole set (about 250 bytes a record).
+const peerRevocationsTotal = 2048
+
+// helloRevocationsMax is the most revocations one hello carries: about 250
+// bytes each, well inside the 64 KiB frame. With more than that, the newest
+// half always go and the other half walk through the rest hello by hello.
 const helloRevocationsMax = 32
 
 func peerRevKey(account, device []byte) string {
 	return hex.EncodeToString(account) + ":" + hex.EncodeToString(device)
 }
 
-// peerRevocations reads the stored revocations of other accounts, keeping only
-// those that still verify.
-func (s *Service) peerRevocations() []*identity.DeviceRevocation {
+// readPeerRevocations reads the stored revocations of other accounts, keeping
+// those that still verify. An error (a failed read, a value that does not
+// parse) is returned as such, never as an empty set.
+func (s *Service) readPeerRevocations() ([]*identity.DeviceRevocation, error) {
 	raw, err := s.store.GetSetting(peerRevocationsKey)
-	if err != nil || raw == "" {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if raw == "" {
+		return nil, nil
 	}
 	var recs []*identity.DeviceRevocation
-	if json.Unmarshal([]byte(raw), &recs) != nil {
-		return nil
+	if err := json.Unmarshal([]byte(raw), &recs); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", peerRevocationsKey, err)
 	}
 	out := recs[:0]
 	for _, r := range recs {
-		if peerRevocationValid(r) && !ed25519Equal(r.AccountPub, s.id.PublicKey()) {
+		if peerRevocationValid(r) && (s.id == nil || !ed25519Equal(r.AccountPub, s.id.PublicKey())) {
 			out = append(out, r)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // peerRevocationValid is a revocation that verifies and withdraws a device
@@ -89,10 +114,21 @@ func peerRevocationValid(r *identity.DeviceRevocation) bool {
 	return r != nil && r.Verify() && !bytes.Equal(r.AccountPub, r.DevicePub)
 }
 
-// loadPeerRevoked seeds the in-memory set at startup and drops any mapping a
-// roster read may already have made for a revoked device.
+// loadPeerRevoked reads the kept set at startup, seeds memory, and drops any
+// mapping a roster read may already have made for a revoked device. When the
+// read fails the set stays unloaded: new records are honoured in memory but
+// nothing is written, so the stored set is not overwritten by a partial one.
 func (s *Service) loadPeerRevoked() {
-	recs := s.peerRevocations()
+	recs, err := s.readPeerRevocations()
+	s.peerRevMu.Lock()
+	defer s.peerRevMu.Unlock()
+	if err != nil {
+		log.Printf("concord/app: other accounts' unlinked devices: %v; keeping them in memory only until a restart reads them", err)
+		s.peerRevLoaded = false
+	} else {
+		s.peerRevLoaded = true
+	}
+	s.peerRevRecs = recs
 	s.deviceMu.Lock()
 	s.peerRevoked = map[string]bool{}
 	for _, r := range recs {
@@ -138,88 +174,127 @@ func (s *Service) leafRevoked(cred []byte) bool {
 }
 
 // revocationsToShare is what we hand a peer we can place: our account's own
-// revocations, newest first, at most helloRevocationsMax. Nothing to a peer we
-// cannot place (a stranger learns nothing of our devices), and nothing to a
-// device we unlinked, which gets its own record in Revoked instead.
+// revocations, at most helloRevocationsMax. Nothing to a peer we cannot place
+// (a stranger learns nothing of our devices), and nothing to a device we
+// unlinked, which gets its own record in Revoked instead.
 func (s *Service) revocationsToShare(p peer.ID) []*identity.DeviceRevocation {
 	recs := s.revocations()
 	if len(recs) == 0 || !s.canPlace(p) || s.revocationFor(p) != nil {
 		return nil
 	}
+	return s.shareWindow(recs)
+}
+
+// shareWindow picks which of our revocations one hello carries: all of them
+// when they fit; otherwise the newest half of a hello's worth, and a window
+// over the older ones that moves on with every hello, so an old unlink still
+// reaches a member who has not met us since.
+func (s *Service) shareWindow(recs []*identity.DeviceRevocation) []*identity.DeviceRevocation {
 	recs = slices.Clone(recs)
-	slices.SortFunc(recs, func(a, b *identity.DeviceRevocation) int { return cmp.Compare(b.RevokedAt, a.RevokedAt) })
-	if len(recs) > helloRevocationsMax {
-		recs = recs[:helloRevocationsMax]
+	slices.SortStableFunc(recs, func(a, b *identity.DeviceRevocation) int { return cmp.Compare(b.RevokedAt, a.RevokedAt) })
+	if len(recs) <= helloRevocationsMax {
+		return recs
 	}
-	return recs
+	newest := helloRevocationsMax / 2
+	older := recs[newest:]
+	n := helloRevocationsMax - newest
+	start := int(s.peerRevShareAt.Add(uint64(n))-uint64(n)) % len(older)
+	out := slices.Clone(recs[:newest])
+	for i := 0; i < n && i < len(older); i++ {
+		out = append(out, older[(start+i)%len(older)])
+	}
+	return out
 }
 
 // adoptPeerRevocations keeps the revocations a peer's account signed, when the
-// peer is placed as that account. Our own account's are not taken this way:
-// they erase a device, and arrive in Revoked under applyRevocation's rules.
+// peer is placed as that account and that account shares a guild with us.
+// Our own account's are not taken this way: they erase a device, and arrive
+// in Revoked under applyRevocation's rules.
 func (s *Service) adoptPeerRevocations(from peer.ID, recs []*identity.DeviceRevocation) {
 	if len(recs) == 0 {
 		return
 	}
 	fpr := s.presence(from).Fingerprint
-	if fpr == "" || fpr == s.id.Fingerprint() {
+	if !s.revocationSource(fpr) {
 		return
 	}
-	var fresh []*identity.DeviceRevocation
-	for _, r := range recs {
-		if len(fresh) >= helloRevocationsMax {
-			break
-		}
-		if peerRevocationValid(r) && identity.FingerprintOf(r.AccountPub) == fpr {
-			fresh = append(fresh, r)
-		}
+	if err := s.keepPeerRevocations(fpr, recs); err != nil {
+		log.Printf("concord/app: keeping %s's unlinked devices: %v", fpr, err)
 	}
-	if len(fresh) == 0 {
-		return
+}
+
+// revocationSource: whose word about their own devices we take. Not our own
+// account (that path erases), not a stranger (presence gives anyone a
+// fingerprint of their own key), only an account we share a guild with.
+func (s *Service) revocationSource(fpr string) bool {
+	if fpr == "" || s.id == nil || fpr == s.id.Fingerprint() {
+		return false
 	}
+	return s.sharesGuild(fpr)
+}
+
+// keepPeerRevocations adds the records signed by account fpr that we do not
+// hold yet. Records we hold are matched by key and never verified again; only
+// new ones are. Caps refuse. A store write that fails is returned; memory
+// keeps the records (refusing an unlinked device is the safe side) and the
+// next write carries them.
+func (s *Service) keepPeerRevocations(fpr string, recs []*identity.DeviceRevocation) error {
 	s.peerRevMu.Lock()
 	defer s.peerRevMu.Unlock()
-	held := s.peerRevocations()
-	have := map[string]bool{}
-	for _, r := range held {
-		have[peerRevKey(r.AccountPub, r.DevicePub)] = true
-	}
-	added := false
-	for _, r := range fresh {
-		k := peerRevKey(r.AccountPub, r.DevicePub)
-		if have[k] {
+	s.deviceMu.RLock()
+	held := func(r *identity.DeviceRevocation) bool { return s.peerRevoked[peerRevKey(r.AccountPub, r.DevicePub)] }
+	var cand []*identity.DeviceRevocation
+	seen := map[string]bool{}
+	for _, r := range recs {
+		if len(cand) >= helloRevocationsMax {
+			break
+		}
+		if r == nil || held(r) || identity.FingerprintOf(r.AccountPub) != fpr {
 			continue
 		}
-		have[k] = true
-		held = append(held, r)
-		added = true
+		k := peerRevKey(r.AccountPub, r.DevicePub)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		cand = append(cand, r)
 	}
-	if !added {
-		return
+	s.deviceMu.RUnlock()
+	if len(cand) == 0 {
+		return nil
 	}
-	held = capPerAccount(held, peerRevocationsPerAccount)
-	if raw, err := json.Marshal(held); err == nil {
-		_ = s.store.SetSetting(peerRevocationsKey, string(raw))
+	perAccount := 0
+	for _, r := range s.peerRevRecs {
+		if identity.FingerprintOf(r.AccountPub) == fpr {
+			perAccount++
+		}
 	}
+	var fresh []*identity.DeviceRevocation
+	for _, r := range cand {
+		if perAccount >= peerRevocationsPerAccount || len(s.peerRevRecs)+len(fresh) >= peerRevocationsTotal {
+			break
+		}
+		if !peerRevocationValid(r) {
+			continue
+		}
+		fresh = append(fresh, r)
+		perAccount++
+	}
+	if len(fresh) == 0 {
+		return nil
+	}
+	s.peerRevRecs = append(s.peerRevRecs, fresh...)
 	s.deviceMu.Lock()
-	for _, r := range held {
+	for _, r := range fresh {
 		s.forgetPeerDeviceLocked(r)
 	}
 	s.deviceMu.Unlock()
-}
-
-// capPerAccount keeps each account's newest n revocations.
-func capPerAccount(recs []*identity.DeviceRevocation, n int) []*identity.DeviceRevocation {
-	slices.SortStableFunc(recs, func(a, b *identity.DeviceRevocation) int { return cmp.Compare(b.RevokedAt, a.RevokedAt) })
-	count := map[string]int{}
-	out := recs[:0]
-	for _, r := range recs {
-		a := hex.EncodeToString(r.AccountPub)
-		if count[a] >= n {
-			continue
-		}
-		count[a]++
-		out = append(out, r)
+	if !s.peerRevLoaded {
+		return fmt.Errorf("the stored set could not be read at start; %d new kept in memory only", len(fresh))
 	}
-	return out
+	raw, err := json.Marshal(s.peerRevRecs)
+	if err != nil {
+		return err
+	}
+	return s.store.SetSetting(peerRevocationsKey, string(raw))
 }
