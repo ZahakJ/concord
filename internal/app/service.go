@@ -548,6 +548,10 @@ type Service struct {
 	peerRevLoaded  bool
 	peerRevShareAt atomic.Uint64 // shareWindow's place among older records
 
+	// sendOnce serialises repeated attempts at one message (SendMessageOnce).
+	sendOnceMu sync.Mutex
+	sendOnce   map[string]*sendOnceSlot
+
 	// regMu guards the persisted own-device registry (devices.go). Separate from
 	// deviceMu on purpose: the registry writes to the store, and the in-memory
 	// device→account map is read on the network thread.

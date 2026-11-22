@@ -2233,6 +2233,17 @@ func (b *Bridge) SendMessage(channelID, content, replyTo, dir string) error {
 	return err
 }
 
+// SendMessageOnce is SendMessage with the client's send id, the same on every
+// attempt at one message, so a retry never sends it twice (app.SendMessageOnce).
+func (b *Bridge) SendMessageOnce(channelID, content, replyTo, dir, sendID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	_, err = svc.SendMessageOnce(channelID, content, replyTo, dir, sendID)
+	return err
+}
+
 // SendCallNotice posts a call event line (e.g. "call-missed") into a channel.
 // The caller's client emits it when a DM ring goes unanswered.
 func (b *Bridge) SendCallNotice(channelID, kind, content string) error {
@@ -4383,7 +4394,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		}
 		return b.UnreadMessages(since)
 	case "SendMessage":
-		return nil, b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+		return nil, b.SendMessageOnce(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4))
 	case "SendCallNotice":
 		return nil, b.SendCallNotice(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "NoteCall":

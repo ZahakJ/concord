@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1628,6 +1630,83 @@ func (s *Service) SendMessage(channelID, content, replyTo, dir string) (domain.M
 	return s.sendAs(channelID, content, "", replyTo, "", dir)
 }
 
+// SendMessageOnce is SendMessage made safe to repeat. The client picks sendID
+// once per message it means to send and passes the same one on every attempt:
+// a retry after a send that timed out, failed on the way back, or was cut off
+// by the page going away. The message's id is derived from it, so
+//
+//   - a repeat that finds the message already stored here returns it and
+//     sends nothing (the store keeps a message only after it was published);
+//   - two attempts racing each other are serialised, and the second finds the
+//     first's row;
+//   - should a copy go out twice anyway (a publish whose answer was lost
+//     before the row was saved), every receiver keeps one: a message id is
+//     stored once (ON CONFLICT DO NOTHING), whichever path or reconnect
+//     delivers it. Older receivers behave the same way.
+//
+// The id is bound to this account and channel, so the same sendID used
+// elsewhere names a different message.
+func (s *Service) SendMessageOnce(channelID, content, replyTo, dir, sendID string) (domain.Message, error) {
+	if sendID == "" {
+		return s.SendMessage(channelID, content, replyTo, dir)
+	}
+	if len(sendID) > 128 {
+		return domain.Message{}, fmt.Errorf("app: send id too long")
+	}
+	id := onceMessageID(s.PublicKey(), channelID, sendID)
+	unlock := s.sendOnceLock(id)
+	defer unlock()
+	if held, ok, err := s.store.MessageByID(id); err == nil && ok {
+		if !bytes.Equal(held.Sender, s.PublicKey()) || held.ChannelID != channelID {
+			return domain.Message{}, fmt.Errorf("app: send id names another message")
+		}
+		return held, nil
+	}
+	return s.sendCore(channelID, content, "", replyTo, "", dir, nil, true, id)
+}
+
+// onceMessageID is the message id a client's send id stands for: 16 bytes of
+// a hash over this account, the channel and the send id, the shape NewID has.
+func onceMessageID(sender []byte, channelID, sendID string) string {
+	h := sha256.New()
+	h.Write([]byte("concord/send-once/v1\x00"))
+	h.Write(sender)
+	h.Write([]byte{0})
+	h.Write([]byte(channelID))
+	h.Write([]byte{0})
+	h.Write([]byte(sendID))
+	return hex.EncodeToString(h.Sum(nil)[:16])
+}
+
+// sendOnceLock serialises the attempts at one message.
+func (s *Service) sendOnceLock(id string) func() {
+	s.sendOnceMu.Lock()
+	if s.sendOnce == nil {
+		s.sendOnce = map[string]*sendOnceSlot{}
+	}
+	slot := s.sendOnce[id]
+	if slot == nil {
+		slot = &sendOnceSlot{}
+		s.sendOnce[id] = slot
+	}
+	slot.users++
+	s.sendOnceMu.Unlock()
+	slot.mu.Lock()
+	return func() {
+		slot.mu.Unlock()
+		s.sendOnceMu.Lock()
+		if slot.users--; slot.users == 0 {
+			delete(s.sendOnce, id)
+		}
+		s.sendOnceMu.Unlock()
+	}
+}
+
+type sendOnceSlot struct {
+	mu    sync.Mutex
+	users int
+}
+
 // sendSystem posts a system notice (join/create) to a channel. Errors are
 // swallowed since these are best-effort UI sugar.
 func (s *Service) sendSystem(channelID, content string) {
@@ -1713,7 +1792,7 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName, dir strin
 // (see sendCore). System notices, invites, call notices and relayed guest
 // messages are not the user reading anything, and do not.
 func (s *Service) sendAsWith(channelID, content, kind, replyTo, guestName, dir string, beforePublish func(domain.Message) error) (domain.Message, error) {
-	return s.sendCore(channelID, content, kind, replyTo, guestName, dir, beforePublish, kind == "" && guestName == "")
+	return s.sendCore(channelID, content, kind, replyTo, guestName, dir, beforePublish, kind == "" && guestName == "", "")
 }
 
 // sendScheduled posts a message the user queued earlier. It fires whether or
@@ -1721,12 +1800,14 @@ func (s *Service) sendAsWith(channelID, content, kind, replyTo, guestName, dir s
 // the unread badges here and on every own device, and, with read receipts on,
 // report as read whatever arrived since.
 func (s *Service) sendScheduled(channelID, content, replyTo string) (domain.Message, error) {
-	return s.sendCore(channelID, content, "", replyTo, "", "", nil, false)
+	return s.sendCore(channelID, content, "", replyTo, "", "", nil, false, "")
 }
 
 // sendCore is the one send path. markRead says whether the user is writing in
 // the chat now, which means having read it up to the message.
-func (s *Service) sendCore(channelID, content, kind, replyTo, guestName, dir string, beforePublish func(domain.Message) error, markRead bool) (domain.Message, error) {
+//
+// msgID, when set, is the message's id (SendMessageOnce); otherwise a fresh one.
+func (s *Service) sendCore(channelID, content, kind, replyTo, guestName, dir string, beforePublish func(domain.Message) error, markRead bool, msgID string) (domain.Message, error) {
 	s.mu.RLock()
 	guildID, ok := s.channelToGuild[channelID]
 	var groupID []byte
@@ -1786,6 +1867,9 @@ func (s *Service) sendCore(channelID, content, kind, replyTo, guestName, dir str
 	msg, err := domain.NewMessage(channelID, s.PublicKey(), content)
 	if err != nil {
 		return domain.Message{}, err
+	}
+	if msgID != "" {
+		msg.ID = msgID
 	}
 	msg.Name = s.DisplayName()
 	if kind == "guest" && guestName != "" {

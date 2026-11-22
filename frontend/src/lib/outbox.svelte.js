@@ -252,7 +252,11 @@ export function sendText(channelId, body, replyTo, dir) {
     // card's place), and whether it is still waiting.
     cardUrl,
     held: !!cardUrl,
-    sendId: cardUrl ? newSendId() : "",
+    // One id for this message for good: every attempt (Retry, the flush when
+    // the core is back, a reload's) passes it, and the core sends a message
+    // once per id (app.SendMessageOnce). It also names the row's claim
+    // across tabs while it waits for a card.
+    sendId: newSendId(),
     at: Date.now(),
   });
   if (!cardUrl) return run(entry);
@@ -331,7 +335,7 @@ function deliver(entry) {
     // The person's choice on a held row (sendAsIs, sendRemovingText), if any.
     return api[fileSendOp(a)](entry.channelId, a.dataUrl, a.name, entry.replyTo, entry.text || "", entry.dir || "");
   }
-  return api.sendMessage(entry.channelId, entry.body, entry.replyTo, entry.dir);
+  return api.sendMessage(entry.channelId, entry.body, entry.replyTo, entry.dir, entry.sendId || "");
 }
 
 async function run(entry) {
@@ -339,9 +343,9 @@ async function run(entry) {
   patch(entry.id, { attempt });
   const call = deliver(entry);
   // An answer that comes after the row gave up still counts: the message did
-  // go out, so the row goes and the real one takes its place. (A Retry pressed
-  // in between sends it twice; telling the two apart needs an idempotency key
-  // the core does not have.)
+  // go out, so the row goes and the real one takes its place. A Retry pressed
+  // in between does not send it twice: a text row's sendId is the same on
+  // every attempt, and the core keeps one message per id.
   call.then(
     () => {
       const now = S.outbox.find((e) => e.id === entry.id);
@@ -358,6 +362,13 @@ async function run(entry) {
     drop(entry.id);
     return true;
   } catch (err) {
+    // The answer was lost or late, but the message itself is already in the
+    // channel (its own event got here): it was sent, so the row goes rather
+    // than saying "not sent" over a message everyone has.
+    if (landed(entry.id)) {
+      drop(entry.id);
+      return true;
+    }
     if (err === TIMED_OUT) {
       patch(entry.id, { state: "failed", error: TIMED_OUT, retryAt: 0, timedOut: true, handed: false });
       return false;
@@ -403,6 +414,15 @@ async function run(entry) {
   }
 }
 
+// landed: has this text row's message arrived in the channel? The same count
+// the feed uses to retire a row (outbox.js unsettled): more copies of its body
+// from us than when it was queued.
+function landed(id) {
+  const e = S.outbox.find((x) => x.id === id);
+  if (!e || e.kind !== "text" || !e.match || e.channelId !== S.activeChannelId) return false;
+  return alreadySaid(S.messages, S.identity.fingerprint, e.match) > (e.seen || 0);
+}
+
 // flushOutbox sends again, in the order they were written, every row that failed
 // only because the core was gone. Called when the transport comes back and when
 // a session unlocks (a restarted core comes back locked, and a send into a
@@ -428,6 +448,9 @@ export async function flushOutbox() {
           drop(e.id);
           continue;
         }
+        // A Retry pressed while we asked has taken the row: it is that
+        // attempt's now, and this one stands down.
+        if (!S.outbox.some((x) => x.id === e.id && x.state === "failed")) continue;
       }
       claim(e.sendId);
       patch(e.id, { state: "sending", error: "" });

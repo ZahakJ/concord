@@ -545,9 +545,12 @@ export const api = {
   // per-line heuristic every message used before the composer could override
   // it. Bounded again on the Go side (domain.ValidDir), so this is a hint, not
   // a trust boundary.
-  sendMessage: (channelID, content, replyTo = "", dir = "") => {
+  // sendId is the outbox row's own id for this message, the same on every
+  // attempt: the core derives the message id from it, so a retry of a send
+  // that did go out returns that message instead of sending a second one.
+  sendMessage: (channelID, content, replyTo = "", dir = "", sendId = "") => {
     sending(channelID);
-    return call("SendMessage", channelID, stampFor(channelID, content), replyTo, dir);
+    return call("SendMessage", channelID, stampFor(channelID, content), replyTo, dir, sendId);
   },
   sendCallNotice: (channelID, kind, content) => {
     sending(channelID);
