@@ -517,6 +517,19 @@
   .flip {
     display: inline-grid;
   }
+  /* Right-to-left reading: forward points left. Every chevron in the deck
+     turns, the ones drawn turned (Back, Highlights) turn back. Keyed on the
+     dir attribute, as the progress bar is: the build lowers :dir() to a
+     list of right-to-left languages, which a dir attribute does not match. */
+  :global([dir="rtl"]) .go :global(svg),
+  :global([dir="rtl"]) .more :global(svg),
+  :global([dir="rtl"]) .row :global(svg) {
+    transform: scaleX(-1);
+  }
+  :global([dir="rtl"]) .navbtn.back :global(svg),
+  :global([dir="rtl"]) .flip :global(svg) {
+    transform: none;
+  }
   .navbtn:hover:not(:disabled) {
     background: color-mix(in srgb, var(--stage-ink) 8%, transparent);
   }
