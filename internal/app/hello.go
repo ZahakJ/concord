@@ -64,6 +64,11 @@ type helloFrame struct {
 	// account, and only carrying a revocation OUR account key signed — see
 	// unlink.go for exactly how much that does and does not promise.
 	Revoked *identity.DeviceRevocation `json:"revoked,omitempty"`
+	// AccountRevoked is the devices this account has unlinked, as the
+	// account signed them, for a peer we can place: a guild member's door
+	// then refuses them too (peerrevoke.go). Kept by the receiver only when
+	// the sender is placed as the signing account. Older builds ignore it.
+	AccountRevoked []*identity.DeviceRevocation `json:"accountRevoked,omitempty"`
 	// GuildInvites lets a device of this account into servers it is not in yet.
 	//
 	// Invites used to be handed over exactly once, during linking, so a guild
@@ -220,6 +225,8 @@ func (s *Service) greet(p peer.ID) {
 		TypingOn:     typingOn,
 		TypingAt:     typingAt,
 		ProfileAt:    hint,
+
+		AccountRevoked: s.revocationsToShare(p),
 	})
 	if err != nil {
 		return
@@ -329,6 +336,7 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	out.ChatPrefs = s.chatPrefsFor(from)
 	out.TypingOn = s.typingOfferFor(from, &out.TypingAt)
 	out.ProfileAt = s.profileHintFor(from)
+	out.AccountRevoked = s.revocationsToShare(from)
 	if out.Revoked == nil && s.canPlace(from) {
 		out.Credential, out.Name = s.myCredential, s.deviceLabel()
 		out.AppVersion = version.Version
@@ -496,6 +504,9 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 	// device we already know is exactly that. ownDevice is what gates both the
 	// invites and the profile.
 	defer func() {
+		// After the certificate below is learnt: the sender must be placed as
+		// the account that signed what it carries.
+		s.adoptPeerRevocations(from, f.AccountRevoked)
 		go func() {
 			// Leaves first: an offer for a guild the user has left elsewhere
 			// must not race the leave that should take it away.
@@ -539,7 +550,7 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 	// which is how the revocation reaches it — but it must not be re-adopted as
 	// this account by the very hello that brings it back. Without this, unlinking
 	// undid itself the moment the device reconnected.
-	if isDevice && s.deviceIsRevoked(cert.DevicePub) {
+	if isDevice && (s.deviceIsRevoked(cert.DevicePub) || s.certRevoked(cert)) {
 		return
 	}
 	before := s.presence(from).Fingerprint

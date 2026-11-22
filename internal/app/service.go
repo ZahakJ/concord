@@ -537,6 +537,11 @@ type Service struct {
 	// deviceMu. Kept in memory because learnDeviceCert consults it on every
 	// inbound message; see unlink.go.
 	revokedDevices map[string]bool
+	// peerRevoked are other accounts' unlinked devices, keyed account:device
+	// (hex), guarded by deviceMu; peerRevMu serialises their store writes.
+	// See peerrevoke.go.
+	peerRevoked map[string]bool
+	peerRevMu   sync.Mutex
 
 	// regMu guards the persisted own-device registry (devices.go). Separate from
 	// deviceMu on purpose: the registry writes to the store, and the in-memory
@@ -1326,6 +1331,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// survived a crash. Checked here rather than at the end of Start so a revoked
 	// install never serves a roster, answers a sync, or joins a topic.
 	s.loadRevoked()
+	s.loadPeerRevoked()
 	// A revocation of this device whose marker cannot be read now is not a
 	// device that was never linked: it is not opened. wipeSelf checks again
 	// under the keystore lock and says what it found.
@@ -2960,7 +2966,7 @@ func (s *Service) learnDeviceCert(cred []byte) {
 	// its certificate back to us — a leaf we could not remove from some guild, a
 	// message that was already in flight, its own hello. This is the single place
 	// every one of those paths goes through.
-	if s.deviceIsRevoked(cert.DevicePub) {
+	if s.deviceIsRevoked(cert.DevicePub) || s.certRevoked(cert) {
 		return
 	}
 	key := hex.EncodeToString(cert.DevicePub)

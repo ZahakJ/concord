@@ -1350,9 +1350,10 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	}
 	// A device this account unlinked still holds a certificate that verifies
 	// and names the key it dials with, so the binding above passes it. This
-	// device holds the revocation and refuses it. A door held by another
-	// account does not know of the revocation yet (docs/dev/owner-rejoin.md).
-	if s.leafRevokedHere(req.Credential) {
+	// device holds the revocation and refuses it; a door held by another
+	// account holds it too once the account's devices have greeted it
+	// (peerrevoke.go).
+	if s.leafRevoked(req.Credential) {
 		return json.Marshal(inviteResponse{Error: "this device was unlinked"})
 	}
 	// Notes admits this account's own devices and nobody else, whatever code
