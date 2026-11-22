@@ -694,9 +694,10 @@
     display: inline-flex;
     align-items: baseline;
     gap: var(--sp-2);
-    padding: 7px 14px 7px 12px;
+    padding: var(--sp-2) 14px var(--sp-2) var(--sp-3);
     border-radius: 999px;
     font-size: var(--fs-ui);
+    text-wrap: balance;
     color: var(--stage-ink);
     background: color-mix(in srgb, var(--stage-ground) 55%, transparent);
     border: 1px solid color-mix(in srgb, var(--stage-ink-muted) 45%, transparent);
@@ -1068,8 +1069,10 @@
     .toc {
       margin-top: var(--sp-5);
     }
+    /* A long headline takes two lines here: a rounded card, not a stadium. */
     .chip {
       font-size: var(--fs-compact);
+      border-radius: var(--radius-lg);
     }
     .slide.feature {
       grid-template-columns: minmax(0, 1fr);
