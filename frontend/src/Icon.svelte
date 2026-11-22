@@ -134,6 +134,14 @@
     // Take back the last stroke on the drawing pad: an arrow curving back on
     // itself. Distinct from `reply`, which points into a conversation.
     undo: "M3 7.5h6.5a3.5 3.5 0 0 1 0 7H6 M5.5 4 3 7.5 5.5 11",
+    redo: "M13 7.5H6.5a3.5 3.5 0 0 0 0 7H10 M10.5 4 13 7.5 10.5 11",
+    // The picture editor's tools.
+    crop: "M4.5 1.5v10h10 M1.5 4.5h10v10",
+    rotate: "M3.5 8.5a5 5 0 1 0 1.6-3.7 M2.5 2.5v3h3",
+    pen: "M2.5 13.5c1.5-.3 2.4-1 3.4-2l7-7a1.4 1.4 0 0 0-2-2l-7 7c-1 1-1.7 1.9-2 3.4z M9.5 4l2 2",
+    arrowup: "M3 13 13 3 M6.5 3H13v6.5",
+    resize: "M9.5 2.5h4v4 M13.5 2.5l-5 5 M6.5 13.5h-4v-4 M2.5 13.5l5-5",
+    texttool: "M3 3.5h10 M8 3.5v9.5 M6 13h4",
     // Invite people: one person with a plus beside them (the place header).
     personPlus: "M6.5 7.8a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M1.8 13.5v-.8a4.7 4.7 0 0 1 9.4 0v.8 M12.6 5.2v4 M10.6 7.2h4",
     // The end-to-end seal on a conversation header: a rosette with a tick.

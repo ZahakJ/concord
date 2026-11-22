@@ -41,6 +41,8 @@
   import Avatar from "./Avatar.svelte";
   import { isNotesLike } from "./lib/notes.js";
   import { stagedImage, dataUrlBytes, sentAsIs, AS_IS_NOTE } from "./lib/attachopts.js";
+  import { editable } from "./lib/photoedit.js";
+  import PhotoEditor from "./PhotoEditor.svelte";
   import { displayFileName } from "./lib/attachments.js";
   import { fmtBytes } from "./lib/chronicle.js";
   import { midTrunc, fileLabel } from "./lib/attachments.js";
@@ -1093,6 +1095,13 @@
   function setAtt(id, key, value) {
     pending = pending.map((p) => (p.id === id ? { ...p, [key]: value } : p));
   }
+  // The picture editor, open on one staged picture (PhotoEditor.svelte). Its
+  // result replaces the staged bytes; the name, description and spoiler stay.
+  let editingPic = $state("");
+  function applyPicEdit(id, { dataUrl, w, h }) {
+    pending = pending.map((p) => (p.id === id ? { ...p, dataUrl, w, h, bytes: dataUrlBytes(dataUrl) } : p));
+    editingPic = "";
+  }
   function toggleSpoiler(id) {
     pending = pending.map((p) => (p.id === id ? { ...p, spoiler: !p.spoiler } : p));
   }
@@ -2135,10 +2144,10 @@
         {#each pending as p (p.id)}
           <!-- One card per staged file, the shape it will have once sent: the
                picture (or the file's card) on top, and under it what it is and
-               what can be done to it, in one row. The row's FIRST slot is kept
-               for a picture's own Edit step (crop, resize, mark up), which
-               opens on the staged picture and hands back a new data URL in
-               place of p.dataUrl; until it ships the row starts at Spoiler. -->
+               what can be done to it, in one row. The row's FIRST slot is the
+               picture's own Edit (PhotoEditor: crop, turn, size, mark up),
+               which opens on the staged picture and hands back a new data URL
+               in place of p.dataUrl. -->
           <div class="att-wrap" class:img={p.isImage}>
           <div class="att-chip" class:file={!p.isImage} class:spoilered={p.spoiler}>
             {#if p.isImage}
@@ -2171,7 +2180,18 @@
                 </span>
                 {#if !mobile}
                   <span class="att-tools" role="toolbar" aria-label="Attachment actions">
-                    <!-- Slot 1: the picture editor's Edit, when it lands. -->
+                    <!-- Slot 1: the picture editor (crop, turn, size, mark up). -->
+                    {#if editable(p.dataUrl)}
+                      <button
+                        type="button"
+                        class="att-tool"
+                        aria-label="Edit picture"
+                        use:tooltip={"Crop, turn, resize or mark up"}
+                        onclick={() => (editingPic = p.id)}
+                      >
+                        <Icon name="edit" size={14} />
+                      </button>
+                    {/if}
                     <button
                       type="button"
                       class="att-tool"
@@ -2259,6 +2279,16 @@
              cleaned, and what cannot be cleaned is held on its own row. -->
         <p class="as-is-note" data-testid="as-is-note">{AS_IS_NOTE}</p>
       {/if}
+      {#if editingPic && pending.some((p) => p.id === editingPic)}
+        {@const p = pending.find((x) => x.id === editingPic)}
+        <PhotoEditor
+          src={p.dataUrl}
+          name={p.name || p.origName || ""}
+          maxBytes={MAX_IMAGE_BYTES}
+          onDone={(r) => applyPicEdit(p.id, r)}
+          onClose={() => (editingPic = "")}
+        />
+      {/if}
       {#if editingAtt && pending.some((p) => p.id === editingAtt)}
         {@const p = pending.find((x) => x.id === editingAtt)}
         <!-- Inline rather than a dialog: you're mid-message, and a modal over
@@ -2287,8 +2317,20 @@
           {#if mobile}
             <!-- The actions the card does not carry on touch. Full-width rows,
                  with the destructive one last and visually apart; the first
-                 row is kept for the picture editor's Edit when it lands. -->
+                 row is the picture editor's Edit. -->
             <div class="att-acts">
+              {#if p.isImage && editable(p.dataUrl)}
+                <button
+                  type="button"
+                  class="att-act"
+                  onclick={() => {
+                    editingPic = p.id;
+                    editingAtt = "";
+                  }}
+                >
+                  <Icon name="edit" size={16} /> Edit picture
+                </button>
+              {/if}
               {#if p.isImage}
                 <button type="button" class="att-act" class:on={p.spoiler} aria-pressed={!!p.spoiler} onclick={() => toggleSpoiler(p.id)}>
                   <Icon name="spoiler" size={16} /> {p.spoiler ? "Not a spoiler" : "Mark as spoiler"}
