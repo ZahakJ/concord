@@ -132,6 +132,8 @@
       onclick={() => setAppearance("themePack", p.id)}
       use:motionInView
     >
+      <!-- data-audit="bleed": a miniature of the pack, drawn to its scale;
+           the spacing audit (scripts/e2e/layoutaudit.mjs) measures the UI. -->
       <span
         class="pk"
         class:day={p.day}
@@ -141,6 +143,7 @@
           ? `--pk-grad:${p.grad};`
           : ''}{p.base ? `--pk-base:${p.base};` : ''}"
         aria-hidden="true"
+        data-audit="bleed"
       >
         {#if p.grad}<span class="pk-glow"></span>{/if}
         <span class="pk-rail"><i></i><i></i></span>

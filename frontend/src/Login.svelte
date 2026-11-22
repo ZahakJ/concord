@@ -1009,7 +1009,9 @@
   <div class="scroller" onfocusin={keepFieldInView}>
     <div class="stage">
       <div class="hero">
-        <div class="emblem" aria-hidden="true">
+        <!-- data-audit="bleed": the drawing's box runs under the wordmark by
+             design (a negative margin); its marks end above the word. -->
+        <div class="emblem" aria-hidden="true" data-audit="bleed">
           <svg class="mesh" viewBox="0 0 480 320" preserveAspectRatio="xMidYMid meet">
             <defs>
               <radialGradient id="lg-node">

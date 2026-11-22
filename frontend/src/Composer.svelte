@@ -3222,7 +3222,7 @@
     align-items: center;
     gap: var(--sp-1);
     min-width: 0;
-    padding: 6px 6px 6px 10px;
+    padding: var(--sp-2) var(--sp-2) var(--sp-2) 10px;
     border-top: 1px solid var(--hairline);
   }
   .att-meta {
@@ -3472,11 +3472,12 @@
     display: flex;
     align-items: flex-end;
     gap: 2px;
-    min-height: 46px;
+    min-height: 50px;
     background: transparent;
     border: none;
     border-radius: 0;
-    padding: 6px 6px 6px 6px;
+    /* The panel's 8px inner margin: a lit Send circle kept off the edge. */
+    padding: var(--sp-2);
   }
   /* Aa, the formatting bar's switch: two letters at the icons' optical
      weight, lit in the accent's ink while the bar is showing. */

@@ -483,11 +483,20 @@
     background: color-mix(in srgb, var(--stage-ink) 8%, transparent);
   }
 
+  /* Three columns, the outer two equal, so the dots sit on the sheet's
+     centre line whatever the two buttons are called. */
   .foot {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
     align-items: center;
     gap: var(--sp-3);
-    padding: var(--sp-3) var(--sp-5) var(--sp-5) var(--sp-6);
+    padding: var(--sp-3) var(--sp-5) var(--sp-5);
+  }
+  .foot > .navbtn {
+    justify-self: start;
+  }
+  .foot > .go {
+    justify-self: end;
   }
   .navbtn {
     display: inline-flex;
@@ -522,7 +531,6 @@
     flex: 1;
   }
   .dots {
-    flex: 1;
     display: flex;
     justify-content: center;
     gap: var(--sp-1);
@@ -995,9 +1003,33 @@
     .top {
       padding: var(--sp-2) var(--sp-2) 0 var(--sp-5);
     }
+    /* The dots on a line of their own, centred on the screen, with Back
+       and Next under them: in one row at 360px the button, six dots and
+       Back were wider than the screen, and the whole sheet slid sideways
+       when Next took focus. */
     .foot {
-      padding: var(--sp-3) var(--sp-4) var(--sp-4);
-      gap: var(--sp-2);
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-areas:
+        "dots dots"
+        "back go";
+      align-items: center;
+      padding: var(--sp-2) var(--sp-4) var(--sp-4);
+      gap: var(--sp-2) var(--sp-3);
+    }
+    .dots {
+      grid-area: dots;
+    }
+    .navbtn.back,
+    .navbtn.textual {
+      grid-area: back;
+    }
+    .spacer {
+      display: none;
+    }
+    .go {
+      grid-area: go;
+      justify-self: end;
     }
     .dot {
       width: 20px;
