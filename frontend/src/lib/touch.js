@@ -43,8 +43,17 @@ export function hapticNotify(type = "SUCCESS") {
 // missed one reads as the feature not existing. The .lp-press class the node
 // wears while the timer runs is the other half of that: without it there is no
 // signal at all that the press registered.
-export function longpress(node, { handler, duration = 400, moveTolerance = 10 } = {}) {
+//
+// Two fingers are a pinch, never a press: a second finger cancels the timer,
+// and nothing arms again until every finger is up and a beat has passed (the
+// fingers of a pinch lift one by one, and the last one is often still). A
+// zoomed picture read the still finger of a pinch as a hold and raised its
+// Save / Copy menu. `blocked()`, when given, vetoes arming (a pan or a glide
+// in progress).
+export function longpress(node, { handler, duration = 400, moveTolerance = 8, blocked = null } = {}) {
   let timer = null;
+  let multi = false; // a pinch is under way, or just ended
+  let multiUntil = 0;
   let pressTimer = null;
   let startX = 0;
   let startY = 0;
@@ -62,8 +71,29 @@ export function longpress(node, { handler, duration = 400, moveTolerance = 10 } 
     node.removeEventListener("touchmove", onMove);
     node.removeEventListener("touchend", clear);
     node.removeEventListener("touchcancel", clear);
+    window.removeEventListener("touchstart", onOther, true);
+  }
+  // The second finger may land beside the node (on the stage around a
+  // picture), so the pinch is watched on the window, not only on the node.
+  function onOther(e) {
+    if (e.touches.length > 1) startMulti();
+  }
+  function startMulti() {
+    clear();
+    if (multi) return;
+    multi = true;
+    window.addEventListener("touchend", onEnd, true);
+    window.addEventListener("touchcancel", onEnd, true);
+  }
+  function onEnd(e) {
+    if (e.touches.length) return;
+    multi = false;
+    multiUntil = performance.now() + 350;
+    window.removeEventListener("touchend", onEnd, true);
+    window.removeEventListener("touchcancel", onEnd, true);
   }
   function onMove(e) {
+    if (e.touches.length > 1) return startMulti();
     const t = e.touches[0];
     if (!t) return;
     if (Math.abs(t.clientX - startX) > moveTolerance || Math.abs(t.clientY - startY) > moveTolerance) {
@@ -71,6 +101,8 @@ export function longpress(node, { handler, duration = 400, moveTolerance = 10 } 
     }
   }
   function onStart(e) {
+    if (e.touches.length > 1 || multi) return startMulti();
+    if (performance.now() < multiUntil || blocked?.()) return;
     const t = e.touches[0];
     if (!t) return;
     // A held finger in a text field is the system's: it selects a word and
@@ -88,12 +120,15 @@ export function longpress(node, { handler, duration = 400, moveTolerance = 10 } 
     // scrolling, which is precisely the effect that got this reported. 180ms is
     // past the point where a scroll or tap has already moved on, and still well
     // before the 400ms menu, so a held press reads as held.
+    clear();
     pressTimer = setTimeout(() => node.classList.add("lp-press"), 180);
     node.addEventListener("touchmove", onMove, { passive: true });
     node.addEventListener("touchend", clear);
     node.addEventListener("touchcancel", clear);
+    window.addEventListener("touchstart", onOther, { capture: true, passive: true });
     timer = setTimeout(() => {
       clear();
+      if (blocked?.()) return;
       // Light, not medium: this fires on every menu open, dozens of times a
       // day, and the sheet sliding in is already the confirmation.
       haptic("light");
@@ -124,10 +159,13 @@ export function longpress(node, { handler, duration = 400, moveTolerance = 10 } 
     update(params) {
       handler = params.handler;
       duration = params.duration ?? duration;
+      blocked = params.blocked ?? blocked;
     },
     destroy() {
       clear();
       node.removeEventListener("touchstart", onStart);
+      window.removeEventListener("touchend", onEnd, true);
+      window.removeEventListener("touchcancel", onEnd, true);
     },
   };
 }

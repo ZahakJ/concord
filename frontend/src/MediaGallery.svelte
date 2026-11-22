@@ -1348,6 +1348,9 @@
     transition:
       transform var(--dur-move) var(--ease-out),
       opacity var(--dur-move) var(--ease-out);
+    -webkit-touch-callout: none; /* the long-press is ours: it selects */
+    user-select: none;
+    -webkit-user-select: none;
   }
   .tile img.fresh {
     animation: gal-fade var(--dur-calm) var(--ease-out);

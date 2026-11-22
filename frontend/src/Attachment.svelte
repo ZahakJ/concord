@@ -283,7 +283,7 @@
       style:--pic={tile && !hidden && src ? `url("${src}")` : undefined}
       data-att-msg={tile ? messageId : undefined}
       onclick={hidden ? reveal : openLightbox}
-      oncontextmenu={hidden ? undefined : imageMenu}
+      oncontextmenu={hidden ? undefined : (e) => (e.pointerType === "touch" ? e.preventDefault() : imageMenu(e))}
       title={hidden ? "Spoiler — click to reveal" : "Click to enlarge"}
       use:imageTouch
       use:longpress={{ handler: imageLongPress }}

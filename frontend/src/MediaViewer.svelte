@@ -567,6 +567,17 @@
       ty = 0;
     }
   }
+  // A finger's menu comes from the long-press above, which knows a pinch from
+  // a hold. The system's own touch contextmenu does not: Android raised it
+  // under the still finger of a pinch, and the picture's Save / Copy menu
+  // opened mid-zoom. So a touch's contextmenu is refused here.
+  const mediaContextMenu = (e) => {
+    if (e.pointerType === "touch" || e.sourceCapabilities?.firesTouchEvents || lastPointer === "touch") {
+      e.preventDefault();
+      return;
+    }
+    if (!item.spoiler) onMenu?.(e);
+  };
   const mediaLongPress = (e) => {
     if (item.spoiler || !onMenu) return;
     pressedMenu = true;
@@ -667,8 +678,8 @@
         draggable="false"
         bind:this={mediaEl}
         onload={onImgLoad}
-        oncontextmenu={(e) => !item.spoiler && onMenu?.(e)}
-        use:longpress={{ handler: mediaLongPress }}
+        oncontextmenu={mediaContextMenu}
+        use:longpress={{ handler: mediaLongPress, blocked: () => pointers.size > 1 || gesture !== "" }}
         style="{fit ? `width:${fit.w}px;height:${fit.h}px;` : ''}transform:{transformNow()}"
       />
     {:else if item.err}
@@ -830,7 +841,9 @@
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-stage);
     user-select: none;
+    -webkit-user-select: none;
     -webkit-user-drag: none;
+    -webkit-touch-callout: none; /* no system Save / Copy sheet under a pinch */
     cursor: zoom-in;
     transition: transform var(--dur-move) var(--ease-out);
     will-change: transform;

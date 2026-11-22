@@ -235,6 +235,59 @@ test("phone: a DM's Media page, the viewer and Go to message", async ({ world, a
   assert.equal(b.errors.length, 0, `page errors: ${b.errors.join(" | ")}`);
 });
 
+// The owner's report: pinching a picture on a phone raised its Save / Copy
+// menu, the still finger of the pinch read as a hold. A pinch never opens a
+// menu; a still finger on a tile still selects.
+test("phone: a pinch in the viewer opens no menu, a held tile still selects", async ({ world, assert, step, waitFor }) => {
+  const [alice, bashir] = await world.peers(2);
+  await world.guild({ name: "Shared", members: [alice, bashir] });
+  const dm = await world.dm(alice, bashir);
+  const p = await sendPicture(alice, dm.channelId, 1, 600, 900);
+  await bashir.waitForMessage(dm.channelId, (m) => m.id === p.id, { timeout: 60000 });
+  const b = await bashir.open({ viewport: "phone" });
+  await b.openDM("Alice");
+  await b.settled();
+  const page = b.page;
+  await page.getByRole("button", { name: "Media and files" }).click();
+  await waitFor(async () => (await tiles(page).first().locator("img").count()) === 1, { timeout: 30000, message: "the tile's picture" });
+  await page.waitForTimeout(500);
+  const menus = () => page.locator('[role="menu"], [role="menuitem"]').count();
+
+  step("a still finger on a tile selects it");
+  await b.longPress(tiles(page).first(), { at: { x: 40, y: 40 } });
+  await waitFor(async () => /1 selected/.test((await page.locator(".gal-selbar").innerText().catch(() => "")) || ""), { message: "selection mode" });
+  assert.equal(await menus(), 0, "selection, not a menu");
+  await page.getByRole("button", { name: "Done", exact: true }).tap();
+
+  step("a pinch on the viewer, one finger still, zooms and opens nothing");
+  await tiles(page).first().tap();
+  const img = page.locator('[role="dialog"][aria-label="Image viewer"] img');
+  await img.waitFor({ state: "visible", timeout: 30000 });
+  await page.waitForTimeout(500);
+  const r = await img.boundingBox();
+  const cx = r.x + r.width / 2;
+  const cy = r.y + r.height / 2;
+  const cdp = (b.cdp ||= await b.ctx.newCDPSession(page));
+  const touch = (type, pts) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts.map(([x, y], i) => ({ x, y, id: i })) });
+  const a = [cx - 20, cy];
+  await touch("touchStart", [a]);
+  await page.waitForTimeout(120);
+  await touch("touchStart", [a, [cx + 20, cy + 4]]);
+  for (let k = 1; k <= 12; k++) {
+    await touch("touchMove", [a, [cx + 20 + k * 6, cy + 4 + k * 3]]);
+    await page.waitForTimeout(50);
+  }
+  // The moving finger lifts first; the still one stays past a long-press.
+  await touch("touchEnd", [a]);
+  await page.waitForTimeout(800);
+  await touch("touchEnd", []);
+  await page.waitForTimeout(500);
+  assert.equal(await menus(), 0, "no menu after a pinch");
+  const zoom = await page.locator(".mv-zoom").innerText();
+  assert.ok(parseInt(zoom, 10) > 100, `the pinch zoomed (${zoom})`);
+  assert.equal(b.errors.length, 0, `page errors: ${b.errors.join(" | ")}`);
+});
+
 // ---- performance (direction only) ----------------------------------------
 const pct = (a, q) => {
   const s = [...a].sort((x, y) => x - y);
