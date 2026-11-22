@@ -118,7 +118,7 @@ func (s *Service) forgetPeerDeviceLocked(r *identity.DeviceRevocation) {
 // account has unlinked: ours from our own record, another account's from what
 // that account showed us.
 func (s *Service) certRevoked(cert *identity.DeviceCert) bool {
-	if ed25519Equal(cert.AccountPub, s.id.PublicKey()) {
+	if s.id != nil && ed25519Equal(cert.AccountPub, s.id.PublicKey()) {
 		return s.deviceIsRevoked(cert.DevicePub)
 	}
 	s.deviceMu.RLock()
