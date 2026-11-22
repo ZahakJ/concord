@@ -375,7 +375,6 @@
           style:width="{disp.w}px"
           style:height="{disp.h}px"
           aria-label={tool === "crop" ? "Drag the corners to crop" : tool === "draw" ? "Draw on the picture" : "The picture"}
-          role="img"
           onpointerdown={onDown}
           onpointermove={onMove}
           onpointerup={onUp}

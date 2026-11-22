@@ -42,7 +42,6 @@
   import { isNotesLike } from "./lib/notes.js";
   import { stagedImage, dataUrlBytes, sentAsIs, AS_IS_NOTE } from "./lib/attachopts.js";
   import { editable } from "./lib/photoedit.js";
-  import PhotoEditor from "./PhotoEditor.svelte";
   import { displayFileName } from "./lib/attachments.js";
   import { fmtBytes } from "./lib/chronicle.js";
   import { midTrunc, fileLabel } from "./lib/attachments.js";
@@ -1098,6 +1097,11 @@
   // The picture editor, open on one staged picture (PhotoEditor.svelte). Its
   // result replaces the staged bytes; the name, description and spoiler stay.
   let editingPic = $state("");
+  // Loaded on first use: most sends never open it.
+  let PhotoEditor = $state(null);
+  $effect(() => {
+    if (editingPic && !PhotoEditor) import("./PhotoEditor.svelte").then((m) => (PhotoEditor = m.default));
+  });
   function applyPicEdit(id, { dataUrl, w, h }) {
     pending = pending.map((p) => (p.id === id ? { ...p, dataUrl, w, h, bytes: dataUrlBytes(dataUrl) } : p));
     editingPic = "";
@@ -2279,7 +2283,7 @@
              cleaned, and what cannot be cleaned is held on its own row. -->
         <p class="as-is-note" data-testid="as-is-note">{AS_IS_NOTE}</p>
       {/if}
-      {#if editingPic && pending.some((p) => p.id === editingPic)}
+      {#if editingPic && PhotoEditor && pending.some((p) => p.id === editingPic)}
         {@const p = pending.find((x) => x.id === editingPic)}
         <PhotoEditor
           src={p.dataUrl}
