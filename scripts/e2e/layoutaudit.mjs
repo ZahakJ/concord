@@ -115,12 +115,6 @@ export function auditLayout(opts) {
     for (let a = el.parentElement; a; a = a.parentElement) if (/(auto|scroll)/.test(cs(a).overflowX)) return true;
     return false;
   };
-  // Something between it and the page cuts it sideways (a drawing meant to
-  // run past its frame is cut by the frame, not by the screen).
-  const clippedX = (el) => {
-    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) if (cs(a).overflowX !== "visible") return true;
-    return false;
-  };
   const CONTROL = 'button, a[href], input, select, textarea, [role="button"], [role="tab"], [role="radio"], [role="menuitem"], [role="switch"], [role="checkbox"], [role="option"]';
   const MEDIA = "img, video, canvas, picture";
   const visible = (el) => (el.checkVisibility ? el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) : true);
@@ -180,9 +174,12 @@ export function auditLayout(opts) {
   for (const c of cands) {
     const cr = clipped(c.el, c.r);
     if (!cr || !onTop(c.el, cr)) continue;
-    // Off the screen with nothing clipping it.
-    if (c.r.right > vw + 1 || c.r.left < -1) {
-      if (!clippedX(c.el)) hits.push({ kind: "overflow", path: path(c.el), text: c.text, rect: cr });
+    // Cut sideways, by the screen or by a box that hides its overflow. A
+    // drawing may run past its frame; text and controls may not (except in
+    // a sideways scroller, or as a line that ends in an ellipsis).
+    if ((c.r.right > cr.right + 1 || c.r.left < cr.left - 1) && !(c.el instanceof SVGElement)) {
+      const ell = [c.el, c.el.parentElement].some((x) => x && cs(x).textOverflow === "ellipsis");
+      if (!hScroller(c.el) && !ell) hits.push({ kind: "overflow", path: path(c.el), text: c.text, rect: cr });
       continue;
     }
     const p = panelOf(c.el);

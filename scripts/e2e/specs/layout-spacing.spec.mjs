@@ -131,6 +131,9 @@ test("layout: nothing touches an edge, overlaps or overflows", async ({ world, s
       // A phone opens on the last conversation; the lists are a Back away.
       const home = async () => {
         if (!phone) return;
+        // A tablet keeps the members page open over the lists.
+        const close = page.getByRole("button", { name: "Close members" });
+        if (await close.isVisible().catch(() => false)) await close.click().catch(() => {});
         for (let i = 0; i < 2; i++) await app.back().catch(() => {});
       };
       await screen("chat", tag, async () => {
@@ -177,11 +180,14 @@ test("layout: nothing touches an edge, overlaps or overflows", async ({ world, s
       });
       await screen("settings", tag, async () => {
         await home();
-        // A 768 px tablet has the phone's lists but the desktop's gear.
-        await app.openSettings("Appearance").catch(async () => {
-          await page.locator('button[aria-label="Settings"]').last().click();
-          await page.getByRole("dialog").getByText("Appearance", { exact: true }).first().click();
-        });
+        // At 768 px the harness drives the desktop's settings; the app shows
+        // the phone's You page, so its Appearance row is tapped directly.
+        if (vp.w === 768) {
+          await page.getByRole("button", { name: "You — profile and settings" }).click();
+          await page.getByRole("button", { name: /^Appearance/ }).first().click();
+        } else {
+          await app.openSettings("Appearance");
+        }
         await audit(app, "settings", tag, vp);
         await app.closeModals().catch(() => {});
       });
