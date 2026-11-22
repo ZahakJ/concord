@@ -2346,7 +2346,7 @@
            from a picture. They are mutually exclusive — see ModalMeme. -->
       <ModalView src={S.modal.src || ""} edit={S.modal.edit || null} onClose={() => (S.modal = null)} />
     {:else if modalLoadedKind === "forward"}
-      <ModalView message={S.modal.message} onClose={() => (S.modal = null)} />
+      <ModalView message={S.modal.message} items={S.modal.items || null} onClose={() => (S.modal = null)} />
     {:else if modalLoadedKind === "report"}
       <ModalView message={S.modal.message} onClose={() => (S.modal = null)} />
     {:else if modalLoadedKind === "bans"}

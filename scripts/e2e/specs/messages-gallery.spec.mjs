@@ -150,6 +150,25 @@ test("desktop: the Media tab lists every picture and file, opens one fitted, and
   }
   await page.keyboard.press("Escape");
 
+  step("Select: two tiles picked, the bar counts them, Escape leaves selecting");
+  await page.getByRole("button", { name: "Select", exact: true }).click();
+  await tiles(page).nth(0).click();
+  await tiles(page).nth(1).click();
+  await page.locator(".gal-selbar").getByText("2 selected").waitFor();
+  assert.equal(await page.locator("[role=dialog][aria-label='Image viewer']").count(), 0, "a tap while selecting picks, it does not open");
+  assert.ok(await page.locator(".gal-selbar").getByRole("button", { name: "Go to message" }).isDisabled(), "Go to message is for one item");
+  await capture(b, "desktop-1280-select");
+  await page.keyboard.press("Escape");
+  await waitFor(async () => (await page.locator(".tile.sel").count()) === 0, { message: "selecting to end" });
+
+  step("Links and Voice: each says what goes there when it is empty");
+  await page.getByRole("radio", { name: "Links" }).click();
+  await page.getByText("No links yet").waitFor();
+  await page.getByRole("radio", { name: "Voice" }).click();
+  await page.getByText("No voice messages yet").waitFor();
+  await page.getByRole("radio", { name: "Photos and videos" }).click();
+  await waitFor(async () => (await tiles(page).count()) === 3, { message: "back to three tiles" });
+
   step("Alice deletes the newest picture: it leaves Bashir's open grid");
   await alice.rpc("DeleteMessage", ch.id, pics[2].id);
   await waitFor(async () => (await tiles(page).count()) === 2, { timeout: 30000, message: "the deleted picture to leave the grid" });

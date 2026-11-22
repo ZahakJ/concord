@@ -5,8 +5,32 @@
   import Avatar from "../Avatar.svelte";
   import { S, forwardMessage, jumpToChannel, flash } from "../lib/state.svelte.js";
   import { plainSnippet } from "../lib/snippet.js";
+  import { api } from "../lib/api.js";
+  import { KIND_PHOTO, KIND_VIDEO } from "../lib/gallery.js";
 
-  let { message, onClose } = $props();
+  // `items`: media picked in a conversation's media panel. Each is opened
+  // here and sent again into the destination as a new attachment, since its
+  // keys belong to the conversation it came from.
+  let { message = null, items = null, onClose } = $props();
+  const what = $derived.by(() => {
+    if (!items) return plainSnippet(message?.content || "", 140) || "(message)";
+    const pics = items.filter((it) => it.kind === KIND_PHOTO).length;
+    const vids = items.filter((it) => it.kind === KIND_VIDEO).length;
+    const files = items.length - pics - vids;
+    const n = (k, one, many) => (k ? `${k} ${k === 1 ? one : many}` : "");
+    return [n(pics, "photo", "photos"), n(vids, "video", "videos"), n(files, "file", "files")].filter(Boolean).join(", ");
+  });
+  async function sendItems(dest) {
+    for (const it of items) {
+      if (it.kind === KIND_PHOTO) {
+        const url = await api.fetchAttachment(it.channelId, it.blobId, it.keys, it.subtype);
+        await api.sendAttachment(dest, url, it.w || 0, it.h || 0, "", !!it.spoiler, it.name || "", it.desc || "", "", "");
+      } else {
+        const url = await api.fetchFile(it.channelId, it.blobId, it.keys, it.mime);
+        await api.sendFile(dest, url, it.name || "file", "", "", "");
+      }
+    }
+  }
 
   let query = $state("");
   let busy = $state(false);
@@ -45,7 +69,8 @@
     if (busy || !dest.id) return;
     busy = true;
     try {
-      await forwardMessage(message, dest.id);
+      if (items) await sendItems(dest.id);
+      else await forwardMessage(message, dest.id);
       await jumpToChannel(dest.id);
       onClose();
     } catch (err) {
@@ -55,8 +80,8 @@
   }
 </script>
 
-<Modal title="Forward message" {onClose}>
-  <div class="snippet">{plainSnippet(message.content, 140) || "(message)"}</div>
+<Modal title={items ? "Forward" : "Forward message"} {onClose}>
+  <div class="snippet">{what}</div>
   <input class="search" bind:value={query} placeholder="Search channels and DMs…" />
   <div class="list scroll-fade">
     {#each destinations as d (d.id)}
