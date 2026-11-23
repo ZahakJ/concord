@@ -68,10 +68,16 @@ const peerRevocationsKey = "peer.revocations"
 
 // peerRevocationsPerAccount bounds what one account can make us store. An
 // account unlinks a handful of devices in its life; a flood is someone
-// minting keys to fill our settings. At the cap new records are refused.
-const peerRevocationsPerAccount = 64
+// minting keys to fill our settings. At the cap a record newer (by its
+// RevokedAt) than the account's oldest replaces it: the account's own word
+// about its own devices, so only it can push its records out.
+const peerRevocationsPerAccount = 16
 
-// peerRevocationsTotal bounds the whole set (about 250 bytes a record).
+// peerRevocationsTotal bounds the whole set (about 250 bytes a record). Only
+// accounts we share a guild with hold places in it: at the cap, records of
+// accounts we no longer share one with go first, and they are dropped at
+// start (prunePeerRevocations). Throwaway accounts that join and leave cannot
+// keep the set full.
 const peerRevocationsTotal = 2048
 
 // helloRevocationsMax is the most revocations one hello carries: about 250
@@ -239,6 +245,12 @@ func (s *Service) revocationSource(fpr string) bool {
 // keeps the records (refusing an unlinked device is the safe side) and the
 // next write carries them.
 func (s *Service) keepPeerRevocations(fpr string, recs []*identity.DeviceRevocation) error {
+	return s.keepPeerRevocationsSharing(fpr, recs, s.sharesGuild)
+}
+
+// keepPeerRevocationsSharing is keepPeerRevocations with the "do we share a
+// guild with this account" question passed in.
+func (s *Service) keepPeerRevocationsSharing(fpr string, recs []*identity.DeviceRevocation, shares func(string) bool) error {
 	s.peerRevMu.Lock()
 	defer s.peerRevMu.Unlock()
 	s.deviceMu.RLock()
@@ -263,38 +275,109 @@ func (s *Service) keepPeerRevocations(fpr string, recs []*identity.DeviceRevocat
 	if len(cand) == 0 {
 		return nil
 	}
-	perAccount := 0
-	for _, r := range s.peerRevRecs {
-		if identity.FingerprintOf(r.AccountPub) == fpr {
-			perAccount++
-		}
-	}
-	var fresh []*identity.DeviceRevocation
+	recsNow := s.peerRevRecs
+	changed, removed := false, false
 	for _, r := range cand {
-		if perAccount >= peerRevocationsPerAccount || len(s.peerRevRecs)+len(fresh) >= peerRevocationsTotal {
-			break
-		}
 		if !peerRevocationValid(r) {
 			continue
 		}
-		fresh = append(fresh, r)
-		perAccount++
+		// This account's records, oldest first by the account's own clock.
+		mine, oldest := 0, -1
+		for i, h := range recsNow {
+			if identity.FingerprintOf(h.AccountPub) != fpr {
+				continue
+			}
+			mine++
+			if oldest < 0 || h.RevokedAt < recsNow[oldest].RevokedAt {
+				oldest = i
+			}
+		}
+		if mine >= peerRevocationsPerAccount {
+			if r.RevokedAt <= recsNow[oldest].RevokedAt {
+				continue
+			}
+			recsNow = append(recsNow[:oldest:oldest], recsNow[oldest+1:]...)
+			removed = true
+		} else if len(recsNow) >= peerRevocationsTotal {
+			kept := keepSharing(recsNow, shares)
+			if len(kept) < len(recsNow) {
+				removed = true
+			}
+			recsNow = kept
+			if len(recsNow) >= peerRevocationsTotal {
+				break
+			}
+		}
+		recsNow = append(recsNow, r)
+		changed = true
 	}
-	if len(fresh) == 0 {
+	if !changed && !removed {
 		return nil
 	}
-	s.peerRevRecs = append(s.peerRevRecs, fresh...)
+	s.peerRevRecs = recsNow
 	s.deviceMu.Lock()
-	for _, r := range fresh {
+	if removed {
+		s.peerRevoked = map[string]bool{}
+	}
+	for _, r := range recsNow {
 		s.forgetPeerDeviceLocked(r)
 	}
 	s.deviceMu.Unlock()
+	return s.writePeerRevocationsLocked()
+}
+
+// keepSharing is recs without those of accounts we share no guild with. The
+// answer is asked once per account.
+func keepSharing(recs []*identity.DeviceRevocation, shares func(string) bool) []*identity.DeviceRevocation {
+	verdict := map[string]bool{}
+	var out []*identity.DeviceRevocation
+	for _, r := range recs {
+		f := identity.FingerprintOf(r.AccountPub)
+		v, ok := verdict[f]
+		if !ok {
+			v = shares(f)
+			verdict[f] = v
+		}
+		if v {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// writePeerRevocationsLocked stores the kept set. peerRevMu must be held.
+func (s *Service) writePeerRevocationsLocked() error {
 	if !s.peerRevLoaded {
-		return fmt.Errorf("the stored set could not be read at start; %d new kept in memory only", len(fresh))
+		return fmt.Errorf("the stored set could not be read at start; changes kept in memory only")
 	}
 	raw, err := json.Marshal(s.peerRevRecs)
 	if err != nil {
 		return err
 	}
 	return s.store.SetSetting(peerRevocationsKey, string(raw))
+}
+
+// prunePeerRevocations drops the records of accounts we no longer share a
+// guild with. Run once the guilds are loaded at start.
+func (s *Service) prunePeerRevocations() {
+	s.prunePeerRevocationsSharing(s.sharesGuild)
+}
+
+func (s *Service) prunePeerRevocationsSharing(shares func(string) bool) {
+	s.peerRevMu.Lock()
+	defer s.peerRevMu.Unlock()
+	kept := keepSharing(s.peerRevRecs, shares)
+	if len(kept) == len(s.peerRevRecs) {
+		return
+	}
+	s.peerRevRecs = kept
+	s.deviceMu.Lock()
+	s.peerRevoked = map[string]bool{}
+	for _, r := range kept {
+		s.forgetPeerDeviceLocked(r)
+	}
+	s.deviceMu.Unlock()
+	if err := s.writePeerRevocationsLocked(); err != nil {
+		log.Printf("concord/app: other accounts' unlinked devices: %v", err)
+	}
 }

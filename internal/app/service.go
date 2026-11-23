@@ -1585,6 +1585,10 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// no longer exist.
 	s.loadDMState()
 
+	// Unlinked-device records are kept for accounts we share a guild with;
+	// the guild set is known now (peerrevoke.go).
+	s.prunePeerRevocations()
+
 	// Everyone has a Notes, from the moment the account exists.
 	//
 	// It used to be minted on first use, and "first use" for most accounts came

@@ -186,42 +186,49 @@ func keptCount(t *testing.T, s *Service) (mem, disk int) {
 	return mem, len(recs)
 }
 
-// The caps refuse instead of evicting: an account's 65th record, however new
-// its signer says it is, does not push out an older one, and memory and the
-// store hold the same set.
-func TestPeerRevocationCapsRefuseAndNeverEvict(t *testing.T) {
+// At the per-account cap a record newer than the account's oldest replaces
+// it; an older one is refused. Forged or misattributed records never count.
+func TestPeerRevocationCapReplacesTheOldest(t *testing.T) {
 	s := revService(t)
 	a, _ := identity.Generate()
 	fpr := a.Fingerprint()
-	old := revocationsBy(t, a, peerRevocationsPerAccount, 100)
-	for i := 0; i < len(old); i += helloRevocationsMax {
-		if err := s.keepPeerRevocations(fpr, old[i:min(i+helloRevocationsMax, len(old))]); err != nil {
-			t.Fatal(err)
-		}
+	revoked := func(r *identity.DeviceRevocation) bool {
+		return s.certRevoked(&identity.DeviceCert{AccountPub: r.AccountPub, DevicePub: r.DevicePub})
 	}
-	late := revocationsBy(t, a, 3, 1<<40) // "newer" by the signer's own clock
+	old := revocationsBy(t, a, peerRevocationsPerAccount, 100)
+	if err := s.keepPeerRevocations(fpr, old); err != nil {
+		t.Fatal(err)
+	}
+	stale := revocationsBy(t, a, 1, 50)
+	if err := s.keepPeerRevocations(fpr, stale); err != nil {
+		t.Fatal(err)
+	}
+	if revoked(stale[0]) {
+		t.Fatal("a record older than all held ones was kept past the cap")
+	}
+	late := revocationsBy(t, a, 3, 1<<40)
 	if err := s.keepPeerRevocations(fpr, late); err != nil {
 		t.Fatal(err)
 	}
 	if mem, disk := keptCount(t, s); mem != peerRevocationsPerAccount || disk != peerRevocationsPerAccount {
 		t.Fatalf("kept %d in memory and %d stored, want %d in both", mem, disk, peerRevocationsPerAccount)
 	}
-	for _, r := range old {
-		if !s.certRevoked(&identity.DeviceCert{AccountPub: r.AccountPub, DevicePub: r.DevicePub}) {
-			t.Fatal("an older record was evicted")
+	for _, r := range late {
+		if !revoked(r) {
+			t.Fatal("a newer record past the cap was refused")
 		}
 	}
-	for _, r := range late {
-		if s.certRevoked(&identity.DeviceCert{AccountPub: r.AccountPub, DevicePub: r.DevicePub}) {
-			t.Fatal("a record past the cap was kept")
+	for i, r := range old {
+		if want := i >= len(late); revoked(r) != want {
+			t.Fatalf("old record %d (RevokedAt %d): revoked %v, want %v", i, r.RevokedAt, !want, want)
 		}
 	}
 	// Records from the wrong account, or that do not verify, are not taken.
 	b, _ := identity.Generate()
-	bad := revocationsBy(t, b, 1, 1)
+	bad := revocationsBy(t, b, 1, 1<<41)
 	bad[0].Sig = append([]byte(nil), bad[0].Sig...)
 	bad[0].Sig[0] ^= 1
-	_ = s.keepPeerRevocations(b.Fingerprint(), append(bad, revocationsBy(t, a, 1, 1)...))
+	_ = s.keepPeerRevocations(b.Fingerprint(), append(bad, revocationsBy(t, a, 1, 1<<41)...))
 	if mem, disk := keptCount(t, s); mem != peerRevocationsPerAccount || disk != peerRevocationsPerAccount {
 		t.Fatalf("a forged or misattributed record was kept (%d, %d)", mem, disk)
 	}
@@ -232,18 +239,61 @@ func TestPeerRevocationCapsRefuseAndNeverEvict(t *testing.T) {
 	}
 }
 
-// The whole set has a cap too, across accounts.
-func TestPeerRevocationsTotalCap(t *testing.T) {
+// The whole set has a cap too, across the accounts we share a guild with.
+// Accounts that fill it and then leave do not keep it full: at the cap their
+// records go first, and at start they are dropped.
+func TestPeerRevocationsTotalCapCountsOnlySharedAccounts(t *testing.T) {
 	s := revService(t)
-	for n := 0; n*peerRevocationsPerAccount <= peerRevocationsTotal; n++ {
+	sharing := map[string]bool{}
+	shares := func(f string) bool { return sharing[f] }
+	var throwaway []*identity.DeviceRevocation
+	for n := 0; n*peerRevocationsPerAccount < peerRevocationsTotal; n++ {
 		a, _ := identity.Generate()
+		sharing[a.Fingerprint()] = true
 		recs := revocationsBy(t, a, peerRevocationsPerAccount, 1)
-		for i := 0; i < len(recs); i += helloRevocationsMax {
-			_ = s.keepPeerRevocations(a.Fingerprint(), recs[i:i+helloRevocationsMax])
+		if err := s.keepPeerRevocationsSharing(a.Fingerprint(), recs, shares); err != nil {
+			t.Fatal(err)
+		}
+		if n%2 == 0 {
+			throwaway = append(throwaway, recs...)
 		}
 	}
 	if mem, disk := keptCount(t, s); mem != peerRevocationsTotal || disk != peerRevocationsTotal {
 		t.Fatalf("kept %d in memory and %d stored, want %d", mem, disk, peerRevocationsTotal)
+	}
+	// Full, and everyone in it still shares a guild: a newcomer is refused.
+	c, _ := identity.Generate()
+	sharing[c.Fingerprint()] = true
+	cr := revocationsBy(t, c, 1, 1)
+	_ = s.keepPeerRevocationsSharing(c.Fingerprint(), cr, shares)
+	if s.certRevoked(&identity.DeviceCert{AccountPub: cr[0].AccountPub, DevicePub: cr[0].DevicePub}) {
+		t.Fatal("kept a record past a full set of shared accounts")
+	}
+	// Half of them leave every guild we share: the next record evicts theirs.
+	for _, r := range throwaway {
+		sharing[identity.FingerprintOf(r.AccountPub)] = false
+	}
+	if err := s.keepPeerRevocationsSharing(c.Fingerprint(), cr, shares); err != nil {
+		t.Fatal(err)
+	}
+	if !s.certRevoked(&identity.DeviceCert{AccountPub: cr[0].AccountPub, DevicePub: cr[0].DevicePub}) {
+		t.Fatal("a shared account's record was refused while others' held places")
+	}
+	for _, r := range throwaway {
+		if s.certRevoked(&identity.DeviceCert{AccountPub: r.AccountPub, DevicePub: r.DevicePub}) {
+			t.Fatal("a record of an account we no longer share a guild with was kept at the cap")
+		}
+	}
+	want := peerRevocationsTotal - len(throwaway) + 1
+	if mem, disk := keptCount(t, s); mem != want || disk != want {
+		t.Fatalf("kept %d/%d, want %d", mem, disk, want)
+	}
+	// At start, records of accounts no longer sharing a guild are dropped.
+	sharing[c.Fingerprint()] = false
+	s.loadPeerRevoked()
+	s.prunePeerRevocationsSharing(shares)
+	if mem, disk := keptCount(t, s); mem != want-1 || disk != want-1 {
+		t.Fatalf("after the prune: %d/%d, want %d", mem, disk, want-1)
 	}
 }
 
