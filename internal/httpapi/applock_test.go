@@ -25,7 +25,8 @@ func TestTheGateHoldsTheEventStream(t *testing.T) {
 	slotID, u := make([]byte, identity.DeviceSlotIDSize), make([]byte, identity.DeviceSecretSize)
 	_, _ = rand.Read(slotID)
 	_, _ = rand.Read(u)
-	if err := b.EnrolDeviceSecret(slotID, u, ""); err != nil {
+	// The core zeroes U after each use: hand it copies.
+	if err := b.EnrolDeviceSecret(slotID, append([]byte(nil), u...), ""); err != nil {
 		t.Fatal(err)
 	}
 	ch := make(chan sseEvent, 8)

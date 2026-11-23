@@ -98,7 +98,8 @@ type Bridge struct {
 
 	// Which attached UI asked for each voice call, so a call can end when the
 	// UI holding it goes away. See voicelife.go.
-	voiceOwn *voiceOwners
+	voiceOwn  *voiceOwners
+	voiceOnce sync.Once
 
 	// Event sinks, set by whichever transport owns the bridge.
 	OnMessage       func(MessageView)
@@ -470,6 +471,7 @@ func (b *Bridge) Logout() error {
 		b.svc = nil
 		b.setGate(false)
 	}
+	b.enrolUntil = time.Time{}
 	b.lockReason = LockSignedOut
 	return nil
 }
@@ -928,6 +930,8 @@ func (b *Bridge) Login(passphrase string) error {
 // startLocked opens the session cfg unlocks, for a caller holding b.mu that
 // has checked nothing is open.
 func (b *Bridge) startLocked(cfg appsvc.Config) error {
+	// The gate guards a session; with none open it must not be closed.
+	b.setGate(false)
 	dataDir := cfg.DataDir
 	if bs := os.Getenv("CONCORD_BOOTSTRAP"); bs != "" {
 		cfg.BootstrapPeers = strings.Split(bs, ",")
@@ -1085,6 +1089,9 @@ func (b *Bridge) startLocked(cfg appsvc.Config) error {
 	// peers running an older one can pull it from us. Off the critical path:
 	// it hashes the executable and may touch the network.
 	go adoptOwnRelease()
+	// An unlock that finished with the app already off screen: onStop came
+	// before there was a session to gate, and will not come again.
+	b.gateIfBackgroundedLocked()
 	return nil
 }
 
@@ -4242,7 +4249,7 @@ func messageView(m domain.Message) MessageView {
 func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	// The App Lock gate: while it is closed the page may only ask whether it
 	// is. Only the phone's fingerprint call opens it (devslot.go).
-	if b.gated.Load() && !gateAllows(method) {
+	if b.gated.Load() && !b.gateAllows(method) {
 		return nil, ErrAppLocked
 	}
 	switch method {
@@ -4352,7 +4359,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "Guilds":
 		return b.Guilds()
 	case "MarkRead":
-		return b.MarkRead(argStr(args, 0), argInt64(args, 1))
+		v, err := b.MarkRead(argStr(args, 0), argInt64(args, 1))
+		if b.gated.Load() {
+			// From the tray behind the gate: it runs, and answers nothing.
+			return nil, err
+		}
+		return v, err
 	case "HideMessage":
 		return nil, b.HideMessage(argStr(args, 0), argStr(args, 1))
 	case "HiddenMessages":

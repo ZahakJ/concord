@@ -20,6 +20,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -32,6 +33,7 @@ import (
 	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/bridge"
 	"github.com/ZahakJ/concord/internal/httpapi"
+	"github.com/ZahakJ/concord/internal/identity"
 	"github.com/ZahakJ/concord/internal/store"
 	"github.com/ZahakJ/concord/internal/version"
 )
@@ -137,6 +139,63 @@ func (n *Node) DispatchJSON(method, argsJSON string) string {
 // afterwards; the core zeroes everything it derived from it.
 func (n *Node) UseDeviceSecret(slotID, u []byte) error {
 	return n.srv.Bridge().UseDeviceSecret(slotID, u)
+}
+
+// The outcomes of UnlockWithDeviceSecret. Typed, so the phone never has to
+// read an error's words to decide whether an enrolment is dead.
+const (
+	// DeviceSecretOK: unlocked, or the gate opened.
+	DeviceSecretOK = 0
+	// DeviceSecretDead: U was unwrapped and still does not open the slot.
+	// This enrolment can never work again; the phone deletes its half.
+	DeviceSecretDead = 1
+	// DeviceSecretFailed: anything else (no slot, a link in progress, a
+	// disk error). Nothing is deleted on it.
+	DeviceSecretFailed = 2
+)
+
+// UnlockWithDeviceSecret is UseDeviceSecret answering with one of the
+// DeviceSecret codes.
+func (n *Node) UnlockWithDeviceSecret(slotID, u []byte) int {
+	err := n.srv.Bridge().UseDeviceSecret(slotID, u)
+	switch {
+	case err == nil:
+		return DeviceSecretOK
+	case errors.Is(err, identity.ErrDeviceSlotMismatch):
+		return DeviceSecretDead
+	}
+	return DeviceSecretFailed
+}
+
+// AppLockState is App Lock as the core holds it: 1 on, 0 off, -1 unknown (no
+// session). The phone's FLAG_SECURE and the tray's Reply follow it, rather
+// than what the page last said.
+func (n *Node) AppLockState() int {
+	on, known := n.srv.Bridge().AppLockActive()
+	switch {
+	case !known:
+		return -1
+	case on:
+		return 1
+	}
+	return 0
+}
+
+// NotifyContextJSON is what the native notifier needs, as JSON
+// {"self": fingerprint, "dms": {channelID: name}}, or "" with no session.
+// In process only, and answered behind the App Lock gate: notifications keep
+// coming while the app is locked, which the page's Identity and Guilds calls,
+// refused behind the gate, cannot serve.
+func (n *Node) NotifyContextJSON() string {
+	nc, err := n.srv.Bridge().NotifyContext()
+	if err != nil {
+		return ""
+	}
+	b, err := json.Marshal(nc)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // VerifyDeviceSecret is UseDeviceSecret for an open session: the App Lock
