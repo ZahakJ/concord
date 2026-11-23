@@ -10,6 +10,7 @@
   // in front of a menu. What is left is the thing that has no other home — the
   // account itself: who you are on this machine, the words that ARE that
   // account, the copy you keep, the version you are running, and the way out.
+  import { passphraseUsed } from "../lib/passnudge.js";
   import RailShell from "./RailShell.svelte";
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
@@ -103,6 +104,7 @@
       await api.changePassphrase(curPass, newPass);
       // Fingerprint unlock survives this: the device slot is sealed under
       // the phone's own secret, not the passphrase.
+      passphraseUsed(); // typed just now: the reminder card can wait
       curPass = newPass = newPass2 = "";
       changeOpen = false;
       flash("Passphrase changed. Use the new one from now on.", "success");

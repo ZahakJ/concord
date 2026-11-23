@@ -2,6 +2,7 @@ package app.concord.mobile;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -60,5 +61,24 @@ public class BioUnlockTest {
         // through; the unit test variant is debug, so this only pins that the
         // switch is that flag and nothing a page can set.
         assertEquals(BuildConfig.DEBUG, BuildConfig.BUILD_TYPE.equals("debug"));
+    }
+
+    @Test
+    public void theSweepSparesTheEnrolmentInProgress() {
+        byte[] kept = seq(16, 1), pending = seq(16, 30), stale = seq(16, 60);
+        String keep = BioUnlock.alias(kept);
+        assertFalse(BioUnlock.sweeps(keep, keep, pending));
+        assertFalse("the alias being enrolled is swept", BioUnlock.sweeps(BioUnlock.alias(pending), keep, pending));
+        assertTrue(BioUnlock.sweeps(BioUnlock.alias(stale), keep, pending));
+        assertTrue(BioUnlock.sweeps(BioUnlock.alias(stale), null, null));
+        assertFalse("another app's alias", BioUnlock.sweeps("app.concord.mobile", null, null));
+    }
+
+    @Test
+    public void theLegacyWipeIsDoneOnlyWhenBothStepsWere() {
+        assertTrue(BioUnlock.legacySwept(true, true));
+        assertFalse(BioUnlock.legacySwept(true, false));
+        assertFalse(BioUnlock.legacySwept(false, true));
+        assertFalse(BioUnlock.legacySwept(false, false));
     }
 }

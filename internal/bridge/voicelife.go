@@ -174,12 +174,14 @@ func (v *voiceOwners) ownsAnyLocked(clientID string) bool {
 
 // voice lazily builds the ownership table. Bridges are constructed in several
 // places (each shell has its own) and none of them would remember a new map.
+//
+// Its own Once, not b.mu: the App Lock gate asks it whether a call is up from
+// inside an event broadcast, which may run under b.mu (a Logout closing the
+// service mid-call).
 func (b *Bridge) voice() *voiceOwners {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.voiceOwn == nil {
+	b.voiceOnce.Do(func() {
 		b.voiceOwn = &voiceOwners{rooms: map[string]map[string]bool{}, pending: map[string]*time.Timer{}}
-	}
+	})
 	return b.voiceOwn
 }
 

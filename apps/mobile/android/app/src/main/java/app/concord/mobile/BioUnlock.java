@@ -19,10 +19,12 @@ import androidx.fragment.app.FragmentActivity;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.KeyStore;
 import java.security.SecureRandom;
+import java.security.UnrecoverableKeyException;
 import java.util.Arrays;
 import java.util.Collections;
 
@@ -33,6 +35,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.GCMParameterSpec;
 
+import concord.Concord;
 import concord.Node;
 
 /**
@@ -74,6 +77,17 @@ final class BioUnlock {
     }
 
     private BioUnlock() {}
+
+    /**
+     * One lock over everything that changes the two halves: an enrolment's
+     * success callback, reconcile, disable and the dead-enrolment path. Without
+     * it a reconcile running between the core taking the new slot and the new
+     * wrapper reaching disk deleted the enrolment being made.
+     */
+    private static final Object LOCK = new Object();
+
+    /** The enrolment in progress (its id), whose fresh alias sweepAliases leaves alone. */
+    private static byte[] pendingId;
 
     // ---- the wrapped U on disk -------------------------------------------
 
@@ -128,14 +142,15 @@ final class BioUnlock {
         return new File(ctx.getNoBackupFilesDir(), FILE);
     }
 
-    static Wrapper read(Context ctx) {
-        try {
-            File f = file(ctx);
-            if (!f.exists()) return null;
-            return parse(Files.readAllBytes(f.toPath()));
-        } catch (Exception e) {
-            return null;
-        }
+    /**
+     * The wrapper on disk: null when there is none or it does not parse. A
+     * read that fails is not an absence, and throws: nothing may be deleted on
+     * the strength of a disk that did not answer.
+     */
+    static Wrapper read(Context ctx) throws IOException {
+        File f = file(ctx);
+        if (!f.exists()) return null;
+        return parse(Files.readAllBytes(f.toPath()));
     }
 
     private static void write(Context ctx, Wrapper w) throws Exception {
@@ -164,37 +179,71 @@ final class BioUnlock {
      * Stale aliases are swept.
      */
     static boolean reconcile(Context ctx, Node node) {
-        Wrapper w = read(ctx);
-        byte[] slot = node == null ? null : node.deviceSlotID();
-        boolean paired = w != null && slot != null && slot.length > 0 && Arrays.equals(w.id, slot);
-        if (w != null && !paired && node != null) {
-            deleteLocal(ctx, w.id);
-            w = null;
+        synchronized (LOCK) {
+            Wrapper w;
+            try {
+                w = read(ctx);
+            } catch (IOException e) {
+                return false; // the disk did not answer: change nothing
+            }
+            byte[] slot = node == null ? null : node.deviceSlotID();
+            boolean paired = w != null && slot != null && slot.length > 0 && Arrays.equals(w.id, slot);
+            if (w != null && !paired && node != null) {
+                deleteLocal(ctx, w.id);
+                w = null;
+            }
+            sweepAliases(w == null ? null : alias(w.id));
+            if (node != null) node.setDeviceWrapper(w == null ? new byte[0] : w.id);
+            return paired && available(ctx);
         }
-        sweepAliases(w == null ? null : alias(w.id));
-        if (node != null) node.setDeviceWrapper(w == null ? new byte[0] : w.id);
-        return paired && available(ctx);
     }
 
+    /**
+     * Deletes enrolment id: its key, and the wrapper file only if the file is
+     * that enrolment's. A failed or cancelled new enrolment must not take the
+     * working one with it.
+     */
     static void deleteLocal(Context ctx, byte[] id) {
-        //noinspection ResultOfMethodCallIgnored
-        file(ctx).delete();
-        if (id != null) {
-            try {
-                KeyStore ks = KeyStore.getInstance(KEYSTORE);
-                ks.load(null);
-                ks.deleteEntry(alias(id));
-            } catch (Exception ignored) {
+        if (id == null) return;
+        try {
+            Wrapper w = read(ctx);
+            if (w != null && Arrays.equals(w.id, id)) {
+                //noinspection ResultOfMethodCallIgnored
+                file(ctx).delete();
             }
+        } catch (IOException ignored) {
+            // unreadable: leave it, reconcile will look again
         }
+        deleteAlias(id);
+    }
+
+    /** Deletes only the key of enrolment id. */
+    static void deleteAlias(byte[] id) {
+        if (id == null) return;
+        try {
+            KeyStore ks = KeyStore.getInstance(KEYSTORE);
+            ks.load(null);
+            ks.deleteEntry(alias(id));
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Whether sweepAliases deletes alias a, keeping keep and the enrolment in progress. */
+    static boolean sweeps(String a, String keep, byte[] pending) {
+        if (!a.startsWith(ALIAS_PREFIX) || a.equals(keep)) return false;
+        return pending == null || !a.equals(alias(pending));
     }
 
     private static void sweepAliases(String keep) {
+        byte[] pending;
+        synchronized (LOCK) {
+            pending = pendingId;
+        }
         try {
             KeyStore ks = KeyStore.getInstance(KEYSTORE);
             ks.load(null);
             for (String a : Collections.list(ks.aliases())) {
-                if (a.startsWith(ALIAS_PREFIX) && !a.equals(keep)) ks.deleteEntry(a);
+                if (sweeps(a, keep, pending)) ks.deleteEntry(a);
             }
         } catch (Exception ignored) {
         }
@@ -304,22 +353,32 @@ final class BioUnlock {
             done.done(UNAVAILABLE, "");
             return;
         }
+        // Only with a session open and the gate open: the core would refuse
+        // it after the prompt anyway, and a key made for nothing is a key to
+        // clean up.
+        if (!sessionOpen(node)) {
+            done.done(FAILED, "locked");
+            return;
+        }
         SecureRandom rnd = new SecureRandom();
         byte[] id = new byte[ID_SIZE];
         rnd.nextBytes(id);
         String alias = alias(id);
+        synchronized (LOCK) {
+            pendingId = id;
+        }
         Cipher c;
         try {
             SecretKey key = newKey(ctx, alias);
             if (!hardwareBacked(key)) {
-                deleteLocal(ctx, id);
+                abandon(id);
                 done.done(UNAVAILABLE, "software");
                 return;
             }
             c = cipher();
             c.init(Cipher.ENCRYPT_MODE, key); // the Keystore picks the IV
         } catch (Exception e) {
-            deleteLocal(ctx, id);
+            abandon(id);
             done.done(FAILED, "");
             return;
         }
@@ -327,6 +386,12 @@ final class BioUnlock {
                 new BiometricPrompt.AuthenticationCallback() {
                     @Override
                     public void onAuthenticationSucceeded(@NonNull BiometricPrompt.AuthenticationResult r) {
+                        synchronized (LOCK) {
+                            succeeded(r);
+                        }
+                    }
+
+                    private void succeeded(BiometricPrompt.AuthenticationResult r) {
                         byte[] u = new byte[SECRET_SIZE];
                         try {
                             BiometricPrompt.CryptoObject co = r.getCryptoObject();
@@ -342,23 +407,25 @@ final class BioUnlock {
                                 // passphrase unlock drops.
                                 node.enrolDeviceSecret(id, u, passphrase);
                             } catch (Exception e) {
-                                deleteLocal(ctx, id);
+                                // The core kept the slot it had: so does the phone.
+                                abandon(id);
                                 done.done(FAILED, e.getMessage() == null ? "" : e.getMessage());
                                 return;
                             }
                             try {
                                 write(ctx, new Wrapper(id, iv, ct));
                             } catch (Exception e) {
-                                deleteLocal(ctx, id);
+                                abandon(id);
                                 node.setDeviceWrapper(new byte[0]); // the core drops the slot
                                 done.done(FAILED, "");
                                 return;
                             }
+                            pendingId = null;
                             node.setDeviceWrapper(id);
                             sweepAliases(alias);
                             done.done(OK, "");
                         } catch (Exception e) {
-                            deleteLocal(ctx, id);
+                            abandon(id);
                             done.done(FAILED, "");
                         } finally {
                             Arrays.fill(u, (byte) 0);
@@ -367,11 +434,33 @@ final class BioUnlock {
 
                     @Override
                     public void onAuthenticationError(int err, @NonNull CharSequence msg) {
-                        deleteLocal(ctx, id);
+                        // Cancelled or failed: only the new key goes; the
+                        // enrolment that was working stays.
+                        abandon(id);
                         done.done(errorCode(err), "");
                     }
                 });
         bp.authenticate(prompt(ctx, true), new BiometricPrompt.CryptoObject(c));
+    }
+
+    /** Drops an enrolment that did not complete: its key only, never the wrapper file. */
+    private static void abandon(byte[] id) {
+        synchronized (LOCK) {
+            if (pendingId != null && Arrays.equals(pendingId, id)) pendingId = null;
+        }
+        deleteAlias(id);
+    }
+
+    /** A session is open and the App Lock gate is not closed. */
+    static boolean sessionOpen(Node node) {
+        if (node == null) return false;
+        try {
+            org.json.JSONObject r = new org.json.JSONObject(node.dispatchJSON("SessionState", "[]"));
+            org.json.JSONObject st = r.optJSONObject("result");
+            return st != null && st.optBoolean("unlocked", false) && !st.optBoolean("gated", false);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     // ---- unlock (and the App Lock gate) ----------------------------------------
@@ -382,7 +471,13 @@ final class BioUnlock {
      */
     static void unlock(FragmentActivity act, Node node, Done done) {
         Context ctx = act.getApplicationContext();
-        Wrapper w = read(ctx);
+        Wrapper w;
+        try {
+            w = read(ctx);
+        } catch (IOException e) {
+            done.done(FAILED, "");
+            return;
+        }
         byte[] slot = node.deviceSlotID();
         if (w == null || slot == null || !Arrays.equals(w.id, slot)) {
             reconcile(ctx, node);
@@ -401,7 +496,9 @@ final class BioUnlock {
             }
             c = cipher();
             c.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, w.iv));
-        } catch (KeyPermanentlyInvalidatedException e) {
+        } catch (KeyPermanentlyInvalidatedException | UnrecoverableKeyException e) {
+            // The key is gone for good (an enrolment change, or a key the
+            // Keystore can no longer recover): so is this enrolment.
             dead(ctx, node, w);
             done.done(INVALIDATED, "");
             return;
@@ -430,17 +527,16 @@ final class BioUnlock {
                             return;
                         }
                         try {
-                            node.useDeviceSecret(w.id, u);
-                            done.done(OK, "");
-                        } catch (Exception e) {
-                            String m = e.getMessage() == null ? "" : e.getMessage();
-                            if (m.contains("fingerprint unlock does not open this keystore")) {
+                            long res = node.unlockWithDeviceSecret(w.id, u);
+                            if (res == Concord.DeviceSecretOK) {
+                                done.done(OK, "");
+                            } else if (res == Concord.DeviceSecretDead) {
                                 // U unwrapped fine and still does not open the
                                 // slot: this enrolment is dead.
                                 dead(ctx, node, w);
                                 done.done(INVALIDATED, "");
                             } else {
-                                done.done(FAILED, m);
+                                done.done(FAILED, "");
                             }
                         } finally {
                             Arrays.fill(u, (byte) 0);
@@ -456,17 +552,28 @@ final class BioUnlock {
     }
 
     private static void dead(Context ctx, Node node, Wrapper w) {
-        deleteLocal(ctx, w.id);
-        node.setDeviceWrapper(new byte[0]);
+        synchronized (LOCK) {
+            deleteLocal(ctx, w.id);
+            node.setDeviceWrapper(new byte[0]);
+        }
     }
 
     /** Turns fingerprint unlock off: the slot (needs an open, ungated session), then the phone's half. */
     static void disable(Context ctx, Node node) throws Exception {
-        node.dropDeviceSlot();
-        Wrapper w = read(ctx);
-        deleteLocal(ctx, w == null ? null : w.id);
-        sweepAliases(null);
-        node.setDeviceWrapper(new byte[0]);
+        synchronized (LOCK) {
+            node.dropDeviceSlot();
+            Wrapper w = null;
+            try {
+                w = read(ctx);
+            } catch (IOException ignored) {
+                // unreadable: the file goes below regardless
+            }
+            //noinspection ResultOfMethodCallIgnored
+            file(ctx).delete(); // turning it off: whatever wrapper there is
+            if (w != null) deleteAlias(w.id);
+            sweepAliases(null);
+            node.setDeviceWrapper(new byte[0]);
+        }
     }
 
     // ---- the 0.63 plugin's leftovers ---------------------------------------------
@@ -484,19 +591,27 @@ final class BioUnlock {
     static void sweepLegacy(Context ctx) {
         SharedPreferences own = ctx.getSharedPreferences("concord.bio", Context.MODE_PRIVATE);
         if (own.getBoolean(SWEPT, false)) return;
+        boolean prefsGone = false;
         try {
-            ctx.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE).edit().clear().commit();
+            boolean cleared = ctx.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE).edit().clear().commit();
             ctx.deleteSharedPreferences(LEGACY_PREFS);
-            // Its fallback wrapping key for old Android versions.
-            ctx.getSharedPreferences("", Context.MODE_PRIVATE).edit().remove("NativeBiometricKey").commit();
+            prefsGone = cleared;
         } catch (Exception ignored) {
         }
+        boolean keyGone = false;
         try {
             KeyStore ks = KeyStore.getInstance(KEYSTORE);
             ks.load(null);
             if (ks.containsAlias(LEGACY_ALIAS)) ks.deleteEntry(LEGACY_ALIAS);
+            keyGone = !ks.containsAlias(LEGACY_ALIAS);
         } catch (Exception ignored) {
         }
-        own.edit().putBoolean(SWEPT, true).commit();
+        // Done for good only when both went; otherwise the next start tries again.
+        if (legacySwept(prefsGone, keyGone)) own.edit().putBoolean(SWEPT, true).commit();
+    }
+
+    /** The legacy wipe counts as done only when both of its steps succeeded. */
+    static boolean legacySwept(boolean prefsGone, boolean keyGone) {
+        return prefsGone && keyGone;
     }
 }
