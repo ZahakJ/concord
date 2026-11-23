@@ -24,7 +24,6 @@
   import PassphraseField from "../PassphraseField.svelte";
   import { samePassphrase } from "../lib/passphrase.js";
   import { errorField, humanError } from "../lib/errors.js";
-  import { bioEnrolled, disableBiometric } from "../lib/biometric.js";
 
   let { onClose } = $props();
   let phrase = $state("");
@@ -102,20 +101,11 @@
     changing = true;
     try {
       await api.changePassphrase(curPass, newPass);
-      // A biometric unlock stores the OLD passphrase; it would now fail on
-      // every launch. Turn it off and say so rather than leave it broken.
-      let bioNote = "";
-      if (bioEnrolled()) {
-        try {
-          await disableBiometric();
-        } catch {
-          /* best effort */
-        }
-        bioNote = " Biometric unlock was turned off — turn it on again after your next unlock.";
-      }
+      // Fingerprint unlock survives this: the device slot is sealed under
+      // the phone's own secret, not the passphrase.
       curPass = newPass = newPass2 = "";
       changeOpen = false;
-      flash(`Passphrase changed. Use the new one from now on.${bioNote}`, "success");
+      flash("Passphrase changed. Use the new one from now on.", "success");
     } catch (err) {
       changeErr = humanError(err);
       changeField = errorField(err) === "pass" ? "cur" : "";
