@@ -385,17 +385,24 @@ func TestOwnerChainRace(t *testing.T) {
 		go func() { defer wg.Done(); s.owner.screenCommit(s.g.ID, s.gid, c2) }()
 	}
 	wg.Wait()
-	if !ownerPoll(30*time.Second, func() bool { return s.owner.takenOutLatched(s.g.ID) }) {
+	// The latch is short-lived: the owner asks back in at once and is let in,
+	// which drops it, often before a poll can see it. Its notice is what
+	// stays, and is what says it latched (and only once).
+	removed := func() int {
+		n := 0
+		for _, x := range s.owner.SeatNotices(s.g.ID) {
+			if x.Kind == "owner_removed" {
+				n++
+			}
+		}
+		return n
+	}
+	if !ownerPoll(30*time.Second, func() bool { return removed() > 0 }) {
 		oe, _ := s.owner.mls.Epoch(ctx, s.gid)
 		t.Fatalf("the owner never latched (epoch %d)", oe)
 	}
-	n := 0
-	for _, x := range s.owner.SeatNotices(s.g.ID) {
-		if x.Kind == "owner_removed" {
-			n++
-		}
-	}
-	if n != 1 {
+	time.Sleep(time.Second) // a second latch, were there one, says so too
+	if n := removed(); n != 1 {
 		t.Fatalf("%d owner_removed notices, want 1", n)
 	}
 	if !ownerPoll(90*time.Second, func() bool {

@@ -55,11 +55,15 @@ func TestOwnerTakenOutAsksBackIn(t *testing.T) {
 	}
 	s.mod.logCommit(s.gid, rm)
 	_ = s.mod.ps.Publish(ctx, domain.ControlTopicID(s.gid), rm)
+	// The removal moves the member to epoch+1; the owner asking back in can
+	// move it on again before a poll looks, so any epoch past the start counts
+	// (nothing else can commit on top of the epoch before the removal).
 	if !ownerPoll(20*time.Second, func() bool {
 		e, _ := s.member.mls.Epoch(ctx, s.gid)
-		return e == epoch+1 && len(leavesWith(s.member, s.gid, s.owner.myCredential)) == 0
+		return e == epoch+1 && len(leavesWith(s.member, s.gid, s.owner.myCredential)) == 0 || e > epoch+1
 	}) {
-		t.Fatal("the member did not apply the removal")
+		e, _ := s.member.mls.Epoch(ctx, s.gid)
+		t.Fatalf("the member did not apply the removal (epoch %d, from %d)", e, epoch)
 	}
 	if !ownerPoll(45*time.Second, func() bool {
 		return len(leavesWith(s.member, s.gid, s.owner.myCredential)) == 1
