@@ -175,6 +175,7 @@ eq(humanError(""), UNKNOWN, "an empty error");
 // …and the core's own sentences, written for a person, still do.
 eq(looksRaw("they're already in this guild"), false, "a human sentence is not raw");
 eq(humanError("app: that name is taken"), "that name is taken", "a human sentence passes");
+eq(humanError("identity: unsupported keystore version 3"), "This device's keys were saved by a newer version of Concord. Install the newer version to unlock — your passphrase is fine.", "newer keystore");
 console.warn = silence;
 
 // A toast that names what failed and then pastes the error after a colon put

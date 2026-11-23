@@ -102,6 +102,11 @@ const KNOWN = [
     "That recovery phrase isn't valid. Check each word and their order — it is 24 words."],
   // The login card, by the core's words when no code came with them.
   [/wrong passphrase or corrupted keystore/i, "pass", WRONG_PASSPHRASE],
+  // A keystore written by a newer Concord (a downgrade, or a phone that turned
+  // on 0.64's fingerprint unlock). Not the recovery screen: the newer version
+  // opens it, and recovery would replace it.
+  [/unsupported keystore version|format this version of Concord does not know/i, "",
+    "This device's keys were saved by a newer version of Concord. Install the newer version to unlock — your passphrase is fine."],
   // A node restarted under an open page: the identity is merely locked again.
   // It used to be answered with a sentence about erased data, which was false.
   [/identity is locked/i, "",
