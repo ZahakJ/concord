@@ -31,11 +31,15 @@ var (
 
 // gateAllows reports whether method may run while the gate is closed:
 // asking whether it is, signing out (which ends the session the gate
-// guards), and keeping a call that is in progress going or hanging it up.
+// guards), keeping a call that is in progress going or hanging it up, and
+// a notification's Mark as read.
 // None of these reads anything the gate protects.
 func gateAllows(method string) bool {
 	switch method {
-	case "SessionState", "Logout", "LeaveVoice", "SignalCall", "RelaySignal", "CallIceServers":
+	case "SessionState", "Logout", "LeaveVoice", "SignalCall", "RelaySignal", "CallIceServers",
+		// A notification's Mark as read, from the tray while the app is
+		// locked: it changes a counter and reads nothing.
+		"MarkRead":
 		return true
 	}
 	return false
