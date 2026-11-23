@@ -943,7 +943,9 @@
   let appLocked = $state(false);
   let gateNote = $state("");
   let gateTrying = false;
-  let appLockOn = $state(false);
+  // null until the core has said: pushing a guess to the phone would clear
+  // FLAG_SECURE on an app whose App Lock is on.
+  let appLockOn = $state(null);
   async function tryBioGate() {
     if (gateTrying) return;
     gateTrying = true;
@@ -964,6 +966,8 @@
     if (!appLocked) return;
     appLocked = false;
     catchUpAfterGap();
+    // Asked behind the gate, App Lock's state was refused; ask again now.
+    refreshAppLock();
   }
   async function syncGate() {
     if (!S.isMobile) return;
@@ -991,6 +995,7 @@
   // task switcher of an app whose whole premise is that it doesn't.
   $effect(() => {
     const on = appLockOn;
+    if (on === null) return;
     window.Capacitor?.Plugins?.ConcordCore?.setSecure?.({ secure: on }).catch(() => {});
   });
 

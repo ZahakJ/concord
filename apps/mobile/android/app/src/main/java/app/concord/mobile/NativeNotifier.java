@@ -2,7 +2,6 @@ package app.concord.mobile;
 
 import android.content.Context;
 
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.HashMap;
@@ -108,37 +107,59 @@ final class NativeNotifier implements concord.EventSink {
     private String self() {
         String fpr = selfFpr;
         if (!fpr.isEmpty()) return fpr;
-        try {
-            JSONObject r = new JSONObject(node.dispatchJSON("Identity", "[]"));
-            fpr = r.optJSONObject("result") != null
-                ? r.getJSONObject("result").optString("fingerprint", "")
-                : "";
-        } catch (Exception e) {
-            fpr = ""; // locked or booting: retry on the next message
-        }
-        selfFpr = fpr;
-        return fpr;
+        learn();
+        return selfFpr;
     }
 
     private Map<String, String> dmChannelMap() {
         Map<String, String> dms = dmChannels;
         if (dms != null) return dms;
+        learn();
+        return dmChannels;
+    }
+
+    /**
+     * Asks the core, in process, for our fingerprint and the DM channels. Not
+     * through dispatchJSON: behind the App Lock gate the page's Identity and
+     * Guilds are refused, and DM notifications must keep coming while the app
+     * is locked (Node.notifyContextJSON answers there, and with nothing else).
+     */
+    private void learn() {
         try {
-            JSONObject r = new JSONObject(node.dispatchJSON("Guilds", "[]"));
-            JSONArray guilds = r.optJSONArray("result");
-            if (guilds == null) return null; // identity locked: stay silent
-            Map<String, String> next = new HashMap<>();
-            for (int i = 0; i < guilds.length(); i++) {
-                JSONObject g = guilds.getJSONObject(i);
-                if (!"dm".equals(g.optString("kind", ""))) continue;
-                JSONArray chans = g.optJSONArray("channels");
-                if (chans == null) continue;
-                for (int j = 0; j < chans.length(); j++) {
-                    next.put(chans.getJSONObject(j).optString("id", ""), g.optString("name", ""));
+            NotifyContext parsed = parseContext(node.notifyContextJSON());
+            if (parsed == null) return; // locked or booting: retry on the next message
+            selfFpr = parsed.self;
+            dmChannels = parsed.dms;
+        } catch (Exception ignored) {
+        }
+    }
+
+    static final class NotifyContext {
+        final String self;
+        final Map<String, String> dms;
+
+        NotifyContext(String self, Map<String, String> dms) {
+            this.self = self;
+            this.dms = dms;
+        }
+    }
+
+    /** {"self": fpr, "dms": {channelId: name}}; null for "" or anything malformed. */
+    static NotifyContext parseContext(String json) {
+        if (json == null || json.isEmpty()) return null;
+        try {
+            JSONObject o = new JSONObject(json);
+            String self = o.optString("self", "");
+            if (self.isEmpty()) return null;
+            Map<String, String> dms = new HashMap<>();
+            JSONObject m = o.optJSONObject("dms");
+            if (m != null) {
+                for (java.util.Iterator<String> it = m.keys(); it.hasNext(); ) {
+                    String k = it.next();
+                    dms.put(k, m.optString(k, ""));
                 }
             }
-            dmChannels = next;
-            return next;
+            return new NotifyContext(self, dms);
         } catch (Exception e) {
             return null;
         }

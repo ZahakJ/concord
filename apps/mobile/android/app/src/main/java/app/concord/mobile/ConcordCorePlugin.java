@@ -8,6 +8,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Person;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.Intent;
 import android.net.Uri;
 import android.content.ContentValues;
@@ -759,8 +760,26 @@ public class ConcordCorePlugin extends Plugin {
         }
     }
 
+    /**
+     * App Lock as the core holds it, while there is a session to ask; the
+     * persisted copy only when there is none (a process restart with the app
+     * locked). The page's word is not what decides it.
+     */
     private static boolean appLockOn(Context ctx) {
-        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_APP_LOCK, false);
+        SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        Node n = NodeHolder.get();
+        if (n != null) {
+            try {
+                long st = n.appLockState();
+                if (st >= 0) {
+                    boolean on = st == 1;
+                    if (p.getBoolean(PREF_APP_LOCK, false) != on) p.edit().putBoolean(PREF_APP_LOCK, on).apply();
+                    return on;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return p.getBoolean(PREF_APP_LOCK, false);
     }
 
     /** Concord teal, for setColor on notifications. Mirrors --accent in app.css. */
@@ -880,7 +899,16 @@ public class ConcordCorePlugin extends Plugin {
     /** App Lock on → FLAG_SECURE, so the recents thumbnail and screenshots blank. */
     @PluginMethod
     public void setSecure(PluginCall call) {
-        boolean on = Boolean.TRUE.equals(call.getBoolean("secure", false));
+        // The page's call is the cue; the core's answer is the value
+        // (appLockOn), and the page's only when the core has no session.
+        boolean asked = Boolean.TRUE.equals(call.getBoolean("secure", false));
+        Node n = NodeHolder.get();
+        long st = -1;
+        try {
+            if (n != null) st = n.appLockState();
+        } catch (Exception ignored) {
+        }
+        boolean on = st >= 0 ? st == 1 : asked;
         // The tray's Reply action follows App Lock too (see replyAction).
         getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(PREF_APP_LOCK, on).apply();
