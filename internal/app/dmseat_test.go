@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -156,5 +157,46 @@ func TestReofferStopsWhenTheServiceCloses(t *testing.T) {
 	svc.offerGapMu.Unlock()
 	if !kept {
 		t.Fatal("a re-offer ran on a closed service")
+	}
+}
+
+// A device of ours that restarted and redialled before we noticed its old
+// connection die is never reported as a fresh connection, so the claim
+// "answered" stays held from the dead one. Its hello names a new Session, and
+// that alone must earn the full answer, with the guilds in it; the same
+// Session again gets the short one, as before.
+func TestARestartedDeviceIsAnsweredInFullBeforeItsOldConnectionDies(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	boot := testRendezvous(t, ctx)
+	desk, phone, _, _ := linkedPair(t, ctx, t.TempDir(), t.TempDir(), boot)
+	pid := phone.host.PeerID()
+	waitUntil(t, 30*time.Second, func() bool { return desk.ownDevice(pid) }, "the desktop never placed the phone")
+	answer := func(session string) helloFrame {
+		t.Helper()
+		req, err := json.Marshal(helloFrame{Session: session})
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := desk.handleHello(ctx, pid, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var f helloFrame
+		if err := json.Unmarshal(raw, &f); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	// Whatever the live connection already did, this run's claim is now held.
+	answer(phone.helloSession)
+	if f := answer(phone.helloSession); len(f.GuildInvites) != 0 {
+		t.Fatalf("a second hello from the same run got the full answer (%d invites)", len(f.GuildInvites))
+	}
+	if f := answer("a-new-run-of-the-phone"); len(f.GuildInvites) == 0 {
+		t.Fatal("a hello from a new run of the phone got the short answer, with no guilds in it")
 	}
 }

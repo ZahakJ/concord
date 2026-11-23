@@ -69,6 +69,14 @@ type helloFrame struct {
 	// then refuses them too (peerrevoke.go). Kept by the receiver only when
 	// the sender is placed as the signing account. Older builds ignore it.
 	AccountRevoked []*identity.DeviceRevocation `json:"accountRevoked,omitempty"`
+	// Session names this run of the sender's service: random, minted at start,
+	// the same in every hello it sends until it stops. A device that restarts
+	// and redials before we notice its old connection die never gets a fresh
+	// connection event from the host, so the per-connection claims (greeted,
+	// answered) stay held from the dead connection; a changed Session is how
+	// we tell, and it releases them (resetPeerSession). Older builds leave it
+	// out and are treated as before.
+	Session string `json:"session,omitempty"`
 	// GuildInvites lets a device of this account into servers it is not in yet.
 	//
 	// Invites used to be handed over exactly once, during linking, so a guild
@@ -212,6 +220,7 @@ func (s *Service) greet(p peer.ID) {
 	typingOn := s.typingOfferFor(p, &typingAt)
 	req, err := marshalHello(helloFrame{
 		Credential:   s.myCredential,
+		Session:      s.helloSession,
 		Name:         s.deviceLabel(),
 		AppVersion:   version.Version,
 		GuildInvites: s.guildInvitesFor(p),
@@ -324,6 +333,7 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	// this peer: telling a device we unlinked that it has been unlinked is the
 	// one message it is still owed, and it is signed, so it proves itself.
 	out.Revoked = s.revocationFor(from)
+	out.Session = s.helloSession
 	// The other half of the exchange: whichever side answers also offers. The
 	// requester learned nothing about us until this frame, so its own offer may
 	// have been empty; this is what makes the sync symmetric.
@@ -499,6 +509,7 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 	if json.Unmarshal(raw, &f) != nil {
 		return
 	}
+	s.notePeerSession(from, f.Session)
 	// Deliberately after the credential checks below would be too late: those
 	// return early for a frame carrying no certificate, and a re-greet from a
 	// device we already know is exactly that. ownDevice is what gates both the

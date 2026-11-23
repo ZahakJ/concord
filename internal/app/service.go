@@ -579,6 +579,11 @@ type Service struct {
 	// once and is placed; an outsider spamming a gossip topic pays us nothing
 	// more than that one refused stream.
 	solicited greetSet
+	// helloSession is this run's Session in every hello (hello.go), and
+	// peerSessions the last one each peer's hellos carried.
+	helloSession   string
+	peerSessionsMu sync.Mutex
+	peerSessions   map[peer.ID]string
 	// ownProfile tracks which devices of the account hold which profile edit
 	// (profilesync.go).
 	ownProfile ownProfileSync
@@ -1301,6 +1306,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	s := &Service{
 		linkedDevice:     linked,
 		started:          time.Now(),
+		helloSession:     newHelloSession(),
 		ctx:              ctx,
 		cancel:           cancel,
 		dataDir:          cfg.DataDir,
@@ -1556,6 +1562,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		s.solicited.release(p)
 		s.forgetOfferGap(p)
 		s.ownProfile.forget(p)
+		s.forgetPeerSession(p)
 		s.markDeviceLeft(p)
 		s.emitPeerDown(p, s.presence(p))
 	})
