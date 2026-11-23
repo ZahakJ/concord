@@ -8,7 +8,7 @@
   import { linkCodeFrom } from "./lib/deeplink.js";
   import { focusOnMount } from "./lib/focus.js";
   import { confettiBurst } from "./lib/burst.js";
-  import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
+  import { bioState, bioMessage, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import { finishUnlock } from "./lib/unlock.js";
   import { strandedChoice, lockNotice, erasedAfterUnlink, eraseUnfinished, quitApp, quitClosed } from "./lib/strandeddata.js";
   import { foundName, keepTypedArgs, restoreStep } from "./lib/restoreprofile.js";
@@ -67,14 +67,22 @@
     }
   }
 
-  // Biometric unlock (mobile). bioCanEnroll: hardware present; bioOn: the user
-  // has already stored their passphrase behind the biometric on this device.
+  // Fingerprint unlock (mobile). bioCanEnroll: a strong biometric on this
+  // phone; bioOn: fingerprint unlock is on (both of its halves present).
   let bioCanEnroll = $state(false);
   let bioOn = $state(false);
-  // After a successful password unlock we offer to enable biometric — holds the
-  // just-verified passphrase so an opt-in can store it.
+  // After a passphrase unlock we offer fingerprint unlock. The page keeps no
+  // passphrase for it: the core takes that unlock as proof for a minute, once.
   let offerBio = $state(false);
-  let pendingPass = $state("");
+  // "Not now" is remembered on this device, so the offer is made once.
+  const BIO_DECLINED = "concord.bioOfferDeclined";
+  function bioDeclined() {
+    try {
+      return localStorage.getItem(BIO_DECLINED) === "1";
+    } catch {
+      return false;
+    }
+  }
 
   async function tryBiometricUnlock() {
     if (busy) return;
@@ -91,10 +99,13 @@
     busy = true;
     error = "";
     try {
-      const pass = await unlockWithBiometric();
-      if (!pass) return; // cancelled or failed — fall back to the passphrase field
-      const notice = await api.login(pass);
-      if (notice) flash(notice, "info"); // e.g. the keystore's label had been altered
+      // The core opens the keystore itself; nothing comes back but a code.
+      const code = await unlockWithBiometric();
+      if (code !== "ok") {
+        error = bioMessage(code); // cancelled: "", the passphrase field stays
+        if (code === "invalidated" || code === "no_slot") bioOn = false;
+        return;
+      }
       await enter();
     } catch (err) {
       fail(err);
@@ -108,17 +119,18 @@
     // awaited safely: a rejected biometric prompt threw here and killed the
     // handler before the door was ever opened, so declining the fingerprint
     // reader left the user on the login screen with no way forward.
-    try {
-      await enableBiometric(pendingPass);
-    } catch (err) {
-      flash(err);
-    }
-    pendingPass = "";
+    const code = await enableBiometric();
+    if (code === "ok") flash("Fingerprint unlock is on.", "info");
+    else if (code !== "cancelled") flash("Fingerprint unlock wasn't turned on. You can try again in Settings › Privacy.", "info");
     offerBio = false;
     await enter();
   }
   async function skipEnableBio() {
-    pendingPass = "";
+    try {
+      localStorage.setItem(BIO_DECLINED, "1");
+    } catch {
+      /* the offer comes back next time: harmless */
+    }
     offerBio = false;
     await enter();
   }
@@ -732,8 +744,9 @@
     } catch {}
     checked = true;
     if (resumeBackup) return;
-    bioCanEnroll = await bioAvailable();
-    bioOn = bioCanEnroll && bioEnrolled();
+    const bio = await bioState();
+    bioCanEnroll = bio.available;
+    bioOn = bio.enrolled;
     // If biometric unlock is set up, offer it straight away on the lock screen.
     if (hasIdentity && bioOn) tryBiometricUnlock();
   });
@@ -784,8 +797,7 @@
       }
       // Offer biometric unlock after a successful password unlock on a device
       // that supports it and hasn't enrolled yet.
-      if (bioCanEnroll && !bioOn) {
-        pendingPass = passphrase;
+      if (bioCanEnroll && !bioOn && !bioDeclined()) {
         offerBio = true;
         return;
       }
@@ -1300,11 +1312,12 @@
       </div>
     {:else if offerBio}
       <p class="muted">
-        Unlock Concord with your fingerprint or face next time, instead of typing
-        your passphrase. It's stored in this device's secure hardware — your
-        passphrase never leaves the device.
+        Unlock Concord with your fingerprint next time, instead of typing your
+        passphrase. The key your fingerprint releases stays in this phone's
+        secure hardware. Keep your passphrase: you need it on a computer, to
+        recover, and if your fingerprints change.
       </p>
-      <button class="primary" type="button" onclick={confirmEnableBio}>Enable biometric unlock</button>
+      <button class="primary" type="button" onclick={confirmEnableBio}>Turn on fingerprint unlock</button>
       <button type="button" class="link" onclick={skipEnableBio}>Not now</button>
     {:else if backupPhrase && verifying}
       <p class="muted">
@@ -1639,7 +1652,7 @@
       </button>
       {#if bioOn}
         <button type="button" class="ghost" disabled={busy} onclick={tryBiometricUnlock}>
-          Unlock with biometrics
+          Unlock with fingerprint
         </button>
       {/if}
       <div class="links">

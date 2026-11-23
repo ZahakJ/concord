@@ -37,6 +37,9 @@ public class MainActivity extends BridgeActivity {
         splashDeadline = System.currentTimeMillis() + 8000;
         splash.setKeepOnScreenCondition(() -> !webReady && System.currentTimeMillis() < splashDeadline);
 
+        // 0.63's fingerprint unlock kept the passphrase where any script in
+        // the page could read it. Its data goes before the WebView loads.
+        BioUnlock.sweepLegacy(getApplicationContext());
         // Local plugins must be registered before super.onCreate wires the bridge.
         registerPlugin(ConcordCorePlugin.class);
         registerPlugin(CallAudioPlugin.class);
@@ -98,6 +101,15 @@ public class MainActivity extends BridgeActivity {
     public void onStop() {
         visible = false;
         ConcordCorePlugin.setForeground(false);
+        // App Lock: the gate is the core's, so the page behind it sees nothing
+        // until the fingerprint opens it. The core decides whether it applies.
+        concord.Node n = NodeHolder.get();
+        if (n != null) {
+            try {
+                n.engageAppLock();
+            } catch (Exception ignored) {
+            }
+        }
         super.onStop();
     }
 

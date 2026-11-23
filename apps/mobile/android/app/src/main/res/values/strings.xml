@@ -4,4 +4,10 @@
     <string name="title_activity_main">Concord</string>
     <string name="package_name">app.concord.mobile</string>
     <string name="custom_url_scheme">app.concord.mobile</string>
+    <!-- Fingerprint unlock prompts: fixed here, never taken from the page. -->
+    <string name="bio_unlock_title">Unlock Concord</string>
+    <string name="bio_unlock_subtitle">Use your fingerprint to open your messages</string>
+    <string name="bio_enrol_title">Turn on fingerprint unlock</string>
+    <string name="bio_enrol_subtitle">Touch the sensor to let your fingerprint open Concord</string>
+    <string name="bio_use_passphrase">Use passphrase</string>
 </resources>

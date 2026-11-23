@@ -1,9 +1,13 @@
 package bridge
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
+	"log"
 	"strings"
 	"testing"
 	"time"
@@ -172,5 +176,33 @@ func TestAnOrphanSlotIsDroppedAtThePassphraseUnlock(t *testing.T) {
 	}
 	if appsvc.DeviceSlotID(dir) != nil {
 		t.Fatal("the orphan slot outlived a passphrase unlock")
+	}
+}
+
+// U never reaches a log: not in hex, not in base64, not raw.
+func TestTheDeviceSecretIsNeverLogged(t *testing.T) {
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(prev) })
+	b := slotBridge(t)
+	slotID, u := newSecret()
+	if err := b.EnrolDeviceSecret(slotID, u, ""); err != nil {
+		t.Fatal(err)
+	}
+	b.EngageAppLock()
+	bad := append([]byte(nil), u...)
+	bad[1] ^= 1
+	_ = b.UseDeviceSecret(slotID, bad)
+	_ = b.UseDeviceSecret(slotID, u)
+	_ = b.Logout()
+	b.SetDeviceWrapper(nil)
+	_ = b.UseDeviceSecret(slotID, u)
+	_ = b.Login("ada-pass-1")
+	out := buf.String()
+	for _, enc := range []string{hex.EncodeToString(u), hex.EncodeToString(bad), base64.StdEncoding.EncodeToString(u), string(u)} {
+		if strings.Contains(out, enc) {
+			t.Fatal("U is in the log")
+		}
 	}
 }

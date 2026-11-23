@@ -8,7 +8,7 @@
   import { onMount, untrack } from "svelte";
   import { watchMoments, refreshMoments } from "./lib/momentsunseen.svelte.js";
   import { precacheEmoji } from "./lib/emojifull.svelte.js";
-  import { api, leaveVoiceOnUnload } from "./lib/api.js";
+  import { api, leaveVoiceOnUnload, on as onCoreEvent } from "./lib/api.js";
   import { callIce } from "./lib/callice.js";
   import { createVisibilityReporter } from "./lib/visibility.js";
   import { windowTitle } from "./lib/readstate.js";
@@ -26,6 +26,7 @@
     onLogin,
     refreshGuilds,
     refreshRightPanel,
+    catchUpAfterGap,
     applyAppearance,
     flash,
     humanError,
@@ -64,7 +65,7 @@
   } from "./lib/state.svelte.js";
 
   import { guildAccent } from "./lib/guildaccent.js";
-  import { bioEnrolled, unlockWithBiometric } from "./lib/biometric.js";
+  import { bioMessage, unlockWithBiometric } from "./lib/biometric.js";
   import { initDeepLinks, consumePendingChannel } from "./lib/deeplink.js";
   import { closeSearch } from "./lib/search.js";
   import { armGuildSetup } from "./lib/setup.js";
@@ -855,12 +856,11 @@
     registerPushToken();
     applyStayConnected();
     // App lock: the Go core (and its unlocked session) stays alive in the
-    // background, so reopening the app skips the passphrase. With the pref on,
-    // gate re-entry behind the device biometric instead of walking straight in.
-    if (shouldAppLock()) {
-      appLocked = true;
-      tryBioGate();
-    }
+    // background, so reopening the app skips the passphrase. The gate is the
+    // core's (it closes when the phone leaves the app); this page only shows
+    // it, and the fingerprint opens it natively.
+    syncGate();
+    refreshAppLock();
     // A notification tapped while the app was cold parked its channel here; the
     // guild list only exists now, so this is the first moment it can be opened.
     const pending = consumePendingChannel();
@@ -935,18 +935,59 @@
   }
 
   // ---- app lock (biometric re-entry gate) ----
+  // appLocked mirrors the core's gate. Behind it the core answers this page
+  // nothing but SessionState, sign-out and a call's controls, and sends it no
+  // events, so what arrived meanwhile is fetched when it opens.
   let appLocked = $state(false);
-  const shouldAppLock = () => S.isMobile && S.prefs.appLock === true && bioEnrolled();
+  let gateNote = $state("");
+  let gateTrying = false;
+  let appLockOn = $state(false);
   async function tryBioGate() {
-    const pass = await unlockWithBiometric(); // retrieval is biometric-gated
-    if (pass) appLocked = false;
+    if (gateTrying) return;
+    gateTrying = true;
+    try {
+      const code = await unlockWithBiometric();
+      if (code === "ok") {
+        gateNote = "";
+        openGate();
+      } else {
+        gateNote = bioMessage(code);
+      }
+    } finally {
+      gateTrying = false;
+    }
+  }
+  function openGate() {
+    if (!appLocked) return;
+    appLocked = false;
+    catchUpAfterGap();
+  }
+  async function syncGate() {
+    if (!S.isMobile) return;
+    try {
+      const st = await api.sessionState();
+      if (st?.gated) {
+        appLocked = true;
+        tryBioGate();
+      } else openGate();
+    } catch {
+      /* the stream's own recovery covers a core that is away */
+    }
+  }
+  async function refreshAppLock() {
+    if (!S.isMobile) return;
+    try {
+      appLockOn = !!(await api.appLock())?.on;
+    } catch {
+      /* behind the gate or locked: keep what we had */
+    }
   }
   // FLAG_SECURE follows the App Lock pref. The gate itself is a WebView repaint,
   // which lands AFTER the OS has already snapshotted the app for the recents
   // carousel — so without this the last open conversation, decrypted, sat in the
   // task switcher of an app whose whole premise is that it doesn't.
   $effect(() => {
-    const on = S.prefs.appLock === true;
+    const on = appLockOn;
     window.Capacitor?.Plugins?.ConcordCore?.setSecure?.({ secure: on }).catch(() => {});
   });
 
@@ -1190,12 +1231,18 @@
     else App.addListener("backButton", ({ canGoBack }) => handleBack(App, canGoBack));
     App.addListener("resume", () => {
       nudge();
-      if (appLocked) tryBioGate();
+      // The core closed its gate when the phone left the app; the event may
+      // not have reached a page the phone had frozen.
+      if (S.ready) syncGate();
     });
-    // Lock the moment the app leaves the foreground, so the next open (and
-    // the OS app-switcher, once the WebView repaints) meets the gate.
-    App.addListener("pause", () => {
-      if (S.ready && shouldAppLock()) appLocked = true;
+    // The gate moving, from the core. Settings changing App Lock, from the
+    // privacy modal.
+    onCoreEvent("applock", (e) => {
+      if (e?.gated) appLocked = true;
+      else openGate();
+    });
+    window.addEventListener("concord:applock", (e) => {
+      appLockOn = !!e?.detail?.on;
     });
     // The ongoing-call notification's "Hang up" action, relayed by the native
     // call service. Same teardown as any in-app leave.
@@ -2276,7 +2323,8 @@
       <div class="lock-inner">
         <span class="lock-badge"><Icon name="lock" size={26} /></span>
         <h2>Concord is locked</h2>
-        <p class="muted">Unlock with your fingerprint or face.</p>
+        <p class="muted">Unlock with your fingerprint.</p>
+        {#if gateNote}<p class="gate-note" role="status">{gateNote}</p>{/if}
         <button class="primary lock-btn" onclick={tryBioGate}>Unlock</button>
         <!-- Honest label: this path signs the device out and reloads. It used to
              read "Use passphrase instead", which sounds like a second door into
@@ -2848,6 +2896,12 @@
     font-size: 16px;
     font-weight: 600;
     border-radius: var(--radius-md);
+  }
+  .gate-note {
+    margin: 0;
+    max-width: 32ch;
+    font-size: var(--fs-ui);
+    color: var(--text);
   }
   .lock-alt {
     background: transparent;

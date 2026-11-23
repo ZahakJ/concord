@@ -317,6 +317,10 @@ export const api = {
   revealMnemonic: (passphrase) => call("RevealMnemonic", passphrase),
   changePassphrase: (current, next) => call("ChangePassphrase", current, next),
   sessionState: () => call("SessionState"),
+  // App Lock (phone): {enrolled, on}. The gate itself is the core's; only the
+  // fingerprint, natively, opens it.
+  appLock: () => call("AppLock"),
+  setAppLock: (on) => call("SetAppLock", !!on),
   lockedAccount: () => call("LockedAccount"),
   checkRecoveryPhrase: (phrase) => call("CheckRecoveryPhrase", phrase),
   restoreFromMnemonic: (phrase, passphrase, confirm = "", typed = "") =>

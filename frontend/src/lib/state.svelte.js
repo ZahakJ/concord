@@ -2935,7 +2935,9 @@ onTransportHealth((up) => {
 // phone froze and lib/resume.js redialled): nothing said meanwhile reached this
 // page, so fetch it — the open channel's rows, the rail, the panel, the reads
 // other devices made and the badges they imply.
-onStreamReopen(() => {
+// The App Lock gate opening is the same: behind it the core sent the page
+// nothing (see App.svelte's gate).
+export function catchUpAfterGap() {
   if (!S.ready) return;
   catchUpChannel();
   refreshGuilds()
@@ -2944,7 +2946,8 @@ onStreamReopen(() => {
     .catch(() => {});
   refreshRightPanel().catch(() => {});
   refreshNetStatus();
-});
+}
+onStreamReopen(catchUpAfterGap);
 
 // ---- notification permission, asked late ----
 

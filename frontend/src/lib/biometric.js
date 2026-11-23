@@ -1,84 +1,95 @@
-// biometric.js — optional Face ID / fingerprint unlock. Wraps the
-// capacitor-native-biometric plugin (reached via the runtime global so the
-// web/desktop bundle carries no Capacitor dependency). The passphrase is stored
-// in the iOS Keychain / Android Keystore; verifyIdentity() gates retrieval, so
-// unlocking still requires the user's biometric. All functions no-op / return
-// false off-device.
+// biometric.js — fingerprint unlock on the phone, as the page sees it.
+//
+// Everything secret stays native (BioUnlock.java) and in the Go core: a
+// random secret U, wrapped by an Android Keystore key that a strong biometric
+// must release, opens the keystore's device slot in process. The page never
+// holds U or the passphrase for it; it asks, and hears an outcome code:
+//   ok | cancelled | lockout | invalidated | no_slot | unavailable | failed
+//
+// 0.63 and earlier used capacitor-native-biometric, which stored the
+// passphrase itself where any script in the page could read it. The phone
+// deletes that on the first 0.64 start; the flag it kept here goes too.
 
-const SERVER = "app.concord.mobile";
-// Set once the user opts in, so the unlock screen knows to offer biometric
-// without having to prompt the OS just to probe for stored credentials.
-const FLAG = "concord.bioEnrolled";
-
-function plugin() {
-  return window.Capacitor?.Plugins?.NativeBiometric || null;
+const LEGACY_FLAG = "concord.bioEnrolled";
+try {
+  localStorage.removeItem(LEGACY_FLAG);
+} catch {
+  /* storage unavailable: nothing to clear */
 }
 
-// available reports whether the device has usable biometric hardware enrolled.
+function core() {
+  return (typeof window !== "undefined" && window.Capacitor?.Plugins?.ConcordCore) || null;
+}
+
+function hasBio(p) {
+  return !!(p && typeof p.bioState === "function");
+}
+
+// bioState reports {available, enrolled}: a strong biometric on this phone,
+// and fingerprint unlock turned on (both halves of it present). Off the
+// phone, or on a shell without it, both are false.
+export async function bioState() {
+  const p = core();
+  if (!hasBio(p)) return { available: false, enrolled: false };
+  try {
+    const r = await p.bioState();
+    return { available: !!r?.available, enrolled: !!r?.enrolled };
+  } catch {
+    return { available: false, enrolled: false };
+  }
+}
+
 export async function bioAvailable() {
-  const p = plugin();
-  if (!p) return false;
+  return (await bioState()).available;
+}
+
+async function run(method, args) {
+  const p = core();
+  if (!hasBio(p)) return "unavailable";
   try {
-    const r = await p.isAvailable();
-    return !!r?.isAvailable;
+    const r = await p[method](args || {});
+    return r?.code || "failed";
   } catch {
-    return false;
+    return "failed";
   }
 }
 
-// bioEnrolled reports whether the user has stored their passphrase for biometric
-// unlock on this device.
-export function bioEnrolled() {
-  try {
-    return localStorage.getItem(FLAG) === "1";
-  } catch {
-    return false;
-  }
+// enableBiometric turns fingerprint unlock on. passphrase is the one typed in
+// Settings; leave it out right after a passphrase unlock, which the core
+// accepts as proof for a minute, once.
+export function enableBiometric(passphrase = "") {
+  return run("bioEnrol", passphrase ? { passphrase } : {});
 }
 
-// enableBiometric stores the passphrase behind the device biometric. Returns
-// true on success. Called after a successful password unlock when the user opts
-// in.
-export async function enableBiometric(passphrase) {
-  const p = plugin();
-  if (!p || !passphrase) return false;
-  try {
-    await p.setCredentials({ username: "concord", password: passphrase, server: SERVER });
-    localStorage.setItem(FLAG, "1");
-    return true;
-  } catch {
-    return false;
-  }
+// unlockWithBiometric unlocks with the fingerprint, or, with a session open,
+// opens the App Lock gate. "ok" means the core did it; there is nothing to
+// hand to login().
+export function unlockWithBiometric() {
+  return run("bioUnlock");
 }
 
-// disableBiometric forgets the stored passphrase.
+// disableBiometric turns fingerprint unlock off (in the keystore and on the
+// phone). It throws when it could not, e.g. behind the App Lock gate.
 export async function disableBiometric() {
-  const p = plugin();
-  try {
-    localStorage.removeItem(FLAG);
-    await p?.deleteCredentials({ server: SERVER });
-  } catch {
-    /* ignore */
-  }
+  const p = core();
+  if (!hasBio(p)) return;
+  await p.bioDisable();
 }
 
-// unlockWithBiometric prompts for the biometric, then returns the stored
-// passphrase (or "" if it failed / was cancelled). The caller feeds it to
-// api.login exactly like a typed passphrase.
-export async function unlockWithBiometric() {
-  const p = plugin();
-  if (!p) return "";
-  try {
-    await p.verifyIdentity({
-      reason: "Unlock Concord",
-      title: "Unlock Concord",
-      subtitle: "",
-      description: "",
-    });
-    const c = await p.getCredentials({ server: SERVER });
-    return c?.password || "";
-  } catch {
-    // Verification cancelled/failed, or credentials were cleared.
-    return "";
+// bioMessage is what the lock screen says for an outcome, or "" for none.
+export function bioMessage(code) {
+  switch (code) {
+    case "invalidated":
+      return "Fingerprints on this phone changed, so Concord turned fingerprint unlock off. Unlock with your passphrase, then turn it on again in Settings.";
+    case "lockout":
+      return "Too many tries. Unlock with your passphrase, or wait and try your fingerprint again.";
+    case "no_slot":
+      return "Fingerprint unlock isn't set up on this phone any more. Unlock with your passphrase.";
+    case "unavailable":
+      return "This phone can't use fingerprint unlock right now. Unlock with your passphrase.";
+    case "failed":
+      return "Fingerprint unlock didn't work this time. Try again, or use your passphrase.";
+    default:
+      return "";
   }
 }

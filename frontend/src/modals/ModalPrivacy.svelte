@@ -15,7 +15,8 @@
   import SettingRow from "./SettingRow.svelte";
   import { api } from "../lib/api.js";
   import { hasOwnStun } from "../lib/callice.js";
-  import { bioEnrolled } from "../lib/biometric.js";
+  import { bioState, enableBiometric, disableBiometric } from "../lib/biometric.js";
+  import { humanError } from "../lib/errors.js";
   import { S, setPref, flash, setOffDeviceSearch } from "../lib/state.svelte.js";
   import { refreshReadReceiptsSetting } from "../lib/receipts.svelte.js";
 
@@ -28,7 +29,66 @@
   let mediaRelay = $state(null);
   // Whether the rendezvous answers STUN itself (then no public server is asked).
   let ownStun = $state(false);
+  // Fingerprint unlock and App Lock (phone). Both live outside the page: the
+  // core holds App Lock and the keystore's slot, the phone holds the key.
+  let bio = $state({ available: false, enrolled: false });
+  let appLockOn = $state(false);
+  let askBioPass = $state(false);
+  let bioPass = $state("");
+  let bioBusy = $state(false);
+  async function refreshBio() {
+    if (!S.isMobile) return;
+    bio = await bioState();
+    try {
+      appLockOn = !!(await api.appLock())?.on;
+    } catch {
+      appLockOn = false;
+    }
+    window.dispatchEvent(new CustomEvent("concord:applock", { detail: { on: appLockOn } }));
+  }
+  async function toggleBio() {
+    if (bioBusy) return;
+    if (!bio.enrolled) {
+      askBioPass = !askBioPass;
+      bioPass = "";
+      return;
+    }
+    bioBusy = true;
+    try {
+      await disableBiometric();
+      flash("Fingerprint unlock is off.", "info");
+    } catch (err) {
+      flash(humanError(err), "error");
+    } finally {
+      bioBusy = false;
+      await refreshBio();
+    }
+  }
+  async function enrolBio() {
+    if (!bioPass || bioBusy) return;
+    bioBusy = true;
+    const code = await enableBiometric(bioPass);
+    bioPass = "";
+    bioBusy = false;
+    if (code === "ok") {
+      askBioPass = false;
+      flash("Fingerprint unlock is on.", "info");
+    } else if (code !== "cancelled") {
+      flash("Fingerprint unlock wasn't turned on. Check your passphrase and try again.", "error");
+    }
+    await refreshBio();
+  }
+  async function toggleAppLock() {
+    try {
+      await api.setAppLock(!appLockOn);
+    } catch (err) {
+      flash(humanError(err), "error");
+    }
+    await refreshBio();
+  }
+
   onMount(async () => {
+    refreshBio();
     try {
       const cfg = await api.callIceServers();
       mediaRelay = cfg?.relayAvailable === true;
@@ -280,16 +340,48 @@
     label="This device"
     info="Everything here is about this one install. Concord has no account database to delete you from — your data is on the devices that hold it, and this is the one you are holding."
   >
-    {#if S.isMobile}
+    {#if S.isMobile && (bio.available || bio.enrolled)}
+      <SettingRow
+        icon="key"
+        title="Fingerprint unlock"
+        sub={bio.enrolled
+          ? "Your fingerprint opens Concord on this phone"
+          : "Unlock with your fingerprint instead of typing your passphrase"}
+        info="The key your fingerprint releases stays in this phone's secure hardware, and Concord turns it off by itself if the phone's fingerprints change. Your passphrase still unlocks Concord, and you need it on a computer and to recover."
+        checked={bio.enrolled}
+        disabled={bioBusy}
+        onclick={toggleBio}
+      />
+      {#if askBioPass && !bio.enrolled}
+        <form
+          class="bio-pass"
+          onsubmit={(e) => {
+            e.preventDefault();
+            enrolBio();
+          }}
+        >
+          <label class="bio-fld">
+            <span>Your passphrase, to turn it on</span>
+            <!-- svelte-ignore a11y_autofocus -->
+            <input type="password" bind:value={bioPass} autocomplete="current-password" autofocus />
+          </label>
+          <div class="bio-actions">
+            <button class="primary" type="submit" disabled={!bioPass || bioBusy}>
+              {bioBusy ? "Waiting for your fingerprint…" : "Continue"}
+            </button>
+            <button class="quiet" type="button" onclick={() => ((askBioPass = false), (bioPass = ""))}>Cancel</button>
+          </div>
+        </form>
+      {/if}
       <SettingRow
         icon="lock"
         title="App lock"
-        sub={bioEnrolled()
-          ? "Require fingerprint when opening the app"
-          : "Enable biometric unlock first"}
-        checked={bioEnrolled() && S.prefs.appLock === true}
-        disabled={!bioEnrolled()}
-        onclick={() => setPref("appLock", !(S.prefs.appLock === true))}
+        sub={bio.enrolled
+          ? "Ask for your fingerprint when you come back to Concord"
+          : "Turn on fingerprint unlock first"}
+        checked={bio.enrolled && appLockOn}
+        disabled={!bio.enrolled}
+        onclick={toggleAppLock}
       />
     {/if}
     <SettingRow
@@ -318,6 +410,25 @@
 {/if}
 
 <style>
+  .bio-pass {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: 0 0 var(--sp-3) var(--sp-5);
+  }
+  .bio-fld {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+  }
+  .bio-fld span {
+    font-size: var(--fs-tiny);
+    color: var(--text-muted);
+  }
+  .bio-actions {
+    display: flex;
+    gap: var(--sp-2);
+  }
   /* Full-strength, not a faded disabled row: locking a privacy switch without
      saying why is how this read as broken. Sits in the group's card under
      Hide my IP so the reason is on the setting, not in an ⓘ. */

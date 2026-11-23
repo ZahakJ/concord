@@ -13,7 +13,6 @@ dependencies {
     implementation project(':capacitor-haptics')
     implementation project(':capacitor-keyboard')
     implementation project(':capacitor-push-notifications')
-    implementation project(':capacitor-native-biometric')
 
 }
 

@@ -818,6 +818,65 @@ public class ConcordCorePlugin extends Plugin {
 
     // ---- window-level bits the web layer owns the policy for ----
 
+    // ---- fingerprint unlock (BioUnlock) -------------------------------------
+    // The page asks and hears an outcome code. U, the key and the prompt's
+    // words stay on this side.
+
+    private static void bioResult(PluginCall call, String code, String detail) {
+        JSObject r = new JSObject();
+        r.put("code", code);
+        if (detail != null && !detail.isEmpty() && !BioUnlock.OK.equals(code)) r.put("detail", detail);
+        call.resolve(r);
+    }
+
+    /** {available, enrolled}: a strong biometric here, and both halves of an enrolment. */
+    @PluginMethod
+    public void bioState(PluginCall call) {
+        Node n = NodeHolder.get();
+        JSObject r = new JSObject();
+        r.put("available", BioUnlock.available(getContext()));
+        r.put("enrolled", n != null && BioUnlock.reconcile(getContext(), n));
+        call.resolve(r);
+    }
+
+    /** Unlock, or open the App Lock gate. Resolves {code}. */
+    @PluginMethod
+    public void bioUnlock(PluginCall call) {
+        Node n = NodeHolder.get();
+        if (n == null || !(getActivity() instanceof androidx.fragment.app.FragmentActivity)) {
+            bioResult(call, BioUnlock.UNAVAILABLE, "");
+            return;
+        }
+        getActivity().runOnUiThread(() -> BioUnlock.unlock(getActivity(), n, (code, detail) -> bioResult(call, code, detail)));
+    }
+
+    /** Turn fingerprint unlock on. {passphrase}: typed in Settings, or absent right after a passphrase unlock. */
+    @PluginMethod
+    public void bioEnrol(PluginCall call) {
+        Node n = NodeHolder.get();
+        if (n == null || !(getActivity() instanceof androidx.fragment.app.FragmentActivity)) {
+            bioResult(call, BioUnlock.UNAVAILABLE, "");
+            return;
+        }
+        String pass = call.getString("passphrase", "");
+        getActivity().runOnUiThread(() -> BioUnlock.enrol(getActivity(), n, pass == null ? "" : pass, (code, detail) -> bioResult(call, code, detail)));
+    }
+
+    @PluginMethod
+    public void bioDisable(PluginCall call) {
+        Node n = NodeHolder.get();
+        if (n == null) {
+            call.reject("Concord is not running");
+            return;
+        }
+        try {
+            BioUnlock.disable(getContext(), n);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject(e.getMessage() == null ? "Could not turn fingerprint unlock off" : e.getMessage());
+        }
+    }
+
     /** App Lock on → FLAG_SECURE, so the recents thumbnail and screenshots blank. */
     @PluginMethod
     public void setSecure(PluginCall call) {
