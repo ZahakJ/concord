@@ -135,7 +135,8 @@ export function outputSize(w, h, e) {
   const t = turnedSize(w, h, e.turns);
   const cw = Math.max(1, Math.round(e.crop.w * t.w));
   const ch = Math.max(1, Math.round(e.crop.h * t.h));
-  const s = e.size ? Math.min(1, e.size / Math.max(cw, ch)) : 1;
+  let s = e.size ? Math.min(1, e.size / Math.max(cw, ch)) : 1;
+  s = Math.min(s, Math.sqrt(MAX_PIXELS / (cw * ch)));
   return { w: Math.max(1, Math.round(cw * s)), h: Math.max(1, Math.round(ch * s)) };
 }
 
@@ -210,18 +211,34 @@ export function isLight(hex) {
 }
 
 // render produces the edited picture on a new canvas (DOM or Offscreen).
+// The crop and the turn are a transform on that one canvas, so no
+// intermediate canvas of the whole turned picture is ever allocated.
 export function render(makeCanvas, img, w, h, e) {
   const t = turnedSize(w, h, e.turns);
-  const full = makeCanvas(t.w, t.h);
-  const fc = full.getContext("2d");
-  drawTurned(fc, img, w, h, e.turns, t.w, t.h);
-  drawMarks(fc, e.marks, t.w, t.h);
   const out = outputSize(w, h, e);
   const c = makeCanvas(out.w, out.h);
   const cc = c.getContext("2d");
   cc.imageSmoothingQuality = "high";
-  cc.drawImage(full, e.crop.x * t.w, e.crop.y * t.h, e.crop.w * t.w, e.crop.h * t.h, 0, 0, out.w, out.h);
+  cc.scale(out.w / (e.crop.w * t.w), out.h / (e.crop.h * t.h));
+  cc.translate(-e.crop.x * t.w, -e.crop.y * t.h);
+  drawTurned(cc, img, w, h, e.turns, t.w, t.h);
+  drawMarks(cc, e.marks, t.w, t.h);
   return c;
+}
+
+// MAX_PIXELS bounds both the picture the editor opens and the one it makes:
+// 24 MP is past any phone camera, and a canvas that size is already ~96 MB.
+export const MAX_PIXELS = 24_000_000;
+
+// tooBig says the editor will not open a picture of w × h.
+export function tooBig(w, h) {
+  return !(w > 0 && h > 0) || w * h > MAX_PIXELS;
+}
+
+// encoded says a canvas encoding worked: a canvas too large for the browser
+// gives back "data:," instead of throwing.
+export function encoded(dataUrl) {
+  return typeof dataUrl === "string" && dataUrl.startsWith("data:image/");
 }
 
 // The encodings to try, in order: PNG stays PNG (screenshots, drawings, with

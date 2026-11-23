@@ -12,6 +12,10 @@ import {
   outputSize,
   encodings,
   editable,
+  render,
+  tooBig,
+  encoded,
+  MAX_PIXELS,
   MIN_CROP,
 } from "./photoedit.js";
 
@@ -105,5 +109,40 @@ assert.equal(encodings("data:image/png;base64,x")[0][0], "image/png");
 assert.equal(encodings("data:image/jpeg;base64,x")[0][0], "image/jpeg");
 assert.ok(editable("data:image/jpeg;base64,x"));
 assert.ok(!editable("data:image/gif;base64,x"), "an animation is not flattened");
+
+// The render makes exactly one canvas, the output, and draws into it through a
+// transform: no full-size intermediate, whatever the turn and crop.
+{
+  const made = [];
+  const calls = [];
+  const ctx = new Proxy({}, {
+    get: (_, k) => (k in ctx2 ? ctx2[k] : (...a) => calls.push([k, ...a])),
+    set: () => true,
+  });
+  const ctx2 = {};
+  const mk = (w, h) => (made.push([w, h]), { width: w, height: h, getContext: () => ctx });
+  const e = turn(newEdit(), 1);
+  e.crop = { x: 0.25, y: 0, w: 0.5, h: 1 };
+  const c = render(mk, {}, 4000, 3000, e);
+  assert.deepEqual(made, [[1500, 4000]], "only the output canvas is made");
+  assert.equal(c.width, 1500);
+  const draw = calls.find(([k]) => k === "drawImage");
+  assert.ok(draw, "the picture is drawn into the output");
+}
+
+// 24 MP in, 24 MP out.
+assert.ok(tooBig(8000, 6000), "48 MP is refused");
+assert.ok(!tooBig(6000, 4000), "24 MP opens");
+assert.ok(tooBig(0, 100) && tooBig(NaN, 5), "a picture without a size is refused");
+{
+  const e = newEdit();
+  const o = outputSize(6000, 4000, e);
+  assert.ok(o.w * o.h <= MAX_PIXELS, `output ${o.w}x${o.h} within the cap`);
+  const big = outputSize(20000, 20000, e);
+  assert.ok(big.w * big.h <= MAX_PIXELS * 1.001, "a larger crop is scaled to the cap");
+}
+assert.ok(encoded("data:image/png;base64,AAAA"));
+assert.ok(!encoded("data:,"), "a canvas too big to encode is a failure");
+assert.ok(!encoded(undefined));
 
 console.log("photoedit: ok");

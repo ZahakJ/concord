@@ -27,6 +27,8 @@
     drawMarks,
     render,
     encodings,
+    tooBig,
+    encoded,
     COLORS,
     WIDTHS,
     TEXT_SIZE,
@@ -75,6 +77,11 @@
   onMount(() => {
     const im = new Image();
     im.onload = () => {
+      if (tooBig(im.naturalWidth, im.naturalHeight)) {
+        flash("That picture is too large to edit", "error");
+        onClose?.();
+        return;
+      }
       img = im;
       iw = im.naturalWidth;
       ih = im.naturalHeight;
@@ -298,6 +305,7 @@
       const c = render((w, h) => Object.assign(document.createElement("canvas"), { width: w, height: h }), img, iw, ih, edit);
       for (const [type, q] of encodings(src)) {
         const dataUrl = c.toDataURL(type, q);
+        if (!encoded(dataUrl)) throw new Error("couldn't encode the edited picture");
         if (dataUrl.length * 0.75 <= maxBytes) {
           onDone?.({ dataUrl, w: c.width, h: c.height });
           return;
