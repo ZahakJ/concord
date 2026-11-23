@@ -7,6 +7,7 @@
 //   android:allowBackup="false"
 //   android:fullBackupContent="false"
 //   android:dataExtractionRules="@xml/<rules>"
+// (and, in the source manifest, tools:targetApi="s")
 // and the rules file excludes every domain from both <cloud-backup> and
 // <device-transfer>, with no <include> anywhere.
 //
@@ -35,14 +36,17 @@ function attr(tag, name) {
   return m ? m[1] : null;
 }
 
-// manifestProblems lists what the manifest's application element lacks.
-export function manifestProblems(xml) {
+// manifestProblems lists what the manifest's application element lacks. The
+// source manifest must also say tools:targetApi="s" (the build strips tools:
+// attributes, so a merged manifest is not asked for it).
+export function manifestProblems(xml, { source = false } = {}) {
   const app = applicationTag(xml);
   if (!app) return ["no <application> element"];
   const out = [];
   if (attr(app, "allowBackup") !== "false") out.push('android:allowBackup is not "false"');
   if (attr(app, "fullBackupContent") !== "false") out.push('android:fullBackupContent is not "false"');
   if (!/^@xml\/\w+$/.test(attr(app, "dataExtractionRules") || "")) out.push("android:dataExtractionRules does not name an @xml resource");
+  if (source && !/\btools:targetApi\s*=\s*"s"/.test(app)) out.push('tools:targetApi is not "s"');
   return out;
 }
 
@@ -93,7 +97,7 @@ function main(argv) {
   } else if (argv.length === 1) {
     const f = argv[0];
     const xml = fs.readFileSync(f, "utf8");
-    for (const p of manifestProblems(xml)) problems.push(`${f}: ${p}`);
+    for (const p of manifestProblems(xml, { source: true })) problems.push(`${f}: ${p}`);
     const name = rulesName(xml);
     if (name) {
       const rf = path.join(path.dirname(f), "res", "xml", `${name}.xml`);

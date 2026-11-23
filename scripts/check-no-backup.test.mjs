@@ -6,6 +6,8 @@ import { manifestProblems, rulesProblems, DOMAINS } from "./check-no-backup.mjs"
 const app = (attrs) => `<manifest><application ${attrs}></application></manifest>`;
 const good = 'android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules"';
 assert.deepEqual(manifestProblems(app(good)), []);
+assert.deepEqual(manifestProblems(app(good + ' tools:targetApi="s"'), { source: true }), []);
+assert.equal(manifestProblems(app(good), { source: true }).length, 1);
 assert.equal(manifestProblems(app('android:allowBackup="false" android:dataExtractionRules="@xml/r"')).length, 1);
 assert.equal(manifestProblems(app('android:allowBackup="false" android:fullBackupContent="false"')).length, 1);
 assert.equal(manifestProblems(app('android:allowBackup="true" android:fullBackupContent="false" android:dataExtractionRules="@xml/r"')).length, 1);
@@ -21,6 +23,6 @@ assert.equal(rulesProblems(rules(ex, `<!-- ${ex} -->`)).length, DOMAINS.length);
 
 // The shipped manifest and rules pass.
 const m = "apps/mobile/android/app/src/main/AndroidManifest.xml";
-assert.deepEqual(manifestProblems(fs.readFileSync(m, "utf8")), []);
+assert.deepEqual(manifestProblems(fs.readFileSync(m, "utf8"), { source: true }), []);
 assert.deepEqual(rulesProblems(fs.readFileSync("apps/mobile/android/app/src/main/res/xml/data_extraction_rules.xml", "utf8")), []);
 console.log("check-no-backup.test: ok");
