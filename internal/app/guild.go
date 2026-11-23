@@ -23,6 +23,8 @@ import (
 	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/identity"
 	"github.com/ZahakJ/concord/internal/store"
+
+	"github.com/thomas-vilte/mls-go/secrettree"
 )
 
 // This file implements the guild lifecycle: creating a guild, generating and
@@ -4362,7 +4364,10 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	msg, err := s.mls.Decrypt(s.ctx, groupID, ct)
 	if err != nil {
-		return false
+		// A frame naming a generation far past its sender's (secrettree) can
+		// never be read: it is consumed here, so neither the stash nor its
+		// retries pay for it again.
+		return errors.Is(err, secrettree.ErrGenerationTooFar)
 	}
 	var m domain.Message
 	if err := json.Unmarshal(msg.Plaintext, &m); err != nil {

@@ -248,6 +248,9 @@ type Host struct {
 	bwc        *metrics.BandwidthCounter // live in/out byte + rate meter
 	pinger     *ping.PingService         // on-demand RTT
 
+	// syncGate paces the sync requests each peer gets answered (sync.go).
+	syncGate syncGate
+
 	ctx    context.Context
 	cancel context.CancelFunc
 

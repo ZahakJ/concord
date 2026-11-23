@@ -3,6 +3,7 @@ package net
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
@@ -36,11 +37,15 @@ func (n *Host) HandleSync(responder SyncResponder) {
 	n.h.SetStreamHandler(syncProtocol, func(s network.Stream) {
 		defer s.Close()
 		_ = s.SetDeadline(time.Now().Add(syncStreamTimeout))
+		from := s.Conn().RemotePeer()
+		if !n.syncGate.allow(from, time.Now()) {
+			return
+		}
 		req, err := readFrame(s, maxInviteFrame)
 		if err != nil {
 			return
 		}
-		resp, err := responder(n.ctx, s.Conn().RemotePeer(), req)
+		resp, err := responder(n.ctx, from, req)
 		if err != nil {
 			return
 		}
@@ -65,4 +70,58 @@ func (n *Host) RequestSync(ctx context.Context, to peer.ID, request []byte) ([]b
 		return nil, err
 	}
 	return readFrame(s, maxInviteFrame)
+}
+
+// syncBucket paces how many sync requests one peer gets answered. Serving one
+// costs reads, encryption and, on the asker's side, ratchet steps for every
+// message it carries; a member asking without pause could also widen the gaps
+// honest peers see. A reconnect asks for each guild and channel at once, so
+// the burst is generous; the steady rate is one a second.
+const (
+	syncBurst    = 60
+	syncPerSec   = 1.0
+	syncGateSize = 4096 // peers remembered; beyond it the oldest is forgotten
+)
+
+type syncGate struct {
+	mu    sync.Mutex
+	peers map[peer.ID]*syncTokens
+}
+
+type syncTokens struct {
+	n    float64
+	last time.Time
+}
+
+func (g *syncGate) allow(p peer.ID, now time.Time) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.peers == nil {
+		g.peers = map[peer.ID]*syncTokens{}
+	}
+	b := g.peers[p]
+	if b == nil {
+		if len(g.peers) >= syncGateSize {
+			var oldest peer.ID
+			var at time.Time
+			for id, t := range g.peers {
+				if oldest == "" || t.last.Before(at) {
+					oldest, at = id, t.last
+				}
+			}
+			delete(g.peers, oldest)
+		}
+		b = &syncTokens{n: syncBurst, last: now}
+		g.peers[p] = b
+	}
+	b.n += now.Sub(b.last).Seconds() * syncPerSec
+	if b.n > syncBurst {
+		b.n = syncBurst
+	}
+	b.last = now
+	if b.n < 1 {
+		return false
+	}
+	b.n--
+	return true
 }

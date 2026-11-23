@@ -16,6 +16,7 @@
 package secrettree
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/thomas-vilte/mls-go/ciphersuite"
@@ -99,6 +100,15 @@ type TreeState struct {
 // maxCachedGenerations is the maximum number of past generations to retain
 // for out-of-order delivery. RFC 9420 §9.2 leaves this as a local decision.
 const maxCachedGenerations = 2048
+
+// MaxGenerationJump is how far ahead of a leaf's current generation a frame
+// may name its own: 2^20 ratchet steps, about a second of HKDF. A frame
+// further ahead is refused before any key is derived.
+const MaxGenerationJump = 1 << 20
+
+// ErrGenerationTooFar is a frame whose generation is beyond MaxGenerationJump.
+// It never becomes readable, so callers drop it instead of retrying it.
+var ErrGenerationTooFar = errors.New("secrettree: generation too far ahead")
 
 // LeafSecret tracks the per-leaf secret ratchets used for message protection.
 type LeafSecret struct {
@@ -333,6 +343,13 @@ func prevPow2(n uint32) uint32 {
 // Returns an error if gen < current generation (can't go backwards).
 // This is a no-op if already at the target generation.
 func (ls *LeafSecret) ratchetTo(gen uint32) error {
+	// A frame names its own generation, so a member can name 2^32-1 and make
+	// the receiver run the ratchet four billion steps (about an hour of HKDF,
+	// under the group's lock) before the AEAD fails. No honest sender gets
+	// that far ahead of what a receiver has seen.
+	if uint64(gen) > ls.generation+MaxGenerationJump {
+		return fmt.Errorf("%w: %d is %d past the current %d", ErrGenerationTooFar, gen, uint64(gen)-ls.generation, ls.generation)
+	}
 	if uint64(gen) < ls.generation {
 		// Past generation: must be in the cache for out-of-order decryption.
 		if _, ok := ls.secretCache[gen]; ok {
