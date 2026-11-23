@@ -56,5 +56,9 @@ test("right to left: forward points left, and the left arrow turns forward", asy
   await sleep(300);
   assert.equal(await current(page), 2, "the left arrow turns forward");
   await page.evaluate(() => (document.documentElement.dir = "ltr"));
+  // A short deck (one feature) is on its last page now, and Done has no
+  // chevron: go back to one that does.
+  await page.locator(".wn .dots .dot").nth(1).click();
+  await sleep(300);
   assert.equal(await flip(".wn .go svg"), "none", "left to right, Next's chevron is drawn as it is");
 });
