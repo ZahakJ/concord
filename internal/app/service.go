@@ -376,6 +376,14 @@ type Service struct {
 	// leave out, so the offer is made again (see offergap.go).
 	offerGaps  map[peer.ID]*offerGap
 	offerGapMu sync.Mutex
+	// greetRetries holds, per device of ours, the retry of a hello that
+	// failed (greetretry.go).
+	greetRetries map[peer.ID]*greetRetry
+	greetRetryMu sync.Mutex
+	// dropOwnHellos makes this service's next n hellos to a device of ours
+	// fail before they are sent, as a reset connection would, so a test can
+	// lose one. Nothing in the product ever sets it.
+	dropOwnHellos atomic.Int32
 
 	// linkedDevice: this install runs on a device certificate, so the account
 	// existed before it and already has a Notes somewhere (see notesGroup).
@@ -1563,6 +1571,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 		s.forgetOfferGap(p)
 		s.ownProfile.forget(p)
 		s.forgetPeerSession(p)
+		s.forgetGreetRetry(p)
 		s.markDeviceLeft(p)
 		s.emitPeerDown(p, s.presence(p))
 	})
@@ -2807,6 +2816,7 @@ func (s *Service) closeNow() {
 	s.stopBeats()
 	s.waitBeats()
 	s.stopOfferGaps()
+	s.stopGreetRetries()
 	if s.peers != nil {
 		// Flush past the write throttle: everything learned in the last few
 		// seconds of a session is exactly what the next launch wants. The

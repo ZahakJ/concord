@@ -242,7 +242,13 @@ func (s *Service) greet(p peer.ID) {
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, helloTimeout)
 	defer cancel()
-	resp, err := s.host.SayHello(ctx, p, req)
+	var resp []byte
+	if s.ownDevice(p) && s.dropOwnHellos.Load() > 0 && s.dropOwnHellos.Add(-1) >= 0 {
+		err = errHelloDropped
+	} else {
+		resp, err = s.host.SayHello(ctx, p, req)
+	}
+	s.noteGreetResult(p, err)
 	if err == nil && s.ownDevice(p) {
 		s.ownProfile.holds(p, hint)
 	}
