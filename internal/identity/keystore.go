@@ -31,9 +31,14 @@ const (
 	// upgraded to v2 on first unlock (LoadOrCreate generates a device seed and
 	// re-saves). Both versions are accepted on load.
 	keystoreVersion = 2
-	saltSize        = 16
-	nonceSize       = 24 // secretbox nonce
-	keySize         = 32 // secretbox key
+	// keystoreVersionSlot is a v2 file that also carries a device slot (see
+	// deviceslot.go). A file is written as v3 only while it has one, so a
+	// file without fingerprint unlock still opens in a build that knows v2.
+	keystoreVersionSlot = 3
+	maxKeystoreVersion  = keystoreVersionSlot
+	saltSize            = 16
+	nonceSize           = 24 // secretbox nonce
+	keySize             = 32 // secretbox key
 
 	// Argon2id parameters. Interactive-login tuned: ~64 MiB, 3 passes. These
 	// are recorded in the file so they can be raised later without breaking
@@ -134,6 +139,10 @@ type keystoreFile struct {
 	// to the database where that can answer. Absent in files written before
 	// it existed; LoadOrCreate adds it, or corrects it, on the next unlock.
 	AccountPub []byte `json:"account_pub,omitempty"`
+	// DeviceSlot (v3) opens the same seeds with a phone's fingerprint, for
+	// as long as the account and device keys are the ones it names. See
+	// deviceslot.go.
+	DeviceSlot *deviceSlot `json:"device_slot,omitempty"`
 	// A "clear_tag" field written by interim builds of this code is not read
 	// and is dropped by the next write: an unknown field is simply ignored.
 }
@@ -241,6 +250,19 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte, befo
 		env.DeviceNonce = dnonce[:]
 		env.DeviceCiphertext = secretbox.Seal(nil, ds, &dnonce, &key)
 	}
+	// A device slot is carried across unchanged (never re-sealed) while the
+	// keys it opens to are still this file's; any other write drops it.
+	if slot := slotOf(prev); slot != nil && slot.opensTo(id) {
+		env.DeviceSlot = slot
+		env.Version = keystoreVersionSlot
+	}
+	return writeEnvelopeLocked(path, env, id.PublicKey(), beforeRename...)
+}
+
+// writeEnvelopeLocked writes env to path, for a caller holding the keystore
+// lock that has checked the file is what it expected. pub is the account the
+// file now holds.
+func writeEnvelopeLocked(path string, env keystoreFile, pub ed25519.PublicKey, beforeRename ...func() error) error {
 	blob, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
 		return fmt.Errorf("identity: marshal keystore: %w", err)
@@ -306,7 +328,7 @@ func saveKeystoreLocked(path, passphrase string, id *Identity, prev []byte, befo
 	if now, err := os.Lstat(path); err != nil || !os.SameFile(now, written) {
 		return errors.New("identity: the keystore was not replaced")
 	}
-	noteVerified(path, blob, id.PublicKey())
+	noteVerified(path, blob, pub)
 	// The rename is an entry in the directory, and until the directory is
 	// synced a power cut can still undo it: a passphrase change reported done
 	// would come back as the old file. Best effort, because the new keystore
@@ -640,7 +662,7 @@ func OpenKeystoreBytes(blob []byte, passphrase string) (*Identity, error) {
 	if err := json.Unmarshal(blob, &env); err != nil {
 		return nil, ErrDamagedKeystore
 	}
-	if env.Version < 1 || env.Version > keystoreVersion {
+	if env.Version < 1 || env.Version > maxKeystoreVersion {
 		return nil, fmt.Errorf("identity: unsupported keystore version %d", env.Version)
 	}
 	if env.KDF != "argon2id" {
