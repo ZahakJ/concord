@@ -76,6 +76,9 @@ type SessionView struct {
 	Unlocked    bool   `json:"unlocked"`
 	HasIdentity bool   `json:"hasIdentity"`
 	Reason      string `json:"reason,omitempty"` // a Lock* value; "" while unlocked
+	// Gated: a session is open behind the App Lock gate, and the page sees
+	// nothing until the fingerprint opens it.
+	Gated bool `json:"gated,omitempty"`
 }
 
 // SessionState reports whether a session is open and, if not, why not.
@@ -90,7 +93,7 @@ func (b *Bridge) SessionState() SessionView {
 			reason = LockUnlinkedNotErased
 		}
 	}
-	v := SessionView{Unlocked: unlocked}
+	v := SessionView{Unlocked: unlocked, Gated: unlocked && b.gated.Load()}
 	if has, err := b.HasIdentity(); err == nil {
 		v.HasIdentity = has
 	}

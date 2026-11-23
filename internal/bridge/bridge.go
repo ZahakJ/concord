@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 	"weak"
@@ -37,6 +38,15 @@ import (
 // identical UI run either as a native window or in a browser.
 type Bridge struct {
 	ctx context.Context
+
+	// Fingerprint unlock (devslot.go). enrolUntil, wrapperID and
+	// wrapperKnown are guarded by mu; gated is read without it by Dispatch.
+	enrolUntil   time.Time
+	wrapperID    []byte
+	wrapperKnown bool
+	gated        atomic.Bool
+	// OnAppLock is told when the App Lock gate closes or opens.
+	OnAppLock func(gated bool)
 
 	mu  sync.Mutex
 	svc *appsvc.Service
@@ -186,6 +196,7 @@ func (b *Bridge) Close() {
 	if b.svc != nil {
 		_ = b.svc.Close()
 		b.svc = nil
+		b.setGate(false)
 	}
 }
 
@@ -457,6 +468,7 @@ func (b *Bridge) Logout() error {
 	if b.svc != nil {
 		_ = b.svc.Close()
 		b.svc = nil
+		b.setGate(false)
 	}
 	b.lockReason = LockSignedOut
 	return nil
@@ -704,6 +716,7 @@ func (b *Bridge) noteUnlinked(svc weak.Pointer[appsvc.Service], erased error) {
 	switch {
 	case b.svc != nil && weak.Make(b.svc) == svc:
 		b.svc = nil
+		b.setGate(false)
 		b.lockReason = unlinkedReason(erased)
 		b.unlinkedFrom = svc
 	case b.svc == nil && b.unlinkedFrom == svc && b.lockReason == LockUnlinkedNotErased:
@@ -901,7 +914,21 @@ func (b *Bridge) Login(passphrase string) error {
 		}
 		return nil
 	}
-	cfg := appsvc.Config{DataDir: dataDir, Passphrase: passphrase}
+	if err := b.startLocked(appsvc.Config{DataDir: dataDir, Passphrase: passphrase}); err != nil {
+		return err
+	}
+	// The passphrase was just typed: for about a minute, turning on
+	// fingerprint unlock may take that as its proof, once (see
+	// EnrolDeviceSecret). It replaces holding the passphrase in the page.
+	b.enrolUntil = time.Now().Add(enrolWindow)
+	b.dropOrphanSlotLocked()
+	return nil
+}
+
+// startLocked opens the session cfg unlocks, for a caller holding b.mu that
+// has checked nothing is open.
+func (b *Bridge) startLocked(cfg appsvc.Config) error {
+	dataDir := cfg.DataDir
 	if bs := os.Getenv("CONCORD_BOOTSTRAP"); bs != "" {
 		cfg.BootstrapPeers = strings.Split(bs, ",")
 	}
@@ -4213,7 +4240,16 @@ func messageView(m domain.Message) MessageView {
 // Dispatch routes a method name + JSON-encoded positional args to a bridge
 // call. Used by the web shell's /rpc handler.
 func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
+	// The App Lock gate: while it is closed the page may only ask whether it
+	// is. Only the phone's fingerprint call opens it (devslot.go).
+	if b.gated.Load() && !gateAllows(method) {
+		return nil, ErrAppLocked
+	}
 	switch method {
+	case "AppLock":
+		return b.AppLock()
+	case "SetAppLock":
+		return nil, b.SetAppLock(argBool(args, 0))
 	case "GetBootstrap":
 		return b.GetBootstrap()
 	case "SetBootstrap":

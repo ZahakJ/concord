@@ -210,6 +210,7 @@ func (b *Bridge) ConfirmWipe(ticket, typed string) error {
 	}, func() {
 		_ = b.svc.Close()
 		b.svc = nil
+		b.setGate(false)
 		closed = true
 	})
 	if !closed && errors.Is(err, identity.ErrKeystoreChanged) {
@@ -218,6 +219,7 @@ func (b *Bridge) ConfirmWipe(ticket, typed string) error {
 			// linked another, or erased it): the session is over.
 			_ = b.svc.Close()
 			b.svc = nil
+			b.setGate(false)
 			b.lockReason = LockSignedOut
 			b.mu.Unlock()
 			if b.OnPresence != nil {

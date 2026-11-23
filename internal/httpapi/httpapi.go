@@ -119,6 +119,7 @@ func (s *Server) WireSSE() {
 	s.b.OnChatPrefs = func(m map[string]store.ChatPref) { s.broadcast(sseEvent{"chat-prefs", m}) }
 	s.b.OnStory = func(u bridge.StoryUpdate) { s.broadcast(sseEvent{"story", u}) }
 	s.b.OnChronicleImport = func(p appsvc.ChatImportProgress) { s.broadcast(sseEvent{"chronicle-import", p}) }
+	s.b.OnAppLock = func(gated bool) { s.broadcast(sseEvent{"applock", map[string]bool{"gated": gated}}) }
 }
 
 // rpcRequest/rpcResponse are the POST /rpc envelope. args are decoded per method.
@@ -314,6 +315,11 @@ func (s *Server) removeClient(ch chan sseEvent) {
 }
 
 func (s *Server) broadcast(ev sseEvent) {
+	// Behind the App Lock gate the page hears only that the gate moved; what
+	// it missed it fetches again once the fingerprint opens it.
+	if s.b.Gated() && ev.name != "applock" {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for ch := range s.clients {

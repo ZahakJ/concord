@@ -127,6 +127,54 @@ func (n *Node) DispatchJSON(method, argsJSON string) string {
 	return n.srv.Bridge().DispatchJSON(method, argsJSON)
 }
 
+// Fingerprint unlock. These are the only way U (the secret the phone's
+// biometric-bound Keystore key releases) reaches the core: in process, from
+// native code. None of them is an RPC method, so script in the page can
+// neither read U nor open the App Lock gate.
+
+// UseDeviceSecret unlocks with the fingerprint slot slotID, or, with a
+// session open, checks U and opens the App Lock gate. The caller zeroes u
+// afterwards; the core zeroes everything it derived from it.
+func (n *Node) UseDeviceSecret(slotID, u []byte) error {
+	return n.srv.Bridge().UseDeviceSecret(slotID, u)
+}
+
+// VerifyDeviceSecret is UseDeviceSecret for an open session: the App Lock
+// gate's check.
+func (n *Node) VerifyDeviceSecret(slotID, u []byte) error {
+	return n.srv.Bridge().UseDeviceSecret(slotID, u)
+}
+
+// EnrolDeviceSecret turns fingerprint unlock on with the phone's new U and
+// enrolment id. passphrase "" means "the passphrase was typed to unlock a
+// moment ago" (the core checks, and uses that up).
+func (n *Node) EnrolDeviceSecret(slotID, u []byte, passphrase string) error {
+	return n.srv.Bridge().EnrolDeviceSecret(slotID, u, passphrase)
+}
+
+// DropDeviceSlot turns fingerprint unlock off in the keystore.
+func (n *Node) DropDeviceSlot() error { return n.srv.Bridge().DropDeviceSlot(nil) }
+
+// DeviceSlotID is the enrolment id of the keystore's fingerprint slot, or
+// nil. It reads nothing secret; the lock screen uses it to tell whether the
+// phone's wrapped U and the slot belong together.
+func (n *Node) DeviceSlotID() []byte {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return nil
+	}
+	return appsvc.DeviceSlotID(dir)
+}
+
+// SetDeviceWrapper tells the core which enrolment the phone holds a wrapped
+// U for (nil or empty: none), so a slot nothing can open is dropped at the
+// next passphrase unlock.
+func (n *Node) SetDeviceWrapper(slotID []byte) { n.srv.Bridge().SetDeviceWrapper(slotID) }
+
+// EngageAppLock closes the App Lock gate if fingerprint unlock and App Lock
+// are on. The phone calls it when the app goes to the background.
+func (n *Node) EngageAppLock() bool { return n.srv.Bridge().EngageAppLock() }
+
 // SetEventSink registers sink to receive every bridge event alongside the SSE
 // stream. Pass nil to detach. Must be called after Start (it chains the hooks
 // WireSSE installed).

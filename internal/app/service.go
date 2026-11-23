@@ -1168,6 +1168,11 @@ type Config struct {
 	DataDir string
 	// Passphrase unlocks the identity keystore.
 	Passphrase string
+	// DeviceSlotID and DeviceSecret, when DeviceSecret is set, unlock it
+	// through the phone's fingerprint slot instead (identity/deviceslot.go).
+	// That path opens an existing keystore only: it never creates one.
+	DeviceSlotID []byte
+	DeviceSecret []byte
 	// DisableMDNS turns off LAN discovery; tests set it for determinism.
 	DisableMDNS bool
 	// BootstrapPeers are multiaddrs of rendezvous/relay nodes for internet-wide
@@ -1203,7 +1208,13 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	} else if unlinked {
 		return nil, ErrDeviceUnlinked
 	}
-	id, freshIdentity, err := identity.LoadOrCreate(keystorePathIn(cfg.DataDir), cfg.Passphrase)
+	var id *identity.Identity
+	var freshIdentity bool
+	if cfg.DeviceSecret != nil {
+		id, err = identity.OpenWithDeviceSlot(keystorePathIn(cfg.DataDir), cfg.DeviceSlotID, cfg.DeviceSecret)
+	} else {
+		id, freshIdentity, err = identity.LoadOrCreate(keystorePathIn(cfg.DataDir), cfg.Passphrase)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("app: open identity: %w", err)
 	}
@@ -2869,6 +2880,53 @@ func (s *Service) beat(flush func()) func() {
 		defer s.beatFlights.Done()
 		flush()
 	}
+}
+
+// AddDeviceSlot turns on fingerprint unlock for this unlocked session's
+// keystore (identity.AddDeviceSlot). The caller has proven the passphrase.
+func (s *Service) AddDeviceSlot(slotID, u []byte) error {
+	return identity.AddDeviceSlot(keystorePathIn(s.dataDir), s.id, slotID, u)
+}
+
+// RemoveDeviceSlot turns fingerprint unlock off (slotID nil: whatever slot
+// there is).
+func (s *Service) RemoveDeviceSlot(slotID []byte) error {
+	return identity.RemoveDeviceSlot(keystorePathIn(s.dataDir), s.id, slotID)
+}
+
+// VerifyDeviceSecret reports whether u opens the keystore's slot slotID to
+// this session's own keys: the App Lock gate's check.
+func (s *Service) VerifyDeviceSecret(slotID, u []byte) error {
+	id, err := identity.OpenWithDeviceSlot(keystorePathIn(s.dataDir), slotID, u)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(id.PublicKey(), s.id.PublicKey()) {
+		return identity.ErrDeviceSlotMismatch
+	}
+	return nil
+}
+
+// AppLockOff reports whether the user turned App Lock off. It is on by
+// default once fingerprint unlock is on.
+func (s *Service) AppLockOff() bool {
+	v, _ := s.store.GetSetting("applock.off")
+	return v == "1"
+}
+
+// SetAppLockOff records the user's App Lock choice.
+func (s *Service) SetAppLockOff(off bool) error {
+	v := ""
+	if off {
+		v = "1"
+	}
+	return s.store.SetSetting("applock.off", v)
+}
+
+// DeviceSlotID is the id of the keystore's fingerprint slot in dataDir, or
+// nil. It reads nothing secret.
+func DeviceSlotID(dataDir string) []byte {
+	return identity.DeviceSlotID(keystorePathIn(dataDir))
 }
 
 // VerifyPassphrase reports whether passphrase decrypts the keystore in dataDir.
