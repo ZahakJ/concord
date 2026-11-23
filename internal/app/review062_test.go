@@ -266,12 +266,12 @@ func TestThrottleKeepsRoomForAnotherGuildsOwner(t *testing.T) {
 	_, _, epoch := offlineRemoval(t, ctx, s)
 
 	for i := 0; i < ownerChainTrack; i++ {
-		if !s.mod.claimOwnerChain("another-guild", peer.ID(fmt.Sprintf("dev%d", i)), 0, 1) {
+		if !s.mod.claimOwnerChain("another-guild", fmt.Sprintf("dev%d", i), 0, 1) {
 			t.Fatalf("filler %d refused", i)
 		}
 	}
 	for i := 0; i < ownerChainTrack; i++ {
-		s.mod.claimOwnerChain(fmt.Sprintf("guild%d", i), peer.ID(fmt.Sprintf("dev%d", i)), 0, 1)
+		s.mod.claimOwnerChain(fmt.Sprintf("guild%d", i), fmt.Sprintf("dev%d", i), 0, 1)
 	}
 	if r := askChain(t, s.mod, s.owner.host.PeerID(), s.g.ID, epoch, true); declined(r) {
 		t.Fatal("this guild's owner was declined behind a table full of other guilds' entries")

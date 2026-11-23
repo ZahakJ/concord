@@ -955,7 +955,7 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 				s.noteBehindClaim(guildID, resp.Epoch)
 				s.noteAhead(guildID, p)
 			}
-			s.setOutOfSync(guildID, true)
+			s.setOutOfSyncClaim(guildID)
 			return nil
 		}
 		if len(resp.Payload) == 0 {
@@ -969,7 +969,7 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 			if cur, err := s.mls.Epoch(s.ctx, guild.GroupID); err == nil && resp.Epoch > cur {
 				s.noteBehindClaim(guildID, resp.Epoch)
 				s.noteAhead(guildID, p)
-				s.setOutOfSync(guildID, true)
+				s.setOutOfSyncClaim(guildID)
 			}
 			if applied == 0 && !resp.More {
 				return nil

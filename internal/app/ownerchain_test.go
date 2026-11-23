@@ -439,26 +439,26 @@ func TestOwnerChainPageBounds(t *testing.T) {
 func TestClaimOwnerChainThrottle(t *testing.T) {
 	s := &Service{}
 	p := peer.ID("p")
-	if !s.claimOwnerChain("g", p, 10, 5) {
+	if !s.claimOwnerChain("g", string(p), 10, 5) {
 		t.Fatal("first page refused")
 	}
 	for _, e := range []uint64{0, 10, 14} {
-		if s.claimOwnerChain("g", p, e, 5) {
+		if s.claimOwnerChain("g", string(p), e, 5) {
 			t.Fatalf("epoch %d inside or before the last page was served again", e)
 		}
 	}
-	if !s.claimOwnerChain("g", p, 15, 5) {
+	if !s.claimOwnerChain("g", string(p), 15, 5) {
 		t.Fatal("the next page was refused")
 	}
-	if s.claimOwnerChain("g", p, 15, 0) {
+	if s.claimOwnerChain("g", string(p), 15, 0) {
 		t.Fatal("a gap answer was repeated inside the window")
 	}
-	if !s.claimOwnerChain("h", p, 15, 5) || !s.claimOwnerChain("g", peer.ID("q"), 15, 5) {
+	if !s.claimOwnerChain("h", string(p), 15, 5) || !s.claimOwnerChain("g", "q", 15, 5) {
 		t.Fatal("another guild or peer was throttled by this one")
 	}
 	// One guild holds at most its share, whatever number of keys asks.
 	for i := 0; i < 3*ownerChainPerGuild; i++ {
-		if !s.claimOwnerChain("x", peer.ID(fmt.Sprintf("p%d", i)), 0, 1) {
+		if !s.claimOwnerChain("x", fmt.Sprintf("p%d", i), 0, 1) {
 			t.Fatalf("key %d of guild x refused instead of replacing the oldest", i)
 		}
 	}
@@ -468,9 +468,9 @@ func TestClaimOwnerChainThrottle(t *testing.T) {
 	// The table is bounded, and a full one takes a new key in place of its
 	// oldest entry rather than refusing it.
 	for i := 0; len(s.ownerChainServed) < ownerChainTrack; i++ {
-		s.claimOwnerChain(fmt.Sprintf("fill%d", i/ownerChainPerGuild), peer.ID(fmt.Sprintf("f%d", i)), 0, 1)
+		s.claimOwnerChain(fmt.Sprintf("fill%d", i/ownerChainPerGuild), fmt.Sprintf("f%d", i), 0, 1)
 	}
-	if !s.claimOwnerChain("new", p, 0, 1) {
+	if !s.claimOwnerChain("new", string(p), 0, 1) {
 		t.Fatal("a full table of fresh entries refused a new owner")
 	}
 	if n := len(s.ownerChainServed); n != ownerChainTrack {
@@ -482,7 +482,7 @@ func TestClaimOwnerChainThrottle(t *testing.T) {
 		s.ownerChainServed[k] = v
 	}
 	s.mu.Unlock()
-	if !s.claimOwnerChain("new2", p, 0, 1) || len(s.ownerChainServed) != 1 {
+	if !s.claimOwnerChain("new2", string(p), 0, 1) || len(s.ownerChainServed) != 1 {
 		t.Fatalf("stale entries were not pruned (%d left)", len(s.ownerChainServed))
 	}
 }

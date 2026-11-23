@@ -286,6 +286,9 @@ type Service struct {
 	// outOfSync marks guilds whose MLS epoch gap could not be bridged by any
 	// peer's commit log (see sync.go); the UI surfaces a re-invite hint.
 	outOfSync map[string]bool
+	// outOfSyncClaimed marks the guilds in outOfSync only on a peer's word
+	// (setOutOfSyncClaim): they heal as usual, but their door stays open.
+	outOfSyncClaimed map[string]bool
 	// evicted names the guilds this device is no longer a member of, and why
 	// ("removed" or "banned"). It is a TERMINAL state and deliberately hard to
 	// enter: only a commit we could read that blanked our own leaf, or an
@@ -2630,6 +2633,7 @@ func (s *Service) setOutOfSync(guildID string, stranded bool) {
 	} else {
 		delete(s.outOfSync, guildID)
 	}
+	delete(s.outOfSyncClaimed, guildID)
 	s.mu.Unlock()
 	if was != stranded {
 		s.emitGuildUpdate()
@@ -2640,6 +2644,39 @@ func (s *Service) setOutOfSync(guildID string, stranded bool) {
 	if stranded && !was {
 		go s.recoverOutOfSync(guildID)
 	}
+}
+
+// setOutOfSyncClaim raises the flag on a peer's unproven word: an EpochGap
+// or an empty answer naming an epoch past ours, which any member can send.
+// The guild heals as it would for any flag, but the claim alone does not shut
+// this device's door (doorShut): otherwise one member could shut every
+// moderator's door by answering their syncs with a made-up epoch.
+func (s *Service) setOutOfSyncClaim(guildID string) {
+	s.mu.Lock()
+	already := s.outOfSync[guildID]
+	s.mu.Unlock()
+	s.setOutOfSync(guildID, true)
+	if already {
+		return
+	}
+	s.mu.Lock()
+	if s.outOfSync[guildID] {
+		if s.outOfSyncClaimed == nil {
+			s.outOfSyncClaimed = map[string]bool{}
+		}
+		s.outOfSyncClaimed[guildID] = true
+	}
+	s.mu.Unlock()
+}
+
+// doorShut reports whether this device must not admit anyone to the guild:
+// it knows its own state is stale. A flag raised only on a peer's claim does
+// not count; a proven gap does (mintBarred).
+func (s *Service) doorShut(guildID string) bool {
+	s.mu.RLock()
+	shut := s.outOfSync[guildID] && !s.outOfSyncClaimed[guildID]
+	s.mu.RUnlock()
+	return shut || s.mintBarred(guildID) != nil
 }
 
 // ProfileName returns a peer's learned display name for a fingerprint, or "".

@@ -1329,7 +1329,7 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	// they would fork the group at a dead epoch and drag the joiner onto the
 	// fork. Refusing makes the requester try another committer (heals iterate
 	// candidates), which is strictly better than serving them poison.
-	if s.OutOfSync(req.GuildID) || s.mintBarred(req.GuildID) != nil {
+	if s.doorShut(req.GuildID) {
 		return json.Marshal(inviteResponse{Error: "inviter is catching up; ask another member"})
 	}
 

@@ -83,20 +83,20 @@ func (s *Service) serveOwnerChain(ctx context.Context, req syncRequest, guild do
 		return []byte{}, nil
 	}
 	// A repeat inside the window is declined before the log is read.
-	if s.ownerChainThrottled(req.GuildID, from, req.Epoch) {
+	if s.ownerChainThrottled(req.GuildID, fpr, req.Epoch) {
 		return []byte{}, nil
 	}
 	rows, err := s.store.CommitsAfter(guild.GroupID, req.Epoch)
 	resp := syncResponse{Epoch: myEpoch}
 	if err != nil || !bridges(rows, req.Epoch, myEpoch) {
-		if !s.claimOwnerChain(req.GuildID, from, req.Epoch, 0) {
+		if !s.claimOwnerChain(req.GuildID, fpr, req.Epoch, 0) {
 			return []byte{}, nil
 		}
 		resp.EpochGap = true
 		return json.Marshal(resp)
 	}
 	page := ownerChainPage(rows)
-	if !s.claimOwnerChain(req.GuildID, from, req.Epoch, len(page)) {
+	if !s.claimOwnerChain(req.GuildID, fpr, req.Epoch, len(page)) {
 		return []byte{}, nil
 	}
 	resp.Commits = page
@@ -121,10 +121,10 @@ func ownerChainPage(rows []store.CommitRow) [][]byte {
 // ownerChainThrottled reports whether every answer to this request would be
 // refused by claimOwnerChain: the same page, or a point inside it, again
 // inside the window. A gap answer may still be refused by the claim.
-func (s *Service) ownerChainThrottled(guildID string, p peer.ID, epoch uint64) bool {
+func (s *Service) ownerChainThrottled(guildID, fpr string, epoch uint64) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	last, known := s.ownerChainServed[guildID+"|"+p.String()]
+	last, known := s.ownerChainServed[guildID+"|"+fpr]
 	return known && time.Since(last.at) < ownerChainWindow && epoch < last.next
 }
 
@@ -134,8 +134,12 @@ func (s *Service) ownerChainThrottled(guildID string, p peer.ID, epoch uint64) b
 // paging through and is served at once, which bounds the serves in a window by
 // the chain's length over the page size. A new key that finds its guild's
 // share or the table full takes the place of the oldest entry there.
-func (s *Service) claimOwnerChain(guildID string, p peer.ID, epoch uint64, n int) bool {
-	key := guildID + "|" + p.String()
+//
+// The throttle is the requesting account's, not its peer id's: every device of
+// the owner account shares one, so fresh peer ids (any device can mint them)
+// buy no further serves.
+func (s *Service) claimOwnerChain(guildID, fpr string, epoch uint64, n int) bool {
+	key := guildID + "|" + fpr
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
