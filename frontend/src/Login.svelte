@@ -9,6 +9,7 @@
   import { focusOnMount } from "./lib/focus.js";
   import { confettiBurst } from "./lib/burst.js";
   import { bioState, bioMessage, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
+  import { passphraseUsed, fingerprintUsed } from "./lib/passnudge.js";
   import { finishUnlock } from "./lib/unlock.js";
   import { strandedChoice, lockNotice, erasedAfterUnlink, eraseUnfinished, quitApp, quitClosed } from "./lib/strandeddata.js";
   import { foundName, keepTypedArgs, restoreStep } from "./lib/restoreprofile.js";
@@ -106,6 +107,7 @@
         if (code === "invalidated" || code === "no_slot") bioOn = false;
         return;
       }
+      fingerprintUsed();
       await enter();
     } catch (err) {
       fail(err);
@@ -769,6 +771,7 @@
     try {
       const creating = !hasIdentity;
       const notice = await api.login(passphrase);
+      passphraseUsed();
       if (notice) flash(notice, "info"); // e.g. the keystore's label had been altered
       if (creating) {
         // Give the fresh account the name they chose, so they never appear as a

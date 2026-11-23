@@ -66,6 +66,8 @@
 
   import { guildAccent } from "./lib/guildaccent.js";
   import { bioMessage, unlockWithBiometric } from "./lib/biometric.js";
+  import { fingerprintUsed } from "./lib/passnudge.js";
+  import PassNudge from "./PassNudge.svelte";
   import { initDeepLinks, consumePendingChannel } from "./lib/deeplink.js";
   import { closeSearch } from "./lib/search.js";
   import { armGuildSetup } from "./lib/setup.js";
@@ -949,6 +951,7 @@
       const code = await unlockWithBiometric();
       if (code === "ok") {
         gateNote = "";
+        fingerprintUsed();
         openGate();
       } else {
         gateNote = bioMessage(code);
@@ -2315,6 +2318,12 @@
         <p class="muted">Concord will be right back…</p>
       </div>
     </div>
+  {/if}
+
+  <!-- The passphrase card, for someone who mostly unlocks by fingerprint:
+       rare, skippable, never on the lock screen or behind the gate. -->
+  {#if S.ready && S.isMobile && !appLocked}
+    <PassNudge />
   {/if}
 
   <!-- App lock: fully opaque (privacy in the app switcher), above everything. -->
