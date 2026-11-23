@@ -3,7 +3,11 @@
     xmlns:tools="http://schemas.android.com/tools">
     <!-- allowBackup MUST stay false: an OS backup restored onto another install
          would resurrect stale MLS ratchet state and fork every group the
-         account is in. The 24-word mnemonic is the only supported migration. -->
+         account is in. The 24-word mnemonic is the only supported migration.
+         allowBackup alone does not cover phone-to-phone transfer on Android
+         12 and later: dataExtractionRules excludes everything there and from
+         cloud backup, and fullBackupContent="false" covers Android 6 to 11.
+         scripts/check-no-backup.mjs checks all three. -->
     <!-- enableOnBackInvokedCallback: opt in to the ahead-of-time back API, so
          the system knows BEFORE a gesture completes whether the app will handle
          it. That is what draws the predictive preview — the home screen or the
@@ -23,6 +27,8 @@
          blanket attribute in a future sync. -->
     <application
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"

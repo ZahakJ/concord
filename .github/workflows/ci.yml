@@ -39,6 +39,8 @@ jobs:
         run: cd frontend && npm test
       - name: No photo-library or storage permission (source manifest)
         run: node scripts/check-media-permissions.mjs apps/mobile/android/app/src/main/AndroidManifest.xml
+      - name: Nothing leaves the phone by backup or transfer (source manifest)
+        run: node scripts/check-no-backup.test.mjs && node scripts/check-no-backup.mjs apps/mobile/android/app/src/main/AndroidManifest.xml
       # The manual is published from the committed docs/manual/, so a source
       # edited without `make docs` would publish the old page. This also fails
       # on a link to a heading or file that does not exist.
@@ -126,6 +128,8 @@ jobs:
       # manifest is the one that ships, plugins and libraries included.
       - name: No photo-library or storage permission
         run: node scripts/check-media-permissions.mjs --merged apps/mobile/android
+      - name: Nothing leaves the phone by backup or transfer
+        run: node scripts/check-no-backup.mjs --merged apps/mobile/android
 
   # The network integration suite: every test the gate above skips. Scheduled
   # rather than blocking, because it drives multi-node message propagation and
