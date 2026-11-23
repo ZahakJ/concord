@@ -8,6 +8,14 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
+    <!-- No inline script, no eval, and only this origin for code. Styles may
+         be inline (Svelte's style attributes, theme packs). The mobile core's
+         API is on loopback (main.js); YouTube is the one embed. data: and
+         blob: carry decrypted pictures, voice and files. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://i.ytimg.com; media-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:* data: blob:; frame-src https://www.youtube-nocookie.com; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
     <meta name="theme-color" content="#14a394" />
     <title>Concord</title>
     <!-- Same Concord mark as public/favicon.svg (data URI = zero extra fetch);
@@ -94,25 +102,9 @@
          so a light theme or a theme pack is right too; before that is known,
          the saved theme choice picks light or dark. Without this every load
          and sign-out of a light install opened on near-black and then flipped.
-         Classic and inline, so it runs before the first paint. -->
-    <script>
-      (function () {
-        try {
-          var boot = document.getElementById("boot");
-          var paint = JSON.parse(localStorage.getItem("concord.bootPaint") || "null");
-          if (!paint) {
-            var prefs = JSON.parse(localStorage.getItem("concord.prefs") || "{}");
-            var t = prefs.theme || "dark";
-            var light = t === "light" || (t === "system" && matchMedia("(prefers-color-scheme: light)").matches);
-            if (light) paint = { bg: "#fcfcfb", fg: "#0e7c70" };
-          }
-          if (paint && paint.bg) boot.style.background = paint.bg;
-          if (paint && paint.fg) boot.querySelector("svg").style.color = paint.fg;
-        } catch (e) {
-          /* storage blocked: the dark splash it always was */
-        }
-      })();
-    </script>
+         Classic and synchronous (public/boot-paint.js), so it runs before the first paint;
+         a file rather than inline, so the page's CSP allows no inline script. -->
+    <script src="/boot-paint.js"></script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
