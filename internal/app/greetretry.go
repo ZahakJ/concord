@@ -59,18 +59,21 @@ func (s *Service) noteGreetResult(p peer.ID, err error) {
 	}
 	wait := greetRetryBackoff[r.tries]
 	r.tries++
-	r.timer = time.AfterFunc(wait, func() {
+	// beat: not after Close has begun, and Close waits for one running.
+	r.timer = time.AfterFunc(wait, s.beat(func() {
 		s.greetRetryMu.Lock()
 		if s.greetRetries[p] == r {
 			r.timer = nil
 		}
 		s.greetRetryMu.Unlock()
 		s.regreet(p)
-	})
+	}))
 }
 
 // regreet makes a failed hello to our device p again, if p is still a
-// connected device of ours.
+// connected device of ours. It does not release the greeted claim: the failed
+// hello released it, so a claim held now is a hello in flight or one that got
+// through since, and either makes this retry unneeded.
 func (s *Service) regreet(p peer.ID) {
 	if s.ctx.Err() != nil {
 		return
@@ -79,7 +82,6 @@ func (s *Service) regreet(p peer.ID) {
 		s.forgetGreetRetry(p)
 		return
 	}
-	s.greeted.release(p)
 	s.greet(p)
 }
 

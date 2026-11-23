@@ -77,14 +77,15 @@ func (s *Service) noteOfferGaps(p peer.ID, missing []string) {
 	}
 	wait := offerGapBackoff[gap.tries]
 	gap.tries++
-	gap.timer = time.AfterFunc(wait, func() {
+	// beat: not after Close has begun, and Close waits for one running.
+	gap.timer = time.AfterFunc(wait, s.beat(func() {
 		s.offerGapMu.Lock()
 		if g := s.offerGaps[p]; g == gap {
 			g.timer = nil
 		}
 		s.offerGapMu.Unlock()
 		s.reoffer(p)
-	})
+	}))
 }
 
 // reofferOnCommitterConnect offers again to every device of ours whose last

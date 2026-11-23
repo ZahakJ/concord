@@ -3,6 +3,7 @@ package app
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -26,33 +27,65 @@ func newHelloSession() string {
 	return hex.EncodeToString(b[:])
 }
 
+// peerSessionResetEvery bounds how often a change of Session releases what we
+// hold for one device: a device of ours that names a new Session in every
+// hello must not make us compose a full answer to each of them.
+const peerSessionResetEvery = 30 * time.Second
+
+// peerSession is what the hellos of one device of ours have told us: the
+// Session they last carried (empty for a build that sends none) and when a
+// change of it last released anything.
+type peerSession struct {
+	session string
+	resetAt time.Time
+}
+
 // notePeerSession records the Session a hello from p carried, and when it
 // differs from the one before, releases what this service holds for p's old
 // run. Only for devices of our own account: the claims are also what keeps a
 // stranger from making us compose a full answer on every stream it opens, and
 // a stranger could name a new session each time.
-func (s *Service) notePeerSession(p peer.ID, session string) {
-	if session == "" || !s.ownDevice(p) {
+//
+// A hello with no Session is recorded too, as seen: it is an older build, and
+// its first hello after an upgrade names a Session for the first time, which
+// is the restart that needs the full answer. A device we had no entry for is
+// on a connection that started afresh, so its first Session changes nothing.
+//
+// asked is a hello p sent unasked (handleHello). An answer to ours (asked
+// false) releases only the claims on what we answer and solicit: our hello
+// just reached p's new run, so greeting it again would only repeat itself.
+func (s *Service) notePeerSession(p peer.ID, session string, asked bool) {
+	if !s.ownDevice(p) {
 		return
 	}
+	now := time.Now()
 	s.peerSessionsMu.Lock()
-	prev := s.peerSessions[p]
+	prev, seen := s.peerSessions[p]
 	if s.peerSessions == nil {
-		s.peerSessions = map[peer.ID]string{}
+		s.peerSessions = map[peer.ID]peerSession{}
 	}
-	s.peerSessions[p] = session
+	changed := seen && prev.session != session
+	reset := changed && now.Sub(prev.resetAt) >= peerSessionResetEvery
+	next := peerSession{session: session, resetAt: prev.resetAt}
+	if reset {
+		next.resetAt = now
+	}
+	s.peerSessions[p] = next
 	s.peerSessionsMu.Unlock()
-	if prev == "" || prev == session {
-		return
+	if reset {
+		s.resetPeerSession(p, asked)
 	}
-	s.resetPeerSession(p)
 }
 
-// resetPeerSession is what a disconnect would have released for p.
-func (s *Service) resetPeerSession(p peer.ID) {
-	s.greeted.release(p)
+// resetPeerSession is what a disconnect would have released for p; with full
+// false, only the claims on answering and soliciting it.
+func (s *Service) resetPeerSession(p peer.ID, full bool) {
 	s.answered.release(p)
 	s.solicited.release(p)
+	if !full {
+		return
+	}
+	s.greeted.release(p)
 	s.forgetOfferGap(p)
 	s.ownProfile.forget(p)
 }

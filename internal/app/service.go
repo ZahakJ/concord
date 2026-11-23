@@ -427,7 +427,9 @@ type Service struct {
 	// that fires anyway publishes nothing. beatFlights counts the flushes
 	// running now; Close waits for them after stopBeats (at most
 	// closeBeatWait, see waitBeats), so none normally outlives the engine,
-	// host or store. beatGate orders that count against stopBeats.
+	// host or store. beatGate orders that count against stopBeats. The
+	// re-offer and greet-retry timers (offergap.go, greetretry.go) run
+	// through beat too.
 	beatsStopped atomic.Bool
 	beatGate     sync.Mutex
 	beatFlights  sync.WaitGroup
@@ -591,7 +593,7 @@ type Service struct {
 	// peerSessions the last one each peer's hellos carried.
 	helloSession   string
 	peerSessionsMu sync.Mutex
-	peerSessions   map[peer.ID]string
+	peerSessions   map[peer.ID]peerSession
 	// ownProfile tracks which devices of the account hold which profile edit
 	// (profilesync.go).
 	ownProfile ownProfileSync

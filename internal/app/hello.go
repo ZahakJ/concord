@@ -243,7 +243,7 @@ func (s *Service) greet(p peer.ID) {
 	ctx, cancel := context.WithTimeout(s.ctx, helloTimeout)
 	defer cancel()
 	var resp []byte
-	if s.ownDevice(p) && s.dropOwnHellos.Load() > 0 && s.dropOwnHellos.Add(-1) >= 0 {
+	if s.dropOwnHellos.Load() > 0 && s.ownDevice(p) && s.dropOwnHellos.Add(-1) >= 0 {
 		err = errHelloDropped
 	} else {
 		resp, err = s.host.SayHello(ctx, p, req)
@@ -302,7 +302,7 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	// The request itself is still ingested every time: it is signature-checked
 	// and idempotent, and refusing to read it would be the wrong thing to
 	// harden.
-	s.ingestHello(from, req)
+	s.ingestHelloFrom(from, req, true)
 	// A catch-up page for an own device's cursor. It rides EVERY answer, the
 	// short one too: the continuation pages of one sync all arrive on a
 	// connection that has already been answered once.
@@ -510,17 +510,26 @@ func (s *Service) regreetOwnDevices() {
 	}
 }
 
+// ingestHello takes in the answer to a hello of ours.
 func (s *Service) ingestHello(from peer.ID, raw []byte) {
+	s.ingestHelloFrom(from, raw, false)
+}
+
+// ingestHelloFrom takes in a hello frame from p: one p sent us unasked
+// (handleHello, asked) or p's answer to ours.
+func (s *Service) ingestHelloFrom(from peer.ID, raw []byte, asked bool) {
 	var f helloFrame
 	if json.Unmarshal(raw, &f) != nil {
 		return
 	}
-	s.notePeerSession(from, f.Session)
 	// Deliberately after the credential checks below would be too late: those
 	// return early for a frame carrying no certificate, and a re-greet from a
 	// device we already know is exactly that. ownDevice is what gates both the
 	// invites and the profile.
 	defer func() {
+		// After the certificate below is learnt, so that a device this very
+		// hello places as ours has its Session recorded too.
+		s.notePeerSession(from, f.Session, asked)
 		// After the certificate below is learnt: the sender must be placed as
 		// the account that signed what it carries.
 		s.adoptPeerRevocations(from, f.AccountRevoked)

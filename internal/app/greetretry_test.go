@@ -11,6 +11,9 @@ import (
 // and a failure was left for the next connection, which never came while the
 // first one stayed up. The failed hello must be made again.
 func TestAGuildReachesTheOtherDeviceWhenTheHelloCarryingItIsLost(t *testing.T) {
+	if testing.Short() {
+		t.Skip("two linked devices over a live rendezvous")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
