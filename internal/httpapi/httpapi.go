@@ -315,9 +315,10 @@ func (s *Server) removeClient(ch chan sseEvent) {
 }
 
 func (s *Server) broadcast(ev sseEvent) {
-	// Behind the App Lock gate the page hears only that the gate moved; what
-	// it missed it fetches again once the fingerprint opens it.
-	if s.b.Gated() && ev.name != "applock" {
+	// Behind the App Lock gate the page hears only that the gate moved and a
+	// call's signalling; what it missed it fetches again once the fingerprint
+	// opens it.
+	if s.b.Gated() && !bridge.GateEventAllowed(ev.name) {
 		return
 	}
 	s.mu.Lock()

@@ -29,8 +29,27 @@ var (
 	errEnrolProof = errors.New("bridge: enter your passphrase to turn on fingerprint unlock")
 )
 
-// gateAllows reports whether method may run while the gate is closed.
-func gateAllows(method string) bool { return method == "SessionState" }
+// gateAllows reports whether method may run while the gate is closed:
+// asking whether it is, signing out (which ends the session the gate
+// guards), and keeping a call that is in progress going or hanging it up.
+// None of these reads anything the gate protects.
+func gateAllows(method string) bool {
+	switch method {
+	case "SessionState", "Logout", "LeaveVoice", "SignalCall", "RelaySignal", "CallIceServers":
+		return true
+	}
+	return false
+}
+
+// GateEventAllowed reports whether an event may reach the page while the
+// gate is closed: the gate's own, and a call's signalling.
+func GateEventAllowed(name string) bool {
+	switch name {
+	case "applock", "voice-signal", "voice-presence":
+		return true
+	}
+	return false
+}
 
 // Gated reports whether the App Lock gate is closed.
 func (b *Bridge) Gated() bool { return b.gated.Load() }

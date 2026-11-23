@@ -113,7 +113,7 @@ func TestTheAppLockGateHoldsEveryRPC(t *testing.T) {
 	if !b.EngageAppLock() {
 		t.Fatal("App Lock is on by default once enrolled, but the gate did not close")
 	}
-	for _, m := range []string{"Guilds", "Identity", "SetAppLock", "Logout", "AppLock", "Mnemonic"} {
+	for _, m := range []string{"Guilds", "Identity", "SetAppLock", "AppLock", "Mnemonic", "Messages", "SendMessage", "ChangePassphrase"} {
 		if _, err := b.Dispatch(m, nil); !errors.Is(err, ErrAppLocked) {
 			t.Errorf("%s behind the gate: %v", m, err)
 		}
