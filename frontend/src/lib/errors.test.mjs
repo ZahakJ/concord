@@ -147,6 +147,8 @@ eq(
 eq(humanError("app: bad invite code").startsWith("That isn't a complete invite code."), true, "bad invite code");
 eq(humanError("app: attachment must be a data URL"), "That file is empty, so there's nothing to send.", "empty attachment");
 eq(humanError("store: history: database is locked"), "Concord is busy saving — try again in a moment.", "locked database");
+eq(humanError("store: save message: database or disk is full (13)"), "This device's disk is full, so Concord couldn't save. Free some space, then try again.", "full disk");
+eq(humanError("store: save message: disk I/O error (10)"), "Concord couldn't write to this device's disk. If it's nearly full, free some space; then try again.", "failing disk");
 eq(
   humanError("app: add at least one office-hours window before publishing"),
   "Add at least one open hour before turning on your booking page.",

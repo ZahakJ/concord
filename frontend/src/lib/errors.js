@@ -125,6 +125,11 @@ const KNOWN = [
     "That file is empty, so there's nothing to send."],
   [/database is locked/i, "",
     "Concord is busy saving — try again in a moment."],
+  // SQLite's words for a full disk (SQLITE_FULL), and for one failing.
+  [/database or disk is full|SQLITE_FULL/i, "",
+    "This device's disk is full, so Concord couldn't save. Free some space, then try again."],
+  [/disk I\/O error|SQLITE_IOERR/i, "",
+    "Concord couldn't write to this device's disk. If it's nearly full, free some space; then try again."],
   // Bookings.
   [/add at least one office-hours window/i, "",
     "Add at least one open hour before turning on your booking page."],

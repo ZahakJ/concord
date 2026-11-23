@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -1649,29 +1651,86 @@ func (s *Service) SendMessage(channelID, content, replyTo, dir string) (domain.M
 // The id is bound to this account and channel, so the same sendID used
 // elsewhere names a different message.
 func (s *Service) SendMessageOnce(channelID, content, replyTo, dir, sendID string) (domain.Message, error) {
+	return s.sendOnceAs(channelID, sendID, func(id string) (domain.Message, error) {
+		return s.sendCore(channelID, content, "", replyTo, "", dir, nil, true, id)
+	})
+}
+
+// sendOnceAs runs a send under a client's send id: send is called with the
+// message id to use ("" for a fresh one), or not at all when the message the
+// id stands for already went out, in which case that message is returned.
+// Without a send id, send runs as it would have.
+func (s *Service) sendOnceAs(channelID, sendID string, send func(msgID string) (domain.Message, error)) (domain.Message, error) {
 	if sendID == "" {
-		return s.SendMessage(channelID, content, replyTo, dir)
+		return send("")
 	}
 	if len(sendID) > 128 {
 		return domain.Message{}, fmt.Errorf("app: send id too long")
 	}
-	id := onceMessageID(s.PublicKey(), channelID, sendID)
+	key, err := s.sendOnceSecret()
+	if err != nil {
+		return domain.Message{}, err
+	}
+	id := onceMessageID(key, s.PublicKey(), channelID, sendID)
 	unlock := s.sendOnceLock(id)
 	defer unlock()
-	if held, ok, err := s.store.MessageByID(id); err == nil && ok {
-		if !bytes.Equal(held.Sender, s.PublicKey()) || held.ChannelID != channelID {
-			return domain.Message{}, fmt.Errorf("app: send id names another message")
-		}
-		return held, nil
+	// Published already, its row still being written (saveOwn): it went out.
+	if m, ok := s.unsavedMessage(id); ok {
+		return m, nil
 	}
-	return s.sendCore(channelID, content, "", replyTo, "", dir, nil, true, id)
+	held, ok, err := s.store.MessageByID(id)
+	if err != nil {
+		// Not knowing whether it went out is no reason to send it again.
+		return domain.Message{}, err
+	}
+	if ok {
+		if bytes.Equal(held.Sender, s.PublicKey()) && held.ChannelID == channelID {
+			return held, nil
+		}
+		// Somebody else's message holds this id (it is keyed by a secret of
+		// this install, so only by forging): this one goes under a fresh id.
+		id = ""
+	}
+	return send(id)
+}
+
+// sendOnceKeySetting stores the install's send-once secret.
+const sendOnceKeySetting = "sendonce.key"
+
+// sendOnceSecret is this install's key for send-once ids, made on first use.
+// A peer who sees a message id cannot tell from it which send id or channel
+// it came from, or name the id a future send will take.
+func (s *Service) sendOnceSecret() ([]byte, error) {
+	s.sendOnceMu.Lock()
+	defer s.sendOnceMu.Unlock()
+	if s.sendOnceKey != nil {
+		return s.sendOnceKey, nil
+	}
+	v, err := s.store.GetSetting(sendOnceKeySetting)
+	if err != nil {
+		return nil, err
+	}
+	if k, err := hex.DecodeString(v); err == nil && len(k) == 32 {
+		s.sendOnceKey = k
+		return k, nil
+	}
+	k := make([]byte, 32)
+	if _, err := rand.Read(k); err != nil {
+		return nil, err
+	}
+	if err := s.store.SetSetting(sendOnceKeySetting, hex.EncodeToString(k)); err != nil {
+		return nil, err
+	}
+	s.sendOnceKey = k
+	return k, nil
 }
 
 // onceMessageID is the message id a client's send id stands for: 16 bytes of
-// a hash over this account, the channel and the send id, the shape NewID has.
-func onceMessageID(sender []byte, channelID, sendID string) string {
-	h := sha256.New()
-	h.Write([]byte("concord/send-once/v1\x00"))
+// an HMAC, under this install's secret, over the account, the channel and the
+// send id; the shape NewID has.
+func onceMessageID(key, sender []byte, channelID, sendID string) string {
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte("concord/send-once/v2\x00"))
 	h.Write(sender)
 	h.Write([]byte{0})
 	h.Write([]byte(channelID))
@@ -1959,16 +2018,88 @@ func (s *Service) sendCore(channelID, content, kind, replyTo, guestName, dir str
 		s.applyPin(msg.ReplyTo, msg.Sender, channelID)
 		return msg, nil
 	}
-	if _, err := s.store.SaveMessage(msg); err != nil {
-		return domain.Message{}, err
-	}
-	s.emitMessage(msg)
-	// Writing in a chat means having read it up to here: our own message must
-	// not sit past our own read mark, here or on our other devices.
-	if markRead {
-		s.markReadThroughOwn(channelID, msg)
+	// The message is out. Nothing that fails from here may say otherwise: a
+	// caller told "failed" offers Retry, and a retry of a message that went
+	// out is the same message twice.
+	switch s.saveOwn(msg) {
+	case ownSaved:
+		s.emitMessage(msg)
+		// Writing in a chat means having read it up to here: our own message
+		// must not sit past our own read mark, here or on our other devices.
+		if markRead {
+			s.markReadThroughOwn(channelID, msg)
+		}
+	case ownPending:
+		s.emitMessage(msg)
+	case ownHeld:
+		// The id was already stored: whatever row holds it is what this
+		// device shows, and a second copy is not announced.
 	}
 	return msg, nil
+}
+
+type ownSave int
+
+const (
+	ownSaved   ownSave = iota // stored now
+	ownPending                // not stored yet; saveOwnLater keeps trying
+	ownHeld                   // the id was already stored
+)
+
+// saveOwnTries paces the first attempts at storing a message we sent: a
+// busy or briefly failing disk usually clears within these.
+var saveOwnTries = []time.Duration{0, 50 * time.Millisecond, 250 * time.Millisecond}
+
+// saveOwn stores a message this device has just published.
+func (s *Service) saveOwn(msg domain.Message) ownSave {
+	var err error
+	for _, wait := range saveOwnTries {
+		time.Sleep(wait)
+		var inserted bool
+		if inserted, err = s.store.SaveMessage(msg); err == nil {
+			if inserted {
+				return ownSaved
+			}
+			return ownHeld
+		}
+	}
+	log.Printf("concord/app: message %s was sent but could not be saved yet: %v; retrying in the background", msg.ID, err)
+	s.unsavedMu.Lock()
+	if s.unsaved == nil {
+		s.unsaved = map[string]domain.Message{}
+	}
+	s.unsaved[msg.ID] = msg
+	s.unsavedMu.Unlock()
+	go s.saveOwnLater(msg)
+	return ownPending
+}
+
+// saveOwnLater keeps trying to store a sent message, backing off to a try a
+// minute, for as long as the service runs.
+func (s *Service) saveOwnLater(msg domain.Message) {
+	wait := time.Second
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		if _, err := s.store.SaveMessage(msg); err == nil {
+			s.unsavedMu.Lock()
+			delete(s.unsaved, msg.ID)
+			s.unsavedMu.Unlock()
+			return
+		}
+		wait = min(wait*2, time.Minute)
+	}
+}
+
+// unsavedMessage is a sent message whose row is still being written.
+func (s *Service) unsavedMessage(id string) (domain.Message, bool) {
+	s.unsavedMu.Lock()
+	defer s.unsavedMu.Unlock()
+	m, ok := s.unsaved[id]
+	return m, ok
 }
 
 // markReadThroughOwn moves the read mark up to a message we just sent, so our

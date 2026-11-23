@@ -2,8 +2,13 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 func countByID(t *testing.T, s *Service, channelID, id string) int {
@@ -121,5 +126,122 @@ func TestSendOnceIsOneMessageAcrossRetriesAndReconnect(t *testing.T) {
 	}
 	if m2.ID == first.ID {
 		t.Fatal("a send id named the same message in another channel")
+	}
+}
+
+// The owner's second report: the disk failed while a message was being sent,
+// the composer offered Retry, and the retry put the message up twice on both
+// sides. A message that went out is "sent" whatever the store says after it:
+// no error reaches the composer, the row is written when the disk recovers,
+// and a retry of the same send finds it and publishes nothing.
+func TestASaveThatFailsAfterPublishIsStillOneMessage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	boot := testRendezvous(t, ctx)
+	alice := startServiceOn(t, ctx, t.TempDir(), boot)
+	bob := startServiceOn(t, ctx, t.TempDir(), boot)
+	g, err := alice.CreateGuild("disk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := alice.InviteCode(g.ID)
+	if _, err := bob.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitMembers(t, 30*time.Second, 2, alice, bob)
+	ch := g.Channels[0].ID
+	const body = "sent while the disk was failing"
+
+	var failing atomic.Bool
+	failing.Store(true)
+	alice.store.InjectSaveFault(func(m domain.Message) error {
+		if failing.Load() && m.Content == body {
+			return errors.New("disk I/O error (10)")
+		}
+		return nil
+	})
+	defer alice.store.InjectSaveFault(nil)
+
+	var shown atomic.Int32
+	alice.OnMessage(func(m domain.Message) {
+		if m.Content == body {
+			shown.Add(1)
+		}
+	})
+	first, err := alice.SendMessageOnce(ch, body, "", "", "disk-1")
+	if err != nil {
+		t.Fatalf("a message that went out was reported as failed: %v", err)
+	}
+	if shown.Load() != 1 {
+		t.Fatalf("the sent message was shown %d times here, want once", shown.Load())
+	}
+	waitUntil(t, 30*time.Second, func() bool { return countByID(t, bob, ch, first.ID) == 1 }, "Bob to get the message")
+
+	// The composer retries anyway: nothing new goes out.
+	var seen atomic.Int32
+	bob.OnMessage(func(m domain.Message) {
+		if m.Content == body {
+			seen.Add(1)
+		}
+	})
+	again, err := alice.SendMessageOnce(ch, body, "", "", "disk-1")
+	if err != nil || again.ID != first.ID {
+		t.Fatalf("retry: %v, id %s want %s", err, again.ID, first.ID)
+	}
+
+	// The disk recovers; the background save writes the row.
+	failing.Store(false)
+	waitUntil(t, 10*time.Second, func() bool { return countByID(t, alice, ch, first.ID) == 1 }, "the row to be written once the disk recovered")
+	if _, ok := alice.unsavedMessage(first.ID); ok {
+		t.Fatal("the message is still marked unsaved")
+	}
+	// And a retry after that still sends nothing.
+	if m, err := alice.SendMessageOnce(ch, body, "", "", "disk-1"); err != nil || m.ID != first.ID {
+		t.Fatalf("retry after the save: %v %s", err, m.ID)
+	}
+	marker, err := alice.SendMessage(ch, "after", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, 30*time.Second, func() bool { return countByID(t, bob, ch, marker.ID) == 1 }, "the marker")
+	time.Sleep(time.Second)
+	if n := seen.Load(); n != 0 {
+		t.Fatalf("a retry reached Bob %d more times", n)
+	}
+	for name, s := range map[string]*Service{"Alice": alice, "Bob": bob} {
+		if n := countBody(t, s, ch, body); n != 1 {
+			t.Fatalf("%s holds the message %d times, want once", name, n)
+		}
+	}
+
+	// A picture and a file take a send id too: a retry is the same message,
+	// not sealed or sent again.
+	pic := "data:image/png;base64," + base64.StdEncoding.EncodeToString(picOf(t, 2048))
+	p1, err := alice.SendAttachment(ch, pic, 23, 23, "", false, "", "", "", "", "pic-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := alice.SendAttachment(ch, pic, 23, 23, "", false, "", "", "", "", "pic-1")
+	if err != nil || p2.ID != p1.ID || p2.Content != p1.Content {
+		t.Fatalf("a retried picture: %v, %s vs %s", err, p2.ID, p1.ID)
+	}
+	f1, err := alice.SendFile(ch, "data:text/plain;base64,aGk=", "hi.txt", "", "", "", "file-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f2, err := alice.SendFile(ch, "data:text/plain;base64,aGk=", "hi.txt", "", "", "", "file-1"); err != nil || f2.ID != f1.ID {
+		t.Fatalf("a retried file: %v, %s vs %s", err, f2.ID, f1.ID)
+	}
+	waitUntil(t, 30*time.Second, func() bool { return countByID(t, bob, ch, f1.ID) == 1 }, "Bob to get the file")
+	for name, s := range map[string]*Service{"Alice": alice, "Bob": bob} {
+		if n := countBody(t, s, ch, p1.Content); n != 1 {
+			t.Fatalf("%s holds the picture %d times", name, n)
+		}
+		if n := countBody(t, s, ch, f1.Content); n != 1 {
+			t.Fatalf("%s holds the file %d times", name, n)
+		}
 	}
 }

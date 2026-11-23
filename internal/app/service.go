@@ -551,6 +551,12 @@ type Service struct {
 	// sendOnce serialises repeated attempts at one message (SendMessageOnce).
 	sendOnceMu sync.Mutex
 	sendOnce   map[string]*sendOnceSlot
+	// sendOnceKey is this install's secret for send-once ids (sendOnceID).
+	sendOnceKey []byte
+	// unsaved holds our own messages that went out but whose row could not be
+	// written yet (saveOwn); a background retry stores them.
+	unsavedMu sync.Mutex
+	unsaved   map[string]domain.Message
 
 	// regMu guards the persisted own-device registry (devices.go). Separate from
 	// deviceMu on purpose: the registry writes to the store, and the in-memory

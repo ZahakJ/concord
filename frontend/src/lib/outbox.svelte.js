@@ -119,10 +119,13 @@ function dropClaims() {
   for (const [k, v] of Object.entries(c)) if (v?.tab === clientID) delete c[k];
   writeClaims(c);
 }
-function newSendId() {
-  return typeof crypto !== "undefined" && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+// newSendId names one message across every attempt at it. Outside a secure
+// context randomUUID is missing, and getRandomValues is not: never Math.random,
+// whose ids can repeat.
+export function newSendId() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  return "s" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 function readStored() {
@@ -298,6 +301,7 @@ export function sendAttachment(channelId, att, replyTo, text = "", dir = "", cap
     kind: "att",
     channelId,
     att,
+    sendId: newSendId(),
     text,
     dir,
     caption,
@@ -331,9 +335,18 @@ function deliver(entry) {
         a.desc || "",
         entry.text || "",
         entry.dir || "",
+        entry.sendId || "",
       );
     // The person's choice on a held row (sendAsIs, sendRemovingText), if any.
-    return api[fileSendOp(a)](entry.channelId, a.dataUrl, a.name, entry.replyTo, entry.text || "", entry.dir || "");
+    return api[fileSendOp(a)](
+      entry.channelId,
+      a.dataUrl,
+      a.name,
+      entry.replyTo,
+      entry.text || "",
+      entry.dir || "",
+      entry.sendId || "",
+    );
   }
   return api.sendMessage(entry.channelId, entry.body, entry.replyTo, entry.dir, entry.sendId || "");
 }

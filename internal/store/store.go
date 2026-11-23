@@ -78,6 +78,8 @@ type Store struct {
 	// blobRefsLive is set once this process has indexed every row up to the
 	// newest (BackfillBlobRefs); until then no blob is removed or banned.
 	blobRefsLive atomic.Bool
+	// saveFault is a test's injected SaveMessage failure (InjectSaveFault).
+	saveFault atomic.Pointer[func(domain.Message) error]
 }
 
 // Open opens (creating if needed) the SQLite database at path and prepares the
@@ -113,7 +115,12 @@ func Open(path string, dataKey []byte) (*Store, error) {
 	// (the overflow pages of a long body among them), so an erased body's sealed
 	// copy does not stay in the file. See CheckpointDeletes for the copies in
 	// the write-ahead log.
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;`); err != nil {
+	//
+	// temp_store=MEMORY keeps SQLite's scratch files (statement journals, sort
+	// and index spills) off TMPDIR. On a desktop /tmp is often a RAM disk, and
+	// one that is full failed message saves with "database or disk is full"
+	// while the data's own disk had room (TestTempDirFullStillSaves).
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON; PRAGMA temp_store=MEMORY;`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: set pragmas: %w", err)
 	}
@@ -157,7 +164,7 @@ func openReader(path string) *sql.DB {
 		dsn = "file:" + (&url.URL{Path: path}).EscapedPath()
 		sep = "?"
 	}
-	dsn += sep + "_pragma=busy_timeout(5000)&_pragma=query_only(1)"
+	dsn += sep + "_pragma=busy_timeout(5000)&_pragma=query_only(1)&_pragma=temp_store(2)"
 	rdb, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil
@@ -1481,7 +1488,22 @@ func (s *Store) LeftGuilds() ([]string, error) {
 //
 // A message marked Deleted (an archive's tombstone) is stored as a tombstone:
 // no body, no signature, and labelled disappeared when it is marked Expired.
+// InjectSaveFault makes SaveMessage fail with what f returns, while f is set
+// and returns an error. Tests only: a disk that fails at the worst moment.
+func (s *Store) InjectSaveFault(f func(domain.Message) error) {
+	if f == nil {
+		s.saveFault.Store(nil)
+		return
+	}
+	s.saveFault.Store(&f)
+}
+
 func (s *Store) SaveMessage(m domain.Message) (bool, error) {
+	if f := s.saveFault.Load(); f != nil {
+		if err := (*f)(m); err != nil {
+			return false, fmt.Errorf("store: save message: %w", err)
+		}
+	}
 	var nonce [nonceSize]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return false, err

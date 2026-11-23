@@ -175,12 +175,25 @@ func (s *Service) sealAttachment(dataURL string, w, h int, spoiler bool, name, d
 // (the disappearing timer above all), sealed in the same message as the
 // picture so the two travel, render and expire as one. Builds that predate it
 // strip the token and show the rest, which is the caption.
-func (s *Service) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc, text, dir string) (domain.Message, error) {
-	_, token, err := s.sealAttachment(dataURL, w, h, spoiler, name, desc)
-	if err != nil {
-		return domain.Message{}, err
+//
+// sendID, when given, makes the send safe to repeat as SendMessageOnce does:
+// a retried picture is the same message, and is not sealed or sent again.
+func (s *Service) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc, text, dir string, sendID ...string) (domain.Message, error) {
+	return s.sendOnceAs(channelID, oneID(sendID), func(id string) (domain.Message, error) {
+		_, token, err := s.sealAttachment(dataURL, w, h, spoiler, name, desc)
+		if err != nil {
+			return domain.Message{}, err
+		}
+		return s.sendCore(channelID, withText(token, text), "", replyTo, "", dir, nil, true, id)
+	})
+}
+
+// oneID is the optional send id of a send that takes one.
+func oneID(ids []string) string {
+	if len(ids) > 0 {
+		return ids[0]
 	}
-	return s.sendAs(channelID, withText(token, text), "", replyTo, "", dir)
+	return ""
 }
 
 // withText puts a message's text after its attachment token.
@@ -237,23 +250,23 @@ func (s *Service) EditAttachment(channelID, targetID, dataURL string, w, h int) 
 //	[file](concord://file/v1/<blobID>/<keys>/<size>/<mimeB64url>/<nameB64url>)
 //
 // text is optional, as for SendAttachment.
-func (s *Service) SendFile(channelID, dataURL, filename, replyTo, text, dir string) (domain.Message, error) {
-	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, sendClean)
+func (s *Service) SendFile(channelID, dataURL, filename, replyTo, text, dir string, sendID ...string) (domain.Message, error) {
+	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, sendClean, oneID(sendID))
 }
 
 // SendFileAsIs is SendFile for a file whose details could not be removed (or
 // a video with text tracks), once the person has been told it goes as it is,
 // location and all, and has chosen to send it. Everything else is cleaned as
 // in SendFile: "as is" only covers what the cleaner would not clean.
-func (s *Service) SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir string) (domain.Message, error) {
-	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, sendAsIs)
+func (s *Service) SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir string, sendID ...string) (domain.Message, error) {
+	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, sendAsIs, oneID(sendID))
 }
 
 // SendFileWithoutText is SendFile for a video with subtitle or text tracks,
 // once the person has chosen to have them removed with the other details
 // ("Remove and send").
-func (s *Service) SendFileWithoutText(channelID, dataURL, filename, replyTo, text, dir string) (domain.Message, error) {
-	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, sendDropText)
+func (s *Service) SendFileWithoutText(channelID, dataURL, filename, replyTo, text, dir string, sendID ...string) (domain.Message, error) {
+	return s.sendFile(channelID, dataURL, filename, replyTo, text, dir, sendDropText, oneID(sendID))
 }
 
 // SendVoiceClip sends a voice message the composer recorded. Ogg or WebM
@@ -261,8 +274,8 @@ func (s *Service) SendFileWithoutText(channelID, dataURL, filename, replyTo, tex
 // a video container would be. Anything else, such as the MP4 a renderer
 // records when it has neither, goes through the same cleaning and the same
 // holds as SendFile.
-func (s *Service) SendVoiceClip(channelID, dataURL, filename string) (domain.Message, error) {
-	return s.sendFile(channelID, dataURL, filename, "", "", "", sendVoice)
+func (s *Service) SendVoiceClip(channelID, dataURL, filename string, sendID ...string) (domain.Message, error) {
+	return s.sendFile(channelID, dataURL, filename, "", "", "", sendVoice, oneID(sendID))
 }
 
 // CheckFile answers as SendFile would for this file, without sending it:
@@ -293,20 +306,21 @@ const (
 	sendVoice             // a voice clip the composer recorded
 )
 
-func (s *Service) sendFile(channelID, dataURL, filename, replyTo, text, dir string, mode sendMode) (domain.Message, error) {
-	mime, plain, err := prepareFile(dataURL, mode)
-	if err != nil {
-		return domain.Message{}, err
-	}
-
-	blobID, keys, err := s.sealBlob(plain)
-	if err != nil {
-		return domain.Message{}, err
-	}
-	filename = clampBytes(filename, maxFilenameLen)
-	token := fmt.Sprintf("[file](concord://file/v1/%s/%s/%d/%s/%s)",
-		blobID, keys, len(plain), b64url.EncodeToString([]byte(mime)), b64url.EncodeToString([]byte(filename)))
-	return s.sendAs(channelID, withText(token, text), "", replyTo, "", dir)
+func (s *Service) sendFile(channelID, dataURL, filename, replyTo, text, dir string, mode sendMode, sendID string) (domain.Message, error) {
+	return s.sendOnceAs(channelID, sendID, func(id string) (domain.Message, error) {
+		mime, plain, err := prepareFile(dataURL, mode)
+		if err != nil {
+			return domain.Message{}, err
+		}
+		blobID, keys, err := s.sealBlob(plain)
+		if err != nil {
+			return domain.Message{}, err
+		}
+		filename := clampBytes(filename, maxFilenameLen)
+		token := fmt.Sprintf("[file](concord://file/v1/%s/%s/%d/%s/%s)",
+			blobID, keys, len(plain), b64url.EncodeToString([]byte(mime)), b64url.EncodeToString([]byte(filename)))
+		return s.sendCore(channelID, withText(token, text), "", replyTo, "", dir, nil, true, id)
+	})
 }
 
 // prepareFile decodes a file and cleans it for sending, or refuses it.

@@ -568,9 +568,10 @@ export const api = {
   // recipe by it. Everything else ignores the return.
   // text rides in the SAME message as the picture: a caption, and the
   // channel's disappearing timer (stampFor).
-  sendAttachment: (channelID, dataURL, w, h, replyTo = "", spoiler = false, name = "", desc = "", text = "", dir = "") => {
+  // sendId, as for sendMessage, makes a retry the same message.
+  sendAttachment: (channelID, dataURL, w, h, replyTo = "", spoiler = false, name = "", desc = "", text = "", dir = "", sendId = "") => {
     sending(channelID);
-    return call("SendAttachment", channelID, dataURL, w, h, replyTo, spoiler, name, desc, stampFor(channelID, text), dir);
+    return call("SendAttachment", channelID, dataURL, w, h, replyTo, spoiler, name, desc, stampFor(channelID, text), dir, sendId);
   },
   // Re-point one of your own image messages at a freshly sealed picture, in
   // place. Also resolves to the new blob id. NOT sendAttachment + delete: that
@@ -579,21 +580,21 @@ export const api = {
     call("EditAttachment", channelID, messageID, dataURL, w, h),
   fetchAttachment: (channelID, blobID, keys, subtype) =>
     call("FetchAttachment", channelID, blobID, keys, subtype),
-  sendFile: (channelID, dataURL, filename, replyTo = "", text = "", dir = "") => {
+  sendFile: (channelID, dataURL, filename, replyTo = "", text = "", dir = "", sendId = "") => {
     sending(channelID);
-    return call("SendFile", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir);
+    return call("SendFile", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir, sendId);
   },
   // A video or HEIC photo the core could not clean, after the person chose to
   // send it as it is (lib/mediastrip.js).
-  sendFileAsIs: (channelID, dataURL, filename, replyTo = "", text = "", dir = "") => {
+  sendFileAsIs: (channelID, dataURL, filename, replyTo = "", text = "", dir = "", sendId = "") => {
     sending(channelID);
-    return call("SendFileAsIs", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir);
+    return call("SendFileAsIs", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir, sendId);
   },
   // A video whose subtitle and text tracks the person chose to have
   // removed ("Remove and send", lib/mediastrip.js).
-  sendFileWithoutText: (channelID, dataURL, filename, replyTo = "", text = "", dir = "") => {
+  sendFileWithoutText: (channelID, dataURL, filename, replyTo = "", text = "", dir = "", sendId = "") => {
     sending(channelID);
-    return call("SendFileWithoutText", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir);
+    return call("SendFileWithoutText", channelID, dataURL, filename, replyTo, stampFor(channelID, text), dir, sendId);
   },
   // A voice message the composer recorded. Ogg or WebM audio goes as it
   // is; anything else (MP4 from WebKit) is cleaned as SendFile cleans it.

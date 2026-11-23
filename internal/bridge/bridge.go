@@ -2344,12 +2344,12 @@ func (b *Bridge) LinkCard(url string, withThumb bool) (LinkCardView, error) {
 // meme editor keys the recipe it saves for "edit this meme again" by exactly
 // this id, and the id is minted inside the seal — there is nothing the frontend
 // could compute it from.
-func (b *Bridge) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc, text, dir string) (string, error) {
+func (b *Bridge) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc, text, dir string, sendID ...string) (string, error) {
 	svc, err := b.service()
 	if err != nil {
 		return "", err
 	}
-	msg, err := svc.SendAttachment(channelID, dataURL, w, h, replyTo, spoiler, name, desc, text, dir)
+	msg, err := svc.SendAttachment(channelID, dataURL, w, h, replyTo, spoiler, name, desc, text, dir, sendID...)
 	if err != nil {
 		return "", err
 	}
@@ -2400,45 +2400,45 @@ func (b *Bridge) SweepUnstampedAttachments(apply bool) (appsvc.StampSweep, error
 
 // SendFile seals an arbitrary file into an encrypted blob and posts a file
 // reference token (rendered as a download card, not inline).
-func (b *Bridge) SendFile(channelID, dataURL, filename, replyTo, text, dir string) error {
+func (b *Bridge) SendFile(channelID, dataURL, filename, replyTo, text, dir string, sendID ...string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	_, err = svc.SendFile(channelID, dataURL, filename, replyTo, text, dir)
+	_, err = svc.SendFile(channelID, dataURL, filename, replyTo, text, dir, sendID...)
 	return err
 }
 
 // SendFileAsIs is SendFile for a video or HEIF picture the cleaner refused,
 // after the person chose to send it as it is (see app.SendFileAsIs).
-func (b *Bridge) SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir string) error {
+func (b *Bridge) SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir string, sendID ...string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	_, err = svc.SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir)
+	_, err = svc.SendFileAsIs(channelID, dataURL, filename, replyTo, text, dir, sendID...)
 	return err
 }
 
 // SendFileWithoutText is SendFile for a video whose subtitle or text tracks
 // the person chose to remove (see app.SendFileWithoutText).
-func (b *Bridge) SendFileWithoutText(channelID, dataURL, filename, replyTo, text, dir string) error {
+func (b *Bridge) SendFileWithoutText(channelID, dataURL, filename, replyTo, text, dir string, sendID ...string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	_, err = svc.SendFileWithoutText(channelID, dataURL, filename, replyTo, text, dir)
+	_, err = svc.SendFileWithoutText(channelID, dataURL, filename, replyTo, text, dir, sendID...)
 	return err
 }
 
 // SendVoiceClip sends a voice message the composer recorded (see
 // app.SendVoiceClip).
-func (b *Bridge) SendVoiceClip(channelID, dataURL, filename string) error {
+func (b *Bridge) SendVoiceClip(channelID, dataURL, filename string, sendID ...string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	_, err = svc.SendVoiceClip(channelID, dataURL, filename)
+	_, err = svc.SendVoiceClip(channelID, dataURL, filename, sendID...)
 	return err
 }
 
@@ -4407,7 +4407,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.ScheduledSends()
 	case "SendAttachment":
 		return b.SendAttachment(argStr(args, 0), argStr(args, 1), argInt(args, 2), argInt(args, 3), argStr(args, 4),
-			argBool(args, 5), argStr(args, 6), argStr(args, 7), argStr(args, 8), argStr(args, 9))
+			argBool(args, 5), argStr(args, 6), argStr(args, 7), argStr(args, 8), argStr(args, 9), argStr(args, 10))
 	case "EditAttachment":
 		return b.EditAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt(args, 3), argInt(args, 4))
 	case "FetchAttachment":
@@ -4421,13 +4421,13 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "RecentMedia":
 		return b.RecentMedia(argInt(args, 0))
 	case "SendFile":
-		return nil, b.SendFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5))
+		return nil, b.SendFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5), argStr(args, 6))
 	case "SendFileAsIs":
-		return nil, b.SendFileAsIs(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5))
+		return nil, b.SendFileAsIs(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5), argStr(args, 6))
 	case "SendFileWithoutText":
-		return nil, b.SendFileWithoutText(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5))
+		return nil, b.SendFileWithoutText(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5), argStr(args, 6))
 	case "SendVoiceClip":
-		return nil, b.SendVoiceClip(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+		return nil, b.SendVoiceClip(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "CheckFile":
 		return nil, b.CheckFile(argStr(args, 0))
 	case "FileGoesAsIs":
