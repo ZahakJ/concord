@@ -384,7 +384,7 @@ func Decrypt(pm *PrivateMessage, p DecryptParams) (*AuthenticatedContent, error)
 		}
 	}
 	if err != nil {
-		return nil, fmt.Errorf("%w: content: %v", ErrDecryptionFailed, err)
+		return nil, fmt.Errorf("%w: content: %w", ErrDecryptionFailed, err)
 	}
 
 	// RFC 9420 §9.2: mark generation as consumed to reject replays.
