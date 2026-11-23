@@ -6,6 +6,7 @@
   // in steps, double-click toggles fit and 100%, drag pans, pinch works on
   // touch, Esc / backdrop / ✕ close.
   import Icon from "./Icon.svelte";
+  import FileAttachment from "./FileAttachment.svelte";
   import MediaViewer from "./MediaViewer.svelte";
   import {
     loadAttachment,
@@ -166,6 +167,16 @@
     self: !!sender && sender === S.identity?.fingerprint,
   });
   const note = $derived(unavailableNote(errMsg, who));
+  // A picture the core will not hand a renderer (over 50 MP, or no header it
+  // can read) is still the sender's file: it is offered to save, not shown.
+  const asFile = $derived(state === "error" && /too large to show/.test(errMsg));
+  const fileTok = $derived({
+    blobId: tok.blobId,
+    keys: tok.keys,
+    mime: `image/${tok.subtype}`,
+    name: placeholderName(tok) || `picture.${tok.subtype === "jpeg" ? "jpg" : tok.subtype}`,
+    size: 0,
+  });
 
   // Auto-retry when the roster changes. Nothing about this message changes when
   // the sender comes back — the token was always fine — so without this the
@@ -328,6 +339,8 @@
       onReveal={() => cur?.reveal()}
     />
   {/if}
+{:else if asFile}
+  <FileAttachment {channelId} tok={fileTok} />
 {:else}
   <div
     class="frame placeholder"

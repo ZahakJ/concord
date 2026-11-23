@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"regexp"
@@ -150,17 +149,14 @@ func TestRecentMediaAndResend(t *testing.T) {
 	}
 	waitUntil(t, 20*time.Second, func() bool { return members(g1.ID, a, c) && members(g2.ID, a, b) }, "the two guilds never had their two members each")
 
-	plain := make([]byte, 64<<10)
-	if _, err := rand.Read(plain); err != nil {
-		t.Fatal(err)
-	}
+	plain := picOf(t, 64<<10)
 	picURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(plain)
 	pic, err := c.SendAttachment(ch1, picURL, 40, 30, "", false, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	srcBlob, srcKey := blobAndKey(t, pic.Content)
-	spoiler, err := c.SendAttachment(ch1, "data:image/png;base64,"+base64.StdEncoding.EncodeToString([]byte("hush")), 4, 3, "", true, "", "", "", "")
+	spoiler, err := c.SendAttachment(ch1, "data:image/png;base64,"+base64.StdEncoding.EncodeToString(picOf(t, 16)), 4, 3, "", true, "", "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +264,7 @@ func TestRecentMediaCap(t *testing.T) {
 	}
 	ch := g.Channels[0].ID
 	for i := 0; i < RecentMax+3; i++ {
-		if _, err := a.SendAttachment(ch, "data:image/png;base64,"+base64.StdEncoding.EncodeToString([]byte{byte(i), 1, 2, 3}), 2, 2, "", false, "", "", "", ""); err != nil {
+		if _, err := a.SendAttachment(ch, "data:image/png;base64,"+base64.StdEncoding.EncodeToString(picOf(t, 16)), 2, 2, "", false, "", "", "", ""); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -1,9 +1,15 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
+	"errors"
+	stdimage "image"
+	"image/png"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -37,11 +43,8 @@ func TestAttachmentSendAndFetch(t *testing.T) {
 	}
 	waitMembers(t, 20*time.Second, 2, a, b)
 
-	// A "3 MB image" (bytes don't need to be a real image at this layer).
-	plain := make([]byte, 3<<20)
-	if _, err := rand.Read(plain); err != nil {
-		t.Fatal(err)
-	}
+	// A 3 MB picture: noise does not compress, so 900×900 RGBA is about that.
+	plain := noisePNG(t, 900, 900)
 	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(plain)
 
 	rb := &recorder{}
@@ -274,5 +277,60 @@ func TestEditAttachmentReplacesInPlace(t *testing.T) {
 	}
 	if !edited.Edited {
 		t.Fatal("the message is not flagged as edited")
+	}
+}
+
+// noisePNG is a real PNG of w×h random pixels: the receive path reads the
+// header, so test pictures must be pictures.
+func noisePNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := stdimage.NewNRGBA(stdimage.Rect(0, 0, w, h))
+	if _, err := rand.Read(img.Pix); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// picOf is a real, random PNG of about n bytes, for tests that need a picture
+// of some size rather than particular pixels.
+func picOf(t *testing.T, n int) []byte {
+	t.Helper()
+	side := int(math.Sqrt(float64(n)/4)) + 1
+	return noisePNG(t, side, side)
+}
+
+// A picture is shown inline only if its header names at most 50 MP and it is
+// within the 5 MiB a sender may seal; anything else is offered as a file.
+func TestShowableBoundsPixelsAndBytes(t *testing.T) {
+	gif := func(w, h uint16) []byte {
+		b := []byte("GIF89a")
+		b = binary.LittleEndian.AppendUint16(b, w)
+		b = binary.LittleEndian.AppendUint16(b, h)
+		return append(b, 0, 0, 0)
+	}
+	if err := showable(gif(4000, 3000)); err != nil {
+		t.Fatalf("a 12 MP picture: %v", err)
+	}
+	if err := showable(gif(10000, 10000)); !errors.Is(err, errAttachTooLarge) {
+		t.Fatalf("a 100 MP header in 13 bytes: %v", err)
+	}
+	vp8x := []byte("RIFF\x00\x00\x00\x00WEBPVP8X\x0a\x00\x00\x00\x00\x00\x00\x00")
+	vp8x = append(vp8x, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff) // 16M × 16M
+	if err := showable(vp8x); !errors.Is(err, errAttachTooLarge) {
+		t.Fatalf("an extended WebP claiming 2^48 pixels: %v", err)
+	}
+	if err := showable([]byte("not a picture")); !errors.Is(err, errAttachTooLarge) {
+		t.Fatalf("bytes with no header: %v", err)
+	}
+	big := append(gif(100, 100), make([]byte, maxAttachmentPlain)...)
+	if err := showable(big); !errors.Is(err, errAttachTooLarge) {
+		t.Fatalf("over 5 MiB: %v", err)
+	}
+	if err := showable(noisePNG(t, 64, 64)); err != nil {
+		t.Fatalf("a real PNG: %v", err)
 	}
 }

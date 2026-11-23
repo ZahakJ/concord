@@ -510,6 +510,26 @@ func (s *Service) fetchBlobPlaintext(channelID, blobID, keys string) ([]byte, er
 	return plain, nil
 }
 
+// maxShowPixels is the largest picture shown inline: 50 MP.
+const maxShowPixels = 50_000_000
+
+// errAttachTooLarge is a picture not shown inline; the UI offers it as a file.
+var errAttachTooLarge = errors.New("app: picture too large to show")
+
+// showable says whether a picture may be handed to a renderer inline. A few
+// kilobytes can claim a picture that takes gigabytes to decode, so the header's
+// size is read first; a picture refused here is offered as a file to save
+// instead (FetchFile), and one whose header cannot be read would not render.
+func showable(plain []byte) error {
+	if len(plain) > maxAttachmentPlain {
+		return errAttachTooLarge
+	}
+	if w, h, err := imgmeta.Size(plain); err != nil || int64(w)*int64(h) > maxShowPixels {
+		return errAttachTooLarge
+	}
+	return nil
+}
+
 // FetchAttachment resolves an image token to a plaintext image data URL.
 func (s *Service) FetchAttachment(channelID, blobID, keys, subtype string) (string, error) {
 	switch subtype {
@@ -519,6 +539,11 @@ func (s *Service) FetchAttachment(channelID, blobID, keys, subtype string) (stri
 	}
 	plain, err := s.fetchBlobPlaintext(channelID, blobID, keys)
 	if err != nil {
+		return "", err
+	}
+	// The sender's checks bound what an honest client sends; a hostile one can
+	// seal anything, so the same bounds hold here before a renderer sees it.
+	if err := showable(plain); err != nil {
 		return "", err
 	}
 	// A viewed image is a decrypted image — queue its text for local search.

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
 	"strings"
 	"testing"
@@ -39,10 +38,7 @@ func TestEditedAttachmentReachesTheOtherPeer(t *testing.T) {
 	waitMembers(t, 20*time.Second, 2, a, b)
 
 	dataURL := func() string {
-		plain := make([]byte, 4096)
-		if _, err := rand.Read(plain); err != nil {
-			t.Fatal(err)
-		}
+		plain := picOf(t, 4096)
 		return "data:image/png;base64," + base64.StdEncoding.EncodeToString(plain)
 	}
 

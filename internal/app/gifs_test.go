@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
 	"strings"
 	"testing"
@@ -14,10 +13,7 @@ import (
 // an opaque sealed blob, exactly like an attachment.
 func gifDataURL(t *testing.T, subtype string, n int) string {
 	t.Helper()
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		t.Fatal(err)
-	}
+	b := picOf(t, n)
 	return "data:image/" + subtype + ";base64," + base64.StdEncoding.EncodeToString(b)
 }
 

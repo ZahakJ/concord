@@ -38,7 +38,7 @@ func TestArchivePicturesReadByAMemberArePassedOn(t *testing.T) {
 	var pics []pic
 	var msgs []chronicleMessage
 	for i := 0; i < 3; i++ {
-		id, keys, err := a.sealBlob([]byte(fmt.Sprintf("archived picture %d", i)))
+		id, keys, err := a.sealBlob(picOf(t, 64+i))
 		if err != nil {
 			t.Fatal(err)
 		}
