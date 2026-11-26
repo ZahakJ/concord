@@ -124,12 +124,15 @@
 
         <!-- Concord's cards for the owner's Jayb (jaybos CONTRACTS.md §2-§3):
              one read-only row of unread counts, no words. Behind READ_CARDS
-             below, and CardsProvider checks the caller's signer again. -->
+             below for everything (android:permission: queries, observers,
+             notifyChange and writes alike, so no other app learns when a
+             message arrives), and CardsProvider checks the caller's signer
+             again. -->
         <provider
             android:name=".CardsProvider"
             android:authorities="${applicationId}.cards"
             android:exported="true"
-            android:readPermission="app.concord.mobile.permission.READ_CARDS" />
+            android:permission="app.concord.mobile.permission.READ_CARDS" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

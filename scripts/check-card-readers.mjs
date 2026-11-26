@@ -33,6 +33,18 @@ export function problems(appDir, { merged = false } = {}) {
   const main = path.join(src, "main/res/values/card_readers.xml");
   const xml = fs.existsSync(main) ? fs.readFileSync(main, "utf8").replace(/<!--[\s\S]*?-->/g, "") : "";
   if (!/<item>\s*[0-9a-fA-F]{64}\s*<\/item>/.test(xml)) out.push("src/main/res/values/card_readers.xml lists no reader");
+  // The card provider and the open activity are guarded whole: android:permission covers query, observers,
+  // notifyChange, insert, update and delete (review: readPermission alone left observers and writes to anyone).
+  const mf = path.join(src, "main/AndroidManifest.xml");
+  if (fs.existsSync(mf)) {
+    const m = fs.readFileSync(mf, "utf8").replace(/<!--[\s\S]*?-->/g, "");
+    for (const [tag, name, perm] of [["provider", ".CardsProvider", "READ_CARDS"], ["activity", ".OpenConversationActivity", "OPEN_CONVERSATION"]]) {
+      const el = (m.match(new RegExp(`<${tag}\\b[^>]*android:name="${name.replace(".", "\\.")}"[^>]*>`)) || [])[0];
+      if (!el) { out.push(`the manifest has no ${name}`); continue; }
+      if (!el.includes(`android:permission="app.concord.mobile.permission.${perm}"`)) out.push(`${name} is not guarded whole by ${perm} (android:permission)`);
+      if (/android:(read|write)Permission=/.test(el)) out.push(`${name} has a read or write permission beside android:permission`);
+    }
+  }
   if (merged) {
     const dir = path.join(appDir, "build/intermediates");
     let seen = 0;
