@@ -5,6 +5,7 @@
   "description": "Capacitor shells for the Concord Android and iOS apps: they host the web UI and the gomobile-built Go core.",
   "main": "index.js",
   "scripts": {
+    "postinstall": "node ../../scripts/patch-capacitor.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

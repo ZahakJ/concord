@@ -124,6 +124,9 @@ jobs:
         run: make android-core ANDROID_TARGET=android/amd64
       - name: Capacitor sync
         run: cd apps/mobile && npm ci && npx cap sync android
+      # No addJavascriptInterface but MessageHandler's old-WebView fallback (unreachable: WebViewGate).
+      - name: No Java object in every frame
+        run: node scripts/check-capacitor-jsi.test.mjs && node scripts/check-capacitor-jsi.mjs
       - name: Gradle debug build
         run: cd apps/mobile/android && ./gradlew --no-daemon assembleDebug -PconcordAbi=x86_64
       # Concord never asks for photo-library or storage access. The merged

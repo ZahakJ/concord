@@ -202,6 +202,10 @@ android-app: frontend android-core
 		exit 1; \
 	fi
 	cd apps/mobile && npm ci && npx cap sync android
+	# No Java object in every frame: Capacitor's cookie and HTTP interfaces are patched out (npm ci's postinstall),
+	# and only MessageHandler's old-WebView fallback may remain, unreachable behind WebViewGate.
+	node scripts/patch-capacitor.mjs
+	node scripts/check-capacitor-jsi.test.mjs && node scripts/check-capacitor-jsi.mjs
 	cd apps/mobile/android && ./gradlew bundleRelease \
 		-PconcordVersionName=$(MOBILE_VERSION_NAME) \
 		-PconcordVersionCode=$(MOBILE_VERSION_CODE)
