@@ -76,6 +76,7 @@
           title={card.title}
           allow="autoplay; fullscreen; picture-in-picture"
           allowfullscreen
+          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
         ></iframe>
       {:else}
         {#if src}<img {src} alt="" draggable="false" />{/if}

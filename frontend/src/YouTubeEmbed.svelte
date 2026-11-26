@@ -29,6 +29,7 @@
       title="YouTube video"
       allow="autoplay; fullscreen; picture-in-picture"
       allowfullscreen
+      sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
     ></iframe>
   {:else if revealed}
     <button class="thumb" onclick={() => (playing = true)} aria-label="Play YouTube video">
