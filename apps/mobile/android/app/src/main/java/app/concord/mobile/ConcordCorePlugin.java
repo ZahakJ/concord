@@ -597,6 +597,8 @@ public class ConcordCorePlugin extends Plugin {
         launch.setAction(Intent.ACTION_VIEW);
         launch.setData(Uri.parse("concord://channel?id=" + Uri.encode(tag)));
         launch.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        // Concord's own tap: gated, so MainActivity keeps the link (OpenGate).
+        OpenGate.stamp(ctx, launch);
         int piFlags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             piFlags |= PendingIntent.FLAG_IMMUTABLE;

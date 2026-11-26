@@ -31,6 +31,9 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // A conversation link from outside Concord loses its data before the
+        // bridge reads the launch URL: opening marks read (OpenGate).
+        OpenGate.sanitize(this, getIntent());
         // Must run before super.onCreate: it swaps the launch theme for the
         // post-splash theme and installs the splash view.
         SplashScreen splash = SplashScreen.installSplashScreen(this);
@@ -140,6 +143,7 @@ public class MainActivity extends BridgeActivity {
     // stages them through the composer's own attachment flow.
     @Override
     public void onNewIntent(android.content.Intent intent) {
+        OpenGate.sanitize(this, intent);
         super.onNewIntent(intent);
         handleShareIntent(intent);
     }

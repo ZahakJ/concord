@@ -55,9 +55,11 @@
                  concord://link?c=<code>, so scanning it with the system camera
                  opens the app with the code (handled via @capacitor/app's
                  appUrlOpen in frontend/src/lib/deeplink.js). concord://open?c=<id>
-                 (Jayb's board) and concord://channel?id=<id> (a notification
-                 tap) only open one of the owner's conversations, parsed
-                 strictly by lib/openlink.js; anything else does nothing. -->
+                 and concord://channel?id=<id> open a conversation only when
+                 Concord itself sent them (OpenGate's secret: a notification
+                 tap, or OpenConversationActivity for the owner's Jayb); from
+                 anywhere else MainActivity drops the link, because opening
+                 marks read. The page parses them strictly (lib/openlink.js). -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -108,6 +110,17 @@
             android:name=".ConcordCallService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- The owner's Jayb opens a conversation here (jaybos CONTRACTS.md
+             §5): explicit starts only, no BROWSABLE filter, and only by an
+             app holding OPEN_CONVERSATION below. -->
+        <activity
+            android:name=".OpenConversationActivity"
+            android:exported="true"
+            android:permission="app.concord.mobile.permission.OPEN_CONVERSATION"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Concord's cards for the owner's Jayb (jaybos CONTRACTS.md §2-§3):
              one read-only row of unread counts, no words. Behind READ_CARDS
@@ -172,6 +185,11 @@
          app holds, so it fails closed. -->
     <permission
         android:name="app.concord.mobile.permission.READ_CARDS"
+        android:protectionLevel="signature|knownSigner"
+        android:knownCerts="@array/card_readers"
+        tools:targetApi="s" />
+    <permission
+        android:name="app.concord.mobile.permission.OPEN_CONVERSATION"
         android:protectionLevel="signature|knownSigner"
         android:knownCerts="@array/card_readers"
         tools:targetApi="s" />
