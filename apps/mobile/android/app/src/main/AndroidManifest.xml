@@ -54,7 +54,10 @@
             <!-- concord:// deep links — the device-linking QR encodes
                  concord://link?c=<code>, so scanning it with the system camera
                  opens the app with the code (handled via @capacitor/app's
-                 appUrlOpen in frontend/src/lib/deeplink.js). -->
+                 appUrlOpen in frontend/src/lib/deeplink.js). concord://open?c=<id>
+                 (Jayb's board) and concord://channel?id=<id> (a notification
+                 tap) only open one of the owner's conversations, parsed
+                 strictly by lib/openlink.js; anything else does nothing. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

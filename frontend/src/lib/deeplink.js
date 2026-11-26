@@ -1,14 +1,18 @@
-// deeplink.js — concord:// URL handling. Two shapes:
+// deeplink.js — concord:// URL handling. Three shapes:
 //   concord://link?c=<code>     device linking; the QR encodes this so the OS
 //                               camera can open the app directly, and the
 //                               in-app scanner/paste box accept it or the raw code
 //   concord://channel?id=<id>   open a conversation; this is what a message
 //                               notification's tap carries
+//   concord://open?c=<id>       open a conversation from another of the owner's
+//                               apps (Jayb's board). Both conversation shapes are
+//                               parsed strictly by lib/openlink.js and only open.
 // Reached via the Capacitor runtime global (like biometric.js) so the
 // web/desktop bundle carries no Capacitor dependency.
 
 import { S, jumpToChannel } from "./state.svelte.js";
 import { api } from "./api.js";
+import { conversationFromURL, isConversationLink } from "./openlink.js";
 
 // linkCodeFrom extracts a link code from scanned/pasted text: a concord://link
 // URL or a raw CL1… code. Returns "" when it's neither.
@@ -43,30 +47,20 @@ export function consumePendingChannel() {
   return c;
 }
 
-// queryParam pulls one key out of a custom-scheme URL's query string. URL()
-// mangles non-http schemes in some WebViews, so parse by hand.
-function queryParam(url, key) {
-  const q = (url || "").split("?")[1] || "";
-  const m = new RegExp(`(?:^|&)${key}=([^&]*)`).exec(q);
-  try {
-    return m ? decodeURIComponent(m[1]) : "";
-  } catch {
-    return "";
-  }
-}
-
 function handleURL(url) {
   const u = url || "";
 
-  // A tapped message notification. Landing the user in the conversation they
+  // A tapped message notification, or a board item in Jayb. Landing the user in the conversation they
   // were just told about is the whole point of the notification; without this
   // the tap dropped them wherever they last were.
-  if (/^concord:\/\/channel/i.test(u)) {
-    const id = queryParam(u, "id");
+  if (isConversationLink(u)) {
+    // Only opens, and only one of his own conversations: a malformed link, or
+    // an id that names none of them, does nothing at all (no toast, no screen).
+    const id = conversationFromURL(u);
     // Arrives during cold start too, before the node has loaded the guild list —
     // jumpToChannel can only work once we're ready, so hold it for App.svelte.
     if (id) {
-      if (S.ready) jumpToChannel(id);
+      if (S.ready) jumpToChannel(id).catch(() => {});
       else pendingChannel = id;
     }
     return;
