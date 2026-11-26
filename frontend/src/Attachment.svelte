@@ -94,13 +94,26 @@
   // longpress action has armed and both sheets would open; a native listener
   // here stops the bubble first. A covered spoiler lets it through on purpose —
   // there is no picture to act on yet, so the row's menu is the useful one.
+  // It also notes when a finger last came down: a contextmenu event that a
+  // touch raised is refused, since Android raises one under the still finger
+  // of a pinch and the picture's Save / Copy menu would open mid-gesture.
+  // pointerType alone misses it on WebViews that send a plain MouseEvent.
+  let touchedAt = -Infinity;
   function imageTouch(node) {
     const stop = (ev) => {
+      touchedAt = performance.now();
       if (!hidden) ev.stopPropagation();
     };
     node.addEventListener("touchstart", stop, { passive: true });
     return { destroy: () => node.removeEventListener("touchstart", stop) };
   }
+  const imageContextMenu = (e) => {
+    if (e.pointerType === "touch" || e.sourceCapabilities?.firesTouchEvents || performance.now() - touchedAt < 1500) {
+      e.preventDefault();
+      return;
+    }
+    imageMenu(e);
+  };
   const imageLongPress = (e) => {
     if (!hidden) imageMenu(e);
   };
@@ -294,7 +307,7 @@
       style:--pic={tile && !hidden && src ? `url("${src}")` : undefined}
       data-att-msg={tile ? messageId : undefined}
       onclick={hidden ? reveal : openLightbox}
-      oncontextmenu={hidden ? undefined : (e) => (e.pointerType === "touch" ? e.preventDefault() : imageMenu(e))}
+      oncontextmenu={hidden ? undefined : imageContextMenu}
       title={hidden ? "Spoiler — click to reveal" : "Click to enlarge"}
       use:imageTouch
       use:longpress={{ handler: imageLongPress }}
@@ -399,6 +412,7 @@
   .frame.done {
     background: transparent;
     padding: 0;
+    -webkit-touch-callout: none; /* the long-press is ours: no system Save / Copy sheet */
     display: block;
     width: fit-content;
     /* The shrink-to-fit box must itself be capped, or the image's own
@@ -428,6 +442,7 @@
   }
   .frame.done img {
     display: block;
+    -webkit-touch-callout: none;
     border-radius: inherit;
     transition: transform var(--dur-move) var(--ease-out);
   }

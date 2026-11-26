@@ -288,6 +288,54 @@ test("phone: a pinch in the viewer opens no menu, a held tile still selects", as
   assert.equal(b.errors.length, 0, `page errors: ${b.errors.join(" | ")}`);
 });
 
+// The same report, on the picture in the conversation: a pinch there opens no
+// menu either, and neither does the contextmenu Android raises under the still
+// finger (a WebView may send it as a plain MouseEvent, with no pointerType). A
+// held picture still opens its menu.
+test("phone: a pinch on a picture in the conversation opens no menu, a hold does", async ({ world, assert, step, waitFor }) => {
+  const [alice, bashir] = await world.peers(2);
+  await world.guild({ name: "Shared", members: [alice, bashir] });
+  const dm = await world.dm(alice, bashir);
+  const p = await sendPicture(alice, dm.channelId, 1, 600, 900);
+  await bashir.waitForMessage(dm.channelId, (m) => m.id === p.id, { timeout: 60000 });
+  const b = await bashir.open({ viewport: "phone" });
+  await b.openDM("Alice");
+  await b.settled();
+  const page = b.page;
+  const pic = page.locator(".frame.done").last();
+  await waitFor(async () => (await pic.locator("img").count()) === 1, { timeout: 30000, message: "the picture in the conversation" });
+  await page.waitForTimeout(500);
+  const menus = () => page.locator('[role="menu"], [role="menuitem"]').count();
+
+  step("a pinch on the picture, one finger still, opens nothing");
+  const r = await pic.boundingBox();
+  const cx = r.x + r.width / 2;
+  const cy = r.y + r.height / 2;
+  const cdp = (b.cdp ||= await b.ctx.newCDPSession(page));
+  const touch = (type, pts) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: pts.map(([x, y], i) => ({ x, y, id: i })) });
+  const a = [cx - 20, cy];
+  await touch("touchStart", [a]);
+  await page.waitForTimeout(120);
+  await touch("touchStart", [a, [cx + 20, cy + 4]]);
+  for (let k = 1; k <= 8; k++) {
+    await touch("touchMove", [a, [cx + 20 + k * 5, cy + 4 + k * 3]]);
+    await page.waitForTimeout(50);
+  }
+  await touch("touchEnd", [a]);
+  // What Android raises under the still finger, without a pointerType.
+  await pic.evaluate((el, [x, y]) => el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: x, clientY: y })), a);
+  await page.waitForTimeout(800);
+  await touch("touchEnd", []);
+  await page.waitForTimeout(500);
+  assert.equal(await menus(), 0, "no menu after a pinch on the picture");
+
+  step("a still finger on the picture opens its menu");
+  await page.waitForTimeout(400);
+  await b.longPress(pic, { at: { x: 40, y: 40 } });
+  await waitFor(async () => (await menus()) > 0, { message: "the picture's menu" });
+  assert.equal(b.errors.length, 0, `page errors: ${b.errors.join(" | ")}`);
+});
+
 // ---- performance (direction only) ----------------------------------------
 const pct = (a, q) => {
   const s = [...a].sort((x, y) => x - y);
