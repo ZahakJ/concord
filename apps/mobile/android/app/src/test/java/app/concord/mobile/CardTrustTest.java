@@ -45,6 +45,16 @@ public class CardTrustTest {
     }
 
     @Test
+    public void everyPackageOfTheCallingUidMustBeAReader() {
+        CardTrust.Signed jayb = signedBy("space.avicenna.jayb", JAYB);
+        assertTrue(CardTrust.allowedUid("space.avicenna.jayb", new String[] {"space.avicenna.jayb"}, RELEASE, false, jayb));
+        assertFalse("a stranger sharing the UID", CardTrust.allowedUid("space.avicenna.jayb", new String[] {"space.avicenna.jayb", "org.example.x"}, RELEASE, false, jayb));
+        assertFalse("named a package not of the UID", CardTrust.allowedUid("space.avicenna.jayb", new String[] {"org.example.x"}, RELEASE, false, (p, d) -> true));
+        assertFalse("no packages", CardTrust.allowedUid("space.avicenna.jayb", new String[0], RELEASE, false, jayb));
+        assertFalse(CardTrust.allowedUid("space.avicenna.jayb", null, RELEASE, false, jayb));
+    }
+
+    @Test
     public void digestsAreStrict() {
         assertEquals(32, CardTrust.digest(JAYB).length);
         assertArrayEquals(CardTrust.digest(JAYB), CardTrust.digest(JAYB.toUpperCase()));

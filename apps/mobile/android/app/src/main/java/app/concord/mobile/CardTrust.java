@@ -28,6 +28,20 @@ final class CardTrust {
         return false;
     }
 
+    /**
+     * The caller's UID passes only when it has packages, [caller] is one of them, and every one of them is signed
+     * by a listed reader (review D2: a shared UID can't lend one package's key to another).
+     */
+    static boolean allowedUid(String caller, String[] uidPackages, String[] readers, boolean debugBuild, Signed signed) {
+        if (uidPackages == null || uidPackages.length == 0 || caller == null) return false;
+        boolean named = false;
+        for (String p : uidPackages) {
+            if (caller.equals(p)) named = true;
+            if (!allowed(p, readers, debugBuild, signed)) return false;
+        }
+        return named;
+    }
+
     /** 64 hex characters to 32 bytes; anything else is null. */
     static byte[] digest(String hex) {
         if (hex == null) return null;

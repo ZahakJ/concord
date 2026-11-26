@@ -46,7 +46,9 @@ public class CardsProvider extends ContentProvider {
         // hasSigningCertificate needs Android 9; knownSigner itself needs 12, so older callers hold no grant anyway.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false;
         final PackageManager pm = ctx.getPackageManager();
-        return CardTrust.allowed(getCallingPackage(), ctx.getResources().getStringArray(R.array.card_readers), BuildConfig.DEBUG,
+        // Every package of the calling UID, not only the one it names (review D2).
+        String[] pkgs = pm.getPackagesForUid(android.os.Binder.getCallingUid());
+        return CardTrust.allowedUid(getCallingPackage(), pkgs, ctx.getResources().getStringArray(R.array.card_readers), BuildConfig.DEBUG,
             (pkg, d) -> {
                 try {
                     return pm.hasSigningCertificate(pkg, d, PackageManager.CERT_INPUT_SHA256);
