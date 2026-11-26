@@ -41,6 +41,8 @@ jobs:
         run: node scripts/check-media-permissions.mjs apps/mobile/android/app/src/main/AndroidManifest.xml
       - name: Nothing leaves the phone by backup or transfer (source manifest)
         run: node scripts/check-no-backup.test.mjs && node scripts/check-no-backup.mjs apps/mobile/android/app/src/main/AndroidManifest.xml
+      - name: Jayb's card readers list no debug key outside debug builds (source)
+        run: node scripts/check-card-readers.test.mjs && node scripts/check-card-readers.mjs apps/mobile/android/app
       # The manual is published from the committed docs/manual/, so a source
       # edited without `make docs` would publish the old page. This also fails
       # on a link to a heading or file that does not exist.

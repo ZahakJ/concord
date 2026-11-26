@@ -106,6 +106,15 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- Concord's cards for the owner's Jayb (jaybos CONTRACTS.md §2-§3):
+             one read-only row of unread counts, no words. Behind READ_CARDS
+             below, and CardsProvider checks the caller's signer again. -->
+        <provider
+            android:name=".CardsProvider"
+            android:authorities="${applicationId}.cards"
+            android:exported="true"
+            android:readPermission="app.concord.mobile.permission.READ_CARDS" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -154,6 +163,15 @@
 
     <!-- Permissions -->
 
+    <!-- Granted by Android only to apps signed by a key in @array/card_readers
+         (Jayb's release key; the debug key in debug builds only). knownSigner
+         needs Android 12; before it this is plain signature, which no other
+         app holds, so it fails closed. -->
+    <permission
+        android:name="app.concord.mobile.permission.READ_CARDS"
+        android:protectionLevel="signature|knownSigner"
+        android:knownCerts="@array/card_readers"
+        tools:targetApi="s" />
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Wi-Fi vs cellular, so peer discovery can run at a gentler cadence on a
          data plan (NetworkWatch -> Node.setMetered). Install-time and

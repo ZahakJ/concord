@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: Jayb's release key and the shared Android debug key, so
+     a debug Jayb can read a debug Concord's cards. Never in a release. -->
+<resources>
+    <string-array name="card_readers" translatable="false">
+        <item>9024547629d08815f4003501036306f3bf44064200a6ad23b7fecf2b6c34210c</item>
+        <item>5a6ef046fc93fe8d30b032a80188a5455556b3e6ae2d229adca9d5a6fdee8cb8</item>
+    </string-array>
+</resources>

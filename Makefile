@@ -212,6 +212,8 @@ android-app: frontend android-core
 		-PconcordAbi=arm64-v8a \
 		-PconcordVersionName=$(MOBILE_VERSION_NAME) \
 		-PconcordVersionCode=$(MOBILE_VERSION_CODE)
+	# Jayb's card readers: no debug key in what ships (jaybos CONTRACTS.md §1).
+	node scripts/check-card-readers.mjs --merged apps/mobile/android/app
 	cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
 		apps/mobile/android/app/build/outputs/apk/release/concord-$(MOBILE_VERSION_NAME)-android.apk
 	@echo "built apps/mobile/android/app/build/outputs/apk/release/concord-$(MOBILE_VERSION_NAME)-android.apk"

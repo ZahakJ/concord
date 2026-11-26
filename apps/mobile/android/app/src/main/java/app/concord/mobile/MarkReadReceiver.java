@@ -50,6 +50,8 @@ public class MarkReadReceiver extends BroadcastReceiver {
         NotificationManager nm =
             (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm != null) nm.cancel(tag, ConcordCorePlugin.MSG_NOTIF_ID);
+        // Jayb's tile: this conversation is read.
+        UnreadCard.clear(ctx, tag);
 
         // The bridge call can hit disk and the network, and onReceive runs on
         // the main thread — hop off it and hold the broadcast open until done.

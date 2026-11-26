@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Who may read Concord's cards (jaybos CONTRACTS.md §1): SHA-256 of each
+     reader's signing certificate. A release lists release keys only; the
+     shared debug key is added by src/debug and refused by
+     scripts/check-card-readers.mjs anywhere else. -->
+<resources>
+    <string-array name="card_readers" translatable="false">
+        <!-- Jayb (space.avicenna.jayb), the owner's release key. -->
+        <item>9024547629d08815f4003501036306f3bf44064200a6ad23b7fecf2b6c34210c</item>
+    </string-array>
+</resources>

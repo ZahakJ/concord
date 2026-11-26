@@ -423,6 +423,27 @@ public class ConcordCorePlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * The page's unread counts for Jayb's tile ({counts: {conversationId: n}},
+     * lib/unreadcard.js): numbers only, capped, at most 2000 conversations.
+     * They replace the stored card and clear its "partial" mark (CardsProvider).
+     */
+    @PluginMethod
+    public void setUnreadSummary(PluginCall call) {
+        JSObject in = call.getObject("counts");
+        java.util.Map<String, Long> counts = new java.util.LinkedHashMap<>();
+        if (in != null) {
+            java.util.Iterator<String> keys = in.keys();
+            while (keys.hasNext() && counts.size() < UnreadSummary.MAX_CONVERSATIONS) {
+                String id = keys.next();
+                long n = in.optLong(id, 0);
+                if (UnreadSummary.validId(id) && n > 0) counts.put(id, n);
+            }
+        }
+        UnreadCard.replace(getContext(), counts);
+        call.resolve();
+    }
+
     @PluginMethod
     public void postNotification(PluginCall call) {
         postMessageNotification(
