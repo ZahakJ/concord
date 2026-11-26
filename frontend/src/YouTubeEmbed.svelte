@@ -13,7 +13,7 @@
   //
   // `url` rides on the box as data-link-href so holding or right-clicking it
   // offers Open link / Copy link like any other link.
-  import { ytThumb, ytEmbed } from "./lib/embeds.js";
+  import { ytThumb, ytEmbed, ytWatch } from "./lib/embeds.js";
 
   let { videoId, url = "", autoload = true } = $props();
   let playing = $state(false);
@@ -29,7 +29,7 @@
       title="YouTube video"
       allow="autoplay; fullscreen; picture-in-picture"
       allowfullscreen
-      sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
+      sandbox="allow-scripts allow-same-origin allow-presentation"
     ></iframe>
   {:else if revealed}
     <button class="thumb" onclick={() => (playing = true)} aria-label="Play YouTube video">
@@ -51,8 +51,24 @@
     </button>
   {/if}
 </div>
+{#if playing}
+  <!-- The player's frame can't open windows (no allow-popups), so leaving for YouTube is this link of ours. -->
+  <a class="watch" href={ytWatch(videoId)} target="_blank" rel="noopener noreferrer">Watch on YouTube</a>
+{/if}
 
 <style>
+  .watch {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+    text-decoration: none;
+  }
+  .watch:hover,
+  .watch:focus-visible {
+    color: var(--text);
+    text-decoration: underline;
+  }
   .yt {
     margin-top: 6px;
     width: min(420px, 100%);

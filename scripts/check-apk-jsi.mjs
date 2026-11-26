@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // The built APK, jars included: which methods call addJavascriptInterface (an object injected into every frame,
-// third-party iframes included). Exactly two callers are allowed:
-//   - com.getcapacitor.MessageHandler.<init>: the fallback for a WebView without WEB_MESSAGE_LISTENER, which
-//     WebViewGate makes unreachable (Concord refuses to start on such a WebView);
+// third-party iframes included). One caller is allowed (MessageHandler's fallbacks are patched to throw, see
+// scripts/patch-capacitor.mjs):
 //   - org.apache.cordova.engine.SystemWebViewEngine.exposeJsInterface, from the cordova framework jar, allowed only
 //     while this proves the engine is never built: nothing outside it calls its constructor, it is named only in
 //     CordovaWebViewImpl.createEngine, createEngine is called only from CordovaActivity, and no class extends,
 //     builds or declares CordovaActivity (Capacitor uses MockCordovaWebViewImpl).
 // androidx.webkit's WebViewBuilderBoundaryInterface$Config declares a method of that name; a declaration is no call.
-// Static checks against the jars' source can't see any of this; the dex can.
+// Naming either by string (const-string "addJavascriptInterface", or SystemWebViewEngine for reflection) outside
+// the allowed methods fails too. Static checks against the jars' source can't see any of this; the dex can.
 //
 //   node scripts/check-apk-jsi.mjs <apk>        (uses $ANDROID_HOME/build-tools' dexdump and aapt2)
 import fs from "node:fs";
@@ -17,7 +17,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const ALLOWED = ["com.getcapacitor.MessageHandler.<init>", "org.apache.cordova.engine.SystemWebViewEngine.exposeJsInterface"];
+export const ALLOWED = ["org.apache.cordova.engine.SystemWebViewEngine.exposeJsInterface"];
 const ENGINE = "Lorg/apache/cordova/engine/SystemWebViewEngine;";
 const ACTIVITY = "Lorg/apache/cordova/CordovaActivity;";
 
@@ -37,12 +37,21 @@ export function parse(text) {
   return { calls, supers };
 }
 
-export function check(text, manifest = "") {
+/** text: every dex's dump joined; dexes: each dump on its own, each of which must hold classes. */
+export function check(text, manifest = "", dexes = [text]) {
+  dexes.forEach((d, i) => { if (!/Class descriptor\s*:/.test(d)) throw new Error(`dex ${i + 1} has no Class descriptor: dexdump read nothing from it`); });
   const { calls, supers } = parse(text);
   const problems = [];
+  for (const [m, l] of calls) {
+    const str = l.match(/const-string(?:\/jumbo)? [^,]+, "(.*)" \/\/ string@/);
+    // The engine's own methods name it as their log tag; it is never built (proven below), so they never run.
+    if (!str || ALLOWED.includes(m) || m.startsWith("org.apache.cordova.engine.SystemWebViewEngine.")) continue;
+    if (/addJavascriptInterface/.test(str[1])) problems.push(`${m} names addJavascriptInterface`);
+    else if (/SystemWebViewEngine/.test(str[1])) problems.push(`${m} names SystemWebViewEngine`);
+  }
   const callers = new Set(calls.filter(([, l]) => /invoke-[a-z/]+ .*\.addJavascriptInterface:/.test(l)).map(([m]) => m));
   for (const c of callers) if (!ALLOWED.includes(c)) problems.push(`${c} calls addJavascriptInterface`);
-  if (callers.has(ALLOWED[1])) {
+  if (callers.has(ALLOWED[0])) {
     const why = [];
     const outside = (m) => !m.startsWith("org.apache.cordova.engine.SystemWebViewEngine.");
     for (const [m, l] of calls) {
@@ -67,15 +76,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const tool = (n) => path.join(sdk, "build-tools", bt, n);
   if (!apk || !fs.existsSync(apk)) { console.error("usage: check-apk-jsi.mjs <apk>"); process.exit(1); }
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "apkjsi-"));
-  let text = "";
+  const dexes = [];
   try {
     execFileSync("unzip", ["-q", "-o", apk, "classes*.dex", "-d", tmp]);
     for (const f of fs.readdirSync(tmp).filter((n) => n.endsWith(".dex")).sort())
-      text += execFileSync(tool("dexdump"), ["-d", path.join(tmp, f)], { maxBuffer: 1 << 30, stdio: ["ignore", "pipe", "ignore"] }).toString();
+      dexes.push(execFileSync(tool("dexdump"), ["-d", path.join(tmp, f)], { maxBuffer: 1 << 30, stdio: ["ignore", "pipe", "inherit"] }).toString());
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  const text = dexes.join("");
   const manifest = execFileSync(tool("aapt2"), ["dump", "xmltree", "--file", "AndroidManifest.xml", apk], { maxBuffer: 1 << 26 }).toString();
-  if (!text.includes("Class descriptor")) { console.error("check-apk-jsi: no classes read from the APK"); process.exit(1); }
-  const { problems, callers } = check(text, manifest);
+  if (!dexes.length) { console.error("check-apk-jsi: no classes*.dex in the APK"); process.exit(1); }
+  let r;
+  try { r = check(text, manifest, dexes); } catch (e) { console.error(`check-apk-jsi: ${e.message}`); process.exit(1); }
+  const { problems, callers } = r;
   if (problems.length) { for (const p of problems) console.error(`check-apk-jsi: ${p}`); process.exit(1); }
   console.log(`check-apk-jsi: addJavascriptInterface only in ${callers.join(", ") || "nothing"}; SystemWebViewEngine is never built`);
 }

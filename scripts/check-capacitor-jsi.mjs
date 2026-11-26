@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-// addJavascriptInterface injects a Java object into every frame of the WebView, third-party iframes included. The
-// only one allowed in the installed Android sources is Capacitor's MessageHandler fallback for a WebView without
-// WEB_MESSAGE_LISTENER, which WebViewGate makes unreachable (Concord refuses to start on such a WebView). This fails
-// on any other, in @capacitor/android or any plugin's android sources, so an upgrade or a new plugin can't bring
+// addJavascriptInterface injects a Java object into every frame of the WebView, third-party iframes included. None
+// is allowed in the installed Android sources: scripts/patch-capacitor.mjs removes Capacitor's (MessageHandler's
+// old-WebView fallbacks now throw). This fails on any, in @capacitor/android or any plugin's android sources, so an upgrade or a new plugin can't bring
 // one back unseen. Run after `npm ci` (which applies scripts/patch-capacitor.mjs).
 //
 //   node scripts/check-capacitor-jsi.mjs [apps/mobile/node_modules]
@@ -10,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const ALLOWED = ["@capacitor/android/capacitor/src/main/java/com/getcapacitor/MessageHandler.java"];
+export const ALLOWED = [];
 
 function* files(dir) {
   if (!fs.existsSync(dir)) return;
@@ -64,5 +63,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     for (const p of problems) console.error(`check-capacitor-jsi: ${p}`);
     process.exit(1);
   }
-  console.log("check-capacitor-jsi: only MessageHandler's old-WebView fallback (unreachable: WebViewGate)");
+  console.log("check-capacitor-jsi: no addJavascriptInterface in any installed Android source");
 }

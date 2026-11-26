@@ -106,6 +106,8 @@ public class MainActivity extends BridgeActivity {
     protected void load() {
         if (webViewTooOld) return;
         super.load();
+        // Before the page can make a frame: subframes navigate over http(s) only (FrameGuard).
+        if (bridge != null) bridge.setWebViewClient(new FrameGuard(bridge));
     }
 
     @Override

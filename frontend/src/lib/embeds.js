@@ -33,4 +33,7 @@ export function youtubeID(url) {
 }
 
 export const ytThumb = (id) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+// Opened by our own link outside the player (the player's frame may not open windows): through launchIntent on
+// Android, a new tab elsewhere.
+export const ytWatch = (id) => `https://www.youtube.com/watch?v=${id}`;
 export const ytEmbed = (id) => `https://www.youtube-nocookie.com/embed/${id}?autoplay=1`;

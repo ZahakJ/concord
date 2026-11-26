@@ -101,3 +101,12 @@ try {
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
 }
+
+// The installed Capacitor must be patched (scripts/patch-capacitor.mjs, npm ci's postinstall): this runs the check
+// before every build, so `npm ci --ignore-scripts` followed by gradlew can't build an unpatched bridge.
+def checkCapacitorJsi = tasks.register("checkCapacitorJsi", Exec) {
+    def repo = rootProject.projectDir.parentFile.parentFile.parentFile
+    workingDir repo
+    commandLine "node", "scripts/check-capacitor-jsi.mjs", new File(repo, "apps/mobile/node_modules").path
+}
+tasks.named("preBuild") { dependsOn checkCapacitorJsi }

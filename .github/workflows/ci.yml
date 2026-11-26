@@ -124,7 +124,7 @@ jobs:
         run: make android-core ANDROID_TARGET=android/amd64
       - name: Capacitor sync
         run: cd apps/mobile && npm ci && npx cap sync android
-      # No addJavascriptInterface but MessageHandler's old-WebView fallback (unreachable: WebViewGate).
+      # No addJavascriptInterface in any installed Android source (scripts/patch-capacitor.mjs removes Capacitor's).
       - name: No Java object in every frame
         run: node scripts/check-capacitor-jsi.test.mjs && node scripts/check-capacitor-jsi.mjs
       - name: Gradle debug build

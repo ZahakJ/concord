@@ -6,7 +6,7 @@ const cls = (c, s = "Ljava/lang/Object;") => `  Class descriptor  : '${c}'\n  Su
 const method = (m, ...body) => `0001:                                        |[000001] ${m}:()V\n` + body.map((b, i) => `0002: 0000                                   |${String(i).padStart(4, "0")}: ${b}\n`).join("");
 const JSI = "invoke-virtual {v0, v1, v2}, Landroid/webkit/WebView;.addJavascriptInterface:(Ljava/lang/Object;Ljava/lang/String;)V";
 const base = [
-  cls("Lcom/getcapacitor/MessageHandler;"), method("com.getcapacitor.MessageHandler.<init>", JSI),
+  cls("Lcom/getcapacitor/MessageHandler;"), method("com.getcapacitor.MessageHandler.<init>", 'const-string v0, "concord-patch: no bridge for a WebView without WEB_MESSAGE_LISTENER (WebViewGate)" // string@9'),
   cls("Lorg/apache/cordova/engine/SystemWebViewEngine;"), method("org.apache.cordova.engine.SystemWebViewEngine.exposeJsInterface", JSI),
   method("org.apache.cordova.engine.SystemWebViewEngine.<init>", "invoke-direct {v1}, Lorg/apache/cordova/engine/SystemWebViewEngine;.<init>:(Lx;)V"),
   cls("Lorg/apache/cordova/CordovaWebViewImpl;"), method("org.apache.cordova.CordovaWebViewImpl.createEngine", "const-class v0, Lorg/apache/cordova/engine/SystemWebViewEngine; // type@1"),
@@ -17,7 +17,25 @@ const base = [
 
 let r = check(base);
 assert.deepEqual(r.problems, [], r.problems.join("\n"));
-assert.equal(r.callers.length, 2);
+assert.equal(r.callers.length, 1);
+
+// MessageHandler calling it again (an unpatched build) fails.
+r = check(base + cls("Lcom/getcapacitor/MessageHandler;") + method("com.getcapacitor.MessageHandler.<init>", JSI));
+assert.deepEqual(r.problems, ["com.getcapacitor.MessageHandler.<init> calls addJavascriptInterface"]);
+
+// Reaching either by name, for reflection, fails outside the allowed methods.
+for (const str of ["addJavascriptInterface", "org.apache.cordova.engine.SystemWebViewEngine"]) {
+  r = check(base + cls("Lapp/R;") + method("app.R.go", `const-string v0, "${str}" // string@7`));
+  assert.equal(r.problems.length, 1, str);
+  assert.match(r.problems[0], /^app\.R\.go names /);
+}
+
+// The engine naming itself (its log tag) is not a way in.
+assert.deepEqual(check(base + method("org.apache.cordova.engine.SystemWebViewEngine.destroy", 'const-string v0, "SystemWebViewEngine" // string@3')).problems, []);
+
+// Every dex file must have read as classes.
+assert.throws(() => check(base, "", [base, "nothing here"]), /dex 2 has no Class descriptor/);
+assert.deepEqual(check(base, "", [base, base]).problems, []);
 
 // A plugin calling it fails.
 r = check(base + cls("Lcom/x/Plugin;") + method("com.x.Plugin.load", JSI));

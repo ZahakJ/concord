@@ -15,9 +15,15 @@ import { fileURLToPath } from "node:url";
 
 export const VERSION = "8.5.2";
 const MARK = "// concord-patch: no addJavascriptInterface (scripts/patch-capacitor.mjs)";
+const THROW = 'throw new IllegalStateException("concord-patch: no bridge for a WebView without WEB_MESSAGE_LISTENER (WebViewGate)");';
+// [file, exact upstream line, replacement, how many times it occurs]
 export const PATCHES = [
-  ["plugin/CapacitorCookies.java", 'this.bridge.getWebView().addJavascriptInterface(this, "CapacitorCookiesAndroidInterface");'],
-  ["plugin/CapacitorHttp.java", 'this.bridge.getWebView().addJavascriptInterface(this, "CapacitorHttpAndroidInterface");'],
+  ["plugin/CapacitorCookies.java", 'this.bridge.getWebView().addJavascriptInterface(this, "CapacitorCookiesAndroidInterface");', MARK, 1],
+  ["plugin/CapacitorHttp.java", 'this.bridge.getWebView().addJavascriptInterface(this, "CapacitorHttpAndroidInterface");', MARK, 1],
+  // 2. MessageHandler's fallbacks, for a WebView without WEB_MESSAGE_LISTENER and for addWebMessageListener
+  //    throwing: both would put the whole bridge in every frame. WebViewGate refuses such a WebView before the bridge
+  //    exists, so neither should run; if one ever does, it throws instead of exposing the bridge.
+  ["MessageHandler.java", 'webView.addJavascriptInterface(this, "androidBridge");', THROW, 2],
 ];
 
 export function patch(nodeModules) {
@@ -26,16 +32,17 @@ export function patch(nodeModules) {
   if (ver !== VERSION) throw new Error(`@capacitor/android is ${ver}, the patches are for ${VERSION}: review them, then update VERSION`);
   const src = path.join(pkg, "capacitor/src/main/java/com/getcapacitor");
   const done = [];
-  for (const [rel, line] of PATCHES) {
+  for (const [rel, line, repl, n] of PATCHES) {
     const f = path.join(src, rel);
     const text = fs.readFileSync(f, "utf8");
-    if (text.includes(line)) {
-      fs.writeFileSync(f, text.replace(line, MARK));
+    const have = text.split(line).length - 1, patched = text.split(repl).length - 1;
+    if (have === n && patched === 0) {
+      fs.writeFileSync(f, text.split(line).join(repl));
       done.push(`${rel}: patched`);
-    } else if (text.includes(MARK)) {
+    } else if (have === 0 && patched === n) {
       done.push(`${rel}: already patched`);
     } else {
-      throw new Error(`${rel}: neither the expected line nor the patch is there`);
+      throw new Error(`${rel}: neither the expected line (${n}x) nor the patch is there (found ${have} and ${patched})`);
     }
   }
   return done;
