@@ -21,6 +21,7 @@
   import { api } from "../lib/api.js";
   import { flash } from "../lib/state.svelte.js";
   import { haptic } from "../lib/touch.js";
+  import { sendUnreadSummary } from "../lib/notify.js";
 
   let { onClose } = $props();
 
@@ -47,6 +48,8 @@
     haptic("heavy");
     try {
       await api.confirmWipe(ticket.ticket, typed.trim());
+      // Nothing of the erased account stays in the counts Jayb's tile reads.
+      sendUnreadSummary({ counts: {} });
       // The session this page was talking to no longer exists, and neither does
       // the data behind it. Reloading is what puts the app back on the first
       // screen it ever shows, which is now the honest one: no identity here.
@@ -55,6 +58,7 @@
       if (err?.code === "erase-pending") {
         // Erased, with one file still to go: not a failure. Say so, then go
         // to the first screen as on success.
+        sendUnreadSummary({ counts: {} });
         flash(err.message, "info");
         setTimeout(() => location.reload(), 6000);
         return;

@@ -120,6 +120,14 @@ if (typeof document !== "undefined" && nativeNotifier()) {
   });
 }
 
+// sendUnreadSummary hands the native side the per-conversation unread counts
+// it serves Jayb's tile (lib/unreadcard.js). No-op off Android.
+export function sendUnreadSummary(summary) {
+  const native = nativeNotifier();
+  if (!native?.setUnreadSummary) return;
+  native.setUnreadSummary(summary).catch(() => {});
+}
+
 // sendNativePolicy hands the native notifier the page's decision for the time
 // it runs alone (lib/notifs.js nativePolicy). No-op off Android.
 export function sendNativePolicy(policy) {

@@ -5,7 +5,8 @@ import { tick, untrack } from "svelte";
 import { closeGuildSwitcher } from "./guildswitch.svelte.js";
 import { MOM } from "./momentsunseen.svelte.js";
 import { api, on, onStreamReopen, onTransportHealth, probeCore } from "./api.js";
-import { notify, retract, wantsPermissionPrompt, trayPosts, asksLazily, sendNativePolicy } from "./notify.js";
+import { notify, retract, wantsPermissionPrompt, trayPosts, asksLazily, sendNativePolicy, sendUnreadSummary } from "./notify.js";
+import { createUnreadSync } from "./unreadcard.js";
 import { createPolicySync } from "./nativepolicy.js";
 import { draftIn, noteDraft } from "./drafts.svelte.js";
 import { containsMention } from "./markdown.js";
@@ -1041,6 +1042,26 @@ if (typeof document !== "undefined") {
     if (document.hidden) pushNativePolicy();
   });
 }
+// Jayb's Messages tile reads Concord's unread counts from the native side
+// (jaybos CONTRACTS.md §3), so it is handed them, numbers only, a second after
+// they move and at once when the page goes to the background. Never before the
+// page has counted once (lib/unreadcard.js).
+const unreadSync = createUnreadSync({
+  read: () => untrack(() => S.unread),
+  send: sendUnreadSummary,
+});
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) unreadSync.flushNow();
+  });
+}
+$effect.root(() => {
+  $effect(() => {
+    S.unread;
+    S.unreadTick;
+    unreadSync.changed();
+  });
+});
 $effect.root(() => {
   $effect(() => {
     S.identity?.presence;
@@ -1708,7 +1729,10 @@ async function recomputeUnread() {
     }
     S.unread = mergeUnreadChunk(S.unread, chunk, rows, tallyUnread);
   }
-  if (batched) return;
+  if (batched) {
+    unreadSync.counted();
+    return;
+  }
   for (const id of refine) {
     try {
       const u = await countChannelUnread(id);
@@ -1720,6 +1744,7 @@ async function recomputeUnread() {
       /* channel unreadable right now — skip */
     }
   }
+  unreadSync.counted();
 }
 
 // syncReadState pulls the backend's account-wide read cursors (which include
