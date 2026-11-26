@@ -28,9 +28,13 @@ public class MainActivity extends BridgeActivity {
     // can re-push the insets onto the freshly-loaded document.
     private static volatile MainActivity current = null;
     private long splashDeadline = 0;
+    // An older WebView would get the bridge through addJavascriptInterface, in every frame: refused (WebViewGate).
+    private boolean webViewTooOld = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Before anything builds the bridge: no WEB_MESSAGE_LISTENER, no bridge (security review).
+        webViewTooOld = WebViewGate.refuse();
         // A conversation link from outside Concord loses its data before the
         // bridge reads the launch URL: opening marks read (OpenGate).
         OpenGate.sanitize(this, getIntent());
@@ -38,7 +42,7 @@ public class MainActivity extends BridgeActivity {
         // post-splash theme and installs the splash view.
         SplashScreen splash = SplashScreen.installSplashScreen(this);
         splashDeadline = System.currentTimeMillis() + 8000;
-        splash.setKeepOnScreenCondition(() -> !webReady && System.currentTimeMillis() < splashDeadline);
+        splash.setKeepOnScreenCondition(() -> !webViewTooOld && !webReady && System.currentTimeMillis() < splashDeadline);
 
         // 0.63's fingerprint unlock kept the passphrase where any script in
         // the page could read it. Its data goes before the WebView loads.
@@ -47,6 +51,10 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ConcordCorePlugin.class);
         registerPlugin(CallAudioPlugin.class);
         super.onCreate(savedInstanceState);
+        if (webViewTooOld) {
+            WebViewGate.showTooOld(this);
+            return;
+        }
         // A cold start straight from another app's share sheet: the intent is
         // already here, long before JS can listen — emitShareIn stashes it.
         handleShareIntent(getIntent());
@@ -91,6 +99,13 @@ public class MainActivity extends BridgeActivity {
 
     static boolean isVisible() {
         return visible;
+    }
+
+    // BridgeActivity.onCreate ends in load(), which builds the bridge and loads the page: not on an older WebView.
+    @Override
+    protected void load() {
+        if (webViewTooOld) return;
+        super.load();
     }
 
     @Override
@@ -145,6 +160,7 @@ public class MainActivity extends BridgeActivity {
     public void onNewIntent(android.content.Intent intent) {
         OpenGate.sanitize(this, intent);
         super.onNewIntent(intent);
+        if (webViewTooOld) return;
         handleShareIntent(intent);
     }
 
