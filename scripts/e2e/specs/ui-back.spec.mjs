@@ -65,7 +65,7 @@ test("Back from the recovery-phrase, re-link and erase screens returns to the wa
   await menu.waitFor();
   const onMenu = async (what) => {
     await waitFor(async () => (await menu.count()) === 1, { message: `${what}: not back on the ways back` });
-    assert.equal(await page.getByRole("button", { name: "Create identity" }).count(), 0, `${what}: the create form is showing`);
+    assert.equal(await page.getByRole("button", { name: "Create account" }).count(), 0, `${what}: the create form is showing`);
   };
   const ways = [
     ["Use my recovery phrase", () => page.getByRole("textbox", { name: "Recovery phrase" })],
@@ -115,6 +115,7 @@ test("Back from the unlock screen's own screens returns to the unlock screen", a
     ["Re-link from my other device", () => page.getByRole("button", { name: "Link this device" })],
   ]) {
     step(`Forgot passphrase?, ${open}, then its Back returns to the ways back`);
+    await page.getByRole("button", { name: /^(Other options|I already have an account)$/ }).click();
     await page.getByRole("button", { name: "Forgot passphrase?" }).click();
     await page.getByRole("button", { name: open }).click();
     await shown().waitFor();
@@ -126,6 +127,7 @@ test("Back from the unlock screen's own screens returns to the unlock screen", a
   }
 
   step("Forgot passphrase?, an erase refused as out of date, then Back");
+  await page.getByRole("button", { name: /^(Other options|I already have an account)$/ }).click();
   await page.getByRole("button", { name: "Forgot passphrase?" }).click();
   await page.getByRole("button", { name: "I have neither — start over (deletes everything)" }).click();
   const word = page.getByRole("textbox", { name: "Type ERASE to confirm" });
@@ -139,6 +141,7 @@ test("Back from the unlock screen's own screens returns to the unlock screen", a
   await pass.waitFor();
 
   step("Re-link from the unlock screen, then its Back");
+  await page.getByRole("button", { name: /^(Other options|I already have an account)$/ }).click();
   await page.getByRole("button", { name: "Re-link from another device" }).click();
   await page.getByRole("button", { name: "Link this device" }).waitFor();
   await page.getByRole("button", { name: "Back", exact: true }).click();
@@ -158,6 +161,7 @@ test("Back from the unlock screen's own screens returns to the unlock screen", a
     }
     await route.continue();
   });
+  await page.getByRole("button", { name: /^(Other options|I already have an account)$/ }).click();
   await page.getByRole("button", { name: "Forgot passphrase?" }).click();
   await page.getByRole("button", { name: "I have neither — start over (deletes everything)" }).click();
   await word.fill("ERASE");
@@ -168,7 +172,7 @@ test("Back from the unlock screen's own screens returns to the unlock screen", a
   const stayed = await word.isVisible();
   release();
   assert.ok(stayed, "Escape closed the erase confirmation while the erase was running");
-  await page.getByRole("button", { name: "Create identity" }).waitFor();
+  await page.getByRole("button", { name: "Create account" }).waitFor();
   assert.equal(await menu.count(), 0, "the ways back showed after the erase");
 });
 
@@ -210,10 +214,10 @@ test("a link code that arrives over the ways back: Back returns to them", async 
     await page.evaluate(() => window.__openURL("concord://link?c=notarealcode"));
     await page.getByRole("button", { name: "Link this device" }).waitFor();
     await page.getByRole("button", { name: "Back", exact: true }).click();
-    await waitFor(async () => (await menu.count()) === 1 || (await page.getByRole("button", { name: "Create identity" }).count()) === 1, {
+    await waitFor(async () => (await menu.count()) === 1 || (await page.getByRole("button", { name: "Create account" }).count()) === 1, {
       message: "Back left the link screen",
     });
-    assert.equal(await page.getByRole("button", { name: "Create identity" }).count(), 0, `${from}: Back landed on the create form`);
+    assert.equal(await page.getByRole("button", { name: "Create account" }).count(), 0, `${from}: Back landed on the create form`);
     assert.equal(await menu.count(), 1, `${from}: not back on the ways back`);
   }
   assert.equal(await alice.rpc("Session"), false, "an account was opened or created");

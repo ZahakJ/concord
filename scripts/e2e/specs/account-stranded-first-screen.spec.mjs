@@ -53,7 +53,7 @@ async function firstScreen(peer, assert, want, opts = {}) {
   const other = page.getByRole("button", { name: want.other, exact: true });
   assert.ok(await erase.isVisible(), "no Erase it button");
   assert.ok(await other.isVisible(), `no ${want.other} button`);
-  assert.equal(await page.getByRole("button", { name: "Create identity" }).count(), 0, "the create form is shown beside the choice");
+  assert.equal(await page.getByRole("button", { name: "Create account" }).count(), 0, "the create form is shown beside the choice");
   assert.equal(await page.getByRole("textbox", { name: "Your name" }).count(), 0, "a name can be typed before the choice");
   assert.equal(await page.locator('input[type="password"]').count(), 0, "a passphrase can be typed before the choice");
   return { page, erase, other };
@@ -72,7 +72,7 @@ async function eraseThroughTheConfirmation(page, peer, assert, waitFor) {
   await page.getByRole("textbox", { name: "Your name" }).fill("Someone new");
   await page.getByPlaceholder("Choose a passphrase").fill("a-new-passphrase");
   await page.getByPlaceholder("Confirm passphrase").fill("a-new-passphrase");
-  await page.getByRole("button", { name: "Create identity" }).click();
+  await page.getByRole("button", { name: "Create account" }).click();
   await waitFor(async () => (await peer.rpc("Session")) === true, { message: "the new account is set up" });
   const me = await peer.rpc("Identity");
   assert.notEqual(me.fingerprint, peer.fingerprint, "the old account came back");
@@ -123,7 +123,7 @@ test("Keep it, never-linked data: the choice leads to the restore, keeps everyth
   await page.getByRole("button", { name: "Use my recovery phrase" }).waitFor();
   await page.getByRole("button", { name: "Back", exact: true }).click();
   await page.getByRole("heading", { name: NEVER_LINKED.title, exact: true }).waitFor();
-  assert.equal(await page.getByRole("button", { name: "Create identity" }).count(), 0, "Back led to the create form");
+  assert.equal(await page.getByRole("button", { name: "Create account" }).count(), 0, "Back led to the create form");
   await untouched(assert, alice, before, "after Back");
 
   step("Keep it opens the ways back, and nothing is erased or created");

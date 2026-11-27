@@ -958,40 +958,44 @@
                               ? "unlock"
                               : "create",
   );
-  // The mesh on the stage: your devices and the people you trust, joined
-  // directly, the mark at the middle. Positions in the 480×320 viewBox.
-  const NODES = [
-    [62, 92, 5],
-    [128, 252, 4],
-    [404, 70, 4.5],
-    [432, 214, 5.5],
-    [330, 286, 3.5],
-    [96, 176, 3],
-    [372, 150, 3],
-  ];
-  const HUB = [240, 160];
-  const ARCS = [
-    [0, 5],
-    [5, 1],
-    [2, 6],
-    [6, 3],
-    [3, 4],
-    [1, 4],
-    [0, 2],
-  ];
-  // A gentle curve between two nodes, bowed away from the hub like a route
-  // on a map.
-  function arc(a, b) {
-    const [x1, y1] = a;
-    const [x2, y2] = b;
-    const mx = (x1 + x2) / 2;
-    const my = (y1 + y2) / 2;
-    const k = 0.18;
-    const cx = mx + (mx - HUB[0]) * k;
-    const cy = my + (my - HUB[1]) * k;
-    return `M${x1} ${y1}Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x2} ${y2}`;
+  // The other ways in (forgot, re-link, fingerprint; link or restore) sit
+  // behind one quiet disclosure, so each screen has one action. Closed again
+  // whenever the screen changes.
+  let more = $state(false);
+  $effect(() => {
+    screen;
+    more = false;
+  });
+  function onMoreKey(e) {
+    if (e.key === "Escape" && more) {
+      e.stopPropagation();
+      more = false;
+    }
   }
 </script>
+
+{#snippet moreWays(items, label)}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="more" onkeydown={onMoreKey}>
+    <button type="button" class="more-toggle" aria-expanded={more} aria-controls="login-more" onclick={() => (more = !more)}>
+      {label}
+      <svg class="chev" class:open={more} width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+    </button>
+    {#if more}
+      <ul class="more-list" id="login-more">
+        {#each items as it, i (it.label)}
+          <li>
+            <!-- Named by its label alone; the hint describes it. -->
+            <button type="button" class="more-item" aria-label={it.label} aria-describedby={it.hint ? `login-more-${i}` : undefined} onclick={it.run}>
+              <span class="mi-label">{it.label}</span>
+              {#if it.hint}<span class="mi-hint" id="login-more-{i}">{it.hint}</span>{/if}
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </div>
+{/snippet}
 
 {#snippet mark(size)}
   <!-- The Concord mark: the delta in the aurora's light on a dark tile, drawn
@@ -1015,51 +1019,13 @@
   </svg>
 {/snippet}
 
-<!-- The lock and first-run stage. The aurora is one layer moved by transform
-     behind everything; the hero (mark, mesh, wordmark) is decoration and a
-     sentence; the form sits on an opaque panel, so every word in it — the
-     warnings above all — keeps the chrome's ink and contrast. -->
-<div class="login" class:deep={!["loading", "unlock", "create", "stranded"].includes(screen)}>
-  <div class="sky" aria-hidden="true"><div class="aurora"></div></div>
+<!-- The lock and first-run screen: one column, centred in the window, on the
+     theme's own ground. The mark, a title, a line, the fields and ONE action;
+     anything else is behind "Other options". No stage, no decoration. -->
+<div class="login">
   <div class="scroller" onfocusin={keepFieldInView}>
     <div class="stage">
-      <div class="hero">
-        <!-- data-audit="bleed": the drawing's box runs under the wordmark by
-             design (a negative margin); its marks end above the word. -->
-        <div class="emblem" aria-hidden="true" data-audit="bleed">
-          <svg class="mesh" viewBox="0 0 480 320" preserveAspectRatio="xMidYMid meet">
-            <defs>
-              <radialGradient id="lg-node">
-                <stop offset="0" class="n0" />
-                <stop offset="1" class="n1" />
-              </radialGradient>
-              <radialGradient id="lg-spark">
-                <stop offset="0" class="k0" />
-                <stop offset="1" class="k1" />
-              </radialGradient>
-            </defs>
-            <ellipse class="orbit" cx="240" cy="160" rx="150" ry="104" />
-            <ellipse class="orbit far" cx="240" cy="160" rx="222" ry="150" />
-            {#each ARCS as [a, b], i (i)}
-              <path class="route" style:--i={i} d={arc(NODES[a], NODES[b])} />
-            {/each}
-            {#each NODES as [x, y], i (i)}
-              <line class="spoke" style:--i={i} x1={HUB[0]} y1={HUB[1]} x2={x} y2={y} />
-            {/each}
-            {#each NODES as [x, y, r], i (i)}
-              <!-- One spark per stage: the node that is you. -->
-              <g class="node" class:spark={i === 3} style:--i={i}>
-                <circle class="halo" cx={x} cy={y} r={r * 4.2} fill={i === 3 ? "url(#lg-spark)" : "url(#lg-node)"} />
-                <circle class="dot" cx={x} cy={y} r={r} />
-              </g>
-            {/each}
-          </svg>
-          <div class="hub">{@render mark(104)}</div>
-        </div>
-        <p class="wordmark" aria-hidden="true">Concord</p>
-        <p class="tagline">Talk with the people you trust: no account server, no message store.</p>
-      </div>
-
+      <div class="brand" aria-hidden="true">{@render mark(48)}</div>
   <form class="card" onsubmit={submit}>
     {#key screen}
     <div class="screen">
@@ -1433,9 +1399,8 @@
     {:else if linking}
       <p class="muted">
         On your other device, open <strong>Settings → Your devices</strong>.
-        {#if canScan}Scan the QR code, or paste the code{:else}Copy the code and paste it here{/if}
-        with a passphrase for this device (it becomes this device's passphrase,
-        replacing any old one). Both devices need to be online.
+        {#if canScan}Scan its QR code, or paste the code below.{:else}Copy its code and paste it below.{/if}
+        The passphrase you set here replaces this device's old one. Keep both devices online.
       </p>
       {#if scanned}
         <!-- The QR scan worked: confirm it clearly and get out of the way, so
@@ -1604,11 +1569,10 @@
         </p>
       {:else}
         <p class="muted">
-          Your passphrase can't be looked up — it's never stored anywhere. If this
-          account is also on <strong>another device</strong>, re-linking from it is
-          the best fix: everything comes back — profile, guilds, and history. The
-          <strong>24-word recovery phrase</strong> restores your identity, but
-          guilds and history only return by re-linking or re-invites.
+          Concord never stores your passphrase, so it can't be looked up. Re-linking from
+          <strong>another device</strong> brings back everything: profile, guilds and history.
+          The <strong>recovery phrase</strong> brings back who you are; guilds and history
+          return only by re-linking or new invites.
         </p>
       {/if}
       <div class="error slot" role="alert">{error}</div>
@@ -1653,28 +1617,15 @@
       >
         {busy ? "Unlocking…" : "Unlock"}
       </button>
-      {#if bioOn}
-        <button type="button" class="ghost" disabled={busy} onclick={tryBiometricUnlock}>
-          Unlock with fingerprint
-        </button>
-      {/if}
-      <div class="links">
-        <button type="button" class="link" onclick={() => ((forgot = true), (error = ""))}>
-          Forgot passphrase?
-        </button>
-        <!-- Re-link works over an existing keystore too (the device key is kept,
-             only the account material is re-adopted) — handy for refreshing a
-             device from the desktop without digging through recovery flows. -->
-        <button type="button" class="link" onclick={() => ((linking = true), (error = ""))}>
-          Re-link from another device
-        </button>
-      </div>
+      <!-- Re-link works over an existing keystore too (the device key is kept,
+           only the account material is re-adopted). -->
+      {@render moreWays([
+        ...(bioOn ? [{ label: "Unlock with fingerprint", run: tryBiometricUnlock }] : []),
+        { label: "Forgot passphrase?", run: () => ((forgot = true), (error = "")) },
+        { label: "Re-link from another device", run: () => ((linking = true), (error = "")) },
+      ], "Other options")}
     {:else}
-      <p class="muted">
-        Pick a name and a passphrase to protect your identity on this device.
-        Next you'll get a 24-word recovery phrase — the key to your account — to
-        save.
-      </p>
+      <p class="muted">A name people see, and a passphrase that locks this device. Next comes your recovery phrase.</p>
       <!-- Likewise: a brand-new user's very first frame should be the copy
            explaining what they're about to do, not a keyboard covering it. -->
       <span class="field-lbl" aria-hidden="true">Your name</span>
@@ -1697,27 +1648,26 @@
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
       <button class="primary" type="submit" disabled={!hasVisible(displayName) || !passphrase || !confirmPass || busy}>
-        {busy ? "Creating…" : "Create identity"}
+        {busy ? "Creating…" : "Create account"}
       </button>
       <!-- The two ways in for an account that already exists, linking first.
            People with a working second device reached for the phrase, and a
            phrase restore beside a running original makes a copy that shares
            its network identity and can see neither it nor its guilds. -->
-      <div class="other-ways">
-        <button type="button" class="link" onclick={() => ((linking = true), (error = ""))}>
-          Add this device to my account
-        </button>
-        <span class="muted small">If your account is open on another device, link this one with a code from it.</span>
-        <button type="button" class="link" onclick={() => ((restoring = true), (error = ""))}>
-          I lost my devices — restore from my recovery phrase
-        </button>
-        <span class="muted small">Only when no other device of yours still has the account.</span>
-      </div>
+      {@render moreWays([
+        {
+          label: "Add this device to my account",
+          hint: "Your account is open on another device: link this one with a code from it.",
+          run: () => ((linking = true), (error = "")),
+        },
+        {
+          label: "I lost my devices — restore from my recovery phrase",
+          hint: "Only when no other device of yours still has the account.",
+          run: () => ((restoring = true), (error = "")),
+        },
+      ], "I already have an account")}
     {/if}
 
-    {#if !backupPhrase && !resumeBackup && !naming && !replaceAsk}
-      <p class="foot"><Icon name="lock" size={14} /> Your keys never leave this device.</p>
-    {/if}
     </div>
     {/key}
   </form>
@@ -1780,158 +1730,41 @@
   :global(:root[data-motion="reduced"]) .ls-spin {
     animation: none;
   }
-  /* ---- the stage ----
-     The lock and first-run screens are a stage (DESIGN-063.md): the aurora on
-     the stage ground, the mark at the hub of a mesh of peers, the wordmark in
-     the display face, and the form on an opaque panel beside it. On a phone
-     the same pieces stack in one column. */
+  /* ---- the screen ----
+     One column on the theme's ground, centred in a desktop window and set
+     from the top third on a phone, Material-style. The mark, a title, a line,
+     the fields, one action, and the rest behind "Other options". */
   .login {
     position: relative;
     height: 100%;
     overflow: hidden;
     isolation: isolate;
-    background: var(--stage-ground);
+    background: var(--bg-0);
     color: var(--text);
-  }
-  /* One layer moves: the aurora, by transform, slowly. The dot field over it
-     is static paint, faded out toward the edges. */
-  .sky {
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    overflow: hidden;
-    pointer-events: none;
-    animation: lg-fade calc(var(--dur-reveal) * 2) var(--ease-spring) both;
-  }
-  .aurora {
-    position: absolute;
-    inset: -20%;
-    background: var(--aurora);
-    will-change: transform;
-    animation: lg-drift 28s ease-in-out infinite alternate;
-  }
-  .sky::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background-image: radial-gradient(color-mix(in srgb, var(--stage-ink) 16%, transparent) 1px, transparent 1.5px);
-    background-size: 26px 26px;
-    -webkit-mask-image: radial-gradient(ellipse 60% 70% at 30% 45%, #000 10%, transparent 72%);
-    mask-image: radial-gradient(ellipse 60% 70% at 30% 45%, #000 10%, transparent 72%);
-  }
-  @keyframes lg-drift {
-    0% {
-      transform: translate3d(-4%, -3%, 0) rotate(-5deg) scale(1.04);
-    }
-    50% {
-      transform: translate3d(3%, 4%, 0) rotate(2deg) scale(1.1);
-    }
-    100% {
-      transform: translate3d(5%, -2%, 0) rotate(6deg) scale(1);
-    }
-  }
-  :global(:root[data-motion="reduced"]) .aurora {
-    animation: none;
-    will-change: auto;
   }
   .scroller {
     height: 100%;
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  /* One column, centred in the window: the size of a form, not of a page. */
   .stage {
     box-sizing: border-box;
     min-height: 100%;
-    max-width: 1240px;
+    width: 100%;
+    max-width: 400px;
     margin: 0 auto;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 440px;
-    align-items: center;
-    gap: var(--sp-8);
-    padding: var(--sp-7) var(--sp-8);
-  }
-
-  /* ---- the hero ---- */
-  .hero {
-    min-width: 0;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: var(--sp-4);
+    justify-content: center;
+    padding: var(--sp-7) var(--sp-5);
   }
-  .emblem {
-    position: relative;
-    width: min(100%, 600px);
-    aspect-ratio: 3 / 2;
-    margin: 0 0 calc(-1 * var(--sp-5)) calc(-1 * var(--sp-6));
+  .brand {
+    display: flex;
+    margin-bottom: var(--sp-5);
     animation: lg-rise var(--dur-reveal) var(--ease-spring) both;
   }
-  .mesh {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    overflow: visible;
-  }
-  .mesh .orbit {
-    fill: none;
-    stroke: color-mix(in srgb, var(--stage-ink) 14%, transparent);
-    stroke-width: 1;
-    stroke-dasharray: 1 7;
-    stroke-linecap: round;
-  }
-  .mesh .orbit.far {
-    stroke: color-mix(in srgb, var(--stage-ink) 8%, transparent);
-  }
-  .mesh .route {
-    fill: none;
-    stroke: color-mix(in srgb, var(--aurora-2) 60%, transparent);
-    stroke-width: 1.25;
-    stroke-linecap: round;
-  }
-  .mesh .spoke {
-    stroke: color-mix(in srgb, var(--aurora-1) 45%, transparent);
-    stroke-width: 1;
-    stroke-dasharray: 3 5;
-  }
-  .mesh .n0 {
-    stop-color: var(--aurora-1);
-    stop-opacity: 0.5;
-  }
-  .mesh .n1 {
-    stop-color: var(--aurora-1);
-    stop-opacity: 0;
-  }
-  .mesh .k0 {
-    stop-color: var(--aurora-spark);
-    stop-opacity: 0.6;
-  }
-  .mesh .k1 {
-    stop-color: var(--aurora-spark);
-    stop-opacity: 0;
-  }
-  .mesh .dot {
-    fill: var(--stage-ink);
-  }
-  .mesh .spark .dot {
-    fill: var(--aurora-spark);
-  }
-  .mesh .node {
-    animation: lg-fade var(--dur-reveal) var(--ease-spring) both;
-    animation-delay: calc(var(--stagger) * (var(--i) + 1));
-  }
-  /* The hub: the mark on a pool of the brand light (static). */
-  .hub {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    display: grid;
-    place-items: center;
-    width: 240px;
-    height: 240px;
-    transform: translate(-50%, -50%);
-    background: radial-gradient(closest-side, color-mix(in srgb, var(--aurora-1) 34%, transparent), transparent);
-  }
+
   .mark .tile {
     fill: #0f1518;
   }
@@ -1949,60 +1782,12 @@
   .mark .s3 {
     stop-color: #a58cff;
   }
-  .wordmark {
-    margin: 0;
-    font-family: var(--display-font);
-    font-size: var(--fs-hero);
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    line-height: 1.05;
-    /* The aurora's ink, with the stage ink under it for anything that cannot
-       clip a background to text. */
-    color: var(--stage-ink);
-    background: var(--aurora-ink);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: lg-rise var(--dur-reveal) var(--ease-spring) both;
-    animation-delay: var(--stagger);
-  }
-  .tagline {
-    max-width: 19ch;
-    font-family: var(--display-font);
-    font-size: var(--fs-headline);
-    font-weight: 500;
-    letter-spacing: -0.02em;
-    line-height: 1.15;
-    color: var(--stage-ink);
-    animation: lg-rise var(--dur-reveal) var(--ease-spring) both;
-    animation-delay: calc(var(--stagger) * 2);
-  }
-
-  /* ---- the panel ----
-     Opaque, so the chrome's contrast holds whatever the aurora does behind
-     it; the light catches its top edge. Present from the first frame: it
-     settles in, but its field takes focus and keys at once. */
+  /* The form is on the ground itself: no panel, no shadow, no edge light. */
   .card {
     position: relative;
     box-sizing: border-box;
     width: 100%;
-    padding: var(--sp-7);
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-xl);
-    box-shadow: var(--shadow-stage);
     text-align: start;
-    animation: lg-panel var(--dur-stage) var(--ease-spring) both;
-  }
-  .card::before {
-    content: "";
-    position: absolute;
-    top: -1px;
-    left: var(--sp-7);
-    right: var(--sp-7);
-    height: 1px;
-    background: var(--aurora-ink);
-    opacity: 0.9;
   }
   .screen {
     display: flex;
@@ -2040,12 +1825,6 @@
       transform: translateY(var(--stage-rise));
     }
   }
-  @keyframes lg-panel {
-    from {
-      opacity: 0;
-      transform: translateY(var(--stage-rise)) scale(var(--stage-scale));
-    }
-  }
   @keyframes lg-step {
     from {
       opacity: 0;
@@ -2071,7 +1850,7 @@
   h1 {
     margin: 0 0 var(--sp-1);
     font-family: var(--display-font);
-    font-size: var(--fs-headline);
+    font-size: 28px;
     font-weight: 600;
     letter-spacing: -0.02em;
     line-height: 1.1;
@@ -2142,18 +1921,83 @@
     align-self: flex-start;
     text-align: start;
   }
-  .warn-link {
-    color: var(--danger-text);
+  /* "Other options": one quiet line under the action; open, a short list
+     whose rows are the full-width targets a settings list has. */
+  .more {
+    margin-top: var(--sp-2);
   }
-  .foot {
-    display: flex;
+  .more-toggle {
+    display: inline-flex;
     align-items: center;
-    gap: var(--sp-2);
-    margin-top: var(--sp-3);
-    padding-top: var(--sp-4);
+    gap: 6px;
+    min-height: 36px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: var(--fs-compact);
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .more-toggle:hover {
+    color: var(--text);
+  }
+  .chev {
+    transition: transform var(--dur-quick) ease;
+  }
+  .chev.open {
+    transform: rotate(180deg);
+  }
+  .more-list {
+    list-style: none;
+    margin: var(--sp-1) 0 0;
+    padding: 0;
     border-top: 1px solid var(--hairline);
+    animation: lg-step var(--dur-stage) var(--ease-spring) both;
+  }
+  .more-list li {
+    border-bottom: 1px solid var(--hairline);
+  }
+  .more-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    min-height: 48px;
+    padding: var(--sp-3) 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+  .mi-label {
+    font-size: var(--fs-ui);
+    font-weight: 500;
+  }
+  .more-item:hover .mi-label {
+    color: var(--accent-hover);
+  }
+  .mi-hint {
     font-size: var(--fs-small);
     color: var(--text-muted);
+    line-height: 1.4;
+  }
+  .more-toggle:focus-visible,
+  .more-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  :global(:root[data-motion="reduced"]) .chev {
+    transition: none;
+  }
+  .warn-link {
+    color: var(--danger-text);
   }
   .phrase-in {
     font-family: var(--mono-font);
@@ -2369,68 +2213,15 @@
   }
   /* Too narrow for the hero beside the panel: one column, the hero compact
      and centred above. */
-  @media (max-width: 1080px) {
-    .stage {
-      grid-template-columns: minmax(0, 480px);
-      justify-content: center;
-      align-content: center;
-      gap: var(--sp-5);
-      padding: var(--sp-7) var(--sp-5);
-    }
-    .hero {
-      align-items: center;
-      text-align: center;
-      gap: var(--sp-2);
-    }
-    .emblem {
-      width: min(100%, 300px);
-      margin: 0 0 calc(-1 * var(--sp-3));
-    }
-    .tagline {
-      max-width: 26ch;
-      font-family: var(--ui-font);
-      font-size: var(--fs-body);
-      font-weight: 400;
-      letter-spacing: 0;
-      line-height: 1.45;
-      /* Body-sized on the aurora: the full stage ink, which holds AA on the
-         aurora's brightest point; the muted ink does not. */
-      color: var(--stage-ink);
-    }
-  }
   @media (max-width: 768px) {
     /* One column 14px from the edges, under the safe area; it scrolls when a
        step and the keyboard need it. */
+    /* Material's rhythm: 24px from the edges, content from the top third
+       rather than floating mid-screen, and room for the keyboard. */
     .stage {
-      gap: var(--sp-4);
-      padding: calc(var(--safe-top) + var(--sp-5)) 14px calc(12px + var(--safe-bottom) + var(--kb, 0px));
-    }
-    .emblem {
-      width: min(100%, 240px);
-    }
-    .hub {
-      width: 150px;
-      height: 150px;
-    }
-    .hub :global(svg) {
-      width: 64px;
-      height: 64px;
-    }
-    .card {
-      padding: var(--sp-5) var(--sp-4);
-    }
-    /* Past the first screen (the phrase, a restore, a link) the steps are
-       long: the hero steps down to the wordmark and gives them the room. */
-    .deep .emblem,
-    .deep .tagline {
-      display: none;
-    }
-    .deep .wordmark {
-      font-size: var(--fs-headline);
-    }
-    .card::before {
-      left: var(--sp-5);
-      right: var(--sp-5);
+      max-width: none;
+      justify-content: flex-start;
+      padding: calc(var(--safe-top) + 56px) 24px calc(16px + var(--safe-bottom) + var(--kb, 0px));
     }
     input,
     .phrase-in {

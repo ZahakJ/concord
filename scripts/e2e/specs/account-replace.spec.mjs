@@ -6,6 +6,7 @@ import { test, answerLinks } from "../harness.mjs";
 
 async function toRestoreForm(app) {
   const { page } = app;
+  await page.getByRole("button", { name: /^(Other options|I already have an account)$/ }).click();
   await page.getByRole("button", { name: "Forgot passphrase?" }).click();
   await page.getByRole("button", { name: "Use my recovery phrase" }).click();
 }
@@ -170,6 +171,7 @@ async function linkCodeForAnotherAccount({ alice, bashir, assert, waitFor, step 
   await page.getByText("below has the ways back in").waitFor();
 
   step("Bashir's link code on Alice's locked device is asked about");
+  await page.getByRole("button", { name: /^(Other options|I already have an account)$/ }).click();
   await page.getByRole("button", { name: "Re-link from another device" }).click();
   await page.getByRole("textbox", { name: "Link code" }).fill(await bashir.rpc("LinkOffer"));
   await page.getByPlaceholder("Passphrase for this device").fill("brand-new-pass");

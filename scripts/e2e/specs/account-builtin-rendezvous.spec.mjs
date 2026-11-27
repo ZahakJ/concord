@@ -38,6 +38,7 @@ test("a build with a built-in rendezvous restores with zero typing", async ({ wo
   const app = await dev.open({ unlock: false });
   const { page } = app;
   await page.goto(`${dev.url}/?t=${dev.token}`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: /^(Other options|I already have an account)$/ }).click();
   await page.getByRole("button", { name: "I lost my devices — restore from my recovery phrase" }).click();
   const rdv = page.getByRole("textbox", { name: "Rendezvous address or an invite code" });
   assert.equal((await rdv.inputValue()).trim(), world.bootstrap, "the restore screen starts from the built-in rendezvous");

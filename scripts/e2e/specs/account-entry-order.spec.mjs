@@ -10,6 +10,8 @@ test("a fresh install offers adding this device ahead of restoring from the phra
   const app = await dev.open({ unlock: false });
   const { page } = app;
   await page.goto(`${dev.url}/?t=${dev.token}`, { waitUntil: "domcontentloaded" });
+  // The ways in for an account that exists are behind one quiet disclosure.
+  await page.getByRole("button", { name: "I already have an account" }).click();
   const add = page.getByRole("button", { name: "Add this device to my account" });
   const lost = page.getByRole("button", { name: "I lost my devices — restore from my recovery phrase" });
   await add.waitFor();

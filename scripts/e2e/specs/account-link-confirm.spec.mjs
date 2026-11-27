@@ -32,6 +32,7 @@ async function joinWith(world, account, name, viewport, code) {
   const app = await dev.open({ unlock: false, viewport });
   const { page } = app;
   await page.goto(`${dev.url}/?t=${dev.token}`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: /^(Other options|I already have an account)$/ }).click();
   await page.getByRole("button", { name: "Add this device to my account" }).click();
   await page.getByRole("textbox", { name: "Link code" }).fill(code);
   await page.getByPlaceholder("Passphrase for this device").fill(dev.passphrase);

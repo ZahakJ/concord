@@ -187,7 +187,7 @@ test("data without a keystore: erasing it takes the typed word and a current con
   await page.getByRole("textbox", { name: "Your name" }).fill("Someone new");
   await page.getByPlaceholder("Choose a passphrase").fill("a-new-passphrase");
   await page.getByPlaceholder("Confirm passphrase").fill("a-new-passphrase");
-  await page.getByRole("button", { name: "Create identity" }).click();
+  await page.getByRole("button", { name: "Create account" }).click();
   await waitFor(async () => (await alice.rpc("Session")) === true, { message: "the new account is set up" });
   const me = await alice.rpc("Identity");
   assert.notEqual(me.fingerprint, alice.fingerprint, "the old account came back");
