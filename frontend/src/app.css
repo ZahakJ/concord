@@ -2125,8 +2125,9 @@ textarea[aria-invalid="true"] {
    and the fade shows whatever is behind the feed (theme, pack, wallpaper)
    instead of painting a band that has to match it. An edge fades only while
    there is content beyond it, so at rest at the newest message nothing is
-   faded. The bottom fade is deeper and starts clear: the typing line sits on
-   it (Composer .typing-line). Composited, so it costs nothing per scroll. */
+   faded. The bottom fade dissolves over 30px right above the composer on an
+   eased curve (a linear ramp read as a smudge, not a fade) and ends in a
+   short clear strip; the typing line sits on it (Composer .typing-line). Composited, so it costs nothing per scroll. */
 .edge-fade {
   --fade-t: 0px;
   --fade-b: 0px;
@@ -2135,7 +2136,9 @@ textarea[aria-invalid="true"] {
     transparent 0,
     #000 var(--fade-t),
     #000 calc(100% - var(--fade-b)),
-    transparent calc(100% - min(var(--fade-b), 10px)),
+    rgb(0 0 0 / 0.55) calc(100% - var(--fade-b) * 0.67),
+    rgb(0 0 0 / 0.18) calc(100% - var(--fade-b) * 0.39),
+    transparent calc(100% - var(--fade-b) * 0.17),
     transparent 100%
   );
   mask-image: linear-gradient(
@@ -2143,7 +2146,9 @@ textarea[aria-invalid="true"] {
     transparent 0,
     #000 var(--fade-t),
     #000 calc(100% - var(--fade-b)),
-    transparent calc(100% - min(var(--fade-b), 10px)),
+    rgb(0 0 0 / 0.55) calc(100% - var(--fade-b) * 0.67),
+    rgb(0 0 0 / 0.18) calc(100% - var(--fade-b) * 0.39),
+    transparent calc(100% - var(--fade-b) * 0.17),
     transparent 100%
   );
 }
@@ -2153,7 +2158,7 @@ textarea[aria-invalid="true"] {
 }
 .edge-fade[data-fade="bottom"],
 .edge-fade[data-fade="both"] {
-  --fade-b: 44px;
+  --fade-b: 36px;
 }
 /* A mask paints over every descendant, a fixed one too: while the feed holds
    a layer of its own (the edit row's emoji picker, which is a full-screen

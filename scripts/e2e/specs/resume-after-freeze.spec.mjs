@@ -113,7 +113,7 @@ test("a page that comes back with nothing rendered reloads instead of staying bl
   const nav = a.page.waitForEvent("load", { timeout: scaled(15000) });
   await a.page.evaluate(() => window.__setHidden(false));
   await nav;
-  const pass = a.page.locator('input[placeholder="Passphrase"]');
+  const pass = a.page.locator('input[aria-label="Passphrase"]');
   const shell = a.page.locator('nav[aria-label="Guilds"], nav[aria-label="Sections"]').first();
   await waitFor(async () => (await pass.isVisible().catch(() => false)) || (await shell.count()) > 0, {
     timeout: scaled(30000),

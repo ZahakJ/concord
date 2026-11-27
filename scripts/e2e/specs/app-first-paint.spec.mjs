@@ -15,6 +15,6 @@ for (const viewport of ["desktop", "phone"]) {
     await new Promise((r) => setTimeout(r, 1500));
     assert.deepEqual(app.errors, [], `console errors on first paint:\n${app.errors.join("\n")}`);
     // The passphrase screen is gone and the identity's name made it to the UI.
-    assert.equal(await app.page.locator('input[placeholder="Passphrase"]').count(), 0);
+    assert.equal(await app.page.locator('input[aria-label="Passphrase"]').count(), 0);
   });
 }

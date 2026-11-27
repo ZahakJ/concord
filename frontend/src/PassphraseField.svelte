@@ -15,6 +15,10 @@
   let {
     value = $bindable(""),
     placeholder = "Passphrase",
+    // The field's name for assistive tech. Defaults to the placeholder; a form
+    // with a visible label above the field passes the label and no placeholder,
+    // so the box does not say the same word twice.
+    label = undefined,
     autofocus = false,
     autocomplete = "current-password",
     onkeydown = undefined,
@@ -60,8 +64,8 @@
   <input
     bind:this={input}
     type={shown ? "text" : "password"}
-    {placeholder}
-    aria-label={placeholder}
+    placeholder={label === undefined ? placeholder : placeholder || undefined}
+    aria-label={label ?? placeholder}
     {autofocus}
     use:focusOnMount={{ skip: !autofocus }}
     {autocomplete}

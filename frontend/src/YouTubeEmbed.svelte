@@ -24,21 +24,37 @@
   const label = $derived(title || "YouTube video");
   let playing = $state(false);
   // The frame's own load event; until it fires a quiet veil covers the box.
-  let ready = $state(false);
-  // Nothing came within PLAYER_WAIT_MS (offline, blocked, YouTube down).
+  // The player could not be reached: our poster stays, with a retry.
   let stalled = $state(false);
   let thumbOk = $state(true);
   let box;
-  const PLAYER_WAIT_MS = 15000;
+  // Chrome fires the frame's load event for its own "can't reach" page too,
+  // and a cross-origin frame can't be looked into, so load alone never shows
+  // the frame. It is shown once it loaded AND a fresh fetch of the video's
+  // thumbnail from YouTube's image host came back: proof the network reaches
+  // YouTube. Anything else within PLAYER_WAIT_MS, or going offline, keeps the
+  // poster and says so. Chrome's error page is never what is on screen.
+  const PLAYER_WAIT_MS = 8000;
+  let loaded = $state(false);
+  let reached = $state(false);
+  let tries = 0;
+  const ready = $derived(playing && loaded && reached && !stalled);
 
   function play() {
     playing = true;
-    ready = false;
+    loaded = reached = false;
     stalled = typeof navigator !== "undefined" && navigator.onLine === false;
+    if (stalled) return;
+    const probe = new Image();
+    const n = ++tries;
+    probe.onload = () => n === tries && (reached = true);
+    probe.onerror = () => n === tries && playing && !ready && (stalled = true);
+    probe.src = `${ytThumb(videoId)}?r=${Date.now()}`;
   }
   function stop() {
+    tries++;
     playing = false;
-    ready = false;
+    loaded = reached = false;
     stalled = false;
     queueMicrotask(() => box?.querySelector("button")?.focus());
   }
@@ -46,6 +62,12 @@
     if (!playing || ready || stalled) return;
     const t = setTimeout(() => (stalled = true), PLAYER_WAIT_MS);
     return () => clearTimeout(t);
+  });
+  $effect(() => {
+    if (!playing || stalled) return;
+    const off = () => (stalled = true);
+    window.addEventListener("offline", off);
+    return () => window.removeEventListener("offline", off);
   });
   function onKey(e) {
     if (e.key === "Escape" && playing) {
@@ -66,15 +88,18 @@
         allowfullscreen
         sandbox="allow-scripts allow-same-origin allow-presentation"
         class:ready
-        onload={() => (ready = true)}
+        onload={() => (loaded = true)}
       ></iframe>
       {#if !ready}
         <span class="veil" role="status"><span class="spin" aria-hidden="true"></span><span class="vh">Loading the player</span></span>
       {/if}
     {:else if stalled}
       <div class="fail" role="status">
-        <span class="fl">The player didn't load</span>
-        <span class="fh">You may be offline, or YouTube is unreachable.</span>
+        {#if autoload && thumbOk}
+          <img src={ytThumb(videoId)} alt="" draggable="false" onerror={() => (thumbOk = false)} />
+        {/if}
+        <span class="fl">Can't reach YouTube</span>
+        <span class="fh">You may be offline. The video plays once YouTube can be reached.</span>
         <button type="button" class="again" onclick={play}>Try again</button>
       </div>
     {:else}
@@ -217,6 +242,7 @@
     clip-path: inset(50%);
   }
   .fail {
+    isolation: isolate;
     position: absolute;
     inset: 0;
     display: flex;
@@ -228,6 +254,16 @@
     text-align: center;
     background: linear-gradient(160deg, #1a1c20, #0b0c0e);
     color: #fff;
+  }
+  /* The poster stays under the message, dimmed so the words read. */
+  .fail img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.35;
+    z-index: -1;
   }
   .fl {
     font-weight: 600;

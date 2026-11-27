@@ -66,7 +66,7 @@ test("the core loop works from the keyboard alone", async ({ world, assert, step
   const a = await alice.open({ unlock: false });
   const page = a.page;
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
-  const pass = page.locator('input[placeholder="Passphrase"]');
+  const pass = page.locator('input[aria-label="Passphrase"]');
   await pass.waitFor({ state: "visible" });
   await waitFor(async () => (await focused(page)).tag === "INPUT", { message: "focus starts in the passphrase field" });
   await page.keyboard.type(alice.passphrase);

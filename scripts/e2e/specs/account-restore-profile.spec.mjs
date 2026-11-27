@@ -27,8 +27,8 @@ async function restoreThroughUI(world, phrase) {
   await page.getByRole("button", { name: /^(Other options|I already have an account)$/ }).click();
   await page.getByRole("button", { name: "I lost my devices — restore from my recovery phrase" }).click();
   await page.getByRole("textbox", { name: "Recovery phrase" }).fill(phrase);
-  await page.getByPlaceholder("New passphrase").fill(dev.passphrase);
-  await page.getByPlaceholder("Confirm passphrase").fill(dev.passphrase);
+  await page.locator('input[aria-label="New passphrase"]').fill(dev.passphrase);
+  await page.locator('input[aria-label="Confirm passphrase"]').fill(dev.passphrase);
   await page.getByRole("button", { name: "Restore account" }).click();
   return { dev, app, page };
 }

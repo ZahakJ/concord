@@ -44,8 +44,8 @@ test("a build with a built-in rendezvous restores with zero typing", async ({ wo
   assert.equal((await rdv.inputValue()).trim(), world.bootstrap, "the restore screen starts from the built-in rendezvous");
   await page.getByText("Filled in with this app's default").waitFor();
   await page.getByRole("textbox", { name: "Recovery phrase" }).fill(phrase);
-  await page.getByPlaceholder("New passphrase").fill(dev.passphrase);
-  await page.getByPlaceholder("Confirm passphrase").fill(dev.passphrase);
+  await page.locator('input[aria-label="New passphrase"]').fill(dev.passphrase);
+  await page.locator('input[aria-label="Confirm passphrase"]').fill(dev.passphrase);
   await page.getByRole("button", { name: "Restore account" }).click();
   await page.getByRole("heading", { name: "Welcome back, Alice" }).waitFor({ timeout: 90000 });
   await shot(app, "builtin-found");

@@ -2001,17 +2001,11 @@
   {/if}
 </div>
 
-<!-- The return-to-latest cluster, BELOW the scroller rather than floating over
-     it. Sticky at `bottom: 8px` inside the feed, the pill was a plate over
-     whatever line happened to be at the viewport's lower edge — measured at
-     276x14px straight through the middle of "the migration finished overnight,
-     six hours end to…", which is normally the line you scrolled up to read.
-     There is no anchor inside a scroller that avoids that: the reader chooses
-     what is under the pill by scrolling.
-     Out here it is a band in its own right. The feed is `flex: 1` in the pane's
-     column, so the band takes its height off the feed's BOTTOM edge — the top
-     edge does not move and neither does the content already on screen, which is
-     why this costs no jump when the pill appears. -->
+<!-- The return-to-latest cluster. Sticky inside the feed it was a plate over
+     whatever line sat at the viewport's lower edge, normally the one you
+     scrolled up to read. It floats over the feed's bottom fade instead (see
+     .feed-dock below), where the content under it is already dissolving.
+     The feed's height never changes when it appears, so nothing jumps. -->
 <div class="feed-dock">
   {#if S.newBelow}
     <!-- A plain button keeps its control semantics; the live announcement lives
@@ -2031,18 +2025,23 @@
 <style>
   /* Empty, it is nothing: no height, no line box, nothing between the feed and
      the composer. */
+  /* A zero-height layer on the feed's bottom edge: the pill floats in the
+     feed's bottom fade (app.css .edge-fade), so the feed runs all the way
+     down to the composer and dissolves right above it. A band here took the
+     pill's height off the feed and left the fade hanging 70px above the
+     composer, where nobody saw it. The pill still never sits on a line being
+     read: what is under it is already dissolving. */
   .feed-dock {
-    display: flex;
-    justify-content: flex-end;
+    position: relative;
     flex: none;
+    height: 0;
     line-height: 0;
-    padding: 0 var(--sp-edge);
   }
-  /* The typing line is pulled up over the feed's bottom edge (Composer's
-     .typing-line); with the pill here, it sits under the pill instead. */
-  .feed-dock:has(button) {
-    padding-top: 6px;
-    padding-bottom: calc(2px + var(--typing-h, 24px));
+  .feed-dock > button {
+    position: absolute;
+    right: var(--sp-edge);
+    bottom: 6px;
+    z-index: 2;
   }
   .oos-banner {
     display: flex;

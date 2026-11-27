@@ -468,7 +468,7 @@ export class App {
   async unlock() {
     const { page, peer } = this;
     await page.goto(`${peer.url}/?t=${peer.token}`, { waitUntil: "domcontentloaded" });
-    const pass = page.locator('input[placeholder="Passphrase"]');
+    const pass = page.locator('input[aria-label="Passphrase"]');
     const shell = page.locator('nav[aria-label="Guilds"], nav[aria-label="Sections"]').first();
     await pass.or(shell).first().waitFor({ state: "attached", timeout: scaled(30000) });
     if (await pass.isVisible().catch(() => false)) {

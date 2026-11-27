@@ -1083,7 +1083,7 @@
         and it is the only way back in if this device is lost. Enter your
         passphrase to see the 24 words.
       </p>
-      <PassphraseField placeholder="Passphrase" bind:value={passphrase} invalid={errField === "pass"} autofocus={!S.isMobile} />
+      <PassphraseField label="Passphrase" placeholder="" bind:value={passphrase} invalid={errField === "pass"} autofocus={!S.isMobile} />
       <div class="error slot" role="alert">{error}</div>
       <button class="primary" type="submit" disabled={!passphrase || busy}>Show my recovery phrase</button>
     {:else if naming}
@@ -1414,7 +1414,7 @@
         </div>
       {:else}
         {#if canScan}
-          <button type="button" class="primary scan-btn" onclick={() => (scanning = true)}>
+          <button type="button" class="tonal scan-btn" onclick={() => (scanning = true)}>
             <Icon name="camera" size={17} /> Scan QR code
           </button>
           <div class="or"><span>or paste it</span></div>
@@ -1448,9 +1448,9 @@
         </p>
       {/if}
       <span class="field-lbl" aria-hidden="true">Passphrase for this device</span>
-      <PassphraseField placeholder="Passphrase for this device" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
+      <PassphraseField label="Passphrase for this device" placeholder="" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
       <span class="field-lbl" aria-hidden="true">Confirm passphrase</span>
-      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
+      <PassphraseField label="Confirm passphrase" placeholder="" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
       {#if busy && linkWait}
         <div class="link-sas" role="status" aria-live="assertive" use:revealOnMount>
@@ -1536,9 +1536,9 @@
         {/if}
       </p>
       <span class="field-lbl" aria-hidden="true">New passphrase</span>
-      <PassphraseField placeholder="New passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
+      <PassphraseField label="New passphrase" placeholder="" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
       <span class="field-lbl" aria-hidden="true">Confirm passphrase</span>
-      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
+      <PassphraseField label="Confirm passphrase" placeholder="" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
       <button class="primary" type="button" disabled={busy} onclick={doRestore}>
         {busy ? "Restoring…" : "Restore account"}
@@ -1607,7 +1607,7 @@
            the app can't scroll out from under it. Let the biometric prompt own
            the first interaction; a tap on the field summons the keyboard when
            it's actually wanted. -->
-      <PassphraseField placeholder="Passphrase" bind:value={passphrase} invalid={errField === "pass"} autofocus={!S.isMobile} />
+      <PassphraseField label="Passphrase" placeholder="" bind:value={passphrase} invalid={errField === "pass"} autofocus={!S.isMobile} />
       <div class="error slot" role="alert">{error}</div>
       <button
         class="primary"
@@ -1643,9 +1643,9 @@
         <span class="count">{[...displayName].length}/32</span>
       {/if}
       <span class="field-lbl" aria-hidden="true">Passphrase</span>
-      <PassphraseField placeholder="Choose a passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
+      <PassphraseField label="Choose a passphrase" placeholder="" autocomplete="new-password" meter bind:value={passphrase} invalid={errField === "pass"} />
       <span class="field-lbl" aria-hidden="true">Confirm passphrase</span>
-      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
+      <PassphraseField label="Confirm passphrase" placeholder="" autocomplete="new-password" bind:value={confirmPass} invalid={errField === "confirm"} />
       <div class="error slot" role="alert">{error}</div>
       <button class="primary" type="submit" disabled={!hasVisible(displayName) || !passphrase || !confirmPass || busy}>
         {busy ? "Creating…" : "Create account"}
@@ -1889,6 +1889,13 @@
   .card button.ghost {
     font-weight: 600;
   }
+  /* Waiting, not broken: the accent at 35% under softened ink. The app-wide
+     grey chip read as a dead control on a screen whose only job is this
+     button. */
+  .card button.primary:disabled {
+    background: color-mix(in srgb, var(--accent) 35%, transparent);
+    color: color-mix(in srgb, var(--text) 62%, transparent);
+  }
   .card button.ghost {
     min-height: 40px;
     width: 100%;
@@ -2003,6 +2010,20 @@
     font-family: var(--mono-font);
     font-size: var(--fs-ui);
     resize: vertical;
+  }
+  /* Scanning is the easy way in, but the form's one filled button is "Link
+     this device": the scan is tonal, the accent at low strength. */
+  .card button.tonal {
+    min-height: 40px;
+    width: 100%;
+    font-size: var(--fs-ui);
+    font-weight: 600;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .card button.tonal:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
   }
   .scan-btn {
     display: flex;
@@ -2222,6 +2243,19 @@
       max-width: none;
       justify-content: flex-start;
       padding: calc(var(--safe-top) + 56px) 24px calc(16px + var(--safe-bottom) + var(--kb, 0px));
+    }
+    /* The heading stays top-left; the action sits at the bottom in thumb
+       reach. The stage's bottom padding carries the keyboard's height, so
+       the button rides above the IME. A step taller than the screen just
+       scrolls, and the margin collapses to nothing. */
+    .card,
+    .screen {
+      flex: 1 0 auto;
+      display: flex;
+      flex-direction: column;
+    }
+    .screen > .primary {
+      margin-top: auto;
     }
     input,
     .phrase-in {

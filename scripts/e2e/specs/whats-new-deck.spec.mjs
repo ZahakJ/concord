@@ -7,7 +7,7 @@ async function openDeck(alice, viewport) {
   const page = app.page;
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
   await page.evaluate(() => localStorage.setItem("concord.seenVersion", "0.0.1"));
-  const pass = page.locator('input[placeholder="Passphrase"]');
+  const pass = page.locator('input[aria-label="Passphrase"]');
   await pass.waitFor({ timeout: 20000 }).catch(() => {});
   if (await pass.isVisible().catch(() => false)) {
     await pass.fill(alice.passphrase);

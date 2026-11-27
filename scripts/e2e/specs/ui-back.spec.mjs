@@ -106,7 +106,7 @@ test("Back from the unlock screen's own screens returns to the unlock screen", a
   await alice.rpc("Logout");
   const { page } = await alice.open({ unlock: false });
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
-  const pass = page.locator('input[placeholder="Passphrase"]');
+  const pass = page.locator('input[aria-label="Passphrase"]');
   const menu = page.getByRole("button", { name: "Use my recovery phrase" });
   await pass.waitFor();
 

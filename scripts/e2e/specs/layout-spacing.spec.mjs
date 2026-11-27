@@ -194,7 +194,7 @@ test("layout: nothing touches an edge, overlaps or overflows", async ({ world, s
       await screen("whatsnew", tag, async () => {
         await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
         await page.evaluate(() => localStorage.setItem("concord.seenVersion", "0.0.1"));
-        const pass = page.locator('input[placeholder="Passphrase"]');
+        const pass = page.locator('input[aria-label="Passphrase"]');
         await pass.waitFor({ timeout: 20000 }).catch(() => {});
         if (await pass.isVisible().catch(() => false)) {
           await pass.fill(alice.passphrase);
@@ -214,7 +214,7 @@ test("layout: nothing touches an edge, overlaps or overflows", async ({ world, s
         await l.page.goto(`${locked.url}/?t=${locked.token}`, { waitUntil: "domcontentloaded" });
         await setTheme(l.page, theme);
         await l.page.goto(`${locked.url}/?t=${locked.token}`, { waitUntil: "domcontentloaded" });
-        await l.page.locator('input[placeholder="Passphrase"]').waitFor({ timeout: 20000 });
+        await l.page.locator('input[aria-label="Passphrase"]').waitFor({ timeout: 20000 });
         await sleep(900);
         await audit(l, "login", tag, vp);
         await l.close();

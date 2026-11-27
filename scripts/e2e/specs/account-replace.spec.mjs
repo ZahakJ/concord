@@ -24,8 +24,8 @@ async function typeEraseAndGo(page, assert, name) {
 async function fillRestore(app, phrase, pass) {
   const { page } = app;
   await page.getByRole("textbox", { name: "Recovery phrase" }).fill(phrase);
-  await page.getByPlaceholder("New passphrase").fill(pass);
-  await page.getByPlaceholder("Confirm passphrase").fill(pass);
+  await page.locator('input[aria-label="New passphrase"]').fill(pass);
+  await page.locator('input[aria-label="Confirm passphrase"]').fill(pass);
   await page.getByRole("button", { name: "Restore account" }).click();
 }
 
@@ -165,7 +165,7 @@ async function linkCodeForAnotherAccount({ alice, bashir, assert, waitFor, step 
   await page.goto(`${alice.url}/?t=${alice.token}`, { waitUntil: "domcontentloaded" });
 
   step("a wrong passphrase points at the ways back in");
-  const pass = page.locator('input[placeholder="Passphrase"]');
+  const pass = page.locator('input[aria-label="Passphrase"]');
   await pass.fill("not-alices-passphrase");
   await pass.press("Enter");
   await page.getByText("below has the ways back in").waitFor();
@@ -174,8 +174,8 @@ async function linkCodeForAnotherAccount({ alice, bashir, assert, waitFor, step 
   await page.getByRole("button", { name: /^(Other options|I already have an account)$/ }).click();
   await page.getByRole("button", { name: "Re-link from another device" }).click();
   await page.getByRole("textbox", { name: "Link code" }).fill(await bashir.rpc("LinkOffer"));
-  await page.getByPlaceholder("Passphrase for this device").fill("brand-new-pass");
-  await page.getByPlaceholder("Confirm passphrase").fill("brand-new-pass");
+  await page.locator('input[aria-label="Passphrase for this device"]').fill("brand-new-pass");
+  await page.locator('input[aria-label="Confirm passphrase"]').fill("brand-new-pass");
   await page.getByRole("button", { name: "Link this device" }).click();
   await page.getByRole("alertdialog").waitFor({ timeout: 60000 });
   const keep = page.getByRole("button", { name: "Keep everything here" });

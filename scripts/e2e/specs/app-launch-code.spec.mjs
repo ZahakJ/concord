@@ -60,7 +60,7 @@ async function tokenWorks(peer, token) {
 async function openWithCode(peer, code) {
   const app = await peer.open({ unlock: false });
   await app.page.goto(`${peer.url}/?c=${code}`, { waitUntil: "domcontentloaded" });
-  const pass = app.page.locator('input[placeholder="Passphrase"]');
+  const pass = app.page.locator('input[aria-label="Passphrase"]');
   const shell = app.page.locator('nav[aria-label="Guilds"], nav[aria-label="Sections"]').first();
   const notice = app.page.locator('main[role="alert"]');
   await pass.or(shell).or(notice).first().waitFor({ state: "attached" });

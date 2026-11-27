@@ -56,5 +56,10 @@ for (const phone of [true, false]) {
     step("At the top, only the bottom edge fades");
     await feed.evaluate((el) => (el.scrollTop = 0));
     await waitFor(async () => ["bottom", "both"].includes((await read()).fade), { message: "the bottom fades at the top" });
+    // The jump pill floats in the fade; it takes no height off the feed, so
+    // the dissolve is right above the composer, not a band's height above it.
+    await page.locator(".older-bar, .new-below").first().waitFor();
+    s = await read();
+    assert.ok(s.inputTop - s.bottom < 12, `with the pill up, the feed (${s.bottom}) still runs to the composer (${s.inputTop})`);
   });
 }

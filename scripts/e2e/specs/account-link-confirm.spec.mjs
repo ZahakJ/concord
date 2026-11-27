@@ -35,8 +35,8 @@ async function joinWith(world, account, name, viewport, code) {
   await page.getByRole("button", { name: /^(Other options|I already have an account)$/ }).click();
   await page.getByRole("button", { name: "Add this device to my account" }).click();
   await page.getByRole("textbox", { name: "Link code" }).fill(code);
-  await page.getByPlaceholder("Passphrase for this device").fill(dev.passphrase);
-  await page.getByPlaceholder("Confirm passphrase").fill(dev.passphrase);
+  await page.locator('input[aria-label="Passphrase for this device"]').fill(dev.passphrase);
+  await page.locator('input[aria-label="Confirm passphrase"]').fill(dev.passphrase);
   await page.getByRole("button", { name: "Link this device" }).click();
   return { dev, app };
 }

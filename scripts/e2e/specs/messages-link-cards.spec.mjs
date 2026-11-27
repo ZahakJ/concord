@@ -242,7 +242,7 @@ test("a card arrives whole, and reading it contacts nobody", async ({ world, ass
   assert.equal((await masked.locator(".link-dom").innerText()).trim(), "evil.example", "a masked link's real domain chip");
 
   step("a card-less YouTube link waits for a tap");
-  await b.messageRow("an older client sent this").locator(".placeholder").waitFor();
+  await b.messageRow("an older client sent this").locator(".poster").waitFor();
   await b.messageRow("an older client sent this").scrollIntoViewIfNeeded();
   await shot(p, "desktop1280-masked-and-cardless");
   await p.locator(".lc", { has: p.locator(".dom", { hasText: EVIL }) }).scrollIntoViewIfNeeded();

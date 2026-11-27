@@ -70,8 +70,8 @@ async function eraseThroughTheConfirmation(page, peer, assert, waitFor) {
   await yes.click();
   await waitFor(async () => !fs.existsSync(path.join(peer.home, "concord.db")), { message: "the confirmed erase removes the database" });
   await page.getByRole("textbox", { name: "Your name" }).fill("Someone new");
-  await page.getByPlaceholder("Choose a passphrase").fill("a-new-passphrase");
-  await page.getByPlaceholder("Confirm passphrase").fill("a-new-passphrase");
+  await page.locator('input[aria-label="Choose a passphrase"]').fill("a-new-passphrase");
+  await page.locator('input[aria-label="Confirm passphrase"]').fill("a-new-passphrase");
   await page.getByRole("button", { name: "Create account" }).click();
   await waitFor(async () => (await peer.rpc("Session")) === true, { message: "the new account is set up" });
   const me = await peer.rpc("Identity");
@@ -135,8 +135,8 @@ test("Keep it, never-linked data: the choice leads to the restore, keeps everyth
   step("the account's own phrase opens it again, messages and all");
   await page.getByRole("button", { name: "Use my recovery phrase" }).click();
   await page.getByRole("textbox", { name: "Recovery phrase" }).fill(phrase);
-  await page.getByPlaceholder("New passphrase").fill("the-restored-passphrase");
-  await page.getByPlaceholder("Confirm passphrase").fill("the-restored-passphrase");
+  await page.locator('input[aria-label="New passphrase"]').fill("the-restored-passphrase");
+  await page.locator('input[aria-label="Confirm passphrase"]').fill("the-restored-passphrase");
   await page.getByRole("button", { name: "Restore account" }).click();
   await waitFor(async () => (await alice.rpc("Session")) === true, { message: "the own-phrase restore unlocks" });
   assert.equal((await alice.rpc("Identity")).fingerprint, alice.fingerprint, "a different account came back");

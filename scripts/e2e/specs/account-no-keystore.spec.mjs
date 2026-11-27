@@ -47,8 +47,8 @@ async function refusedCreate(assert, peer) {
 
 async function fillRestore(page, phrase, pass) {
   await page.getByRole("textbox", { name: "Recovery phrase" }).fill(phrase);
-  await page.getByPlaceholder("New passphrase").fill(pass);
-  await page.getByPlaceholder("Confirm passphrase").fill(pass);
+  await page.locator('input[aria-label="New passphrase"]').fill(pass);
+  await page.locator('input[aria-label="Confirm passphrase"]').fill(pass);
   await page.getByRole("button", { name: "Restore account" }).click();
 }
 
@@ -185,8 +185,8 @@ test("data without a keystore: erasing it takes the typed word and a current con
   // before that lands in the wrong field, which no person types fast enough for.
   await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Your name");
   await page.getByRole("textbox", { name: "Your name" }).fill("Someone new");
-  await page.getByPlaceholder("Choose a passphrase").fill("a-new-passphrase");
-  await page.getByPlaceholder("Confirm passphrase").fill("a-new-passphrase");
+  await page.locator('input[aria-label="Choose a passphrase"]').fill("a-new-passphrase");
+  await page.locator('input[aria-label="Confirm passphrase"]').fill("a-new-passphrase");
   await page.getByRole("button", { name: "Create account" }).click();
   await waitFor(async () => (await alice.rpc("Session")) === true, { message: "the new account is set up" });
   const me = await alice.rpc("Identity");
