@@ -14,6 +14,7 @@
   import { tick } from "svelte";
   import { holdKeyboard, landKeyboard } from "./lib/kbfocus.js";
   import Icon from "./Icon.svelte";
+  import { NEW_DEVICE_MARK } from "./lib/contactdevices.js";
   import Avatar from "./Avatar.svelte";
   import GameShelf, { coverStyle, gameHue } from "./GameShelf.svelte";
   import { syncLayer } from "./lib/navstack.svelte.js";
@@ -611,6 +612,11 @@
         {/if}
       </div>
       {#if mem.username}<div class="username muted">{mem.username}</div>{/if}
+      {#if mem.verified && mem.newDevice && !mem.isSelf}
+        <!-- Verified, and a device has joined their account since: on its
+             chain, so a fact, not a warning. Verifying again clears it. -->
+        <div class="newdev"><Icon name="devices" size={12} /> {NEW_DEVICE_MARK}</div>
+      {/if}
       {#if sharedDMs > 0}
         <div class="mutual muted">
           <Icon name="members" size={12} />
@@ -1088,6 +1094,13 @@
     color: var(--ok-text);
     background: color-mix(in srgb, var(--ok) 14%, transparent);
     border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+  }
+  .newdev {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    font-size: var(--fs-small);
+    color: var(--warn-text);
   }
   .body {
     padding: 6px 14px 14px;

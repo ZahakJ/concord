@@ -1686,7 +1686,7 @@ func (s *Service) sendOnceAs(channelID, sendID string, send func(msgID string) (
 	if !ok {
 		// An action is no row: one this id stands for that is applied here
 		// went out.
-		if done, err := s.store.ActionApplied(id); err != nil {
+		if done, err := s.store.ActionApplied(actionKey(s.PublicKey(), id)); err != nil {
 			return domain.Message{}, err
 		} else if done {
 			return domain.Message{ID: id, ChannelID: channelID}, nil
@@ -2137,6 +2137,31 @@ func (s *Service) ToggleReaction(channelID, targetID, emoji string, sendID ...st
 	return s.sendActionOnce(channelID, emoji, "reaction", targetID, "", oneID(sendID))
 }
 
+// wireMessageKind reports whether a message kind may arrive from a peer:
+// a stored kind history sync carries (store.IsSyncedKind), or an action on a
+// message. "system" is one: a member's join or event notice, sent as theirs.
+func wireMessageKind(kind string) bool {
+	return store.IsSyncedKind(kind) || isMessageAction(kind)
+}
+
+// actionKey is the key an applied action is held under: its sender's
+// account and its id. Ids are the sender's to choose, so held globally one
+// member could use up another's by sending its id first.
+//
+// A message row stays keyed by its bare id: that id is the key history sync,
+// replies, reactions and every 0.63 peer use, so scoping it would split one
+// message into two across versions. The exposure is narrower than an
+// action's: a send-once id (onceMessageID) is keyed by this install's secret
+// and unknown to anyone until it is published, a fresh one is random, and a
+// row another sender already holds under our id makes sendOnceAs send under a
+// fresh id rather than report it sent. What remains is a race against a peer
+// that has not yet received a published message: a member who saw it first
+// can store a row of their own under its id there, shown as theirs, never as
+// the original sender's.
+func actionKey(sender []byte, id string) string {
+	return accountFingerprintOf(sender) + "/" + id
+}
+
 // isMessageAction reports whether a message kind acts on another message (the
 // one its ReplyTo names) instead of being stored as a row of its own.
 func isMessageAction(kind string) bool {
@@ -2168,7 +2193,7 @@ func (s *Service) applyReaction(actionID, targetID, emoji string, bySender []byt
 		return nil
 	}
 	fpr := accountFingerprintOf(bySender)
-	_, applied, err := s.store.ToggleReactionOnce(actionID, targetID, fpr, emoji)
+	_, applied, err := s.store.ToggleReactionOnce(actionKey(bySender, actionID), targetID, fpr, emoji)
 	if err != nil || !applied {
 		return err
 	}
@@ -2213,7 +2238,7 @@ func (s *Service) applyEdit(actionID, targetID, newContent string, bySender []by
 	if targetID == "" || newContent == "" {
 		return nil
 	}
-	if done, err := s.store.ActionApplied(actionID); err != nil || done {
+	if done, err := s.store.ActionApplied(actionKey(bySender, actionID)); err != nil || done {
 		return err
 	}
 	newDir, setDir := domain.EditDir(dirTok)
@@ -2238,7 +2263,7 @@ func (s *Service) applyEdit(actionID, targetID, newContent string, bySender []by
 	// After the change: an edit applied and not yet recorded is applied again
 	// on a retry, which changes nothing but the history, and that is the lesser
 	// fault than an edit recorded and never applied.
-	if _, err := s.store.NoteActionApplied(actionID); err != nil {
+	if _, err := s.store.NoteActionApplied(actionKey(bySender, actionID)); err != nil {
 		log.Printf("concord/app: edit %s applied but not recorded: %v", actionID, err)
 	}
 	if m, found, err := s.store.MessageByID(targetID); err == nil && found {
@@ -2334,7 +2359,7 @@ func (s *Service) applyPin(actionID, targetID string, bySender []byte, channelID
 	if !s.mayPin(guildID, accountFingerprintOf(bySender)) {
 		return nil
 	}
-	_, applied, err := s.store.TogglePinnedOnce(actionID, targetID)
+	_, applied, err := s.store.TogglePinnedOnce(actionKey(bySender, actionID), targetID)
 	if err != nil || !applied {
 		return err
 	}
@@ -4561,6 +4586,14 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 	// Every send gives a message an id (domain.NewMessage). One without names
 	// no row, and would match whatever else is keyed on an empty id.
 	if m.ID == "" {
+		return
+	}
+	// Only the kinds a peer sends: the stored kinds history sync carries, and
+	// the actions on a message. Everything else is a kind this device writes
+	// for itself ("keychange", the old "device" lines) or no build sends, and
+	// a peer that could deliver one would write Concord's own notice, in its
+	// own words, into the conversation.
+	if !wireMessageKind(m.Kind) {
 		return
 	}
 	// Ignore messages for channels we no longer track (e.g. a guild we left but

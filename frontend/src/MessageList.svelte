@@ -1,5 +1,6 @@
 <script>
   import { edgeFade } from "./lib/edgefade.js";
+  import { strangerLine } from "./lib/contactdevices.js";
   // The feed: date dividers, consecutive-sender grouping, drag-and-drop
   // attachments, pins/search panels, and the out-of-sync banner.
   import { feedTabs } from "./lib/feedtabs.js";
@@ -1907,12 +1908,14 @@
     {:else if it.row.m.kind === "keychange"}
       <!-- A key in this 1:1 that the contact's account did not sign
            (internal/app/devicewatch.go). The one device change that is said;
-           devices linked through the account are not. Local, never synced. -->
+           devices linked through the account are not. Local, never synced,
+           and the core takes no "keychange" from the wire; still, the words
+           are ours (strangerLine), never the row's content. -->
       {@const peer = activeGuild()?.dmPeer || ""}
       <div class="system-msg device-note keychange" role="note" class:enter={it.row.m.id === animateId}>
         <span>
           <span class="dev-ic warn"><Icon name="alert" size={11} /></span>
-          {it.row.m.content}
+          {strangerLine(peer ? nameFor(peer) : activeGuild()?.name)}
           {#if peer}
             <button
               type="button"

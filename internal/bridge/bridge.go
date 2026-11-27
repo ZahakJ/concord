@@ -434,12 +434,15 @@ type MemberView struct {
 	IsSelf      bool             `json:"isSelf"`
 	Online      bool             `json:"online"`
 	Verified    bool             `json:"verified"`
-	IsOwner     bool             `json:"isOwner"`    // guild owner (implicit full authority)
-	IsHeir      bool             `json:"isHeir"`     // named heir (may claim ownership at any time)
-	Perms       uint32           `json:"perms"`      // effective permission bitmask
-	CanManage   bool             `json:"canManage"`  // owner or manage-members holder
-	RoleIDs     []string         `json:"roleIds"`    // assigned role IDs (highest-first from Roles())
-	MutedUntil  int64            `json:"mutedUntil"` // unix seconds muted-until (0 = not muted)
+	// NewDevice: verified, with a device linked since (the verified badge
+	// carries "New device since you verified" until they are verified again).
+	NewDevice  bool     `json:"newDevice,omitempty"`
+	IsOwner    bool     `json:"isOwner"`    // guild owner (implicit full authority)
+	IsHeir     bool     `json:"isHeir"`     // named heir (may claim ownership at any time)
+	Perms      uint32   `json:"perms"`      // effective permission bitmask
+	CanManage  bool     `json:"canManage"`  // owner or manage-members holder
+	RoleIDs    []string `json:"roleIds"`    // assigned role IDs (highest-first from Roles())
+	MutedUntil int64    `json:"mutedUntil"` // unix seconds muted-until (0 = not muted)
 	// Outranked: the viewer stands above this member (owner, or a strictly
 	// higher top role), so mute/kick/ban may be offered.
 	Outranked bool `json:"outranked"`
@@ -1323,6 +1326,9 @@ func (b *Bridge) NetworkStats() (appsvc.NetworkStatsView, error) {
 type ContactDevicesView struct {
 	Count int                    `json:"count"`
 	Added []appsvc.ContactDevice `json:"added"`
+	// NewSinceVerified: verified, and a device is on their account now that
+	// was not when they were verified (appsvc.NewDeviceSinceVerified).
+	NewSinceVerified bool `json:"newSinceVerified,omitempty"`
 }
 
 func (b *Bridge) ContactDevices(fingerprint string) (ContactDevicesView, error) {
@@ -1334,7 +1340,7 @@ func (b *Bridge) ContactDevices(fingerprint string) (ContactDevicesView, error) 
 	if added == nil {
 		added = []appsvc.ContactDevice{}
 	}
-	return ContactDevicesView{Count: n, Added: added}, nil
+	return ContactDevicesView{Count: n, Added: added, NewSinceVerified: svc.NewDeviceSinceVerified(fingerprint)}, nil
 }
 
 func (b *Bridge) LinkedDevices() ([]appsvc.LinkedDeviceView, error) {
@@ -2598,6 +2604,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			IsSelf:      isSelf,
 			Online:      seenOnline,
 			Verified:    isSelf || verified[fpr],
+			NewDevice:   !isSelf && verified[fpr] && svc.NewDeviceSinceVerified(fpr),
 			IsOwner:     isOwner,
 			IsHeir:      heir != "" && fpr == heir,
 			Perms:       perms,

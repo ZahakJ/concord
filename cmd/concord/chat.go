@@ -92,6 +92,60 @@ type chatService interface {
 	Fingerprint() string
 }
 
+// cleanService hands the commands every name a peer chose as one clean line
+// (guild, channel, display name, reaction), so no output path can print a
+// raw one. Bodies stay as written: renderBody cleans what it prints, and
+// --json escapes (jsonSafe).
+type cleanService struct{ chatService }
+
+func (c cleanService) Guilds() []domain.Guild {
+	gs := c.chatService.Guilds()
+	out := make([]domain.Guild, len(gs))
+	for i, g := range gs {
+		g.Name = cleanLine(g.Name)
+		chs := make([]domain.Channel, len(g.Channels))
+		for j, ch := range g.Channels {
+			ch.Name = cleanLine(ch.Name)
+			chs[j] = ch
+		}
+		g.Channels = chs
+		out[i] = g
+	}
+	return out
+}
+
+func cleanMessage(m domain.Message) domain.Message {
+	m.Name = cleanLine(m.Name)
+	if len(m.Reactions) > 0 {
+		r := make(map[string][]string, len(m.Reactions))
+		for e, f := range m.Reactions {
+			k := cleanLine(e)
+			r[k] = append(r[k], f...)
+		}
+		m.Reactions = r
+	}
+	return m
+}
+
+func cleanMessages(ms []domain.Message, err error) ([]domain.Message, error) {
+	for i := range ms {
+		ms[i] = cleanMessage(ms[i])
+	}
+	return ms, err
+}
+
+func (c cleanService) Messages(channelID string, limit int) ([]domain.Message, error) {
+	return cleanMessages(c.chatService.Messages(channelID, limit))
+}
+
+func (c cleanService) SearchMessages(q string, limit int, f ...store.SearchFilter) ([]domain.Message, error) {
+	return cleanMessages(c.chatService.SearchMessages(q, limit, f...))
+}
+
+func (c cleanService) OnMessage(fn func(domain.Message)) {
+	c.chatService.OnMessage(func(m domain.Message) { fn(cleanMessage(m)) })
+}
+
 type chatOpts struct {
 	n     int
 	in    string
@@ -200,7 +254,7 @@ func runChatCommand(cmd string, args []string, stdin io.Reader, stdout, stderr i
 		return 1
 	}
 	defer svc.Close()
-	c := &chatCLI{svc: svc, out: stdout, st: newStyle(stdout, o.color), o: o, now: time.Now}
+	c := &chatCLI{svc: cleanService{svc}, out: stdout, st: newStyle(stdout, o.color), o: o, now: time.Now}
 	if err := c.run(ctx, cmd); err != nil {
 		fmt.Fprintln(stderr, "concord:", err)
 		return 1
@@ -535,13 +589,14 @@ func (c *chatCLI) senderName(m domain.Message) string {
 	if string(m.Sender) == string(c.svc.PublicKey()) {
 		return "You"
 	}
-	if n := strings.TrimSpace(clean(m.Name)); n != "" {
+	if n := cleanLine(m.Name); n != "" {
 		return n
 	}
 	return "Someone"
 }
 
 func shortID(id string) string {
+	id = safeID(id)
 	if len(id) > 8 {
 		return id[:8]
 	}
@@ -556,6 +611,8 @@ func (c *chatCLI) printMessage(m domain.Message, byID map[string]domain.Message,
 	when := m.Sent.Local()
 	if !st.on {
 		// One line per message, tab-separated, for grep and cut.
+		// A newline in the words would start a record a script reads as real:
+		// it is written as a visible mark (renderBody has made tabs spaces).
 		body := strings.ReplaceAll(renderBody(m), "\n", " ⏎ ")
 		fmt.Fprintf(c.out, "%s\t%s\t%s\t%s", shortID(m.ID), when.Format(time.RFC3339), c.senderName(m), body)
 		if m.ReplyTo != "" {
@@ -576,7 +633,9 @@ func (c *chatCLI) printMessage(m domain.Message, byID map[string]domain.Message,
 		fp := hex.EncodeToString(m.Sender)
 		name := st.name(fp, c.senderName(m))
 		if m.Kind == "system" {
-			name = st.muted("Concord")
+			// A notice is sent by a member like any message: it is theirs, not
+			// Concord's, and says so.
+			name += st.muted(" · notice")
 		}
 		fmt.Fprintf(c.out, "\n %s  %s  %s\n", name, st.muted(stamp), st.dim(shortID(m.ID)))
 	}
@@ -741,7 +800,10 @@ func renderBody(m domain.Message) string {
 		lines = append(lines, t)
 	}
 	lines = append(lines, extra...)
-	return strings.Join(lines, "\n")
+	// Last, over the whole: a card's title and site come from the sender too.
+	// A tab is spaces: on a terminal it is only a gap, and piped it would be a
+	// field separator a sender could forge records with.
+	return strings.ReplaceAll(clean(strings.Join(lines, "\n")), "\t", "    ")
 }
 
 func humanSize(n int64) string {
@@ -1025,11 +1087,11 @@ type chatMessageJSON struct {
 
 func (c *chatCLI) messageJSON(g domain.Guild, ch domain.Channel, m domain.Message) chatMessageJSON {
 	out := chatMessageJSON{
-		ID: m.ID, Chat: g.Name + "/#" + ch.Name, ChannelID: ch.ID,
+		ID: safeID(m.ID), Chat: g.Name + "/#" + ch.Name, ChannelID: ch.ID,
 		Sender: hex.EncodeToString(m.Sender), Name: c.senderName(m),
 		Mine: string(m.Sender) == string(c.svc.PublicKey()),
 		Sent: m.Sent.UTC().Format(time.RFC3339Nano), Text: renderBody(m), Content: m.Content,
-		ReplyTo: m.ReplyTo, Edited: m.Edited, Deleted: m.Deleted,
+		ReplyTo: safeID(m.ReplyTo), Edited: m.Edited, Deleted: m.Deleted,
 	}
 	if len(m.Reactions) > 0 {
 		out.Reactions = map[string]int{}
@@ -1045,5 +1107,5 @@ func (c *chatCLI) jsonLine(v any) {
 	if err != nil {
 		return
 	}
-	c.out.Write(append(b, '\n')) //nolint:errcheck // a closed stdout ends the run anyway
+	c.out.Write(append(jsonSafe(b), '\n')) //nolint:errcheck // a closed stdout ends the run anyway
 }

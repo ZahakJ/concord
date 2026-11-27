@@ -109,18 +109,73 @@ func (s style) name(fpr, name string) string {
 
 // clean strips terminal control characters from text a stranger wrote: a
 // message must not be able to move the cursor, retitle the window or recolour
-// the rest of the screen. Newlines and tabs are kept; every other C0/C1
-// control and DEL becomes nothing.
+// the rest of the screen, nor reorder or hide what is printed around it.
+// Newlines and tabs are kept; every other C0/C1 control, DEL and every
+// invisible formatting character (hostile) becomes nothing.
 func clean(t string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
 		case r == '\n' || r == '\t':
 			return r
-		case r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0):
+		case hostile(r):
 			return -1
-		case r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
-			return -1 // bidi overrides and isolates, which reorder a line
 		}
 		return r
 	}, t)
+}
+
+// hostile: a rune no stranger's text may put on the terminal. C0 controls
+// but newline and tab are judged by the caller.
+func hostile(r rune) bool {
+	switch {
+	case r < 0x20 && r != '\n' && r != '\t', r == 0x7f, r >= 0x80 && r < 0xa0:
+		return true
+	case r >= 0x200b && r <= 0x200f: // zero-width space, joiners, LRM/RLM
+		return true
+	case r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069: // bidi overrides and isolates
+		return true
+	case r == 0x061c, r == 0x2028, r == 0x2029, r == 0xfeff: // ALM, line and paragraph separators, BOM
+		return true
+	}
+	return false
+}
+
+// cleanLine is clean for a name or a label: one line, so a newline or a tab
+// in a guild, channel or display name cannot start a forged record.
+func cleanLine(t string) string {
+	return strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || r == '\r' {
+			return ' '
+		}
+		return r
+	}, clean(t))), " ")
+}
+
+// safeID is an id a peer chose, printed only when it is made of the characters
+// every Concord id is made of; anything else prints as "?".
+func safeID(id string) string {
+	if id == "" {
+		return ""
+	}
+	for _, r := range id {
+		if !(r == '-' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
+			return "?"
+		}
+	}
+	return id
+}
+
+// jsonSafe escapes, inside an encoded JSON line, the runes encoding/json
+// passes through raw that a terminal acts on: the data is unchanged for a
+// JSON reader, and nothing reaches the screen as a control.
+func jsonSafe(b []byte) []byte {
+	var out strings.Builder
+	for _, r := range string(b) {
+		if r >= 0x20 && hostile(r) {
+			fmt.Fprintf(&out, "\\u%04x", r)
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return []byte(out.String())
 }

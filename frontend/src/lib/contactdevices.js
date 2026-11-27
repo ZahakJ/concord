@@ -20,3 +20,22 @@ export function deviceLine(view, now = Date.now()) {
   const day = d.toLocaleDateString(undefined, sameYear ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" });
   return `${head} · ${name} added ${day}`;
 }
+
+// NEW_DEVICE_MARK is the mark a verified contact carries, on the contact and
+// its verified badge, while a device is on their account that was not when
+// they were verified. Never a line in a chat; verifying again clears it.
+export const NEW_DEVICE_MARK = "New device since you verified";
+
+// strangerLine is the notice for a key in a 1:1 that their account did not
+// sign (a "keychange" row, internal/app/devicewatch.go). It is always these
+// words: the row's own content is never shown, so nothing a peer sent can
+// speak in Concord's voice. who is the contact's name, as one clean line.
+export function strangerLine(who) {
+  const name =
+    String(who ?? "")
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\u061c\u2028\u2029\ufeff]/g, (c) => (c === "\n" || c === "\t" ? " " : ""))
+      .replace(/\s+/g, " ")
+      .trim() || "this contact";
+  return `A key that isn't linked to ${name}'s account is in this conversation. Check with ${name} another way before you share anything private.`;
+}

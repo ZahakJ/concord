@@ -450,8 +450,13 @@ type Service struct {
 	// persist, announce): scans run from the heal tick and from every applied
 	// commit, and must not interleave.
 	deviceScanMu sync.Mutex
-	// deviceLogMu guards the read-modify-write of the contact device log.
-	deviceLogMu sync.Mutex
+	// deviceLive is each contact's devices in the latest scan: in a group we
+	// share now and not unlinked by their account (guarded by mu).
+	deviceLive map[string]map[string]bool
+	// deviceLogMu guards the read-modify-write of the contact device log, and
+	// verifiedDevs: per verified contact, the devices known when verified.
+	deviceLogMu  sync.Mutex
+	verifiedDevs map[string]map[string]bool
 
 	// pendingMembers[guildID][fingerprint] = people you've invited who have
 	// not accepted yet. Bookkeeping for re-pushing the invite, not a roster
@@ -2771,10 +2776,16 @@ func (s *Service) VerifyFingerprint(fingerprint string) error {
 	if fingerprint == "" {
 		return fmt.Errorf("app: no fingerprint given")
 	}
-	if err := s.store.SetVerifiedByFingerprint(fingerprint); err == nil {
-		return nil
+	err := s.store.SetVerifiedByFingerprint(fingerprint)
+	if err != nil {
+		err = s.store.ImportVerifiedFingerprint(fingerprint)
 	}
-	return s.store.ImportVerifiedFingerprint(fingerprint)
+	if err == nil {
+		// What was verified includes the devices they have now: a mark for
+		// a new one since (NewDeviceSinceVerified) starts over from here.
+		s.snapshotVerifiedDevices(fingerprint)
+	}
+	return err
 }
 
 // ImportVerifiedFingerprints seeds verifications carried over from another

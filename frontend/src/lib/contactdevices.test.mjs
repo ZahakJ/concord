@@ -1,5 +1,5 @@
 // Zero-dependency test for the contact devices line (`npm test`).
-import { deviceLine } from "./contactdevices.js";
+import { deviceLine, strangerLine, NEW_DEVICE_MARK } from "./contactdevices.js";
 
 let failures = 0;
 const ok = (c, msg) => {
@@ -16,6 +16,11 @@ const l = deviceLine({ count: 2, added: [{ name: "Pixel", issued: new Date(2026,
 ok(/^2 devices · Pixel added /.test(l) && /20/.test(l) && !/2026/.test(l), `the newest added, this year: ${l}`);
 ok(/2025/.test(deviceLine({ count: 3, added: [{ name: "", seen: new Date(2025, 0, 2).getTime() / 1000 }] }, now)), "another year is dated with it");
 ok(deviceLine({ count: 2, added: [{ name: " " }] }, now) === "2 devices · A device added", "no name, no date");
+// The notice for a key off a contact's chain is ours, never the row's words.
+ok(strangerLine("Bashir") === "A key that isn't linked to Bashir's account is in this conversation. Check with Bashir another way before you share anything private.", "the stranger line names the contact");
+ok(strangerLine("") === strangerLine(undefined) && strangerLine("").includes("this contact"), "no name, a fixed fallback");
+ok(strangerLine("A\u202eB\nC") === strangerLine("AB C"), "the name is one clean line");
+ok(NEW_DEVICE_MARK === "New device since you verified", "the mark's words");
 if (failures) {
   console.error(`${failures} contactdevices test(s) failed`);
   process.exit(1);

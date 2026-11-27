@@ -128,6 +128,12 @@ func foldDevices(known map[string]map[string]bool, seen map[string]map[string][]
 // on the heal tick, which is the only cadence this needs: a device that joins an
 // account shows up as a leaf in the groups we share, and it stays there.
 func (s *Service) noteDeviceLeaves() {
+	s.scanDeviceLeaves(func(groupID []byte) ([][]byte, error) { return s.mls.Members(s.ctx, groupID) })
+}
+
+// scanDeviceLeaves is noteDeviceLeaves reading each group's leaves through
+// members (a test lays out a contact's devices there).
+func (s *Service) scanDeviceLeaves(members func(groupID []byte) ([][]byte, error)) {
 	s.deviceScanMu.Lock()
 	defer s.deviceScanMu.Unlock()
 	s.mu.RLock()
@@ -140,13 +146,18 @@ func (s *Service) noteDeviceLeaves() {
 	// account fingerprint -> device key hex -> that leaf's credential
 	seen := map[string]map[string][]byte{}
 	for _, groupID := range ids {
-		creds, err := s.mls.Members(s.ctx, groupID)
+		creds, err := members(groupID)
 		if err != nil {
 			continue // unreadable right now: absence here must never mean "gone"
 		}
 		for _, c := range creds {
 			fpr := accountFingerprintOf(c)
 			if fpr == "" || fpr == s.id.Fingerprint() {
+				continue
+			}
+			// A device its account unlinked is not theirs any more, wherever
+			// a group still holds its leaf.
+			if s.leafRevoked(c) {
 				continue
 			}
 			if seen[fpr] == nil {
@@ -156,8 +167,22 @@ func (s *Service) noteDeviceLeaves() {
 		}
 	}
 
+	// A verified contact's devices at verification are what a new one is
+	// told apart from; one verified before this was recorded starts from
+	// the devices already known, so nothing is marked for the upgrade.
+	s.seedVerifiedDevices()
+
+	live := make(map[string]map[string]bool, len(seen))
+	for fpr, keys := range seen {
+		set := make(map[string]bool, len(keys))
+		for k := range keys {
+			set[k] = true
+		}
+		live[fpr] = set
+	}
 	s.mu.Lock()
 	fresh, changed := foldDevices(s.devices, seen)
+	s.deviceLive = live
 	s.mu.Unlock()
 
 	if changed {
@@ -231,9 +256,13 @@ func (s *Service) logContactDevices(fresh []newDevice) {
 // are on their account in the groups we share now, and the ones it saw added,
 // oldest first. Every one of them is on the account's chain (see the top of
 // this file); the list is for a details view, never a notice.
+//
+// Both are of the latest scan: a device that left every group we share, or
+// that their account unlinked, is neither counted nor listed.
 func (s *Service) ContactDevices(fingerprint string) (count int, added []ContactDevice) {
 	s.mu.RLock()
-	count = len(s.devices[fingerprint])
+	live := s.deviceLive[fingerprint]
+	count = len(live)
 	s.mu.RUnlock()
 	s.deviceLogMu.Lock()
 	defer s.deviceLogMu.Unlock()
@@ -241,7 +270,161 @@ func (s *Service) ContactDevices(fingerprint string) (count int, added []Contact
 	if raw, err := s.store.GetSetting(deviceLogKey); err == nil && raw != "" {
 		_ = json.Unmarshal([]byte(raw), &log)
 	}
-	return count, log[fingerprint]
+	for _, d := range log[fingerprint] {
+		if live[d.Key] {
+			added = append(added, d)
+		}
+	}
+	return count, added
+}
+
+// verifiedDevicesKey persists, per verified contact, the devices on their
+// account when they were verified.
+const verifiedDevicesKey = "contacts.verifieddevices"
+
+// loadVerifiedDevicesLocked reads the verified-device sets once. deviceLogMu
+// must be held.
+func (s *Service) loadVerifiedDevicesLocked() {
+	if s.verifiedDevs != nil {
+		return
+	}
+	s.verifiedDevs = map[string]map[string]bool{}
+	raw, err := s.store.GetSetting(verifiedDevicesKey)
+	if err != nil || raw == "" {
+		return
+	}
+	var m map[string][]string
+	if json.Unmarshal([]byte(raw), &m) != nil {
+		return
+	}
+	for fpr, keys := range m {
+		set := make(map[string]bool, len(keys))
+		for _, k := range keys {
+			set[k] = true
+		}
+		s.verifiedDevs[fpr] = set
+	}
+}
+
+// persistVerifiedDevicesLocked writes them back. deviceLogMu must be held.
+func (s *Service) persistVerifiedDevicesLocked() {
+	m := make(map[string][]string, len(s.verifiedDevs))
+	for fpr, set := range s.verifiedDevs {
+		keys := make([]string, 0, len(set))
+		for k := range set {
+			keys = append(keys, k)
+		}
+		m[fpr] = keys
+	}
+	if raw, err := json.Marshal(m); err == nil {
+		_ = s.store.SetSetting(verifiedDevicesKey, string(raw))
+	}
+}
+
+// knownDevices copies the devices ever seen behind fpr.
+func (s *Service) knownDevices(fpr string) map[string]bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]bool, len(s.devices[fpr]))
+	for k := range s.devices[fpr] {
+		out[k] = true
+	}
+	return out
+}
+
+// snapshotVerifiedDevices records fpr's devices as the ones verified. With
+// none known yet, the record waits for the first scan to see some
+// (seedVerifiedDevices), so a contact's first device is never "new".
+func (s *Service) snapshotVerifiedDevices(fpr string) {
+	known := s.knownDevices(fpr)
+	s.deviceLogMu.Lock()
+	defer s.deviceLogMu.Unlock()
+	s.loadVerifiedDevicesLocked()
+	if len(known) == 0 {
+		delete(s.verifiedDevs, fpr)
+	} else {
+		s.verifiedDevs[fpr] = known
+	}
+	s.persistVerifiedDevicesLocked()
+}
+
+// seedVerifiedDevices gives every verified contact without a record one:
+// the devices known for them so far.
+func (s *Service) seedVerifiedDevices() {
+	verified := s.VerifiedFingerprints()
+	if len(verified) == 0 {
+		return
+	}
+	s.deviceLogMu.Lock()
+	defer s.deviceLogMu.Unlock()
+	s.loadVerifiedDevicesLocked()
+	changed := false
+	for fpr, ok := range verified {
+		if !ok || s.verifiedDevs[fpr] != nil {
+			continue
+		}
+		if known := s.knownDevices(fpr); len(known) > 0 {
+			s.verifiedDevs[fpr] = known
+			changed = true
+		}
+	}
+	if changed {
+		s.persistVerifiedDevicesLocked()
+	}
+}
+
+// NewDeviceSinceVerified reports whether a verified contact has a device on
+// their account now that they did not have when they were verified. It is a
+// mark on the contact and their verified badge, never a line in a chat, and
+// verifying them again clears it. An unverified contact is never marked.
+func (s *Service) NewDeviceSinceVerified(fpr string) bool {
+	if fpr == "" || !s.VerifiedFingerprints()[fpr] {
+		return false
+	}
+	s.mu.RLock()
+	live := make([]string, 0, len(s.deviceLive[fpr]))
+	for k := range s.deviceLive[fpr] {
+		live = append(live, k)
+	}
+	s.mu.RUnlock()
+	s.deviceLogMu.Lock()
+	defer s.deviceLogMu.Unlock()
+	s.loadVerifiedDevicesLocked()
+	at := s.verifiedDevs[fpr]
+	if at == nil {
+		return false
+	}
+	for _, k := range live {
+		if !at[k] {
+			return true
+		}
+	}
+	return false
+}
+
+// strangerNoticesPerDM caps the notices one 1:1 can hold for keys off its
+// contact's chain: past it, a peer that can put keys into the conversation
+// is already being told about, and more lines would only bury the chat.
+const strangerNoticesPerDM = 4
+
+// admitStranger notes key in the 1:1 dmID and reports whether it is a new
+// notice to write: not noted before, and the 1:1 is under its cap.
+func admitStranger(noted map[string]bool, dmID, key string) bool {
+	k := dmID + "|" + key
+	if noted[k] {
+		return false
+	}
+	n := 0
+	for e := range noted {
+		if strings.HasPrefix(e, dmID+"|") {
+			n++
+		}
+	}
+	if n >= strangerNoticesPerDM {
+		return false
+	}
+	noted[k] = true
+	return true
 }
 
 const strangerKeysKey = "contacts.dmstrangers"
@@ -297,11 +480,9 @@ func (s *Service) noteStrangersInDMs() {
 			if fpr == "" || fpr == me || fpr == d.peer {
 				continue
 			}
-			k := d.id + "|" + hex.EncodeToString(mailboxKeyOf(c))
-			if noted[k] {
+			if !admitStranger(noted, d.id, hex.EncodeToString(mailboxKeyOf(c))) {
 				continue
 			}
-			noted[k] = true
 			added = true
 			name := s.ProfileName(d.peer)
 			msg, err := domain.NewMessage(d.channel, accountKeyOf(c), strangerNoticeText(name))

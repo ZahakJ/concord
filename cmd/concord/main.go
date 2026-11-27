@@ -159,9 +159,11 @@ func readPassphrase() (string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return "", fmt.Errorf("no TTY and CONCORD_PASSPHRASE is unset")
 	}
-	fmt.Print("Passphrase: ")
+	// The prompt is not output: on stderr, so `concord read … > file` holds
+	// only what was read.
+	fmt.Fprint(os.Stderr, "Passphrase: ")
 	b, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Println()
+	fmt.Fprintln(os.Stderr)
 	if err != nil {
 		return "", err
 	}

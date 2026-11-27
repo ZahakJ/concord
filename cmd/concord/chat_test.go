@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -106,7 +107,7 @@ func runChat(t *testing.T, f *fakeChat, color bool, cmd string, args ...string) 
 		t.Fatalf("%s %v: %v", cmd, args, err)
 	}
 	var out bytes.Buffer
-	c := &chatCLI{svc: f, out: &out, st: style{on: color, truec: true}, o: o, now: func() time.Time { return t0.Add(5 * time.Minute) }}
+	c := &chatCLI{svc: cleanService{f}, out: &out, st: style{on: color, truec: true}, o: o, now: func() time.Time { return t0.Add(5 * time.Minute) }}
 	if err := c.run(context.Background(), cmd); err != nil {
 		t.Fatalf("%s %v: %v", cmd, args, err)
 	}
@@ -209,7 +210,7 @@ func TestSendReplyReactAndEditCarryASendID(t *testing.T) {
 func TestEditRefusesSomeoneElsesMessage(t *testing.T) {
 	f := lantern()
 	o, _ := parseChatArgs("edit", []string{"#general", "a1b2", "x"}, &bytes.Buffer{})
-	c := &chatCLI{svc: f, out: &bytes.Buffer{}, o: o, now: time.Now}
+	c := &chatCLI{svc: cleanService{f}, out: &bytes.Buffer{}, o: o, now: time.Now}
 	if err := c.run(context.Background(), "edit"); err == nil || !strings.Contains(err.Error(), "only your own") {
 		t.Fatalf("err = %v", err)
 	}
@@ -230,7 +231,7 @@ func TestWatchPrintsNewMessagesOnce(t *testing.T) {
 	f.onWatch = make(chan struct{})
 	o, _ := parseChatArgs("watch", []string{"#general"}, &bytes.Buffer{})
 	var out bytes.Buffer
-	c := &chatCLI{svc: f, out: &out, o: o, now: time.Now}
+	c := &chatCLI{svc: cleanService{f}, out: &out, o: o, now: time.Now}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error)
 	go func() { done <- c.run(ctx, "watch") }()
@@ -299,5 +300,89 @@ func TestPlainOutputWithoutATerminal(t *testing.T) {
 	}
 	if !newStyle(&b, "always").on {
 		t.Fatal("--color always")
+	}
+}
+
+// Everything a peer chooses, made hostile, through every output path: no
+// control byte but the newlines we write, no C1 control or DEL, and none of
+// the invisible characters that reorder or hide a line reaches stdout, in
+// colour, piped or as JSON. ESC is ours alone, in colour, and only as the
+// start of an SGR colour code.
+func TestHostilePeerContentNeverReachesTheTerminal(t *testing.T) {
+	bad := "\x1b]0;t\x07\x1b[2J\x00\x08\r\x7f\u0085\u009b\u200b\u200e\u200f\u061c\u2028\u2029\ufeff\u202e\u2066"
+	tab := "a\tb"
+	b64 := base64.RawURLEncoding.EncodeToString
+	blob := strings.Repeat("ab", 32)
+	hostileChat := func() *fakeChat {
+		f := lantern()
+		peer := []byte("mallory-key")
+		f.guilds = []domain.Guild{
+			{ID: "g1", Name: "Lantern" + bad + "\nMakers\t", Channels: []domain.Channel{{ID: "c-gen", Name: "general" + bad}}},
+			{ID: "g2", Name: "Mal" + bad + "\nlory", Kind: "dm", Channels: []domain.Channel{{ID: "c-dm", Name: "dm" + bad}}},
+		}
+		hostile := []domain.Message{
+			{ID: "x" + bad + "\tforged", ChannelID: "c-gen", Sender: peer, Name: "Mal" + bad + "\n\tlory", Sent: t0,
+				Content: "hi " + bad + tab + "\n[Ti" + bad + "tle](https://evil.example/x) · evil" + bad + ".example\n[file](concord://file/v1/" + blob + "/k/9/" + b64([]byte("t/p")) + "/" + b64([]byte("n"+bad+"\n.txt")) + ")",
+				ReplyTo: "r" + bad + "\n", Reactions: map[string][]string{"👍" + bad + "\n": {"x"}}},
+			{ID: "sys1", ChannelID: "c-gen", Sender: peer, Name: "Mal" + bad, Kind: "system", Content: "joined" + bad, Sent: t0.Add(time.Minute)},
+		}
+		f.msgs = map[string][]domain.Message{"c-gen": hostile, "c-dm": hostile}
+		f.unread = map[string]int{"c-gen": 1}
+		return f
+	}
+	check := func(name, out string, color bool) {
+		t.Helper()
+		if color {
+			out = regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(out, "")
+		}
+		for i, r := range out {
+			if (r < 0x20 && r != '\n' && (color || r != '\t')) || r == 0x7f || (r >= 0x80 && r < 0xa0) ||
+				(r >= 0x200b && r <= 0x200f) || r == 0x061c || r == 0x2028 || r == 0x2029 || r == 0xfeff ||
+				(r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
+				t.Fatalf("%s: U+%04X at byte %d in:\n%q", name, r, i, out)
+			}
+		}
+		if !color && !strings.HasPrefix(name, "json") {
+			// Piped: every record is one line with a fixed number of fields;
+			// a tab inside a name or a body cannot add one (search adds the chat).
+			for _, line := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
+				if n := strings.Count(line, "\t"); n > 6 {
+					t.Fatalf("%s: %d tabs, a forged field:\n%q", name, n, line)
+				}
+			}
+		}
+	}
+	gen, dm := "#"+cleanLine("general"+bad), "@"+cleanLine("Mal"+bad+"\nlory")
+	for _, color := range []bool{false, true} {
+		for _, run := range [][]string{
+			{"chats"}, {"chats", "--json"},
+			{"read", gen}, {"read", dm}, {"read", gen, "--json"},
+			{"search", "hi"}, {"search", "hi", "--json"},
+		} {
+			name := strings.Join(run, " ")
+			check(name, runChat(t, hostileChat(), color, run[0], run[1:]...), color)
+		}
+	}
+	// watch, which prints messages as they come.
+	f := hostileChat()
+	f.onWatch = make(chan struct{})
+	o, _ := parseChatArgs("watch", []string{gen}, &bytes.Buffer{})
+	var out bytes.Buffer
+	c := &chatCLI{svc: cleanService{f}, out: &out, st: style{on: true, truec: true}, o: o, now: time.Now}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error)
+	go func() { done <- c.run(ctx, "watch") }()
+	<-f.onWatch
+	for _, m := range f.msgs["c-gen"] {
+		m.ID += "w"
+		f.handler(m)
+	}
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+	check("watch", out.String(), true)
+	// A notice is its sender's, never Concord's.
+	if got := runChat(t, hostileChat(), true, "read", gen); strings.Contains(got, "Concord") {
+		t.Fatalf("a peer's notice printed as Concord's:\n%s", got)
 	}
 }

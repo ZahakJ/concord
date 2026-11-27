@@ -4,6 +4,7 @@
   // the "local peers" network log. Rows are proper buttons; the owner's kick
   // control is its own sibling button (no more button-in-button nesting).
   import Icon from "./Icon.svelte";
+  import { NEW_DEVICE_MARK } from "./lib/contactdevices.js";
   import Avatar from "./Avatar.svelte";
   import OwnerMark from "./OwnerMark.svelte";
   import Inspector from "./Inspector.svelte";
@@ -347,7 +348,15 @@
               <span class="role-badge heir" title="Named heir — can take ownership at any time">Heir</span>
             {/if}
             {#if mem.verified && !mem.isSelf && !mem.pending}
-              <span class="v-badge" class:pop={freshlyVerified(mem.fingerprint)} title="Identity verified"><Icon name="check" size={11} /></span>
+              <span
+                class="v-badge"
+                class:newdev={mem.newDevice}
+                class:pop={freshlyVerified(mem.fingerprint)}
+                title={mem.newDevice ? `Identity verified · ${NEW_DEVICE_MARK}` : "Identity verified"}
+                ><Icon name="check" size={11} />{#if mem.newDevice}<span class="nd-dot" aria-hidden="true"></span><span class="sr-only"
+                    >{NEW_DEVICE_MARK}</span
+                  >{/if}</span
+              >
             {/if}
             {#if mem.pending}
               <span class="pending-badge" title="Added — they'll appear once they accept &amp; sync">Pending</span>
@@ -669,6 +678,22 @@
     color: var(--ok-text);
     display: inline-grid;
     place-items: center;
+  }
+  /* A verified contact who has linked a device since: a small dot on the
+     tick, the words in its title and for screen readers. Not a warning: the
+     device is on their account's chain. */
+  .v-badge.newdev {
+    position: relative;
+  }
+  .nd-dot {
+    position: absolute;
+    top: -2px;
+    right: -3px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warn, #d9a400);
+    box-shadow: 0 0 0 1.5px var(--bg-1);
   }
   .v-badge.pop {
     animation: v-pop 0.3s var(--ease-spring) both;

@@ -8,7 +8,7 @@
   import { api } from "../lib/api.js";
   import { S, flash, memberByFpr, refreshRightPanel } from "../lib/state.svelte.js";
   import { encodeSafetyCode, checkSafetyCode } from "../lib/safetycode.js";
-  import { deviceLine } from "../lib/contactdevices.js";
+  import { deviceLine, NEW_DEVICE_MARK } from "../lib/contactdevices.js";
 
   let { fingerprint, name = "", onClose } = $props();
 
@@ -26,11 +26,12 @@
   // Their devices, as a quiet line: each is chained to their account, which
   // verifying checks, so it is information here, not a warning anywhere.
   let devices = $state("");
+  let newSince = $state(false);
   $effect(() => {
     let live = true;
     api
       .contactDevices(fingerprint)
-      .then((v) => live && (devices = deviceLine(v)))
+      .then((v) => live && ((devices = deviceLine(v)), (newSince = !!v?.newSinceVerified)))
       .catch(() => {});
     return () => (live = false);
   });
@@ -105,6 +106,9 @@
   {#if devices}
     <p class="devs">{devices}, each signed by {who}'s account.</p>
   {/if}
+  {#if newSince && verified}
+    <p class="devs new-dev">{NEW_DEVICE_MARK}. Verifying again includes it.</p>
+  {/if}
 
   <details class="alt">
     <summary>Compare the number out loud instead</summary>
@@ -148,6 +152,9 @@
   }
   .devs {
     font-size: var(--fs-small);
+  }
+  .new-dev {
+    color: var(--warn-text, var(--text));
   }
   .fpr {
     display: block;
