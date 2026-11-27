@@ -19,7 +19,7 @@ import (
 func runREPL(ctx context.Context, svc *app.Service) error {
 	// Live message feed.
 	svc.OnMessage(func(m domain.Message) {
-		fmt.Printf("\n  [%s] %s: %s\n> ", short(m.ChannelID), senderTag(m.Sender), m.Content)
+		fmt.Printf("\n%s\n> ", replLine(m))
 	})
 	svc.OnPeerConnected(func(p app.PeerPresence) {
 		fmt.Printf("\n  * peer online %s\n> ", short(p.PeerID))
@@ -140,7 +140,7 @@ func dispatch(svc *app.Service, line string) bool {
 			break
 		}
 		for _, m := range msgs {
-			fmt.Printf("  %s: %s\n", senderTag(m.Sender), m.Content)
+			fmt.Printf("  %s: %s\n", senderTag(m.Sender), cleanLine(m.Content))
 		}
 	default:
 		fmt.Printf("unknown command %q (try: help)\n", cmd)
@@ -158,7 +158,7 @@ func listGuilds(svc *app.Service) {
 		n, _ := svc.MemberCount(g.ID)
 		fmt.Printf("- %s  %q  (%d members)\n", g.ID, g.Name, n)
 		for _, c := range g.Channels {
-			fmt.Printf("    #%s  channelID=%s\n", c.Name, c.ID)
+			fmt.Printf("    #%s  channelID=%s\n", cleanLine(c.Name), safeID(c.ID))
 		}
 	}
 }
@@ -240,6 +240,12 @@ func senderTag(pub []byte) string {
 		return fpr[:9]
 	}
 	return fpr
+}
+
+// replLine is one live message as the console prints it. A peer wrote the
+// words, so they are cleaned (style.go) and kept to one line.
+func replLine(m domain.Message) string {
+	return fmt.Sprintf("  [%s] %s: %s", short(safeID(m.ChannelID)), senderTag(m.Sender), cleanLine(m.Content))
 }
 
 func short(s string) string {

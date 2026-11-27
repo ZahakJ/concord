@@ -135,12 +135,31 @@ func TestContactDevicesAreCurrentAndANewOneMarksAVerifiedContact(t *testing.T) {
 	if !s.NewDeviceSinceVerified(fpr) {
 		t.Fatal("a device linked since the contact was verified left no mark")
 	}
+	if !s.NewDeviceSinceVerifiedAmong(fpr, s.VerifiedFingerprints()) || s.NewDeviceSinceVerifiedAmong(fpr, map[string]bool{}) {
+		t.Fatal("the mark does not follow the verified set it is handed")
+	}
 	if err := s.VerifyFingerprint(fpr); err != nil {
 		t.Fatal(err)
 	}
 	if s.NewDeviceSinceVerified(fpr) {
 		t.Fatal("verifying again did not clear the mark")
 	}
+	// The same by peer id (the console's verify): it is the same act, so it
+	// takes the same snapshot and clears the same mark.
+	set(desk, phone, tablet)
+	if !s.NewDeviceSinceVerified(fpr) {
+		t.Fatal("the tablet left no mark")
+	}
+	if err := s.store.RecordContact("peer-of-acct", fpr); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.VerifyContact("peer-of-acct"); err != nil {
+		t.Fatal(err)
+	}
+	if s.NewDeviceSinceVerified(fpr) {
+		t.Fatal("verifying by peer id did not clear the mark")
+	}
+	set(desk, phone)
 
 	// Their account unlinks the phone: it is not one of theirs any more.
 	s.deviceMu.Lock()
@@ -190,5 +209,138 @@ func TestStrangerNoticesAreCappedPerDM(t *testing.T) {
 	}
 	if admitStranger(noted, "dm-2", "key-0") {
 		t.Fatal("the same key in the same DM was noted twice")
+	}
+
+	// The cap is on the keys still there: once they leave the 1:1, a new one
+	// is told about again.
+	if !pruneStrangers(noted, "dm-1", map[string]bool{"key-0": true}) {
+		t.Fatal("pruning keys that left reported no change")
+	}
+	if !admitStranger(noted, "dm-1", "key-new") {
+		t.Fatal("a new key was refused after the earlier ones left the DM")
+	}
+	if !noted["dm-2|key-0"] {
+		t.Fatal("pruning one DM touched another's notes")
+	}
+}
+
+// The device count and the new-device mark survive a group this device
+// cannot read just now, and a restart before the first scan: the last live
+// set carries forward rather than reading as "no devices".
+func TestLiveDevicesCarryOverAnUnreadableGroupAndARestart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startService(t, ctx)
+	g, err := s.CreateGuild("carry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acct, _ := identity.Generate()
+	leaf := func(name string) []byte {
+		dev, _ := identity.Generate()
+		return acct.IssueDeviceCertFor(dev.PublicKey(), name, time.Now().Unix()).Marshal()
+	}
+	desk, phone := leaf("Desktop"), leaf("Pixel")
+	fpr := acct.Fingerprint()
+	scan := func(fail bool, leaves ...[]byte) {
+		s.scanDeviceLeaves(func(gid []byte) ([][]byte, error) {
+			if string(gid) == string(g.GroupID) {
+				if fail {
+					return nil, fmt.Errorf("unreadable")
+				}
+				m, err := s.mls.Members(s.ctx, gid)
+				return append(append([][]byte(nil), m...), leaves...), err
+			}
+			return s.mls.Members(s.ctx, gid)
+		})
+	}
+	scan(false, desk)
+	if err := s.VerifyFingerprint(fpr); err != nil {
+		t.Fatal(err)
+	}
+	scan(false, desk, phone)
+	if n, _ := s.ContactDevices(fpr); n != 2 || !s.NewDeviceSinceVerified(fpr) {
+		t.Fatalf("setup: %d devices, marked %v", n, s.NewDeviceSinceVerified(fpr))
+	}
+	scan(true)
+	if n, _ := s.ContactDevices(fpr); n != 2 {
+		t.Fatalf("an unreadable group dropped the count to %d", n)
+	}
+	if !s.NewDeviceSinceVerified(fpr) {
+		t.Fatal("an unreadable group cleared the new-device mark")
+	}
+	// A restart: nothing in memory until the stored set is loaded.
+	s.mu.Lock()
+	s.deviceLive, s.deviceLiveGroups = nil, nil
+	s.mu.Unlock()
+	s.loadDeviceLive()
+	if n, _ := s.ContactDevices(fpr); n != 2 || !s.NewDeviceSinceVerified(fpr) {
+		t.Fatalf("after a restart: %d devices, marked %v", n, s.NewDeviceSinceVerified(fpr))
+	}
+	// Read again, the group's real leaves win.
+	scan(false, desk)
+	if n, _ := s.ContactDevices(fpr); n != 1 {
+		t.Fatalf("a readable group did not replace the carried set: %d", n)
+	}
+}
+
+// The announcement gate and slow mode hold for every row a member can post,
+// not only plain messages: a "system", "guest", "invite" or "call-missed" row
+// is as visible in the channel, so it was a way round both.
+func TestAnnouncementAndSlowModeHoldForEveryPostedKind(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	owner := startService(t, ctx)
+	member := startService(t, ctx)
+	g := guildWith(t, owner, member)
+	ch := g.Channels[0].ID
+	owner.mu.Lock()
+	owner.guilds[g.ID].Channels[0].Type = "announcement"
+	owner.mu.Unlock()
+
+	n := 0
+	post := func(kind string, at time.Time) bool {
+		n++
+		m := domain.Message{ID: domain.NewID(), ChannelID: ch, Sender: member.PublicKey(), Name: "Sam", Kind: kind,
+			Content: fmt.Sprintf("post %d", n), Sent: at}
+		m.Sig = member.signMessage(m)
+		owner.deliverMessage(g.ID, m, member.myCredential, nil, false)
+		_, ok, _ := owner.store.MessageByID(m.ID)
+		return ok
+	}
+	kinds := []string{"", "system", "guest", "invite", "call-missed"}
+	for _, k := range kinds {
+		if post(k, time.Now().UTC()) {
+			t.Errorf("a %q row from a member without the right reached an announcement channel", k)
+		}
+	}
+
+	// Slow mode: a plain channel again, one post a minute.
+	owner.mu.Lock()
+	owner.guilds[g.ID].Channels[0].Type = ""
+	st := owner.govState[g.ID]
+	if st.SlowMode == nil {
+		st.SlowMode = map[string]int64{}
+	}
+	st.SlowMode[ch] = 60
+	owner.govState[g.ID] = st
+	owner.mu.Unlock()
+	base := time.Now().UTC().Add(time.Hour)
+	if !post("", base) {
+		t.Fatal("the first post under slow mode was refused: the test is not reaching the store")
+	}
+	if post("", base.Add(time.Second)) {
+		t.Error("a second message inside the interval was kept")
+	}
+	// Each kind is paced on its own, so a join notice does not use up the
+	// slot for the first message; a second row of a kind is held.
+	for i, k := range kinds[1:] {
+		at := base.Add(time.Duration(10*i+2) * time.Second)
+		if !post(k, at) {
+			t.Errorf("the first %q row under slow mode was refused", k)
+		}
+		if post(k, at.Add(time.Second)) {
+			t.Errorf("a %q row skipped slow mode", k)
+		}
 	}
 }

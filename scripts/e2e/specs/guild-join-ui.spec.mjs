@@ -21,6 +21,15 @@ test("create, join by the Join dialog, message both ways", async ({ world, step 
   await a.openChannel(general, "Lantern Club");
   await b.openChannel(general, "Lantern Club");
 
+  step("Alice sees Bashir's join notice under his own name");
+  // A system row names its sender from who signed it (lib/systemnote.js),
+  // never from the name the row carries.
+  const note = a.page.locator(".system-msg", { hasText: "joined" }).first();
+  await note.waitFor({ timeout: 30000 });
+  const who = (await note.locator("strong").first().textContent())?.trim();
+  if (who !== bashir.name) throw new Error(`join notice names ${JSON.stringify(who)}, want ${JSON.stringify(bashir.name)}`);
+  await note.screenshot({ path: `${process.env.SHOTS_OUT || ".dev"}/join-notice.png` }).catch(() => {});
+
   step("Alice → Bashir");
   await a.send("hello from alice");
   await b.waitForMessage("hello from alice");

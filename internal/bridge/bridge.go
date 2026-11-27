@@ -2604,7 +2604,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			IsSelf:      isSelf,
 			Online:      seenOnline,
 			Verified:    isSelf || verified[fpr],
-			NewDevice:   !isSelf && verified[fpr] && svc.NewDeviceSinceVerified(fpr),
+			NewDevice:   !isSelf && verified[fpr] && svc.NewDeviceSinceVerifiedAmong(fpr, verified),
 			IsOwner:     isOwner,
 			IsHeir:      heir != "" && fpr == heir,
 			Perms:       perms,
@@ -4239,11 +4239,19 @@ func visibleViews(svc senderBlocker, msgs []domain.Message) []MessageView {
 }
 
 func messageView(m domain.Message) MessageView {
+	name := m.Name
+	if m.Kind == "system" {
+		// A system row is a member's notice under their own key, and its
+		// Name is their own claim. Dropped so no view can show a notice as
+		// "Concord": the page names it from the authenticated sender, or
+		// from the guild for an event reminder (frontend lib/systemnote.js).
+		name = ""
+	}
 	return MessageView{
 		ID:         m.ID,
 		ChannelID:  m.ChannelID,
 		Sender:     identity.FingerprintOf(m.Sender),
-		SenderName: m.Name,
+		SenderName: name,
 		Kind:       m.Kind,
 		ReplyTo:    m.ReplyTo,
 		Content:    m.Content,

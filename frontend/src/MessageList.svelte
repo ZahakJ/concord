@@ -1,6 +1,7 @@
 <script>
   import { edgeFade } from "./lib/edgefade.js";
   import { strangerLine } from "./lib/contactdevices.js";
+  import { systemNote } from "./lib/systemnote.js";
   // The feed: date dividers, consecutive-sender grouping, drag-and-drop
   // attachments, pins/search panels, and the out-of-sync banner.
   import { feedTabs } from "./lib/feedtabs.js";
@@ -1835,18 +1836,16 @@
         {/if}
       </div>
     {:else if it.row.m.kind === "system"}
+      {@const note = systemNote(it.row.m, { nameOf: (f) => nameFor(f), guildName: activeGuild()?.name || "" })}
       <div class="system-msg" class:enter={it.row.m.id === animateId}>
         <span>
           <Icon name="spark" size={11} />
-          {#if it.row.m.content.startsWith("👤")}
-            <!-- Guest notices carry their own actor ("👤 Sam joined as a
-                 guest") — prefixing the HOST's name made it read as if the
-                 host said it. -->
-            {it.row.m.content}
-          {:else}
-            <strong>{it.row.m.senderName || it.row.m.sender.slice(0, 9)}</strong>
-            {it.row.m.content}
+          <!-- systemnote.js: the authenticated sender's name, never the
+               row's own; authorless only for the two guest shapes. -->
+          {#if note.actor}
+            <strong>{note.actor}</strong>
           {/if}
+          {note.text}
         </span>
       </div>
     {:else if it.row.m.kind === "invite"}

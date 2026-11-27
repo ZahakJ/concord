@@ -4709,7 +4709,11 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 	// is here and not only in the composer because in a network with no server
 	// the composer is the one place enforcement cannot live: it runs on the
 	// machine of the person being restrained.
-	if guildID != "" && m.Kind == "" && s.channelIsAnnouncement(m.ChannelID) &&
+	//
+	// Every kind past this point is a posted row (actions returned above), and
+	// a "system", "guest", "invite" or "call-missed" row is as visible as a
+	// message, so the gate and slow mode below hold for all of them.
+	if guildID != "" && s.channelIsAnnouncement(m.ChannelID) &&
 		!s.memberHasPerm(guildID, senderFpr, PermManageMessages) &&
 		!s.memberHasPerm(guildID, senderFpr, PermManageChannels) {
 		return
@@ -4723,12 +4727,18 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 	// AUTHOR's own Sent stamps, so wall-clock skew between receivers can't
 	// fork what everyone keeps. An out-of-order older stamp is left for the
 	// store's dedup — only a genuinely newer, too-soon message is dropped.
-	if guildID != "" && m.Kind == "" {
+	if guildID != "" {
 		if iv := s.SlowModeSeconds(guildID, m.ChannelID); iv > 0 {
 			fpr := senderFpr
 			if !s.memberHasPerm(guildID, fpr, PermManageMessages) &&
 				!s.memberHasPerm(guildID, fpr, PermManageChannels) {
-				key := m.ChannelID + "|" + fpr
+				// Paced per kind: a member's own join notice must not use up the
+				// slot for the first thing they type. Each kind still waits out
+				// the interval, so the most a member gets is one row of each.
+				key := m.ChannelID + "|" + fpr // the composer's own key (govern.go)
+				if m.Kind != "" {
+					key += "|" + m.Kind
+				}
 				sent := m.Sent.Unix()
 				s.mu.Lock()
 				last := s.slowSeen[key]

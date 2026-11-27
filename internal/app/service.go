@@ -453,6 +453,10 @@ type Service struct {
 	// deviceLive is each contact's devices in the latest scan: in a group we
 	// share now and not unlinked by their account (guarded by mu).
 	deviceLive map[string]map[string]bool
+	// deviceLiveGroups is the same per group (hex group id -> account ->
+	// device keys), so a group that cannot be read in a scan keeps its last
+	// set instead of dropping it. Persisted (deviceLiveKey), guarded by mu.
+	deviceLiveGroups map[string]map[string]map[string]bool
 	// deviceLogMu guards the read-modify-write of the contact device log, and
 	// verifiedDevs: per verified contact, the devices known when verified.
 	deviceLogMu  sync.Mutex
@@ -1690,6 +1694,7 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// Seed the per-contact device roster before anything can raise an alert, so
 	// a restart doesn't report every device we already knew about as new.
 	s.loadDeviceRoster()
+	s.loadDeviceLive()
 	// The "added a new device" lines up to 0.64 wrote into 1:1s (devicewatch.go)
 	// are not shown any more; they were this device's own, and go.
 	if n, err := s.store.DeleteMessagesOfKind("device"); err == nil && n > 0 {
@@ -2757,9 +2762,19 @@ func (s *Service) Contacts() ([]domain.Contact, error) {
 }
 
 // VerifyContact marks a peer as human-verified after an out-of-band fingerprint
-// check.
+// check. It is VerifyFingerprint for the account behind peerID, so it records
+// the devices verified and clears a new-device mark the same way.
 func (s *Service) VerifyContact(peerID string) error {
-	return s.store.SetVerified(peerID)
+	contacts, err := s.store.Contacts()
+	if err != nil {
+		return err
+	}
+	for _, c := range contacts {
+		if c.PeerID == peerID && c.Fingerprint != "" {
+			return s.VerifyFingerprint(c.Fingerprint)
+		}
+	}
+	return fmt.Errorf("app: unknown contact %s", peerID)
 }
 
 // VerifyFingerprint marks a fingerprint (a member's stable identity) as

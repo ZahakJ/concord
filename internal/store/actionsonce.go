@@ -15,6 +15,11 @@ import (
 // transaction as the change, so an action is applied once per id on every
 // device, and a change that fails records nothing and is applied when tried
 // again.
+//
+// The id the app records is "<sender account fingerprint>/<action id>"
+// (app.actionKey), so one sender's copy of an id never uses up another's.
+// There are no older bare-id rows to migrate: the table is new in the release
+// that keys it this way (polish065), and no shipped build ever wrote to it.
 
 // appliedActionKeep is how long an applied action's id is remembered. A copy
 // can turn up for as long as a mailbox holds one or a held action waits for its

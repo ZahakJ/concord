@@ -3,6 +3,8 @@
 // account is checked by the core against the account's signature and is never
 // a notice in the chat (internal/app/devicewatch.go); this is where it shows.
 
+import { oneLine } from "./systemnote.js";
+
 // deviceLine: one short line, or "" when there is nothing worth a line.
 // view is ContactDevices' answer { count, added: [{ name, issued, seen }] };
 // now is for tests.
@@ -31,11 +33,6 @@ export const NEW_DEVICE_MARK = "New device since you verified";
 // words: the row's own content is never shown, so nothing a peer sent can
 // speak in Concord's voice. who is the contact's name, as one clean line.
 export function strangerLine(who) {
-  const name =
-    String(who ?? "")
-      // eslint-disable-next-line no-control-regex
-      .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\u061c\u2028\u2029\ufeff]/g, (c) => (c === "\n" || c === "\t" ? " " : ""))
-      .replace(/\s+/g, " ")
-      .trim() || "this contact";
+  const name = oneLine(who) || "this contact";
   return `A key that isn't linked to ${name}'s account is in this conversation. Check with ${name} another way before you share anything private.`;
 }

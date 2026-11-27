@@ -143,13 +143,27 @@ func (s *Service) scanDeviceLeaves(members func(groupID []byte) ([][]byte, error
 	}
 	s.mu.RUnlock()
 
+	s.mu.RLock()
+	prevGroups := s.deviceLiveGroups
+	s.mu.RUnlock()
+
 	// account fingerprint -> device key hex -> that leaf's credential
 	seen := map[string]map[string][]byte{}
+	// hex group id -> account fingerprint -> device keys live in that group
+	groups := make(map[string]map[string]map[string]bool, len(ids))
 	for _, groupID := range ids {
+		gk := hex.EncodeToString(groupID)
 		creds, err := members(groupID)
 		if err != nil {
-			continue // unreadable right now: absence here must never mean "gone"
+			// Unreadable right now: absence here must never mean "gone", so
+			// the group keeps the devices it last showed.
+			if prev, ok := prevGroups[gk]; ok {
+				groups[gk] = prev
+			}
+			continue
 		}
+		inGroup := map[string]map[string]bool{}
+		groups[gk] = inGroup
 		for _, c := range creds {
 			fpr := accountFingerprintOf(c)
 			if fpr == "" || fpr == s.id.Fingerprint() {
@@ -163,7 +177,12 @@ func (s *Service) scanDeviceLeaves(members func(groupID []byte) ([][]byte, error
 			if seen[fpr] == nil {
 				seen[fpr] = map[string][]byte{}
 			}
-			seen[fpr][hex.EncodeToString(mailboxKeyOf(c))] = c
+			key := hex.EncodeToString(mailboxKeyOf(c))
+			seen[fpr][key] = c
+			if inGroup[fpr] == nil {
+				inGroup[fpr] = map[string]bool{}
+			}
+			inGroup[fpr][key] = true
 		}
 	}
 
@@ -172,24 +191,108 @@ func (s *Service) scanDeviceLeaves(members func(groupID []byte) ([][]byte, error
 	// the devices already known, so nothing is marked for the upgrade.
 	s.seedVerifiedDevices()
 
-	live := make(map[string]map[string]bool, len(seen))
-	for fpr, keys := range seen {
-		set := make(map[string]bool, len(keys))
-		for k := range keys {
-			set[k] = true
-		}
-		live[fpr] = set
-	}
 	s.mu.Lock()
 	fresh, changed := foldDevices(s.devices, seen)
-	s.deviceLive = live
+	s.deviceLive = unionLive(groups)
+	s.deviceLiveGroups = groups
 	s.mu.Unlock()
 
 	if changed {
 		s.persistDeviceRoster()
 		s.logContactDevices(fresh)
 	}
+	if !sameLiveGroups(prevGroups, groups) {
+		s.persistDeviceLive(groups)
+	}
 	s.noteStrangersInDMs()
+}
+
+// deviceLiveKey persists deviceLiveGroups, so the count and the new-device
+// mark are right from startup, before the first scan has read every group.
+const deviceLiveKey = "contacts.devicelive"
+
+// unionLive folds the per-group sets into one per account.
+func unionLive(groups map[string]map[string]map[string]bool) map[string]map[string]bool {
+	live := map[string]map[string]bool{}
+	for _, byAcct := range groups {
+		for fpr, keys := range byAcct {
+			if live[fpr] == nil {
+				live[fpr] = map[string]bool{}
+			}
+			for k := range keys {
+				live[fpr][k] = true
+			}
+		}
+	}
+	return live
+}
+
+func sameLiveGroups(a, b map[string]map[string]map[string]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for g, x := range a {
+		y, ok := b[g]
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for fpr, kx := range x {
+			ky := y[fpr]
+			if len(kx) != len(ky) {
+				return false
+			}
+			for k := range kx {
+				if !ky[k] {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// loadDeviceLive restores the last live sets at startup.
+func (s *Service) loadDeviceLive() {
+	raw, err := s.store.GetSetting(deviceLiveKey)
+	if err != nil || raw == "" {
+		return
+	}
+	var m map[string]map[string][]string
+	if json.Unmarshal([]byte(raw), &m) != nil {
+		return
+	}
+	groups := make(map[string]map[string]map[string]bool, len(m))
+	for g, byAcct := range m {
+		groups[g] = map[string]map[string]bool{}
+		for fpr, keys := range byAcct {
+			set := make(map[string]bool, len(keys))
+			for _, k := range keys {
+				set[k] = true
+			}
+			groups[g][fpr] = set
+		}
+	}
+	s.mu.Lock()
+	if s.deviceLiveGroups == nil { // a scan that already ran is newer
+		s.deviceLiveGroups = groups
+		s.deviceLive = unionLive(groups)
+	}
+	s.mu.Unlock()
+}
+
+func (s *Service) persistDeviceLive(groups map[string]map[string]map[string]bool) {
+	m := make(map[string]map[string][]string, len(groups))
+	for g, byAcct := range groups {
+		m[g] = map[string][]string{}
+		for fpr, keys := range byAcct {
+			for k := range keys {
+				m[g][fpr] = append(m[g][fpr], k)
+			}
+		}
+	}
+	if raw, err := json.Marshal(m); err == nil {
+		_ = s.store.SetSetting(deviceLiveKey, string(raw))
+	}
 }
 
 // cleanDeviceLabel drops control characters and caps the label at 32 runes.
@@ -378,7 +481,13 @@ func (s *Service) seedVerifiedDevices() {
 // mark on the contact and their verified badge, never a line in a chat, and
 // verifying them again clears it. An unverified contact is never marked.
 func (s *Service) NewDeviceSinceVerified(fpr string) bool {
-	if fpr == "" || !s.VerifiedFingerprints()[fpr] {
+	return s.NewDeviceSinceVerifiedAmong(fpr, s.VerifiedFingerprints())
+}
+
+// NewDeviceSinceVerifiedAmong is NewDeviceSinceVerified with the verified set
+// already in hand (VerifiedFingerprints), for a caller marking many members.
+func (s *Service) NewDeviceSinceVerifiedAmong(fpr string, verified map[string]bool) bool {
+	if fpr == "" || !verified[fpr] {
 		return false
 	}
 	s.mu.RLock()
@@ -425,6 +534,22 @@ func admitStranger(noted map[string]bool, dmID, key string) bool {
 	}
 	noted[k] = true
 	return true
+}
+
+// pruneStrangers forgets the keys noted in dmID that are no longer in it
+// (present holds the stranger keys there now), so the cap counts only keys
+// still present, and reports whether anything was dropped. A key that comes
+// back is told about again.
+func pruneStrangers(noted map[string]bool, dmID string, present map[string]bool) bool {
+	prefix := dmID + "|"
+	dropped := false
+	for e := range noted {
+		if strings.HasPrefix(e, prefix) && !present[strings.TrimPrefix(e, prefix)] {
+			delete(noted, e)
+			dropped = true
+		}
+	}
+	return dropped
 }
 
 const strangerKeysKey = "contacts.dmstrangers"
@@ -474,6 +599,15 @@ func (s *Service) noteStrangersInDMs() {
 		creds, err := s.mls.Members(s.ctx, d.group)
 		if err != nil {
 			continue
+		}
+		present := map[string]bool{}
+		for _, c := range creds {
+			if fpr := accountFingerprintOf(c); fpr != "" && fpr != me && fpr != d.peer {
+				present[hex.EncodeToString(mailboxKeyOf(c))] = true
+			}
+		}
+		if pruneStrangers(noted, d.id, present) {
+			added = true // the shorter list is written back below
 		}
 		for _, c := range creds {
 			fpr := accountFingerprintOf(c)

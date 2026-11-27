@@ -136,6 +136,14 @@ func hostile(r rune) bool {
 		return true
 	case r == 0x061c, r == 0x2028, r == 0x2029, r == 0xfeff: // ALM, line and paragraph separators, BOM
 		return true
+	case r == 0xad, r == 0x180e, r >= 0x2060 && r <= 0x2064, r >= 0x206a && r <= 0x206f:
+		// soft hyphen, Mongolian vowel separator, word joiner and invisible
+		// operators, deprecated format characters
+		return true
+	case r == 0x115f, r == 0x1160, r == 0x3164: // Hangul fillers, which render blank
+		return true
+	case r >= 0xe0000 && r <= 0xe007f: // tag characters, invisible text
+		return true
 	}
 	return false
 }
