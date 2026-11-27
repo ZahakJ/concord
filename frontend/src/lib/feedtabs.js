@@ -81,7 +81,8 @@ export function feedTabs(feed) {
       lastEl = null;
       return;
     }
-    const row = lastRow && feed.querySelector(`[data-msg-id="${CSS.escape(lastRow)}"]`);
+    // "" && … is "", not null: a focus that left from outside any row.
+    const row = lastRow ? feed.querySelector(`[data-msg-id="${CSS.escape(lastRow)}"]`) : null;
     lastEl = null;
     row?.focus({ preventScroll: true });
   }

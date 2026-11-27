@@ -18,6 +18,8 @@ import {
   cardChoiceNote,
   cardChoice,
   CARD_PREF,
+  leadEmbed,
+  placeLinkFirst,
 } from "./linkcard.js";
 import { plainSnippet } from "./snippet.js";
 
@@ -231,6 +233,54 @@ eq(cardChoice({ sendLinkCards: "yes" }), null, "a value that is not true or fals
 eq(cardChoice({ sendLinkCards: true }), true, "Yes is read back");
 eq(cardChoice({ sendLinkCards: false }), false, "No thanks is read back");
 eq(askAboutCards(cardChoice({ sendLinkPreviews: false, sendLinkCards: false })), false, "No thanks under the new key is an answer");
+
+// Placement: the sender chooses whether the card (or a bare video's player)
+// sits above the words or below them. It is carried by the order of the
+// lines themselves, so the signed content says it, every peer draws the same,
+// and a reader that predates the choice still shows the card where it is.
+{
+  const block = `[Never Gonna Give You Up](${YT}) · youtube.com\n${thumb(2, "Rick Astley")}`;
+  const eph = "[eph](concord://eph/v1/1900000000)";
+  const up = withCard(`hey look ${YT}`, YT, block, true);
+  eq(up, `${block}\nhey look ${YT}`, "above: the card goes first");
+  const c = parseCard(up);
+  eq(c && [c.title, c.above, c.rest, c.linkOnly], ["Never Gonna Give You Up", true, `hey look ${YT}`, false], "a card on top is read as one, above");
+  eq(parseCard(withCard(`hey look ${YT}`, YT, block))?.above, false, "below is the default");
+  eq(withCard(YT, YT, block, true), block, "a link-only message is only the card either way");
+  eq(parseCard(block)?.above, false, "a card alone is not above anything");
+  const stamped = withCard(`${eph}hey ${YT}`, YT, block, true);
+  eq(stamped, `${eph}\n${block}\nhey ${YT}`, "above: after the stamps");
+  const cs = parseCard(stamped);
+  eq(cs && [cs.above, cs.rest], [true, `${eph}hey ${YT}`], "the stamps stay in the rest, in front");
+  // A title-only card (a disappearing message) above.
+  eq(parseCard(`[T](${YT}) · youtube.com\nwords`)?.above, true, "a title-only card on top");
+  // What is not a card on top: a masked link the author typed among the words.
+  eq(parseCard(`[my notes](https://example.org/n)\nand more`), null, "a typed masked link on the first line with no domain is not a card");
+  eq(parseCard(`[T](${YT}) · evil.example\nwords`), null, "a top line whose domain is not the link's");
+  // Old readers find the card only at the end: on top they draw a titled
+  // link and a picture, then the words, which is the order the sender chose.
+  // Editing keeps the placement.
+  let seed = cardEditSeed(up);
+  eq([seed.text, seed.above], [`hey look ${YT}`, true], "the edit box shows the words of an above card");
+  eq(cardEditSave(seed.text, seed), up, "unchanged: the same content");
+  eq(cardEditSave(`${seed.text}!`, seed), `${block}\nhey look ${YT}!`, "edited words keep the card on top");
+  seed = cardEditSeed(stamped);
+  eq(cardEditSave(seed.text, seed), stamped, "a stamped above card round-trips");
+}
+
+// A video link without a card: above is the link alone on the first line,
+// which the feed replaces with the player.
+{
+  eq(placeLinkFirst(`hey look ${YT} cool`, YT), `${YT}\nhey look cool`, "the link moves to the first line");
+  eq(placeLinkFirst(YT, YT), YT, "a link alone stays");
+  const eph = "[eph](concord://eph/v1/1900000000)";
+  eq(placeLinkFirst(`${eph}see ${YT}`, YT), `${eph}\n${YT}\nsee`, "after the stamps");
+  eq(leadEmbed(`${YT}\nhey look cool`), { url: YT, rest: "hey look cool" }, "a lead link is found");
+  eq(leadEmbed(`${eph}\n${YT}\nsee`), { url: YT, rest: `${eph}see` }, "after stamps");
+  eq(leadEmbed(YT), null, "a link alone has nothing to sit above");
+  eq(leadEmbed(`hey ${YT}`), null, "a link inside the words is not a lead");
+  eq(leadEmbed(`https://example.org/x\nwords`), null, "only a video leads");
+}
 
 if (failures) {
   console.error(`${failures} linkcard test(s) failed`);

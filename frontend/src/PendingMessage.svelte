@@ -129,6 +129,8 @@
           {:else if entry.retryAt}
             Slow mode has passed
           {:else}
+            <!-- A row under another has no header to say it, so the line does. -->
+            {#if !first}<strong class="pnot">Not sent.</strong>{/if}
             {entry.error || "Couldn't send"}
           {/if}
         </span>

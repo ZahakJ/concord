@@ -80,6 +80,8 @@ type Store struct {
 	blobRefsLive atomic.Bool
 	// saveFault is a test's injected SaveMessage failure (InjectSaveFault).
 	saveFault atomic.Pointer[func(domain.Message) error]
+	// fault is a test's injected failure at one named step (InjectFault).
+	fault atomic.Pointer[func(op string) error]
 }
 
 // Open opens (creating if needed) the SQLite database at path and prepares the
@@ -131,6 +133,8 @@ func Open(path string, dataKey []byte) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// Best effort: an action id kept past its keep only costs a row.
+	_ = s.PruneAppliedActions(time.Now())
 	s.rdb = openReader(path)
 	s.bg.Add(2)
 	go s.backfillExpires(expiresBackfillDelay)
@@ -264,6 +268,11 @@ CREATE TABLE IF NOT EXISTS message_versions (
   at          INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_message_versions ON message_versions(message_id, seq);
+CREATE TABLE IF NOT EXISTS applied_actions (
+  id TEXT PRIMARY KEY,
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_applied_actions_at ON applied_actions(at);
 CREATE TABLE IF NOT EXISTS reactions (
   message_id  TEXT NOT NULL,
   fingerprint TEXT NOT NULL,
@@ -1499,6 +1508,9 @@ func (s *Store) InjectSaveFault(f func(domain.Message) error) {
 }
 
 func (s *Store) SaveMessage(m domain.Message) (bool, error) {
+	if err := s.failAt(OpSaveMessage); err != nil {
+		return false, fmt.Errorf("store: save message: %w", err)
+	}
 	if f := s.saveFault.Load(); f != nil {
 		if err := (*f)(m); err != nil {
 			return false, fmt.Errorf("store: save message: %w", err)
@@ -2154,6 +2166,9 @@ func (s *Store) PropsFor(guildID, fingerprint string, fprOf func(sender []byte) 
 
 // MessageByID loads a single message (with reactions) for post-reaction refresh.
 func (s *Store) MessageByID(id string) (domain.Message, bool, error) {
+	if err := s.failAt(OpReadMessage); err != nil {
+		return domain.Message{}, false, fmt.Errorf("store: read message: %w", err)
+	}
 	return s.messageByID(s.db, id)
 }
 
@@ -2564,6 +2579,9 @@ func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) 
 // edit set it back to per-line": both arrive as an empty newDir, and only one
 // of them should overwrite what is stored.
 func (s *Store) UpdateContent(id string, bySender []byte, newContent string, newSig []byte, newDir string, setDir bool) (bool, error) {
+	if err := s.failAt(OpEdit); err != nil {
+		return false, fmt.Errorf("store: edit: %w", err)
+	}
 	var sender, oldEnc, oldNonce []byte
 	var sent int64
 	err := s.rd().QueryRow(`SELECT sender, content_enc, nonce, sent FROM messages WHERE id = ?`, id).Scan(&sender, &oldEnc, &oldNonce, &sent)
@@ -3112,6 +3130,9 @@ func (s *Store) AttachmentBlobs() (map[string][]byte, error) {
 
 // SetSetting stores a key/value app setting (e.g. the display name).
 func (s *Store) SetSetting(key, value string) error {
+	if err := s.failAt(OpSetSetting); err != nil {
+		return fmt.Errorf("store: set setting: %w", err)
+	}
 	_, err := s.db.Exec(
 		`INSERT INTO settings (key, value) VALUES (?, ?)
 		 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
@@ -3847,6 +3868,9 @@ const maxAttachmentStore = 1 << 30 // 1 GiB
 // key travels inside the referencing message, never here). Content-addressed
 // and idempotent: saving the same blob twice is a no-op.
 func (s *Store) SaveAttachment(blobID string, ct []byte) error {
+	if err := s.failAt(OpSaveAttachment); err != nil {
+		return fmt.Errorf("store: save attachment: %w", err)
+	}
 	now := time.Now().UnixNano()
 	// A banned blob (ReleaseBlobs) is not stored again, from a fetch, an
 	// archive or anywhere else.

@@ -207,7 +207,7 @@ func TestApplyEditRefusesABogusReSignature(t *testing.T) {
 
 	// A re-signature by somebody else's key — what a tampering relay produces.
 	bogus := mustID(t).Sign(messageRowSigningBytes(row, "meet at midnight"))
-	svc.applyEdit(row.ID, "meet at midnight", author.PublicKey(), bogus, "")
+	svc.applyEdit("act-recordsig_test.go-210", row.ID, "meet at midnight", author.PublicKey(), bogus, "")
 
 	got, ok, err := svc.store.MessageByID(row.ID)
 	if err != nil || !ok {
@@ -222,7 +222,7 @@ func TestApplyEditRefusesABogusReSignature(t *testing.T) {
 
 	// The author's own good re-signature is kept, and the row stays verifiable.
 	good := author.Sign(messageRowSigningBytes(row, "meet at nine"))
-	svc.applyEdit(row.ID, "meet at nine", author.PublicKey(), good, "")
+	svc.applyEdit("act-recordsig_test.go-225", row.ID, "meet at nine", author.PublicKey(), good, "")
 	got, ok, err = svc.store.MessageByID(row.ID)
 	if err != nil || !ok || len(got.Sig) == 0 || !verifyMessageSig(got) {
 		t.Fatalf("the author's own re-signature must be kept and verify: %v %v %+v", err, ok, got)
@@ -250,7 +250,7 @@ func TestApplyEditCarriesTheDirection(t *testing.T) {
 
 	// No token: the direction is left alone. This is also every edit sent by a
 	// client built before this existed.
-	svc.applyEdit(row.ID, "مرحبا بك", author.PublicKey(), nil, "")
+	svc.applyEdit("act-recordsig_test.go-253", row.ID, "مرحبا بك", author.PublicKey(), nil, "")
 	got, ok, err := svc.store.MessageByID(row.ID)
 	if err != nil || !ok {
 		t.Fatalf("MessageByID: %v %v", err, ok)
@@ -261,7 +261,7 @@ func TestApplyEditCarriesTheDirection(t *testing.T) {
 
 	// "auto" is how an author says "resolve it per line again" — distinct from
 	// saying nothing, and the only way back once a direction has been declared.
-	svc.applyEdit(row.ID, "مرحبا بك", author.PublicKey(), nil, "auto")
+	svc.applyEdit("act-recordsig_test.go-264", row.ID, "مرحبا بك", author.PublicKey(), nil, "auto")
 	if got, _, _ = svc.store.MessageByID(row.ID); got.Dir != "" {
 		t.Fatalf("auto must clear the direction, got %q", got.Dir)
 	}
@@ -271,7 +271,7 @@ func TestApplyEditCarriesTheDirection(t *testing.T) {
 	signed := target
 	signed.Dir = "ltr"
 	good := author.Sign(messageRowSigningBytes(signed, "hello there"))
-	svc.applyEdit(row.ID, "hello there", author.PublicKey(), good, "ltr")
+	svc.applyEdit("act-recordsig_test.go-274", row.ID, "hello there", author.PublicKey(), good, "ltr")
 	got, _, _ = svc.store.MessageByID(row.ID)
 	if got.Dir != "ltr" {
 		t.Fatalf("ltr must be stored, got %q", got.Dir)
@@ -283,7 +283,7 @@ func TestApplyEditCarriesTheDirection(t *testing.T) {
 	// A re-signature over the OLD direction is a signature over a row that no
 	// longer exists, and must not be stored.
 	stale := author.Sign(messageRowSigningBytes(got, "hello again"))
-	svc.applyEdit(row.ID, "hello again", author.PublicKey(), stale, "rtl")
+	svc.applyEdit("act-recordsig_test.go-286", row.ID, "hello again", author.PublicKey(), stale, "rtl")
 	got, _, _ = svc.store.MessageByID(row.ID)
 	if got.Dir != "rtl" || got.Content != "hello again" {
 		t.Fatalf("the edit itself must still apply: %q %q", got.Dir, got.Content)

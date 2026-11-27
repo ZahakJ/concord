@@ -450,6 +450,8 @@ type Service struct {
 	// persist, announce): scans run from the heal tick and from every applied
 	// commit, and must not interleave.
 	deviceScanMu sync.Mutex
+	// deviceLogMu guards the read-modify-write of the contact device log.
+	deviceLogMu sync.Mutex
 
 	// pendingMembers[guildID][fingerprint] = people you've invited who have
 	// not accepted yet. Bookkeeping for re-pushing the invite, not a roster
@@ -1683,6 +1685,11 @@ func Start(parent context.Context, cfg Config) (svc *Service, err error) {
 	// Seed the per-contact device roster before anything can raise an alert, so
 	// a restart doesn't report every device we already knew about as new.
 	s.loadDeviceRoster()
+	// The "added a new device" lines up to 0.64 wrote into 1:1s (devicewatch.go)
+	// are not shown any more; they were this device's own, and go.
+	if n, err := s.store.DeleteMessagesOfKind("device"); err == nil && n > 0 {
+		log.Printf("concord/app: removed %d old new-device lines", n)
+	}
 	s.noteDeviceLeaves()
 	// …and the devices of OUR OWN account, which no roster has to be readable
 	// for us to know about (see devices.go). Revocations were loaded before any

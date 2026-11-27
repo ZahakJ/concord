@@ -43,20 +43,20 @@ func TestPinningInAGuildNeedsManageMessages(t *testing.T) {
 	}
 
 	// A member with no roles holds nothing, so their pin must not land here.
-	owner.applyPin(m.ID, stranger.PublicKey(), ch)
+	owner.applyPin("act-pin_test.go-46", m.ID, stranger.PublicKey(), ch)
 	if pinned() {
 		t.Fatal("a member without Manage messages pinned a guild message on someone else's device")
 	}
 
 	// The owner holds every bit, so theirs does.
-	owner.applyPin(m.ID, owner.PublicKey(), ch)
+	owner.applyPin("act-pin_test.go-52", m.ID, owner.PublicKey(), ch)
 	if !pinned() {
 		t.Fatal("the owner's own pin was refused")
 	}
 
 	// ...and the same member must not be able to UNPIN it either, which was the
 	// worse half: undoing a moderator's decision needs no permission at all.
-	owner.applyPin(m.ID, stranger.PublicKey(), ch)
+	owner.applyPin("act-pin_test.go-59", m.ID, stranger.PublicKey(), ch)
 	if !pinned() {
 		t.Fatal("a member without Manage messages unpinned a moderator's pin")
 	}

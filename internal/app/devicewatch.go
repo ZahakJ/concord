@@ -11,34 +11,32 @@ import (
 	"github.com/ZahakJ/concord/internal/identity"
 )
 
-// "A device was added to this account" — the half of safety numbers Concord was
-// missing.
+// A contact's devices, and the one change in them worth saying out loud.
 //
 // Verification compares ACCOUNT fingerprints, and a linked device doesn't
 // change one: the account key signs a device certificate, and every peer maps
-// that leaf back to the same account (see device.go). That is the right design,
-// and it is exactly why the growth needs saying out loud — the set of devices
-// that can read your DMs with someone can grow silently while their verified
-// checkmark stays green, which is precisely the move safety numbers exist to
-// catch. A coerced or borrowed link is the adversary here.
+// that leaf back to the same account (device.go, identity.AccountKeyOf). A
+// device reaches a contact's set here only through a certificate that
+// verifies under that contact's account key, which only a device already
+// holding the account can issue, and does issue only after its owner confirms
+// the new device's code (link.go). That is the chain, checked
+// cryptographically on every scan, and a device on it is the contact's own
+// doing: it is recorded, silently, and shown as a quiet line in the contact's
+// details (ContactDevices), not as a message in the chat. (Up to 0.64 each one
+// wrote "X added a new device. If this wasn't X, verify." into the 1:1, which
+// told every contact about every phone; those lines are removed at start.)
 //
-// So we notice, and we say so, but we do NOT drop verification: nothing about
-// their identity changed, and un-verifying every contact each time a friend
-// pairs a phone would train people to click through the one alert that
-// matters. The notice says what actually happened, offers to verify again, and
-// leaves the checkmark alone.
+// What is NOT on the chain is said: a key in a 1:1 with someone that belongs
+// to neither of you. Its credential does not verify under the contact's
+// account (else it would map to them), so nothing the contact's account
+// signed put it there. It is written into that 1:1 as kind "keychange", once
+// per key, as a local line (a non-"" kind: never pings, never counts unread,
+// and is dropped by the sync ingest, so it never travels).
 //
-// There is no "safety number changed" counterpart to this, because an account's
-// fingerprint is the hash of its account key (identity.FingerprintOf) and the
-// verified mark is keyed by that fingerprint: a different key is a different
-// fingerprint, i.e. a different contact with no verified mark, not a changed
-// one. Nothing in the design rotates an account key or links an old one to a
-// new one, so there is no event to detect.
-//
-// It is written locally, into the 1:1 with that person, as kind "device" —
-// a non-"" kind, so it never pings, never counts unread, and (like
-// "call-missed") is dropped by the sync ingest, which means our observation
-// stays ours and never travels back to them.
+// A contact whose account key itself changed (a reset, or an account made
+// again) is a different fingerprint, so a different contact without the
+// verified mark, by construction: there is no key rotation to chain, and so
+// nothing for a scan to vouch for.
 
 // deviceRosterKey persists the per-contact device sets.
 const deviceRosterKey = "contacts.devices"
@@ -88,6 +86,7 @@ func (s *Service) persistDeviceRoster() {
 // newDevice is one device we had not seen behind a contact's account.
 type newDevice struct {
 	fpr     string
+	key     string // device key, hex
 	account []byte
 	name    string
 	issued  int64
@@ -114,7 +113,7 @@ func foldDevices(known map[string]map[string]bool, seen map[string]map[string][]
 			if first {
 				continue
 			}
-			d := newDevice{fpr: fpr, account: accountKeyOf(cred)}
+			d := newDevice{fpr: fpr, key: k, account: accountKeyOf(cred)}
 			if cert, ok := identity.ParseDeviceCert(cred); ok {
 				d.name, d.issued = cert.DeviceName, cert.IssuedAt
 			}
@@ -161,42 +160,11 @@ func (s *Service) noteDeviceLeaves() {
 	fresh, changed := foldDevices(s.devices, seen)
 	s.mu.Unlock()
 
-	if !changed {
-		return
+	if changed {
+		s.persistDeviceRoster()
+		s.logContactDevices(fresh)
 	}
-	s.persistDeviceRoster()
-	for _, d := range fresh {
-		s.announceNewDevice(d.fpr, d.account, d.name, d.issued)
-	}
-}
-
-// deviceNoticeText is the calm one-liner for a contact's new device:
-// "Ann added a new device (iPhone, 11-14). If this wasn't Ann, verify."
-// who is the contact's display name ("" falls back to "They"); device is the
-// cert's DeviceName and issued its IssuedAt (unix seconds, 0 = unknown). The
-// device label is attacker-supplied text, so it is flattened and capped.
-func deviceNoticeText(who, device string, issued int64) string {
-	subject := who
-	if subject == "" {
-		subject = "They"
-	}
-	device = cleanDeviceLabel(device)
-	var parts []string
-	if device != "" {
-		parts = append(parts, device)
-	}
-	if issued > 0 {
-		parts = append(parts, time.Unix(issued, 0).Local().Format("01-02"))
-	}
-	detail := ""
-	if len(parts) > 0 {
-		detail = " (" + strings.Join(parts, ", ") + ")"
-	}
-	ref := who
-	if ref == "" {
-		ref = "them"
-	}
-	return fmt.Sprintf("%s added a new device%s. If this wasn't %s, verify.", subject, detail, ref)
+	s.noteStrangersInDMs()
 }
 
 // cleanDeviceLabel drops control characters and caps the label at 32 runes.
@@ -214,24 +182,145 @@ func cleanDeviceLabel(s string) string {
 	return s
 }
 
-// announceNewDevice writes the local notice into the 1:1 with that person —
-// the one place the growth actually matters, and the place they'd look. A
-// contact we only share a server with gets no notice: it would be a line in a
-// channel everyone else can see, about someone else's phone.
-func (s *Service) announceNewDevice(fingerprint string, accountPub []byte, device string, issued int64) {
-	dm := s.findPeerDM(fingerprint)
-	if dm == nil || len(dm.Channels) == 0 {
+// ContactDevice is one device on a contact's account, as this device came to
+// know it: the quiet line in their details ("3 devices · Pixel added 26 Nov").
+type ContactDevice struct {
+	Key    string `json:"key"`    // device public key, hex
+	Name   string `json:"name"`   // the certificate's device name, cleaned
+	Issued int64  `json:"issued"` // when the account signed it, unix seconds (0 unknown)
+	Seen   int64  `json:"seen"`   // when this device first saw it, unix seconds
+}
+
+const deviceLogKey = "contacts.devicelog"
+
+// logContactDevices appends devices that joined a contact's account to the
+// per-contact log behind ContactDevices. Nothing is written to any chat.
+func (s *Service) logContactDevices(fresh []newDevice) {
+	if len(fresh) == 0 {
 		return
 	}
-	name := s.ProfileName(fingerprint)
-	msg, err := domain.NewMessage(dm.Channels[0].ID, accountPub, deviceNoticeText(name, device, issued))
-	if err != nil {
+	s.deviceLogMu.Lock()
+	defer s.deviceLogMu.Unlock()
+	log := map[string][]ContactDevice{}
+	if raw, err := s.store.GetSetting(deviceLogKey); err == nil && raw != "" {
+		_ = json.Unmarshal([]byte(raw), &log)
+	}
+	now := time.Now().Unix()
+	for _, d := range fresh {
+		list := log[d.fpr]
+		dup := false
+		for _, e := range list {
+			dup = dup || e.Key == d.key
+		}
+		if dup {
+			continue
+		}
+		list = append(list, ContactDevice{Key: d.key, Name: cleanDeviceLabel(d.name), Issued: d.issued, Seen: now})
+		// A long history is not a details line: the newest 16 are kept.
+		if len(list) > 16 {
+			list = list[len(list)-16:]
+		}
+		log[d.fpr] = list
+	}
+	if raw, err := json.Marshal(log); err == nil {
+		_ = s.store.SetSetting(deviceLogKey, string(raw))
+	}
+}
+
+// ContactDevices is what this device knows of a contact's devices: how many
+// are on their account in the groups we share now, and the ones it saw added,
+// oldest first. Every one of them is on the account's chain (see the top of
+// this file); the list is for a details view, never a notice.
+func (s *Service) ContactDevices(fingerprint string) (count int, added []ContactDevice) {
+	s.mu.RLock()
+	count = len(s.devices[fingerprint])
+	s.mu.RUnlock()
+	s.deviceLogMu.Lock()
+	defer s.deviceLogMu.Unlock()
+	log := map[string][]ContactDevice{}
+	if raw, err := s.store.GetSetting(deviceLogKey); err == nil && raw != "" {
+		_ = json.Unmarshal([]byte(raw), &log)
+	}
+	return count, log[fingerprint]
+}
+
+const strangerKeysKey = "contacts.dmstrangers"
+
+// strangerNoticeText is the visible line for a key in a 1:1 that is neither
+// of its two people's. who is the contact's display name.
+func strangerNoticeText(who string) string {
+	if who == "" {
+		who = "this contact"
+	}
+	return fmt.Sprintf("A key that isn't linked to %s's account is in this conversation. Check with %s another way before you share anything private.", who, who)
+}
+
+// noteStrangersInDMs looks, in every 1:1, for a member whose account is
+// neither ours nor the contact's, and says so once per key in that 1:1.
+func (s *Service) noteStrangersInDMs() {
+	type dm struct {
+		id, peer, channel string
+		group             []byte
+	}
+	s.mu.RLock()
+	var dms []dm
+	for id, g := range s.guilds {
+		if g.Kind != "dm" || len(g.Channels) == 0 {
+			continue
+		}
+		if p := s.dmPeers[id]; p != "" {
+			dms = append(dms, dm{id, p, g.Channels[0].ID, g.GroupID})
+		}
+	}
+	s.mu.RUnlock()
+	if len(dms) == 0 {
 		return
 	}
-	msg.Kind = "device"
-	msg.Name = name
-	if _, err := s.store.SaveMessage(msg); err != nil {
-		return
+	noted := map[string]bool{}
+	if raw, err := s.store.GetSetting(strangerKeysKey); err == nil && raw != "" {
+		var keys []string
+		if json.Unmarshal([]byte(raw), &keys) == nil {
+			for _, k := range keys {
+				noted[k] = true
+			}
+		}
 	}
-	s.emitMessage(msg)
+	me := s.id.Fingerprint()
+	added := false
+	for _, d := range dms {
+		creds, err := s.mls.Members(s.ctx, d.group)
+		if err != nil {
+			continue
+		}
+		for _, c := range creds {
+			fpr := accountFingerprintOf(c)
+			if fpr == "" || fpr == me || fpr == d.peer {
+				continue
+			}
+			k := d.id + "|" + hex.EncodeToString(mailboxKeyOf(c))
+			if noted[k] {
+				continue
+			}
+			noted[k] = true
+			added = true
+			name := s.ProfileName(d.peer)
+			msg, err := domain.NewMessage(d.channel, accountKeyOf(c), strangerNoticeText(name))
+			if err != nil {
+				continue
+			}
+			msg.Kind = "keychange"
+			if _, err := s.store.SaveMessage(msg); err == nil {
+				s.emitMessage(msg)
+			}
+		}
+	}
+	if added {
+		keys := make([]string, 0, len(noted))
+		for k := range noted {
+			keys = append(keys, k)
+		}
+		if raw, err := json.Marshal(keys); err == nil {
+			_ = s.store.SetSetting(strangerKeysKey, string(raw))
+		}
+	}
 }

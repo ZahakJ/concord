@@ -168,7 +168,7 @@ func (f *fakeService) SendMessage(ch, content, replyTo, dir string) (domain.Mess
 	f.deliver(m)
 	return m, nil
 }
-func (f *fakeService) ToggleReaction(ch, target, emoji string) error {
+func (f *fakeService) ToggleReaction(ch, target, emoji string, _ ...string) error {
 	f.mu.Lock()
 	f.reacts = append(f.reacts, ch+"/"+target+"/"+emoji)
 	f.mu.Unlock()

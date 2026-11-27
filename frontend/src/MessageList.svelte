@@ -1,4 +1,5 @@
 <script>
+  import { edgeFade } from "./lib/edgefade.js";
   // The feed: date dividers, consecutive-sender grouping, drag-and-drop
   // attachments, pins/search panels, and the out-of-sync banner.
   import { feedTabs } from "./lib/feedtabs.js";
@@ -1028,7 +1029,7 @@
   // is navigating onto nothing — the focus call finds no element, and the tab
   // stop it was pointing at disappears with it. Home landing on a guild's
   // "created this channel" notice is exactly how that happens.
-  const NAV_SKIP = new Set(["system", "call-missed", "call", "device", "invite"]);
+  const NAV_SKIP = new Set(["system", "call-missed", "call", "device", "keychange", "invite"]);
   const rowKeys = () =>
     items.filter((x) => x.t === "row" && !NAV_SKIP.has(x.row.m.kind)).map((x) => x.k);
 
@@ -1606,6 +1607,7 @@
   role="log"
   aria-label="Messages"
   use:feedTabs
+  use:edgeFade
   onkeydown={onFeedKeydown}
   onfocusin={onFeedFocusIn}
   onpointerover={onFeedPointerOver}
@@ -1902,6 +1904,25 @@
           <span class="call-time">{fmtCallTime(it.row.m.sent)}</span>
         </span>
       </div>
+    {:else if it.row.m.kind === "keychange"}
+      <!-- A key in this 1:1 that the contact's account did not sign
+           (internal/app/devicewatch.go). The one device change that is said;
+           devices linked through the account are not. Local, never synced. -->
+      {@const peer = activeGuild()?.dmPeer || ""}
+      <div class="system-msg device-note keychange" role="note" class:enter={it.row.m.id === animateId}>
+        <span>
+          <span class="dev-ic warn"><Icon name="alert" size={11} /></span>
+          {it.row.m.content}
+          {#if peer}
+            <button
+              type="button"
+              class="dev-verify tap-hit"
+              onclick={() => (S.modal = { kind: "verify", fingerprint: peer, name: nameFor(peer) })}
+              >{DEVICE_VERIFY}</button
+            >
+          {/if}
+        </span>
+      </div>
     {:else if it.row.m.kind === "device"}
       <!-- Written locally when a contact links a device (internal/app/
            devicewatch.go), as a system line rather than a message from them.
@@ -2017,9 +2038,11 @@
     line-height: 0;
     padding: 0 var(--sp-edge);
   }
+  /* The typing line is pulled up over the feed's bottom edge (Composer's
+     .typing-line); with the pill here, it sits under the pill instead. */
   .feed-dock:has(button) {
     padding-top: 6px;
-    padding-bottom: 2px;
+    padding-bottom: calc(2px + var(--typing-h, 24px));
   }
   .oos-banner {
     display: flex;
@@ -2241,6 +2264,7 @@
        The gap is named so the two window spacers can cancel their own share of
        it — see .vs. */
     padding: var(--feed-pad, 16px);
+    padding-bottom: calc(var(--feed-pad, 16px) + var(--typing-h, 24px));
     display: flex;
     flex-direction: column;
     /* No gap between rows: a group's space is carried by the row that starts
@@ -2578,6 +2602,12 @@
   }
   /* The new-device line's Verify: the same quiet button as the invite line's
      Join, the one other action that sits inside a system line. */
+  .device-note.keychange {
+    color: var(--warn-text);
+  }
+  .device-note .dev-ic.warn {
+    color: var(--warn-text);
+  }
   .device-note .dev-verify {
     margin-inline-start: var(--sp-2);
     padding: 2px 10px;
@@ -2909,6 +2939,7 @@
        vertical value still tracks the pack, so its rhythm survives. */
     .feed {
       padding: var(--feed-pad, 16px) min(var(--feed-pad, 16px), var(--sp-edge));
+      padding-bottom: calc(var(--feed-pad, 16px) + var(--typing-h, 24px));
       /* Keep a flick inside the feed instead of handing it to the page (which
          is where pull-to-refresh and rubber-banding come from). */
       overscroll-behavior-y: contain;

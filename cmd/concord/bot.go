@@ -39,7 +39,7 @@ type botService interface {
 	SetDisplayName(name string) error
 	Guilds() []domain.Guild
 	SendMessage(channelID, content, replyTo, dir string) (domain.Message, error)
-	ToggleReaction(channelID, targetID, emoji string) error
+	ToggleReaction(channelID, targetID, emoji string, sendID ...string) error
 	JoinViaInvite(code string) (domain.Guild, error)
 	GuildMembers(guildID string) ([][]byte, error)
 	AccountFingerprintOf(cred []byte) string

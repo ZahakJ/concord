@@ -123,9 +123,15 @@ const unescapeMd = (s) => s.replace(/\\(.)/g, "$1");
 // `thumb` the attachment token of the picture or null.
 export function parseCard(content) {
   if (!content) return null;
+  return parseCardBelow(content) || parseCardAbove(content);
+}
+
+// The usual place: the card's lines end the message, under the words.
+function parseCardBelow(content) {
   const lines = String(content).replace(/\s+$/, "").split("\n");
   let thumb = null;
   let last = lines[lines.length - 1].trim();
+  let blockLines = 1;
   if (ATTACH_LINE_RE.test(last)) {
     const toks = parseAttachTokens(last);
     if (toks.length !== 1 || !toks[0].card || toks[0].spoiler) return null;
@@ -133,9 +139,48 @@ export function parseCard(content) {
     lines.pop();
     if (!lines.length) return null;
     last = lines[lines.length - 1].trim();
+    blockLines = 2;
   }
   const m = MASKED_LINE_RE.exec(last);
   if (!m) return null;
+  const all = String(content).replace(/\s+$/, "").split("\n");
+  const block = all.slice(all.length - blockLines).join("\n");
+  lines.pop();
+  const rest = lines.join("\n").replace(/\s+$/, "");
+  return cardOf(m, thumb, rest, block, false);
+}
+
+// Above the words (the sender's choice, withCard's `above`): the card's lines
+// open the message, after the stamps. Only a line in the exact form the core
+// writes, its domain included, is read as a card there; a masked link the
+// author typed at the top of a message stays the words it is.
+function parseCardAbove(content) {
+  const text = String(content).replace(/\s+$/, "");
+  const prefix = (STAMPS_RE.exec(text) || [""])[0];
+  let body = text.slice(prefix.length);
+  if (prefix) {
+    if (!body.startsWith("\n")) return null;
+    body = body.slice(1);
+  }
+  const lines = body.split("\n");
+  const m = MASKED_LINE_RE.exec(lines[0].trim());
+  if (!m || m[3] === undefined) return null;
+  let thumb = null;
+  let n = 1;
+  if (lines.length > 1 && ATTACH_LINE_RE.test(lines[1].trim())) {
+    const toks = parseAttachTokens(lines[1].trim());
+    if (toks.length !== 1 || !toks[0].card || toks[0].spoiler) return null;
+    thumb = toks[0];
+    n = 2;
+  }
+  const after = lines.slice(n).join("\n");
+  if (!after.trim()) return null;
+  return cardOf(m, thumb, prefix + after, lines.slice(0, n).join("\n"), true);
+}
+
+// cardOf: the card a masked line (MASKED_LINE_RE's match) and its picture
+// make, or null when the line may not be a card's face.
+function cardOf(m, thumb, rest, block, above) {
   const url = m[2];
   if (!hostOf(url)) return null;
   const domain = linkDomain(url);
@@ -149,8 +194,6 @@ export function parseCard(content) {
   // that name another site are not allowed to be a link's face. Checked on
   // what will be printed and on what was sent, both folded (foldForCheck).
   if (deceptiveText(raw, url) || deceptiveText(title, url) || sameAsURL(title, url)) return null;
-  lines.pop();
-  const rest = lines.join("\n").replace(/\s+$/, "");
   const video = cardVideo(url);
   let site = "";
   let duration = "";
@@ -179,6 +222,8 @@ export function parseCard(content) {
     thumb,
     video,
     rest,
+    block,
+    above,
     linkOnly: !rest.replace(STAMPS_RE, "").trim(),
   };
 }
@@ -241,17 +286,58 @@ export function wantsThumb(body) {
 // link again shortly after gets it.
 export const CARD_WAIT_MS = 2000;
 
-// withCard(body, url, block): the body that goes out. A message that was only
-// the link becomes only the card (the raw URL is what the card replaces); a
-// link inside a sentence keeps the sentence and the card goes under it.
-export function withCard(body, url, block) {
+// withCard(body, url, block, above): the body that goes out. A message that
+// was only the link becomes only the card (the raw URL is what the card
+// replaces); a link inside a sentence keeps the sentence and the card goes
+// under it, or over it when the sender chose `above`.
+//
+// The placement is the order of the lines and nothing else: no new field (the
+// signature covers Content, and a field older peers do not sign would break
+// it), the same for every reader, and a reader that predates the choice draws
+// its titled link and picture first and the words after, which is the order
+// the sender chose.
+export function withCard(body, url, block, above = false) {
   if (!block) return body;
   const prefix = (STAMPS_RE.exec(body) || [""])[0];
   const words = body.slice(prefix.length);
   // On a line of its own even after the stamps: the card is recognised by its
-  // last lines alone, and "[eph](…)[title](url)" is not a card's line.
+  // own lines alone, and "[eph](…)[title](url)" is not a card's line.
   if (words.trim() === url) return prefix ? `${prefix}\n${block}` : block;
+  if (above) return `${prefix ? `${prefix}\n` : ""}${block}\n${words.replace(/^\s+|\s+$/g, "")}`;
   return `${body.replace(/\s+$/, "")}\n${block}`;
+}
+
+// placeLinkFirst(body, url): a video link with no card, placed above the
+// words: the link alone on the first line (after the stamps), which the feed
+// draws as the player (leadEmbed). A reader that predates the choice shows the
+// link, then the words, then its player under them.
+export function placeLinkFirst(body, url) {
+  const prefix = (STAMPS_RE.exec(body) || [""])[0];
+  const words = body.slice(prefix.length);
+  const at = url ? words.indexOf(url) : -1;
+  if (at < 0 || words.trim() === url) return body;
+  const rest = (words.slice(0, at) + words.slice(at + url.length)).replace(/[ \t]{2,}/g, " ").replace(/^\s+|\s+$/g, "");
+  if (!rest) return body;
+  return `${prefix ? `${prefix}\n` : ""}${url}\n${rest}`;
+}
+
+// leadEmbed(content): { url, rest } when a message opens with a video link
+// alone on its line and has words after it (placeLinkFirst's shape), else
+// null. rest is the message without that line.
+export function leadEmbed(content) {
+  const text = String(content || "").replace(/\s+$/, "");
+  const prefix = (STAMPS_RE.exec(text) || [""])[0];
+  let body = text.slice(prefix.length);
+  if (prefix) {
+    if (!body.startsWith("\n")) return null;
+    body = body.slice(1);
+  }
+  const nl = body.indexOf("\n");
+  if (nl < 0) return null;
+  const first = body.slice(0, nl).trim();
+  const after = body.slice(nl + 1);
+  if (!/^https?:\/\/\S+$/.test(first) || cardVideo(first).kind !== "yt" || !after.trim()) return null;
+  return { url: first, rest: prefix + after };
 }
 
 // ---- editing ----
@@ -264,12 +350,9 @@ export function withCard(body, url, block) {
 export function cardEditSeed(content) {
   const c = stripLinkEmbed(String(content || ""));
   const card = parseCard(c);
-  if (!card) return { text: c, url: "", block: "" };
-  const lines = c.replace(/\s+$/, "").split("\n");
-  const blockLines = card.thumb ? 2 : 1;
-  const block = lines.slice(lines.length - blockLines).join("\n");
+  if (!card) return { text: c, url: "", block: "", above: false };
   const text = card.linkOnly ? card.rest + card.url : card.rest;
-  return { text, url: card.url, block };
+  return { text, url: card.url, block: card.block, above: card.above };
 }
 
 // cardEditSave(edited, seed): the content an edit stores. The card goes back
@@ -278,7 +361,7 @@ export function cardEditSeed(content) {
 // fetches nothing).
 export function cardEditSave(edited, seed) {
   if (!seed?.block || cardLink(edited) !== seed.url) return edited;
-  return withCard(edited, seed.url, seed.block);
+  return withCard(edited, seed.url, seed.block, seed.above);
 }
 
 // ---- reading ----

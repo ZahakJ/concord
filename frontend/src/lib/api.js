@@ -28,6 +28,12 @@ export const clientID =
     ? crypto.randomUUID()
     : `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 
+// actionId is a fresh id for one user action on a message (see editMessage).
+export const actionId = () =>
+  typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+
 // configureTransport points the HTTP/SSE transport at the mobile core's
 // loopback server. Must be called before the first api.* call.
 export function configureTransport({ baseURL, authToken }) {
@@ -498,14 +504,19 @@ export const api = {
   deleteMessage: (channelID, messageID) => call("DeleteMessage", channelID, messageID),
   // `dir` is what the edit says about the TARGET's base direction: "rtl",
   // "ltr", "auto" to go back to per-line, or "" to leave it alone.
-  editMessage: (channelID, messageID, content, dir = "") =>
-    call("EditMessage", channelID, messageID, content, dir),
+  // Each user action (an edit, a reaction, a pin) carries an id of its own,
+  // the same on any retry of that one action, so the core sends and applies
+  // it once: a reaction or a pin applied twice would undo itself.
+  editMessage: (channelID, messageID, content, dir = "", sendId = actionId()) =>
+    call("EditMessage", channelID, messageID, content, dir, sendId),
   expireMessage: (channelID, messageID) => call("ExpireMessage", channelID, messageID),
   guildInsights: (guildID) => call("GuildInsights", guildID),
   guildStats: (guildID) => call("GuildStats", guildID),
   propsTally: (guildID) => call("PropsTally", guildID),
   networkStats: () => call("NetworkStats"),
   linkedDevices: () => call("LinkedDevices"),
+  // A contact's devices for their details (never a notice): { count, added }.
+  contactDevices: (fingerprint) => call("ContactDevices", fingerprint),
   unlinkDevice: (deviceKey) => call("UnlinkDevice", deviceKey),
   signalCall: (channelID, action, target = "", dest = "") =>
     call("SignalCall", channelID, action, target, dest),
@@ -537,8 +548,8 @@ export const api = {
   // internal/bridge/wipe.go for why one call would have been wrong.
   beginWipe: () => call("BeginWipe"),
   confirmWipe: (ticket, typed) => call("ConfirmWipe", ticket, typed),
-  toggleReaction: (channelID, messageID, emoji) =>
-    call("ToggleReaction", channelID, messageID, emoji),
+  toggleReaction: (channelID, messageID, emoji, sendId = actionId()) =>
+    call("ToggleReaction", channelID, messageID, emoji, sendId),
   inviteCode: (guildID) => call("InviteCode", guildID),
   joinViaInvite: (code) => call("JoinViaInvite", code),
   messages: (channelID) => call("Messages", channelID),
@@ -759,7 +770,7 @@ export const api = {
   markStorySeen: (storyID) => call("MarkStorySeen", storyID),
   deleteStory: (storyID) => call("DeleteStory", storyID),
   verifyFingerprint: (fingerprint) => call("VerifyFingerprint", fingerprint),
-  pinMessage: (channelID, messageID) => call("PinMessage", channelID, messageID),
+  pinMessage: (channelID, messageID, sendId = actionId()) => call("PinMessage", channelID, messageID, sendId),
   searchMessages: (query, from = "", inChannel = "") =>
     call("SearchMessages", query, from, inChannel),
   // The archive is a separate store and a separate pass — see SearchChronicle.

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -9,13 +10,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ZahakJ/concord/internal/crypto/mls"
 	"github.com/ZahakJ/concord/internal/domain"
 )
 
-// TestContactDeviceLinkRaisesNotice is the acceptance test for the missing half
-// of safety numbers: a contact links a second device, our shared DM says so,
-// and their verification is left alone (nothing about their identity changed).
-func TestContactDeviceLinkRaisesNotice(t *testing.T) {
+// TestContactDeviceLinkIsSilentAndChained: a contact links a second device
+// through their account (the account key signs it, after their own device
+// approved it). Our client checks that chain and stays quiet: nothing in the
+// DM, their verification kept, and the device in their details. The scan is
+// the same one the heal loop runs.
+func TestContactDeviceLinkIsSilentAndChained(t *testing.T) {
 	if testing.Short() {
 		t.Skip("network integration test")
 	}
@@ -26,7 +30,6 @@ func TestContactDeviceLinkRaisesNotice(t *testing.T) {
 	friend := startServiceInDir(t, ctx, friendDir)
 	me := startService(t, ctx)
 
-	// A shared guild connects them; a DM is where the notice belongs.
 	g, err := friend.CreateGuild("shared")
 	if err != nil {
 		t.Fatalf("CreateGuild: %v", err)
@@ -39,22 +42,14 @@ func TestContactDeviceLinkRaisesNotice(t *testing.T) {
 	if err := me.VerifyFingerprint(friend.Fingerprint()); err != nil {
 		t.Fatalf("VerifyFingerprint: %v", err)
 	}
-
 	dm, err := friend.StartDM(me.Fingerprint())
 	if err != nil {
 		t.Fatalf("StartDM: %v", err)
 	}
 	waitMemberCount(t, 20*time.Second, dm.ID, 2, friend, me)
 	dmChannel := dm.Channels[0].ID
+	me.noteDeviceLeaves() // seeds: their first device is not news
 
-	// Seed: their existing device is not news.
-	me.noteDeviceLeaves()
-	if n := countKind(t, me, dmChannel, "device"); n != 0 {
-		t.Fatalf("first sight of a contact raised %d device notices, want 0", n)
-	}
-
-	// The friend links a phone, which joins every group they're in — including
-	// our DM, which is exactly why it is worth telling us about.
 	linkCode, err := friend.LinkOffer()
 	if err != nil {
 		t.Fatalf("LinkOffer: %v", err)
@@ -66,39 +61,111 @@ func TestContactDeviceLinkRaisesNotice(t *testing.T) {
 	}
 	phone := startServiceInDir(t, ctx, phoneDir)
 	for _, ic := range res.GuildInvites {
-		_, _ = phone.JoinViaInvite(ic) // guild + DM; a failure shows up as no notice
+		_, _ = phone.JoinViaInvite(ic)
 	}
 
-	// The notice is raised on the same scan the heal loop runs.
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		me.noteDeviceLeaves()
-		if countKind(t, me, dmChannel, "device") > 0 {
+		if n, _ := me.ContactDevices(friend.Fingerprint()); n >= 2 {
 			break
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	if n := countKind(t, me, dmChannel, "device"); n != 1 {
-		t.Fatalf("a linked device raised %d notices in the DM, want exactly 1", n)
+	n, added := me.ContactDevices(friend.Fingerprint())
+	if n != 2 || len(added) != 1 {
+		t.Fatalf("their details hold %d devices, %d added; want 2 and 1", n, len(added))
 	}
-
-	// Idempotent: a device already reported is not reported again every tick.
-	me.noteDeviceLeaves()
-	me.noteDeviceLeaves()
-	if n := countKind(t, me, dmChannel, "device"); n != 1 {
-		t.Fatalf("repeat scans raised the notice %d times, want 1", n)
+	if added[0].Key != hex.EncodeToString(phone.id.DevicePublicKey()) {
+		t.Fatalf("the added device is %s, want the phone's key", added[0].Key)
 	}
-
-	// Their safety number did not change — the account key signed the new
-	// device — so the checkmark must survive. Un-verifying here would be a lie
-	// and would train people to click through the alert that matters.
+	me.noteDeviceLeaves()
+	for _, kind := range []string{"device", "keychange", "system"} {
+		if c := countKind(t, me, dmChannel, kind); c != 0 {
+			t.Fatalf("a linked device wrote %d %q rows into the DM, want none", c, kind)
+		}
+	}
 	if !me.VerifiedFingerprints()[friend.Fingerprint()] {
 		t.Fatal("a linked device dropped the contact's verification")
 	}
+}
 
-	// The notice is ours: it must not travel back to them through sync.
-	if n := countKind(t, friend, dmChannel, "device"); n != 0 {
-		t.Fatalf("our local device notice reached the other side (%d rows)", n)
+// strangerEngine is the MLS engine with one more member in one group: a key
+// a test puts in a 1:1 that neither of its people's accounts signed.
+type strangerEngine struct {
+	mls.Engine
+	group []byte
+	extra [][]byte
+}
+
+func (e strangerEngine) Members(ctx context.Context, gid mls.GroupID) ([][]byte, error) {
+	m, err := e.Engine.Members(ctx, gid)
+	if err == nil && bytes.Equal(gid, e.group) {
+		m = append(append([][]byte(nil), m...), e.extra...)
+	}
+	return m, err
+}
+
+// TestAKeyOffTheChainInADMIsSaidOnce: a member in a 1:1 whose credential does
+// not chain to the contact's account is the change that matters, and the DM
+// says it, once per key. Two strangers: a bare key, and a certificate that
+// names the contact's account but was signed by some other key, which must
+// not pass for theirs.
+func TestAKeyOffTheChainInADMIsSaidOnce(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	friend := startService(t, ctx)
+	me := startService(t, ctx)
+	g, err := friend.CreateGuild("shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, _ := friend.InviteCode(g.ID)
+	if _, err := me.JoinViaInvite(code); err != nil {
+		t.Fatal(err)
+	}
+	waitMembers(t, 20*time.Second, 2, friend, me)
+	dm, err := friend.StartDM(me.Fingerprint())
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitMemberCount(t, 20*time.Second, dm.ID, 2, friend, me)
+	deadline := time.Now().Add(20 * time.Second)
+	for me.findPeerDM(friend.Fingerprint()) == nil && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	held := me.findPeerDM(friend.Fingerprint())
+	if held == nil {
+		t.Fatal("no DM with the friend on my side")
+	}
+	me.noteDeviceLeaves()
+	if c := countKind(t, me, held.Channels[0].ID, "keychange"); c != 0 {
+		t.Fatalf("an ordinary DM raised %d notices", c)
+	}
+
+	stranger, _ := identity.Generate()
+	forger, _ := identity.Generate()
+	forged := forger.IssueDeviceCertFor(stranger.PublicKey(), "Pixel", time.Now().Unix())
+	forged.AccountPub = append([]byte(nil), friend.PublicKey()...) // claims the friend; signed by the forger
+	me.mls = strangerEngine{Engine: me.mls, group: held.GroupID, extra: [][]byte{append([]byte(nil), stranger.PublicKey()...), forged.Marshal()}}
+
+	me.noteDeviceLeaves()
+	me.noteDeviceLeaves()
+	ch := held.Channels[0].ID
+	if c := countKind(t, me, ch, "keychange"); c != 2 {
+		t.Fatalf("two keys off the chain raised %d notices, want 2 (one each)", c)
+	}
+	msgs, _ := me.Messages(ch, 0)
+	for _, m := range msgs {
+		if m.Kind == "keychange" && !strings.Contains(m.Content, "isn't linked to") {
+			t.Fatalf("notice reads %q", m.Content)
+		}
+	}
+	if n, _ := me.ContactDevices(friend.Fingerprint()); n != 1 {
+		t.Fatalf("a forged certificate counted as the friend's device (%d devices)", n)
 	}
 }
 
@@ -195,33 +262,42 @@ func feedSync(t *testing.T, s *Service, guildID, channelID string, m domain.Mess
 	s.applySyncPayload(guildID, g.GroupID, ct, s.Fingerprint())
 }
 
-func TestDeviceNoticeText(t *testing.T) {
-	issued := time.Date(2026, 11, 14, 12, 0, 0, 0, time.Local).Unix()
-	cases := []struct {
-		who, dev string
-		at       int64
-		want     string
-	}{
-		{"Ann", "iPhone", issued, "Ann added a new device (iPhone, 11-14). If this wasn't Ann, verify."},
-		{"Ann", "", issued, "Ann added a new device (11-14). If this wasn't Ann, verify."},
-		{"Ann", "iPhone", 0, "Ann added a new device (iPhone). If this wasn't Ann, verify."},
-		{"Ann", "", 0, "Ann added a new device. If this wasn't Ann, verify."},
-		{"", "Pixel 7", issued, "They added a new device (Pixel 7, 11-14). If this wasn't them, verify."},
-		{"Ann", "Phone\n\x00 two", 0, "Ann added a new device (Phone two). If this wasn't Ann, verify."},
-	}
-	for _, c := range cases {
-		if got := deviceNoticeText(c.who, c.dev, c.at); got != c.want {
-			t.Errorf("deviceNoticeText(%q,%q,%d) = %q, want %q", c.who, c.dev, c.at, got, c.want)
-		}
-	}
-	long := strings.Repeat("x", 100)
-	if got := cleanDeviceLabel(long); len(got) != 32 {
+func TestDeviceLabelIsCleanedAndCapped(t *testing.T) {
+	if got := cleanDeviceLabel(strings.Repeat("x", 100)); len(got) != 32 {
 		t.Errorf("label length %d, want 32", len(got))
 	}
-	for _, banned := range []string{"linked another", "now sign in"} {
-		if strings.Contains(deviceNoticeText("Ann", "x", 1), banned) {
-			t.Errorf("notice still carries old jargon %q", banned)
+	if got := cleanDeviceLabel("Phone\n\x00 two"); got != "Phone two" {
+		t.Errorf("label %q", got)
+	}
+}
+
+// Old "added a new device" lines go at start, and only they do.
+func TestOldNewDeviceLinesAreRemovedAtStart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	s := startServiceInDir(t, ctx, dir)
+	notes, err := s.NotesDM()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := notes.Channels[0].ID
+	for _, kind := range []string{"device", ""} {
+		m, _ := domain.NewMessage(ch, s.PublicKey(), "row of kind "+kind)
+		m.Kind = kind
+		if _, err := s.store.SaveMessage(m); err != nil {
+			t.Fatal(err)
 		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again := startServiceInDir(t, ctx, dir)
+	if c := countKind(t, again, ch, "device"); c != 0 {
+		t.Fatalf("%d old device lines survived a start", c)
+	}
+	if c := countKind(t, again, ch, ""); c == 0 {
+		t.Fatal("an ordinary message went with them")
 	}
 }
 

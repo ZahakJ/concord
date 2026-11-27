@@ -1191,21 +1191,24 @@ func (b *Bridge) SetChatArchived(chatID string, archived bool) error {
 }
 
 // ToggleReaction adds/removes an emoji reaction on a message.
-func (b *Bridge) ToggleReaction(channelID, messageID, emoji string) error {
+//
+// sendID is the client's id for this one action ("" for none): a retry under
+// it is the same action, never a second toggle (app.ToggleReaction).
+func (b *Bridge) ToggleReaction(channelID, messageID, emoji string, sendID ...string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.ToggleReaction(channelID, messageID, emoji)
+	return svc.ToggleReaction(channelID, messageID, emoji, sendID...)
 }
 
 // EditMessage edits one of this peer's own messages.
-func (b *Bridge) EditMessage(channelID, messageID, newContent, dir string) error {
+func (b *Bridge) EditMessage(channelID, messageID, newContent, dir string, sendID ...string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.EditMessage(channelID, messageID, newContent, dir)
+	return svc.EditMessage(channelID, messageID, newContent, dir, sendID...)
 }
 
 // DeleteMessage deletes one of this peer's own messages.
@@ -1314,6 +1317,26 @@ func (b *Bridge) NetworkStats() (appsvc.NetworkStatsView, error) {
 // LinkedDevices lists the devices signed in to THIS account (see
 // app.LinkedDeviceView). Separate from NetworkStats' peer list on purpose: your
 // own phone is not one of the strangers your rendezvous introduced you to.
+// ContactDevicesView is a contact's devices for their details: how many are
+// on their account in the groups shared now, and the ones this device saw
+// added. Every one is chained to their account; this is never a notice.
+type ContactDevicesView struct {
+	Count int                    `json:"count"`
+	Added []appsvc.ContactDevice `json:"added"`
+}
+
+func (b *Bridge) ContactDevices(fingerprint string) (ContactDevicesView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return ContactDevicesView{}, err
+	}
+	n, added := svc.ContactDevices(fingerprint)
+	if added == nil {
+		added = []appsvc.ContactDevice{}
+	}
+	return ContactDevicesView{Count: n, Added: added}, nil
+}
+
 func (b *Bridge) LinkedDevices() ([]appsvc.LinkedDeviceView, error) {
 	svc, err := b.service()
 	if err != nil {
@@ -1923,12 +1946,12 @@ func (b *Bridge) VerifyFingerprint(fingerprint string) error {
 }
 
 // PinMessage toggles a message's pinned state for everyone.
-func (b *Bridge) PinMessage(channelID, messageID string) error {
+func (b *Bridge) PinMessage(channelID, messageID string, sendID ...string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.PinMessage(channelID, messageID)
+	return svc.PinMessage(channelID, messageID, sendID...)
 }
 
 // SearchMessages searches this peer's full local history. `from` and `in` are
@@ -4631,7 +4654,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "VerifyFingerprint":
 		return nil, b.VerifyFingerprint(argStr(args, 0))
 	case "PinMessage":
-		return nil, b.PinMessage(argStr(args, 0), argStr(args, 1))
+		return nil, b.PinMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "BookmarkMessage":
 		return nil, b.BookmarkMessage(argStr(args, 0), argStr(args, 1))
 	case "UnbookmarkMessage":
@@ -4784,12 +4807,14 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.NetworkStats()
 	case "LinkedDevices":
 		return b.LinkedDevices()
+	case "ContactDevices":
+		return b.ContactDevices(argStr(args, 0))
 	case "UnlinkDevice":
 		return b.UnlinkDevice(argStr(args, 0))
 	case "EditMessage":
-		return nil, b.EditMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+		return nil, b.EditMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4))
 	case "ToggleReaction":
-		return nil, b.ToggleReaction(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+		return nil, b.ToggleReaction(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	default:
 		return nil, fmt.Errorf("unknown method %q", method)
 	}

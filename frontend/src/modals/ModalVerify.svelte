@@ -8,6 +8,7 @@
   import { api } from "../lib/api.js";
   import { S, flash, memberByFpr, refreshRightPanel } from "../lib/state.svelte.js";
   import { encodeSafetyCode, checkSafetyCode } from "../lib/safetycode.js";
+  import { deviceLine } from "../lib/contactdevices.js";
 
   let { fingerprint, name = "", onClose } = $props();
 
@@ -21,6 +22,18 @@
   let qr = $state("");
   let scanning = $state(false);
   let result = $state(""); // "" | "mismatch" | "invalid" | "failed"
+
+  // Their devices, as a quiet line: each is chained to their account, which
+  // verifying checks, so it is information here, not a warning anywhere.
+  let devices = $state("");
+  $effect(() => {
+    let live = true;
+    api
+      .contactDevices(fingerprint)
+      .then((v) => live && (devices = deviceLine(v)))
+      .catch(() => {});
+    return () => (live = false);
+  });
 
   const canScan = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
 
@@ -89,10 +102,15 @@
     <p class="hint">This device has no camera to scan with. Compare the number below instead.</p>
   {/if}
 
+  {#if devices}
+    <p class="devs">{devices}, each signed by {who}'s account.</p>
+  {/if}
+
   <details class="alt">
     <summary>Compare the number out loud instead</summary>
     <p class="hint">Read this to {who} on a call. If it is the same on their screen, verify.</p>
     <code class="fpr">{readAloud}</code>
+
     {#if !verified}
       <button class="ghost" onclick={mark}>It matches, verify</button>
     {/if}
@@ -127,6 +145,9 @@
     cursor: pointer;
     font-size: var(--fs-compact);
     color: var(--text-muted);
+  }
+  .devs {
+    font-size: var(--fs-small);
   }
   .fpr {
     display: block;

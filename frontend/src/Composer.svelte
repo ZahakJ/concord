@@ -32,7 +32,9 @@
   import { scheduleMessage } from "./lib/scheduled.svelte.js";
   import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
   import { stampTimestamp } from "./lib/timestamp.js";
-  import { askAboutCards, cardLink, CARD_QUESTION, CARD_PREF, cardChoice } from "./lib/linkcard.js";
+  import { askAboutCards, cardLink, CARD_QUESTION, CARD_PREF, cardChoice, sendingCards, LINK_CARDS } from "./lib/linkcard.js";
+  import { youtubeID } from "./lib/embeds.js";
+  import { linkDomain } from "./lib/regdomain.js";
   import { playSend } from "./lib/sounds.js";
   import { resampleEnvelope, voiceFileName } from "./lib/voicemsg.js";
   import { encodeFx, FX_EFFECTS } from "./lib/fxtoken.js";
@@ -64,6 +66,23 @@
   import { isPttKey } from "./lib/shortcuts.js";
 
   let draft = $state("");
+  // Where the link's card (or a video's player) goes in the message being
+  // written: under the words (the default) or over them. Chosen on the link
+  // chip; it lasts for this draft's link and is carried by the order of the
+  // message's lines (lib/linkcard.js withCard), so every reader draws the same.
+  let linkAbove = $state(false);
+  // The link the chip is about: one that will get a card, or a video that
+  // gets a player, in a draft that has words besides it (a link alone has
+  // nothing to sit above or below).
+  const draftLink = $derived.by(() => {
+    if (!LINK_CARDS) return "";
+    const url = cardLink(draft);
+    if (!url || draft.trim() === url) return "";
+    return sendingCards(cardChoice(S.prefs)) || youtubeID(url) ? url : "";
+  });
+  $effect(() => {
+    if (!draftLink) linkAbove = false;
+  });
   // Link cards are fetched when a message is SENT (lib/outbox.svelte.js), never
   // while it is typed: a fetch per pause in typing spent one-time links (a
   // magic sign-in link is used up by the GET) and told sites about URLs nobody
@@ -952,6 +971,7 @@
     const text = isBlankText(typed) ? "" : typed;
     const atts = pending;
     if ((!text && atts.length === 0) || !S.activeChannelId) return;
+    const above = linkAbove && !!draftLink;
     // The Send button has been disabled all along; Enter went straight past it
     // into a refusal the core then had to explain. Nothing is thrown away —
     // the draft is still in the box, because this returns before it is cleared.
@@ -970,6 +990,7 @@
     // The message itself ends the line on every receiver (lib/typing.js).
     lastTypingSent = 0;
     draft = "";
+    linkAbove = false;
     pending = [];
     saveDraft(chId, "");
     suggest = null;
@@ -1017,7 +1038,7 @@
     });
     if (text) {
       if (!atts.length) {
-        outSendText(chId, body, nextReply(), dirMode);
+        outSendText(chId, body, nextReply(), dirMode, above);
         if (askAboutCards(cardChoice(S.prefs)) && cardLink(body)) cardAsk = true;
       }
       if (chId === S.activeChannelId) armSlowMode();
@@ -2114,6 +2135,28 @@
       </div>
     {/if}
     <div class="input-shell" class:active={!!ch}>
+    {#if draftLink && !pending.length}
+      <!-- The link chip: which link the message will carry a preview of, and
+           where that preview sits. Two choices, so a segmented pair, each a
+           real toggle button; the order of the message's lines carries it. -->
+      <div class="link-chip" role="group" aria-label="Link preview placement">
+        <span class="lc-what">
+          <Icon name={youtubeID(draftLink) ? "play" : "link"} size={12} />
+          <span class="lc-dom" dir="ltr">{linkDomain(draftLink)}</span>
+          <span class="lc-sub">preview</span>
+        </span>
+        <span class="lc-seg">
+          <button type="button" class="lc-opt" aria-pressed={linkAbove} title="Preview above the text" onmousedown={(e) => e.preventDefault()} onclick={() => (linkAbove = true)}>
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="6" rx="1.5" /><path d="M3 11.5h10M3 14h6.5" /></svg>
+            <span>Above</span>
+          </button>
+          <button type="button" class="lc-opt" aria-pressed={!linkAbove} title="Preview below the text" onmousedown={(e) => e.preventDefault()} onclick={() => (linkAbove = false)}>
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 2.5h10M3 5h6.5" /><rect x="2.5" y="7.5" width="11" height="6" rx="1.5" /></svg>
+            <span>Below</span>
+          </button>
+        </span>
+      </div>
+    {/if}
     {#if S.replyingTo}
       <div class="reply-banner">
         <!-- The name alone cannot tell you WHICH message you picked, and in a
@@ -2814,6 +2857,91 @@
   }
   /* Inside the composer's own surface, above the text, with a hairline under
      it: the reply is part of what you are writing, not a banner over it. */
+  /* The link chip sits where the reply banner does, in the same hairline
+     strip, so the composer does not grow a second kind of bar. */
+  .link-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-2);
+    min-height: 34px;
+    padding: 0 6px 0 10px;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--hairline);
+    animation: rb-in 160ms var(--ease-out, ease-out);
+  }
+  .lc-what {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .lc-what :global(svg) {
+    flex: none;
+    color: var(--accent-hover);
+  }
+  .lc-dom {
+    color: var(--text);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .lc-seg {
+    display: inline-flex;
+    flex: none;
+    padding: 2px;
+    gap: 2px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text) 7%, transparent);
+  }
+  .lc-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 26px;
+    padding: 0 10px;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: var(--fs-small);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .lc-opt svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+  }
+  .lc-opt svg rect {
+    fill: currentColor;
+    fill-opacity: 0.18;
+  }
+  .lc-opt:hover {
+    color: var(--text);
+  }
+  .lc-opt[aria-pressed="true"] {
+    background: var(--bg-elevated, var(--bg));
+    color: var(--text);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
+  }
+  .lc-opt:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  :root[data-motion="reduced"] .link-chip {
+    animation: none;
+  }
+  @media (max-width: 380px) {
+    .lc-sub {
+      display: none;
+    }
+  }
   .reply-banner {
     position: relative; /* anchors the phone-wide cancel overlay */
     display: flex;
@@ -2886,8 +3014,16 @@
      starts typing. The phone value is the larger --fs-compact plus its padding. */
   /* A reserved strip between the feed and the composer: empty, it keeps its
      24px, so a typing notice never pushes the conversation or covers it. */
+  /* It rides over the feed's bottom edge, not in a band of its own: the feed
+     runs down to the composer and fades out under this line (app.css
+     .edge-fade), and keeps --typing-h of room beneath its last message so at
+     rest nothing is under it. */
   .typing-line {
-    height: 24px;
+    height: var(--typing-h, 24px);
+    margin-top: calc(-1 * var(--typing-h, 24px));
+    position: relative;
+    z-index: 1;
+    pointer-events: none;
     flex: none;
     display: flex;
     align-items: center;

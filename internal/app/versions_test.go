@@ -15,12 +15,12 @@ func TestForgedEditLeavesNoVersion(t *testing.T) {
 	if _, err := svc.store.SaveMessage(row); err != nil {
 		t.Fatalf("SaveMessage: %v", err)
 	}
-	svc.applyEdit(row.ID, "meet at midnight", mustID(t).PublicKey(), nil, "")
+	svc.applyEdit("act-versions_test.go-18", row.ID, "meet at midnight", mustID(t).PublicKey(), nil, "")
 	vs, err := svc.MessageVersions("ch1", row.ID)
 	if err != nil || len(vs) != 0 {
 		t.Fatalf("forged edit left versions: %v %v", vs, err)
 	}
-	svc.applyEdit(row.ID, "meet at nine", author.PublicKey(), nil, "")
+	svc.applyEdit("act-versions_test.go-23", row.ID, "meet at nine", author.PublicKey(), nil, "")
 	vs, _ = svc.MessageVersions("ch1", row.ID)
 	if len(vs) != 2 || vs[0].Content != "meet at eight" || vs[1].Content != "meet at nine" {
 		t.Fatalf("author edit versions wrong: %v", vs)

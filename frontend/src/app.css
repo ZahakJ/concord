@@ -2120,6 +2120,50 @@ textarea[aria-invalid="true"] {
   mask-image: linear-gradient(to top, transparent 0, black 24px);
 }
 
+/* Soft edges on the feed (lib/edgefade.js). Where messages pass under the
+   header or the composer they fade out instead of being cut by a hard line,
+   and the fade shows whatever is behind the feed (theme, pack, wallpaper)
+   instead of painting a band that has to match it. An edge fades only while
+   there is content beyond it, so at rest at the newest message nothing is
+   faded. The bottom fade is deeper and starts clear: the typing line sits on
+   it (Composer .typing-line). Composited, so it costs nothing per scroll. */
+.edge-fade {
+  --fade-t: 0px;
+  --fade-b: 0px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-t),
+    #000 calc(100% - var(--fade-b)),
+    transparent calc(100% - min(var(--fade-b), 10px)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-t),
+    #000 calc(100% - var(--fade-b)),
+    transparent calc(100% - min(var(--fade-b), 10px)),
+    transparent 100%
+  );
+}
+.edge-fade[data-fade="top"],
+.edge-fade[data-fade="both"] {
+  --fade-t: 20px;
+}
+.edge-fade[data-fade="bottom"],
+.edge-fade[data-fade="both"] {
+  --fade-b: 44px;
+}
+/* A mask paints over every descendant, a fixed one too: while the feed holds
+   a layer of its own (the edit row's emoji picker, which is a full-screen
+   sheet on a phone, or the drop target) the edges stay hard rather than cut
+   the layer. */
+.edge-fade:has(.picker, .drop-overlay) {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
 /* Slim, quiet scrollbars: a rounded thumb floating on a transparent track
    (the 2px transparent border + padding-box clip gives it breathing room).
    Mouse-only on purpose. In Chromium — which IS Android's WebView — the moment

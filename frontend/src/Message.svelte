@@ -69,7 +69,7 @@
   import { knownRecipe } from "./lib/memerecipe.js";
   import { extractLinks, youtubeID } from "./lib/embeds.js";
   import { stripLinkEmbed } from "./lib/linkembed.js";
-  import { cardFor, restForDisplay, cardEditSeed, cardEditSave } from "./lib/linkcard.js";
+  import { cardFor, restForDisplay, cardEditSeed, cardEditSave, leadEmbed } from "./lib/linkcard.js";
   import { linkDomain } from "./lib/regdomain.js";
   import {
     S,
@@ -377,7 +377,10 @@
   // the card's face, not a line of text. A message that was only the link is
   // only the card.
   const card = $derived(cardFor(m));
-  const content = $derived(card ? card.rest : m.content);
+  // A video link the sender put above the words without a card: its line is
+  // the player's, drawn over the words (lib/linkcard.js placeLinkFirst).
+  const lead = $derived(card || m.deleted || (m.kind || "") !== "" ? null : leadEmbed(m.content));
+  const content = $derived(card ? card.rest : lead ? lead.rest : m.content);
   const atts = $derived(m.deleted ? [] : parseAttachTokens(content));
   const files = $derived(m.deleted ? [] : parseFileTokens(content));
   // A doodle: strokes, not an image (lib/doodle.js). null means either "there
@@ -621,6 +624,7 @@
   // contacts Google only if you click it.
   const embed = $derived.by(() => {
     if (m.deleted || m.kind !== "" || card) return null;
+    if (lead) return { kind: "yt", id: youtubeID(lead.url), url: lead.url, above: true };
     for (const url of extractLinks(m.content)) {
       const yt = youtubeID(url);
       if (yt) return { kind: "yt", id: yt, url };
@@ -1587,6 +1591,13 @@
     {:else if poll}
       <PollView {m} {poll} />
     {:else}
+      {#if card?.above}
+        <!-- Above the words: the sender's choice, carried by the order of the
+             message's lines. -->
+        <LinkPreview {card} channelId={m.channelId} />
+      {:else if embed?.above}
+        <YouTubeEmbed videoId={embed.id} url={embed.url} autoload={false} />
+      {/if}
       {#if bodyText}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <!-- dir comes from the AUTHOR when they overrode the per-line rule
@@ -1701,10 +1712,10 @@
       {#if richEmbed}
         <EmbedView embed={richEmbed} {mentionNames} customEmoji={cemoji} {refs} />
       {/if}
-      {#if card}
+      {#if card && !card.above}
         <LinkPreview {card} channelId={m.channelId} />
         {#if m.edited && !shownText.trim()}<EditHistory channelId={m.channelId} messageId={m.id} plain={S.isMobile} bind:open={historyOpen} />{/if}
-      {:else if embed?.kind === "yt"}
+      {:else if embed?.kind === "yt" && !embed.above}
         <YouTubeEmbed videoId={embed.id} url={embed.url} autoload={false} />
       {/if}
       {#if ephExp}

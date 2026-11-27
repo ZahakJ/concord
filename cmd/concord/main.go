@@ -32,8 +32,16 @@ import (
 )
 
 const usage = `Usage: concord [--status | --serve | --bot | --version | --help]
+       concord <command> [options] [arguments]
 
-Runs Concord without a window: for servers, scripts and bots.
+Runs Concord without a window: for your terminal, servers, scripts and bots.
+
+Commands (concord <command> --help for more):
+  chats      your conversations, unread first, with counts
+  read       the latest messages in a chat
+  send       send a message          reply   reply to a message
+  react      react to a message      edit    change one of your messages
+  search     search every chat       watch   follow new messages live
 
 Flags:
   --status   unlock (or create) the identity, print its fingerprint and exit;
@@ -55,6 +63,9 @@ Environment:
 `
 
 func main() {
+	if len(os.Args) > 1 && chatCommands[os.Args[1]] {
+		os.Exit(runChatCommand(os.Args[1], os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
 	fs := flag.NewFlagSet("concord", flag.ContinueOnError)
 	serve := fs.Bool("serve", false, "boot identity + networking and run until interrupted (headless)")
 	botMode := fs.Bool("bot", false, "boot identity + networking and speak newline-delimited JSON on stdin/stdout (see docs/BOTS.md)")

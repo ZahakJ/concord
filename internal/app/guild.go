@@ -1683,6 +1683,15 @@ func (s *Service) sendOnceAs(channelID, sendID string, send func(msgID string) (
 		// Not knowing whether it went out is no reason to send it again.
 		return domain.Message{}, err
 	}
+	if !ok {
+		// An action is no row: one this id stands for that is applied here
+		// went out.
+		if done, err := s.store.ActionApplied(id); err != nil {
+			return domain.Message{}, err
+		} else if done {
+			return domain.Message{ID: id, ChannelID: channelID}, nil
+		}
+	}
 	if ok {
 		if bytes.Equal(held.Sender, s.PublicKey()) && held.ChannelID == channelID {
 			return held, nil
@@ -2004,18 +2013,12 @@ func (s *Service) sendCore(channelID, content, kind, replyTo, guestName, dir str
 	if msg.Kind == "" {
 		s.noteSlowSend(channelID, s.id.Fingerprint(), msg.Sent)
 	}
-	switch msg.Kind {
-	case "delete":
-		s.applyDelete(msg.ReplyTo, msg.Sender, channelID, true)
-		return msg, nil
-	case "reaction":
-		s.applyReaction(msg.ReplyTo, msg.Content, msg.Sender)
-		return msg, nil
-	case "edit":
-		s.applyEdit(msg.ReplyTo, msg.Content, msg.Sender, msg.RowSig, msg.Dir)
-		return msg, nil
-	case "pin":
-		s.applyPin(msg.ReplyTo, msg.Sender, channelID)
+	// An action is out too, and what fails from here is only this device's
+	// copy of it: applied again in the background, once (actionsonce.go).
+	if isMessageAction(msg.Kind) {
+		if err := s.applyAction(msg); err != nil {
+			s.applyOwnLater(msg, err)
+		}
 		return msg, nil
 	}
 	// The message is out. Nothing that fails from here may say otherwise: a
@@ -2127,9 +2130,11 @@ func (s *Service) markReadThroughOwn(channelID string, msg domain.Message) {
 }
 
 // ToggleReaction adds/removes an emoji reaction on a message.
-func (s *Service) ToggleReaction(channelID, targetID, emoji string) error {
-	_, err := s.send(channelID, emoji, "reaction", targetID)
-	return err
+//
+// sendID, when given, is the client's id for this one tap: a retry of it is
+// the same action, never a second toggle that takes the reaction off again.
+func (s *Service) ToggleReaction(channelID, targetID, emoji string, sendID ...string) error {
+	return s.sendActionOnce(channelID, emoji, "reaction", targetID, "", oneID(sendID))
 }
 
 // isMessageAction reports whether a message kind acts on another message (the
@@ -2155,17 +2160,22 @@ func (s *Service) targetInChannel(targetID, channelID string) bool {
 
 // applyReaction toggles a reaction in the store and re-emits the target message
 // (now carrying the updated reactions) so the UI refreshes.
-func (s *Service) applyReaction(targetID, emoji string, bySender []byte) {
+//
+// actionID is the reaction action's own message id: a toggle applied twice is
+// undone, so it is applied once per id (store.ToggleReactionOnce).
+func (s *Service) applyReaction(actionID, targetID, emoji string, bySender []byte) error {
 	if targetID == "" || emoji == "" {
-		return
+		return nil
 	}
 	fpr := accountFingerprintOf(bySender)
-	if _, err := s.store.ToggleReaction(targetID, fpr, emoji); err != nil {
-		return
+	_, applied, err := s.store.ToggleReactionOnce(actionID, targetID, fpr, emoji)
+	if err != nil || !applied {
+		return err
 	}
 	if m, ok, err := s.store.MessageByID(targetID); err == nil && ok {
 		s.emitMessage(m)
 	}
+	return nil
 }
 
 // PropsTally is a guild's received-props ledger (see store.PropsTally), keyed
@@ -2180,9 +2190,10 @@ func (s *Service) PropsTally(guildID string) (map[string]int, error) {
 // dir is the direction the author is setting on the TARGET: "rtl", "ltr",
 // "auto" for back-to-per-line, or "" to leave it as it is. A direction set by a
 // mis-click used to be uncorrectable without deleting and reposting.
-func (s *Service) EditMessage(channelID, targetID, newContent, dir string) error {
-	_, err := s.sendAs(channelID, newContent, "edit", targetID, "", dir)
-	return err
+//
+// sendID, when given, makes a retried edit the same edit (ToggleReaction).
+func (s *Service) EditMessage(channelID, targetID, newContent, dir string, sendID ...string) error {
+	return s.sendActionOnce(channelID, newContent, "edit", targetID, dir, oneID(sendID))
 }
 
 // applyEdit updates a target message's content (if bySender authored it) and
@@ -2194,9 +2205,16 @@ func (s *Service) EditMessage(channelID, targetID, newContent, dir string) error
 // author signed this exact body against this exact message, and one that does
 // not is simply not stored — the edit still applies (it arrived authenticated),
 // the row just stops claiming a proof it does not have.
-func (s *Service) applyEdit(targetID, newContent string, bySender []byte, rowSig []byte, dirTok string) {
+//
+// actionID is the edit's own message id. Applying an edit twice changes no
+// text, but it would record the same version twice in the edit history, so an
+// edit is applied once per id too.
+func (s *Service) applyEdit(actionID, targetID, newContent string, bySender []byte, rowSig []byte, dirTok string) error {
 	if targetID == "" || newContent == "" {
-		return
+		return nil
+	}
+	if done, err := s.store.ActionApplied(actionID); err != nil || done {
+		return err
 	}
 	newDir, setDir := domain.EditDir(dirTok)
 	var keep []byte
@@ -2211,12 +2229,22 @@ func (s *Service) applyEdit(targetID, newContent string, bySender []byte, rowSig
 		}
 	}
 	ok, err := s.store.UpdateContent(targetID, bySender, newContent, keep, newDir, setDir)
-	if err != nil || !ok {
-		return
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	// After the change: an edit applied and not yet recorded is applied again
+	// on a retry, which changes nothing but the history, and that is the lesser
+	// fault than an edit recorded and never applied.
+	if _, err := s.store.NoteActionApplied(actionID); err != nil {
+		log.Printf("concord/app: edit %s applied but not recorded: %v", actionID, err)
 	}
 	if m, found, err := s.store.MessageByID(targetID); err == nil && found {
 		s.emitMessage(m)
 	}
+	return nil
 }
 
 // MessageVersion is one body a message has held and when it took effect.
@@ -2280,37 +2308,40 @@ func (s *Service) mayPin(guildID, fpr string) bool {
 }
 
 // PinMessage toggles a message's pinned state for everyone in the guild.
-func (s *Service) PinMessage(channelID, targetID string) error {
+//
+// sendID, when given, makes a retried pin the same pin, not an unpin.
+func (s *Service) PinMessage(channelID, targetID string, sendID ...string) error {
 	s.mu.RLock()
 	guildID := s.channelToGuild[channelID]
 	s.mu.RUnlock()
 	if !s.mayPin(guildID, s.id.Fingerprint()) {
 		return fmt.Errorf("app: you need the Manage messages permission to pin")
 	}
-	_, err := s.send(channelID, "pin", "pin", targetID)
-	return err
+	return s.sendActionOnce(channelID, "pin", "pin", targetID, "", oneID(sendID))
 }
 
 // applyPin toggles the pin locally and re-emits the message so UIs refresh.
 // The pin's author is the MLS-authenticated sender of the frame, so the
 // permission is re-checked HERE on every receiving device: a patched client
 // that skips its own check convinces nobody, the same way applyDelete works.
-func (s *Service) applyPin(targetID string, bySender []byte, channelID string) {
+func (s *Service) applyPin(actionID, targetID string, bySender []byte, channelID string) error {
 	if targetID == "" {
-		return
+		return nil
 	}
 	s.mu.RLock()
 	guildID := s.channelToGuild[channelID]
 	s.mu.RUnlock()
 	if !s.mayPin(guildID, accountFingerprintOf(bySender)) {
-		return
+		return nil
 	}
-	if _, err := s.store.TogglePinned(targetID); err != nil {
-		return
+	_, applied, err := s.store.TogglePinnedOnce(actionID, targetID)
+	if err != nil || !applied {
+		return err
 	}
 	if m, ok, err := s.store.MessageByID(targetID); err == nil && ok {
 		s.emitMessage(m)
 	}
+	return nil
 }
 
 // SearchMessages searches this peer's full local history (all guilds/channels).
@@ -4637,18 +4668,8 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 			return
 		}
 	}
-	switch m.Kind {
-	case "delete":
-		s.applyDelete(m.ReplyTo, m.Sender, m.ChannelID, len(m.Sig) > 0)
-		return
-	case "reaction":
-		s.applyReaction(m.ReplyTo, m.Content, m.Sender)
-		return
-	case "edit":
-		s.applyEdit(m.ReplyTo, m.Content, m.Sender, m.RowSig, m.Dir)
-		return
-	case "pin":
-		s.applyPin(m.ReplyTo, m.Sender, m.ChannelID)
+	if isMessageAction(m.Kind) {
+		_ = s.applyAction(m)
 		return
 	}
 	// Announcement channels enforce, rather than wearing a megaphone. The gate

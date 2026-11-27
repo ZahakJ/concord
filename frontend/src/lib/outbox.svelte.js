@@ -60,7 +60,8 @@ import {
   landedSince,
 } from "./outbox.js";
 import { makeCardGate } from "./cardgate.js";
-import { CARD_WAIT_MS, cardLink, wantsThumb, withCard, sendingCards, cardChoice } from "./linkcard.js";
+import { CARD_WAIT_MS, cardLink, wantsThumb, withCard, sendingCards, cardChoice, placeLinkFirst } from "./linkcard.js";
+import { youtubeID } from "./embeds.js";
 import { heldRow, fileSendOp } from "./mediastrip.js";
 
 let seq = 0;
@@ -234,11 +235,21 @@ function patch(id, fields) {
 // shortcodes, the ephemeral and seal stamps have all been applied by the
 // caller, because that is the string the core will store and therefore the
 // string the echo check has to compare against.
-export function sendText(channelId, body, replyTo, dir) {
+//
+// above puts the link's card, or a video's player when it gets no card, over
+// the words instead of under them (the composer's link chip). It is carried by
+// the order of the lines (lib/linkcard.js withCard, placeLinkFirst).
+export function sendText(channelId, body, replyTo, dir, above = false) {
   // Whatever waits for a card here goes first (also done by api.js for every
   // send; done here as well so the order does not hang on that hook).
   gate.release(channelId);
   const cardUrl = sendingCards(cardChoice(S.prefs)) ? cardLink(body) : "";
+  // No card coming: a video link is moved to the first line, where the feed
+  // draws its player. Done now, so every attempt sends the same words.
+  if (above && !cardUrl) {
+    const link = cardLink(body);
+    if (link && youtubeID(link)) body = placeLinkFirst(body, link);
+  }
   const entry = add({
     id: `o${++seq}`,
     kind: "text",
@@ -270,7 +281,9 @@ export function sendText(channelId, body, replyTo, dir) {
       channelId,
       () => api.linkCard(cardUrl, wantsThumb(body)).then((c) => c?.block || ""),
       (block) => {
-        const final = block ? withCard(body, cardUrl, block) : body;
+        let final = block ? withCard(body, cardUrl, block, above) : body;
+        // The card did not come: a video still goes above, as its player.
+        if (!block && above && youtubeID(cardUrl)) final = placeLinkFirst(body, cardUrl);
         // The words that come back from the core are these, so this is what
         // the echo check has to look for.
         patch(entry.id, {
