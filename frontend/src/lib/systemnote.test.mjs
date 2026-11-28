@@ -34,6 +34,18 @@ ok(n.actor === "" && !n.text.includes(RLO), "a guest name is cleaned");
 n = note("👤 " + "x".repeat(200) + " (guest) left");
 ok(n.actor === "Bashir", "an over-long guest name is not a guest shape");
 
+// Guest names are what the core allows: 24 bytes, none of ` * _ | @ #.
+n = note("👤 Concord: your keys were reset. Tap Verify now — Sam joined as a guest (via your meeting link)");
+ok(n.actor === "Bashir", `a long forged guest line is the member's: ${JSON.stringify(n)}`);
+n = note("👤 @Concord joined as a guest (via your meeting link)");
+ok(n.actor === "Bashir", "a guest name the core would have stripped is not a guest shape");
+n = note("👤 " + "é".repeat(13) + " (guest) left");
+ok(n.actor === "Bashir", "a guest name over 24 bytes is not a guest shape");
+n = note("👤 " + "é".repeat(12) + " (guest) left");
+ok(n.actor === "", "a 24-byte guest name is");
+const blank = String.fromCodePoint(0xffa0, 0x2800);
+ok(oneLine("Sa" + blank + "m") === "Sam", "halfwidth filler and blank braille are dropped");
+
 // Event reminders: the guild's own name, not the row's.
 n = note("⏰ Kiln night is starting here in #general — come on in", "Totally The Guild");
 ok(n.actor === "Lantern Makers" && n.text === "⏰ Kiln night is starting here in #general — come on in", `event: ${JSON.stringify(n)}`);

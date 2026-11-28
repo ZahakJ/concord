@@ -109,6 +109,13 @@ func (s *Service) ExportMarkdown(guildID, channelID string) (string, error) {
 				who = accountFingerprintOf(m.Sender)
 			}
 			if m.Kind == "system" {
+				// A system row's Name is its sender's claim and is never shown:
+				// the sender's learned name, else their fingerprint.
+				fpr := accountFingerprintOf(m.Sender)
+				who = s.ProfileName(fpr)
+				if who == "" {
+					who = fpr
+				}
 				fmt.Fprintf(&b, "> %s %s\n\n", who, m.Content)
 				continue
 			}

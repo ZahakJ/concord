@@ -140,7 +140,7 @@ func hostile(r rune) bool {
 		// soft hyphen, Mongolian vowel separator, word joiner and invisible
 		// operators, deprecated format characters
 		return true
-	case r == 0x115f, r == 0x1160, r == 0x3164: // Hangul fillers, which render blank
+	case r == 0x115f, r == 0x1160, r == 0x3164, r == 0xffa0, r == 0x2800: // Hangul fillers and blank braille, which render blank
 		return true
 	case r >= 0xe0000 && r <= 0xe007f: // tag characters, invisible text
 		return true

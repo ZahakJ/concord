@@ -1865,7 +1865,7 @@
             {:else if mine}
               You invited them to the {what} <strong>{note.guild}</strong>
             {:else}
-              <strong>{it.row.m.senderName || it.row.m.sender.slice(0, 9)}</strong>
+              <strong>{nameFor(it.row.m.sender)}</strong>
               invited you to the {what} <strong>{note.guild}</strong>
             {/if}
           </span>
@@ -1898,7 +1898,7 @@
               ? isDMView && (activeGuild()?.dmMembers ?? 2) <= 2
                 ? activeGuild()?.name
                 : ""
-              : it.row.m.senderName || nameFor(it.row.m.sender),
+              : nameFor(it.row.m.sender),
             nameOf: (f) => nameFor(f),
           })}
           <span class="call-time">{fmtCallTime(it.row.m.sent)}</span>

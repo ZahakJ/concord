@@ -25,7 +25,7 @@ func TestTheConsolePrintsPeerTextClean(t *testing.T) {
 // characters, the Mongolian vowel separator, Hangul fillers and tag
 // characters.
 func TestHostileCoversTheInvisibleFormatCharacters(t *testing.T) {
-	for _, r := range []rune{0xad, 0x2060, 0x2061, 0x2064, 0x206a, 0x206f, 0x180e, 0x115f, 0x1160, 0x3164, 0xe0000, 0xe0041, 0xe007f} {
+	for _, r := range []rune{0xad, 0x2060, 0x2061, 0x2064, 0x206a, 0x206f, 0x180e, 0x115f, 0x1160, 0x3164, 0xffa0, 0x2800, 0xe0000, 0xe0041, 0xe007f} {
 		if !hostile(r) {
 			t.Errorf("U+%04X is not removed", r)
 		}

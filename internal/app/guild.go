@@ -347,7 +347,7 @@ func (s *Service) Messages(channelID string, limit int) ([]domain.Message, error
 	msgs, err := s.store.Messages(channelID, limit)
 	if err == nil {
 		for _, m := range msgs {
-			if m.Name != "" {
+			if m.Kind == "" && m.Name != "" { // only a member's own words carry their name
 				s.learnNameHint(accountFingerprintOf(m.Sender), m.Name)
 			}
 		}
@@ -416,7 +416,7 @@ func (s *Service) MessagesBefore(channelID string, beforeNano int64, limit int) 
 	msgs, err := s.store.MessagesBefore(channelID, beforeNano, limit)
 	if err == nil {
 		for _, m := range msgs {
-			if m.Name != "" {
+			if m.Kind == "" && m.Name != "" { // only a member's own words carry their name
 				s.learnNameHint(accountFingerprintOf(m.Sender), m.Name)
 			}
 		}
@@ -4762,7 +4762,11 @@ func (s *Service) deliverMessage(carrierGuild string, m domain.Message, senderID
 	}
 	// Backfill a display name from the message if we don't know this member's
 	// name yet, so the roster and chat stay consistent.
-	s.learnNameHint(senderFpr, m.Name)
+	// Only from a plain message: a system row may carry the guild's name (an
+	// event reminder) and a guest row the guest's.
+	if m.Kind == "" {
+		s.learnNameHint(senderFpr, m.Name)
+	}
 	inserted, err := s.store.SaveMessage(m)
 	if err != nil {
 		return

@@ -119,7 +119,7 @@ func dispatch(svc *app.Service, line string) bool {
 			fmt.Println("error:", err)
 			break
 		}
-		fmt.Printf("joined guild %q (channel %s)\n", g.Name, g.Channels[0].ID)
+		fmt.Printf("joined guild %q (channel %s)\n", g.Name, safeID(g.Channels[0].ID))
 	case "send":
 		chID, text, ok := strings.Cut(rest, " ")
 		if !ok || strings.TrimSpace(text) == "" {
@@ -156,7 +156,7 @@ func listGuilds(svc *app.Service) {
 	}
 	for _, g := range guilds {
 		n, _ := svc.MemberCount(g.ID)
-		fmt.Printf("- %s  %q  (%d members)\n", g.ID, g.Name, n)
+		fmt.Printf("- %s  %q  (%d members)\n", safeID(g.ID), g.Name, n)
 		for _, c := range g.Channels {
 			fmt.Printf("    #%s  channelID=%s\n", cleanLine(c.Name), safeID(c.ID))
 		}

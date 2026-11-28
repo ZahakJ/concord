@@ -694,10 +694,10 @@ func (s *Service) announceEventStart(ev domain.Event) {
 		}
 	}
 	// Spoken by the guild, not by a member: the user-facing rule is "the GUILD
-	// reminds people". Name is the same self-asserted, decorative display field
-	// every message carries — this changes who the line READS as, not any
-	// authenticated fact (the signature is still this node's).
-	if _, err := s.sendAs(ev.LocationChannelID, content, "system", "", guildName, ""); err != nil {
+	// reminds people". Clients show the reminder under the guild's own name
+	// (frontend lib/systemnote.js); the row carries no name of its own, since
+	// a system row's Name is never shown and would only be learned as ours.
+	if _, err := s.sendAs(ev.LocationChannelID, content, "system", "", "", ""); err != nil {
 		return // transient send failure: leave unmarked so the next tick retries
 	}
 	_ = s.store.MarkEventAnnounced(ev.ID)

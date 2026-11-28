@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -342,5 +343,65 @@ func TestAnnouncementAndSlowModeHoldForEveryPostedKind(t *testing.T) {
 		if post(k, at.Add(time.Second)) {
 			t.Errorf("a %q row skipped slow mode", k)
 		}
+	}
+}
+
+// Only a member's own messages teach their name. A system row from an event
+// reminder carries the guild's name and a guest row the guest's, so a name
+// learned from either would then show as that member's own.
+func TestOnlyPlainMessagesTeachAName(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startService(t, ctx)
+	g, err := s.CreateGuild("hints")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := g.Channels[0].ID
+	who, _ := identity.Generate()
+	save := func(kind, name string) {
+		m := domain.Message{ID: domain.NewID(), ChannelID: ch, Sender: who.PublicKey(), Name: name, Kind: kind,
+			Content: "x", Sent: time.Now().UTC()}
+		if _, err := s.store.SaveMessage(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save("system", "Concord")
+	save("guest", "Sam")
+	if _, err := s.Messages(ch, 50); err != nil {
+		t.Fatal(err)
+	}
+	if n := s.ProfileName(who.Fingerprint()); n != "" {
+		t.Fatalf("a %q name was learned from a system or guest row", n)
+	}
+	save("", "Bashir")
+	_, _ = s.Messages(ch, 50)
+	if n := s.ProfileName(who.Fingerprint()); n != "Bashir" {
+		t.Fatalf("a plain message's name was not learned: %q", n)
+	}
+}
+
+// The Markdown export names a system row by who sent it, as the app does,
+// not by the name the row asserts.
+func TestExportNamesASystemRowBySender(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startService(t, ctx)
+	g, err := s.CreateGuild("export")
+	if err != nil {
+		t.Fatal(err)
+	}
+	who, _ := identity.Generate()
+	m := domain.Message{ID: domain.NewID(), ChannelID: g.Channels[0].ID, Sender: who.PublicKey(), Name: "Concord",
+		Kind: "system", Content: "Your keys changed", Sent: time.Now().UTC()}
+	if _, err := s.store.SaveMessage(m); err != nil {
+		t.Fatal(err)
+	}
+	md, err := s.ExportMarkdown(g.ID, g.Channels[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(md, "Concord Your keys changed") || !strings.Contains(md, who.Fingerprint()) {
+		t.Fatalf("the export trusted the row's own name:\n%s", md)
 	}
 }
